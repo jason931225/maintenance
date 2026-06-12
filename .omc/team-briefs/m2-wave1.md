@@ -18,3 +18,12 @@ Same Hard Rules as `m0-wave1.md`. Entry gate T1.10 SATISFIED (soak evidence ×2 
 - Web: consent management page (grant/withdraw/suspend per ADR-0014; admin: consent ledger view + CSV export); Android + iOS: consent capture at first login, ALWAYS-VISIBLE GPS off-switch (suspend = 비차단 즉시 — Art. 24), on-duty-only collection toggle honored by the ping sender.
 - Clients send pings ONLY when: consent granted AND not suspended AND on-duty. Withdrawal from ANY client triggers the T0.11 destruction path (HTTP route exists? CHECK contract — if consent REST routes are missing, this task ADDS them (the T1.3x pattern): grant/withdraw/suspend/resume/status + ping ingestion endpoint, migration not needed (T0.11 tables exist), re-emit openapi + regen clients + drift green).
 - Tests: backend consent routes audited; ping ingestion rejected without consent (HTTP 403-kind); withdrawal destroys pings (reuse T0.11 proofs at HTTP level); client unit tests for off-switch state machines on both natives + web.
+
+### 4. T3.1 — messenger domain + adapters (M3 opener; parallel-safe)
+- Crates: `mnt-messenger-{domain,application,adapter-postgres,rest}`. Migration **0012** (threads, messages, members, read_receipts; FTS via tsvector generated column + GIN; thread kinds: work_order|team|dm|group, branch-scoped for team channels).
+- PERSIST-BEFORE-FANOUT is the law (ADR-0007/plan §2.5): the Postgres row is the source of truth; fan-out wiring comes in T3.2 — here you only define the notify port (trait) and call it post-commit (no-op adapter ABSENT = no realtime yet, but REST polling works — that is honest increment, not a stub).
+- WO-thread auto-create on 접수 (hook into workorder create use-case via a domain event or application call — choose the seam that doesn't invert layering; justify).
+- Every message INSERT through with_audit (action message.send; read receipts audited as message.read batched/coalesced — justify granularity vs audit volume in a doc comment + test).
+- REST: thread list (branch-scoped + membership), message page (cursor pagination), send, read-receipt, FTS search endpoint. Media attachments reuse the evidence presign flow (reference, don't duplicate).
+- Re-emit openapi + regen clients (expect lead-side merge reconciliation with T2.4 — keep your changes additive).
+- Tests: #[sqlx::test] persist+audit same-tx; WO-thread auto-create; membership/branch-scope denial; FTS Korean text hits (config: simple or mecab-less tsvector — document Korean FTS limits honestly, e.g. bigram fallback); cursor pagination stability.
