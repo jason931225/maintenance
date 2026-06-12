@@ -46,3 +46,7 @@
 ## 4. Next up (dependency order)
 
 T0.8 (observability + audit-read API) → M0 wrap → G002/M1.
+
+## 5. Next-free resources (parallel-wave coordination)
+- Next migration number: **0018**
+- Crate families merged: kernel, platform/{auth,auth-rest,authz,db,storage,push,jobs,realtime,excel}, workorder, registry, compliance, messenger, dispatch, reporting, financial, identity; ports: intelligence(T6.1)/identity(T6.2)
