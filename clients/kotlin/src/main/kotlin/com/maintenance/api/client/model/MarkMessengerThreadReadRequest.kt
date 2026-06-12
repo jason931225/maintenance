@@ -23,7 +23,6 @@
 
 package com.maintenance.api.client.model
 
-import com.maintenance.api.client.model.KpiMetric
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -32,22 +31,14 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param metric
- * @param sourceDomain
- * @param reason
+ * @param lastReadMessageId
  */
 @Serializable
 
-data class UnavailableMetric (
+data class MarkMessengerThreadReadRequest (
 
-    @Contextual @SerialName(value = "metric")
-    val metric: KpiMetric,
-
-    @SerialName(value = "source_domain")
-    val sourceDomain: kotlin.String,
-
-    @SerialName(value = "reason")
-    val reason: kotlin.String
+    @Contextual @SerialName(value = "last_read_message_id")
+    val lastReadMessageId: java.util.UUID
 
 ) {
 

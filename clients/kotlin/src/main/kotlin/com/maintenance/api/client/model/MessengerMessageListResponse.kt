@@ -23,40 +23,25 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.MessengerMessageSummary
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Contextual
 
 /**
- * `id` is present for region, branch, and technician scopes and absent for company.
  *
- * @param kind
- * @param id
+ *
+ * @param items
  */
 @Serializable
 
-data class KpiScope (
+data class MessengerMessageListResponse (
 
-    @SerialName(value = "kind")
-    val kind: KpiScope.Kind,
-
-    @Contextual @SerialName(value = "id")
-    val id: java.util.UUID? = null
+    @SerialName(value = "items")
+    val items: kotlin.collections.List<MessengerMessageSummary>
 
 ) {
 
-    /**
-     *
-     *
-     * Values: COMPANY,REGION,BRANCH,TECHNICIAN
-     */
-    @Serializable
-    enum class Kind(val value: kotlin.String) {
-        @SerialName(value = "company") COMPANY("company"),
-        @SerialName(value = "region") REGION("region"),
-        @SerialName(value = "branch") BRANCH("branch"),
-        @SerialName(value = "technician") TECHNICIAN("technician");
-    }
 
 }

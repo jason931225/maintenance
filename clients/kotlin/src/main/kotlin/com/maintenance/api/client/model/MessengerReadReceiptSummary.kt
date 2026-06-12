@@ -23,10 +23,6 @@
 
 package com.maintenance.api.client.model
 
-import com.maintenance.api.client.model.KpiRollup
-import com.maintenance.api.client.model.KpiScope
-import com.maintenance.api.client.model.Period
-import com.maintenance.api.client.model.UnavailableMetric
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -35,26 +31,30 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param period
- * @param requestedScope
- * @param rollups
- * @param unavailableMetrics
+ * @param threadId
+ * @param userId
+ * @param lastReadMessageId
+ * @param readAt
+ * @param updatedAt
  */
 @Serializable
 
-data class KpiReport (
+data class MessengerReadReceiptSummary (
 
-    @SerialName(value = "period")
-    val period: Period,
+    @Contextual @SerialName(value = "thread_id")
+    val threadId: java.util.UUID,
 
-    @SerialName(value = "requested_scope")
-    val requestedScope: KpiScope,
+    @Contextual @SerialName(value = "user_id")
+    val userId: java.util.UUID,
 
-    @SerialName(value = "rollups")
-    val rollups: kotlin.collections.List<KpiRollup>,
+    @Contextual @SerialName(value = "last_read_message_id")
+    val lastReadMessageId: java.util.UUID,
 
-    @SerialName(value = "unavailable_metrics")
-    val unavailableMetrics: kotlin.collections.List<UnavailableMetric>
+    @Contextual @SerialName(value = "read_at")
+    val readAt: java.time.OffsetDateTime,
+
+    @Contextual @SerialName(value = "updated_at")
+    val updatedAt: java.time.OffsetDateTime
 
 ) {
 

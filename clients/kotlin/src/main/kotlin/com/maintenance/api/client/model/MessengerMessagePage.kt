@@ -23,40 +23,29 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.MessengerMessageSummary
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Contextual
 
 /**
- * `id` is present for region, branch, and technician rollups and absent for company.
  *
- * @param kind
- * @param id
+ *
+ * @param items
+ * @param nextCursor
  */
 @Serializable
 
-data class KpiRollupScope (
+data class MessengerMessagePage (
 
-    @SerialName(value = "kind")
-    val kind: KpiRollupScope.Kind,
+    @SerialName(value = "items")
+    val items: kotlin.collections.List<MessengerMessageSummary>,
 
-    @Contextual @SerialName(value = "id")
-    val id: java.util.UUID? = null
+    @Contextual @SerialName(value = "next_cursor")
+    val nextCursor: java.util.UUID?
 
 ) {
 
-    /**
-     *
-     *
-     * Values: COMPANY,REGION,BRANCH,TECHNICIAN
-     */
-    @Serializable
-    enum class Kind(val value: kotlin.String) {
-        @SerialName(value = "company") COMPANY("company"),
-        @SerialName(value = "region") REGION("region"),
-        @SerialName(value = "branch") BRANCH("branch"),
-        @SerialName(value = "technician") TECHNICIAN("technician");
-    }
 
 }

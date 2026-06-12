@@ -29,6 +29,7 @@ import okhttp3.HttpUrl
 
 import com.maintenance.api.client.model.AssignWorkOrderRequest
 import com.maintenance.api.client.model.CreateDailyPlanRequest
+import com.maintenance.api.client.model.CreateMessengerThreadRequest
 import com.maintenance.api.client.model.CreateOutsourceWorkRequest
 import com.maintenance.api.client.model.CreateWorkOrderRequest
 import com.maintenance.api.client.model.DailyPlanSummary
@@ -40,7 +41,13 @@ import com.maintenance.api.client.model.ErrorBody
 import com.maintenance.api.client.model.EvidenceConfirmResponse
 import com.maintenance.api.client.model.EvidencePresignRequest
 import com.maintenance.api.client.model.EvidencePresignResponse
-import com.maintenance.api.client.model.KpiReport
+import com.maintenance.api.client.model.MarkMessengerThreadReadRequest
+import com.maintenance.api.client.model.MessengerMessageListResponse
+import com.maintenance.api.client.model.MessengerMessagePage
+import com.maintenance.api.client.model.MessengerMessageSummary
+import com.maintenance.api.client.model.MessengerReadReceiptSummary
+import com.maintenance.api.client.model.MessengerThreadListResponse
+import com.maintenance.api.client.model.MessengerThreadSummary
 import com.maintenance.api.client.model.OutsourceWorkSummary
 import com.maintenance.api.client.model.PasskeyLoginFinishRequest
 import com.maintenance.api.client.model.PasskeyLoginStartRequest
@@ -54,6 +61,7 @@ import com.maintenance.api.client.model.RefreshTokenRequest
 import com.maintenance.api.client.model.RejectWorkOrderRequest
 import com.maintenance.api.client.model.ReviewDailyPlanRequest
 import com.maintenance.api.client.model.ReviewTargetChangeRequest
+import com.maintenance.api.client.model.SendMessengerMessageRequest
 import com.maintenance.api.client.model.SubmitReportRequest
 import com.maintenance.api.client.model.SyncBatchRequest
 import com.maintenance.api.client.model.SyncBatchResponse
@@ -989,6 +997,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/messenger/threads
+     * Create a branch-scoped messenger thread
+     *
+     * @param createMessengerThreadRequest
+     * @return MessengerThreadSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createMessengerThread(createMessengerThreadRequest: CreateMessengerThreadRequest) : MessengerThreadSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = createMessengerThreadWithHttpInfo(createMessengerThreadRequest = createMessengerThreadRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MessengerThreadSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/messenger/threads
+     * Create a branch-scoped messenger thread
+     *
+     * @param createMessengerThreadRequest
+     * @return ApiResponse<MessengerThreadSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createMessengerThreadWithHttpInfo(createMessengerThreadRequest: CreateMessengerThreadRequest) : ApiResponse<MessengerThreadSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createMessengerThreadRequestConfig(createMessengerThreadRequest = createMessengerThreadRequest)
+
+        return@withContext request<CreateMessengerThreadRequest, MessengerThreadSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createMessengerThread
+     *
+     * @param createMessengerThreadRequest
+     * @return RequestConfig
+     */
+    fun createMessengerThreadRequestConfig(createMessengerThreadRequest: CreateMessengerThreadRequest) : RequestConfig<CreateMessengerThreadRequest> {
+        val localVariableBody = createMessengerThreadRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/messenger/threads",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/work-orders/{workOrderId}/outsource-works
      * Create an outsource work request for a work order
      *
@@ -1132,88 +1214,6 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/work-orders",
-            query = localVariableQuery,
-            headers = localVariableHeaders,
-            requiresAuthentication = true,
-            body = localVariableBody
-        )
-    }
-
-    /**
-     * GET /api/v1/kpi
-     * Fetch branch-scoped KPI rollups for the seven standard metrics
-     * Computes KPI metrics from approved work-order reports within the requested approval period. Metrics whose source domains have not merged yet are returned in &#x60;unavailable_metrics&#x60; instead of fabricated values.
-     * @param period Inclusive start date and exclusive end date in UTC day boundaries.
-     * @param scope  (optional, default to "company")
-     * @return KpiReport
-     * @throws IllegalStateException If the request is not correctly configured
-     * @throws IOException Rethrows the OkHttp execute method exception
-     * @throws UnsupportedOperationException If the API returns an informational or redirection response
-     * @throws ClientException If the API returns a client error response
-     * @throws ServerException If the API returns a server error response
-     */
-    @Suppress("UNCHECKED_CAST")
-    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun getKpiReport(period: kotlin.String, scope: kotlin.String? = "company") : KpiReport = withContext(Dispatchers.IO) {
-        val localVarResponse = getKpiReportWithHttpInfo(period = period, scope = scope)
-
-        return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as KpiReport
-            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
-            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
-            ResponseType.ClientError -> {
-                val localVarError = localVarResponse as ClientError<*>
-                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
-            }
-            ResponseType.ServerError -> {
-                val localVarError = localVarResponse as ServerError<*>
-                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
-            }
-        }
-    }
-
-    /**
-     * GET /api/v1/kpi
-     * Fetch branch-scoped KPI rollups for the seven standard metrics
-     * Computes KPI metrics from approved work-order reports within the requested approval period. Metrics whose source domains have not merged yet are returned in &#x60;unavailable_metrics&#x60; instead of fabricated values.
-     * @param period Inclusive start date and exclusive end date in UTC day boundaries.
-     * @param scope  (optional, default to "company")
-     * @return ApiResponse<KpiReport?>
-     * @throws IllegalStateException If the request is not correctly configured
-     * @throws IOException Rethrows the OkHttp execute method exception
-     */
-    @Suppress("UNCHECKED_CAST")
-    @Throws(IllegalStateException::class, IOException::class)
-    suspend fun getKpiReportWithHttpInfo(period: kotlin.String, scope: kotlin.String?) : ApiResponse<KpiReport?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = getKpiReportRequestConfig(period = period, scope = scope)
-
-        return@withContext request<Unit, KpiReport>(
-            localVariableConfig
-        )
-    }
-
-    /**
-     * To obtain the request config of the operation getKpiReport
-     *
-     * @param period Inclusive start date and exclusive end date in UTC day boundaries.
-     * @param scope  (optional, default to "company")
-     * @return RequestConfig
-     */
-    fun getKpiReportRequestConfig(period: kotlin.String, scope: kotlin.String?) : RequestConfig<Unit> {
-        val localVariableBody = null
-        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
-            .apply {
-                put("period", listOf(period.toString()))
-                if (scope != null) {
-                    put("scope", listOf(scope.toString()))
-                }
-            }
-        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
-        localVariableHeaders["Accept"] = "application/json"
-
-        return RequestConfig(
-            method = RequestMethod.GET,
-            path = "/api/v1/kpi",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -1435,6 +1435,171 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/messenger/threads/{threadId}/messages
+     * Page messenger messages before an optional cursor
+     *
+     * @param threadId
+     * @param beforeMessageId  (optional)
+     * @param limit  (optional, default to 50L)
+     * @return MessengerMessagePage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listMessengerMessages(threadId: java.util.UUID, beforeMessageId: java.util.UUID? = null, limit: kotlin.Long? = 50L) : MessengerMessagePage = withContext(Dispatchers.IO) {
+        val localVarResponse = listMessengerMessagesWithHttpInfo(threadId = threadId, beforeMessageId = beforeMessageId, limit = limit)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MessengerMessagePage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/messenger/threads/{threadId}/messages
+     * Page messenger messages before an optional cursor
+     *
+     * @param threadId
+     * @param beforeMessageId  (optional)
+     * @param limit  (optional, default to 50L)
+     * @return ApiResponse<MessengerMessagePage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listMessengerMessagesWithHttpInfo(threadId: java.util.UUID, beforeMessageId: java.util.UUID?, limit: kotlin.Long?) : ApiResponse<MessengerMessagePage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listMessengerMessagesRequestConfig(threadId = threadId, beforeMessageId = beforeMessageId, limit = limit)
+
+        return@withContext request<Unit, MessengerMessagePage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listMessengerMessages
+     *
+     * @param threadId
+     * @param beforeMessageId  (optional)
+     * @param limit  (optional, default to 50L)
+     * @return RequestConfig
+     */
+    fun listMessengerMessagesRequestConfig(threadId: java.util.UUID, beforeMessageId: java.util.UUID?, limit: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (beforeMessageId != null) {
+                    put("before_message_id", listOf(beforeMessageId.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/messenger/threads/{threadId}/messages".replace("{"+"threadId"+"}", encodeURIComponent(threadId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/messenger/threads
+     * List branch-scoped messenger threads for the authenticated member
+     *
+     * @param limit  (optional, default to 50L)
+     * @return MessengerThreadListResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listMessengerThreads(limit: kotlin.Long? = 50L) : MessengerThreadListResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listMessengerThreadsWithHttpInfo(limit = limit)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MessengerThreadListResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/messenger/threads
+     * List branch-scoped messenger threads for the authenticated member
+     *
+     * @param limit  (optional, default to 50L)
+     * @return ApiResponse<MessengerThreadListResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listMessengerThreadsWithHttpInfo(limit: kotlin.Long?) : ApiResponse<MessengerThreadListResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listMessengerThreadsRequestConfig(limit = limit)
+
+        return@withContext request<Unit, MessengerThreadListResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listMessengerThreads
+     *
+     * @param limit  (optional, default to 50L)
+     * @return RequestConfig
+     */
+    fun listMessengerThreadsRequestConfig(limit: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/messenger/threads",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/work-orders
      * List branch-scoped work orders
      * Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated &#x60;status&#x60;, &#x60;status[]&#x60;, &#x60;priority&#x60;, and &#x60;priority[]&#x60; query keys, plus comma-separated values.
@@ -1629,6 +1794,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/equipment/lookup",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PUT /api/messenger/threads/{threadId}/read-receipt
+     * Mark the authenticated member&#39;s thread read cursor
+     *
+     * @param threadId
+     * @param markMessengerThreadReadRequest
+     * @return MessengerReadReceiptSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun markMessengerThreadRead(threadId: java.util.UUID, markMessengerThreadReadRequest: MarkMessengerThreadReadRequest) : MessengerReadReceiptSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = markMessengerThreadReadWithHttpInfo(threadId = threadId, markMessengerThreadReadRequest = markMessengerThreadReadRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MessengerReadReceiptSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PUT /api/messenger/threads/{threadId}/read-receipt
+     * Mark the authenticated member&#39;s thread read cursor
+     *
+     * @param threadId
+     * @param markMessengerThreadReadRequest
+     * @return ApiResponse<MessengerReadReceiptSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun markMessengerThreadReadWithHttpInfo(threadId: java.util.UUID, markMessengerThreadReadRequest: MarkMessengerThreadReadRequest) : ApiResponse<MessengerReadReceiptSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = markMessengerThreadReadRequestConfig(threadId = threadId, markMessengerThreadReadRequest = markMessengerThreadReadRequest)
+
+        return@withContext request<MarkMessengerThreadReadRequest, MessengerReadReceiptSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation markMessengerThreadRead
+     *
+     * @param threadId
+     * @param markMessengerThreadReadRequest
+     * @return RequestConfig
+     */
+    fun markMessengerThreadReadRequestConfig(threadId: java.util.UUID, markMessengerThreadReadRequest: MarkMessengerThreadReadRequest) : RequestConfig<MarkMessengerThreadReadRequest> {
+        val localVariableBody = markMessengerThreadReadRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PUT,
+            path = "/api/messenger/threads/{threadId}/read-receipt".replace("{"+"threadId"+"}", encodeURIComponent(threadId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -2307,6 +2549,165 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/target-change-requests/{requestId}/review".replace("{"+"requestId"+"}", encodeURIComponent(requestId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/messenger/search
+     * Search branch-scoped messenger messages visible to the authenticated member
+     *
+     * @param q
+     * @param limit  (optional, default to 50L)
+     * @return MessengerMessageListResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun searchMessengerMessages(q: kotlin.String, limit: kotlin.Long? = 50L) : MessengerMessageListResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = searchMessengerMessagesWithHttpInfo(q = q, limit = limit)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MessengerMessageListResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/messenger/search
+     * Search branch-scoped messenger messages visible to the authenticated member
+     *
+     * @param q
+     * @param limit  (optional, default to 50L)
+     * @return ApiResponse<MessengerMessageListResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun searchMessengerMessagesWithHttpInfo(q: kotlin.String, limit: kotlin.Long?) : ApiResponse<MessengerMessageListResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = searchMessengerMessagesRequestConfig(q = q, limit = limit)
+
+        return@withContext request<Unit, MessengerMessageListResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation searchMessengerMessages
+     *
+     * @param q
+     * @param limit  (optional, default to 50L)
+     * @return RequestConfig
+     */
+    fun searchMessengerMessagesRequestConfig(q: kotlin.String, limit: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("q", listOf(q.toString()))
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/messenger/search",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/messenger/threads/{threadId}/messages
+     * Send a message with optional evidence attachments
+     *
+     * @param threadId
+     * @param sendMessengerMessageRequest
+     * @return MessengerMessageSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun sendMessengerMessage(threadId: java.util.UUID, sendMessengerMessageRequest: SendMessengerMessageRequest) : MessengerMessageSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = sendMessengerMessageWithHttpInfo(threadId = threadId, sendMessengerMessageRequest = sendMessengerMessageRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MessengerMessageSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/messenger/threads/{threadId}/messages
+     * Send a message with optional evidence attachments
+     *
+     * @param threadId
+     * @param sendMessengerMessageRequest
+     * @return ApiResponse<MessengerMessageSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun sendMessengerMessageWithHttpInfo(threadId: java.util.UUID, sendMessengerMessageRequest: SendMessengerMessageRequest) : ApiResponse<MessengerMessageSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = sendMessengerMessageRequestConfig(threadId = threadId, sendMessengerMessageRequest = sendMessengerMessageRequest)
+
+        return@withContext request<SendMessengerMessageRequest, MessengerMessageSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation sendMessengerMessage
+     *
+     * @param threadId
+     * @param sendMessengerMessageRequest
+     * @return RequestConfig
+     */
+    fun sendMessengerMessageRequestConfig(threadId: java.util.UUID, sendMessengerMessageRequest: SendMessengerMessageRequest) : RequestConfig<SendMessengerMessageRequest> {
+        val localVariableBody = sendMessengerMessageRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/messenger/threads/{threadId}/messages".replace("{"+"threadId"+"}", encodeURIComponent(threadId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

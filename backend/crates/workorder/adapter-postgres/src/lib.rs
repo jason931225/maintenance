@@ -1,6 +1,8 @@
 //! Postgres work-order adapter.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+use std::sync::Arc;
+
 use mnt_kernel_core::{
     BranchId, CustomerId, DailyPlanId, EquipmentId, ErrorKind, KernelError, SiteId, UserId,
     VendorId, WorkOrderId,
@@ -12,8 +14,9 @@ use mnt_workorder_application::{
     ReviewDailyPlanCommand, ReviewTargetChangeCommand, SendDailyPlanForReviewCommand,
     SubmitReportCommand, TargetChangeDecision, TargetChangeRequestCommand,
     TargetChangeRequestSummary, TargetChangeStatus, UpdatePriorityCommand,
-    WorkOrderApprovalCommand, WorkOrderAssignmentCommand, WorkOrderStartCommand, WorkOrderSummary,
-    daily_plan_audit_event, work_order_audit_event,
+    WorkOrderApprovalCommand, WorkOrderAssignmentCommand, WorkOrderCreatedEvent,
+    WorkOrderCreatedListener, WorkOrderStartCommand, WorkOrderSummary, daily_plan_audit_event,
+    work_order_audit_event,
 };
 use mnt_workorder_domain::{
     ApprovalRole, PriorityLevel, TransitionActor, TransitionGuardContext, WorkOrderAssignment,
@@ -53,15 +56,42 @@ impl From<sqlx::Error> for PgWorkOrderError {
     }
 }
 
-#[derive(Debug, Clone)]
 pub struct PgWorkOrderStore {
     pool: PgPool,
+    created_listener: Option<Arc<dyn WorkOrderCreatedListener>>,
+}
+
+impl std::fmt::Debug for PgWorkOrderStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PgWorkOrderStore")
+            .field("pool", &self.pool)
+            .field("has_created_listener", &self.created_listener.is_some())
+            .finish()
+    }
+}
+
+impl Clone for PgWorkOrderStore {
+    fn clone(&self) -> Self {
+        Self {
+            pool: self.pool.clone(),
+            created_listener: self.created_listener.clone(),
+        }
+    }
 }
 
 impl PgWorkOrderStore {
     #[must_use]
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            created_listener: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_created_listener(mut self, listener: Arc<dyn WorkOrderCreatedListener>) -> Self {
+        self.created_listener = Some(listener);
+        self
     }
 
     #[must_use]
@@ -82,6 +112,7 @@ impl PgWorkOrderStore {
         let customer_request = command.customer_request;
         let target_due_at = command.target_due_at;
         let occurred_at = command.occurred_at;
+        let trace = command.trace.clone();
         let request_date = occurred_at.date();
         let event = work_order_audit_event(
             "work_order.create",
@@ -92,20 +123,26 @@ impl PgWorkOrderStore {
             occurred_at,
         )?;
 
-        with_audit::<_, WorkOrderSummary, PgWorkOrderError>(&self.pool, event, |tx| {
-            Box::pin(async move {
-                if symptom.trim().is_empty() {
-                    return Err(KernelError::validation("work-order symptom is required").into());
-                }
+        let summary =
+            with_audit::<_, WorkOrderSummary, PgWorkOrderError>(&self.pool, event, |tx| {
+                Box::pin(async move {
+                    if symptom.trim().is_empty() {
+                        return Err(
+                            KernelError::validation("work-order symptom is required").into()
+                        );
+                    }
 
-                let equipment =
-                    lookup_equipment_for_management_no(tx, branch_uuid, &normalized_management_no)
-                        .await?;
-                let request_no = next_request_no(tx, request_date).await?;
-                let id_uuid = *work_order_id.as_uuid();
+                    let equipment = lookup_equipment_for_management_no(
+                        tx,
+                        branch_uuid,
+                        &normalized_management_no,
+                    )
+                    .await?;
+                    let request_no = next_request_no(tx, request_date).await?;
+                    let id_uuid = *work_order_id.as_uuid();
 
-                sqlx::query(
-                    r#"
+                    sqlx::query(
+                        r#"
                     INSERT INTO work_orders (
                         id, request_no, branch_id, equipment_id, customer_id, site_id,
                         requested_by, status, priority, symptom, customer_request,
@@ -117,38 +154,52 @@ impl PgWorkOrderStore {
                         $12, $13, $13
                     )
                     "#,
-                )
-                .bind(id_uuid)
-                .bind(request_no)
-                .bind(branch_uuid)
-                .bind(equipment.equipment_id)
-                .bind(equipment.customer_id)
-                .bind(equipment.site_id)
-                .bind(*actor.as_uuid())
-                .bind(WorkOrderStatus::Received.as_db_str())
-                .bind(PriorityLevel::Unset.as_db_str())
-                .bind(symptom.trim())
-                .bind(customer_request.as_deref().map(str::trim))
-                .bind(target_due_at)
-                .bind(occurred_at)
-                .execute(tx.as_mut())
-                .await?;
+                    )
+                    .bind(id_uuid)
+                    .bind(request_no)
+                    .bind(branch_uuid)
+                    .bind(equipment.equipment_id)
+                    .bind(equipment.customer_id)
+                    .bind(equipment.site_id)
+                    .bind(*actor.as_uuid())
+                    .bind(WorkOrderStatus::Received.as_db_str())
+                    .bind(PriorityLevel::Unset.as_db_str())
+                    .bind(symptom.trim())
+                    .bind(customer_request.as_deref().map(str::trim))
+                    .bind(target_due_at)
+                    .bind(occurred_at)
+                    .execute(tx.as_mut())
+                    .await?;
 
-                insert_status_history(
-                    tx,
-                    work_order_id,
-                    Some(actor),
-                    "work_order.create",
-                    None,
-                    WorkOrderStatus::Received,
-                    occurred_at,
-                )
-                .await?;
+                    insert_status_history(
+                        tx,
+                        work_order_id,
+                        Some(actor),
+                        "work_order.create",
+                        None,
+                        WorkOrderStatus::Received,
+                        occurred_at,
+                    )
+                    .await?;
 
-                fetch_work_order_summary_tx(tx, work_order_id).await
+                    fetch_work_order_summary_tx(tx, work_order_id).await
+                })
             })
-        })
-        .await
+            .await?;
+
+        if let Some(listener) = &self.created_listener {
+            listener
+                .work_order_created(WorkOrderCreatedEvent {
+                    actor,
+                    branch_id,
+                    work_order_id: summary.id,
+                    trace,
+                    occurred_at,
+                })
+                .await?;
+        }
+
+        Ok(summary)
     }
 
     pub async fn update_priority(

@@ -31,18 +31,18 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param start
- * @param end
+ * @param body
+ * @param attachmentEvidenceIds
  */
 @Serializable
 
-data class Period (
+data class SendMessengerMessageRequest (
 
-    @Contextual @SerialName(value = "start")
-    val start: java.time.OffsetDateTime,
+    @SerialName(value = "body")
+    val body: kotlin.String,
 
-    @Contextual @SerialName(value = "end")
-    val end: java.time.OffsetDateTime
+    @SerialName(value = "attachment_evidence_ids")
+    val attachmentEvidenceIds: kotlin.collections.List<@Contextual java.util.UUID>? = null
 
 ) {
 

@@ -31,31 +31,22 @@ import kotlinx.serialization.Serializable
 /**
  *
  *
- * Values: COMPLETED_COUNT,AVERAGE_RESPONSE_SPEED,COMPLETION_DURATION_AND_DUE_COMPLIANCE,REVISIT_RATE,DELAY_RATE_AND_REASON_DISTRIBUTION,INSPECTION_PLAN_COMPLETION_RATE,P1_ACCEPTANCE_RATE
+ * Values: WORK_ORDER,TEAM,DM,GROUP
  */
 @Serializable
-enum class KpiMetric(val value: kotlin.String) {
+enum class MessengerThreadKind(val value: kotlin.String) {
 
-    @SerialName(value = "completed_count")
-    COMPLETED_COUNT("completed_count"),
+    @SerialName(value = "work_order")
+    WORK_ORDER("work_order"),
 
-    @SerialName(value = "average_response_speed")
-    AVERAGE_RESPONSE_SPEED("average_response_speed"),
+    @SerialName(value = "team")
+    TEAM("team"),
 
-    @SerialName(value = "completion_duration_and_due_compliance")
-    COMPLETION_DURATION_AND_DUE_COMPLIANCE("completion_duration_and_due_compliance"),
+    @SerialName(value = "dm")
+    DM("dm"),
 
-    @SerialName(value = "revisit_rate")
-    REVISIT_RATE("revisit_rate"),
-
-    @SerialName(value = "delay_rate_and_reason_distribution")
-    DELAY_RATE_AND_REASON_DISTRIBUTION("delay_rate_and_reason_distribution"),
-
-    @SerialName(value = "inspection_plan_completion_rate")
-    INSPECTION_PLAN_COMPLETION_RATE("inspection_plan_completion_rate"),
-
-    @SerialName(value = "p1_acceptance_rate")
-    P1_ACCEPTANCE_RATE("p1_acceptance_rate");
+    @SerialName(value = "group")
+    GROUP("group");
 
     /**
      * Override [toString()] to avoid using the enum variable name as the value, and instead use
@@ -70,12 +61,12 @@ enum class KpiMetric(val value: kotlin.String) {
         /**
          * Converts the provided [data] to a [String] on success, null otherwise.
          */
-        fun encode(data: kotlin.Any?): kotlin.String? = if (data is KpiMetric) "$data" else null
+        fun encode(data: kotlin.Any?): kotlin.String? = if (data is MessengerThreadKind) "$data" else null
 
         /**
-         * Returns a valid [KpiMetric] for [data], null otherwise.
+         * Returns a valid [MessengerThreadKind] for [data], null otherwise.
          */
-        fun decode(data: kotlin.Any?): KpiMetric? = data?.let {
+        fun decode(data: kotlin.Any?): MessengerThreadKind? = data?.let {
           val normalizedData = "$it".lowercase()
           entries.firstOrNull { value ->
             it == value || normalizedData == "$value".lowercase()

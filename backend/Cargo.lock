@@ -1814,6 +1814,8 @@ dependencies = [
  "axum",
  "http",
  "mnt-kernel-core",
+ "mnt-messenger-adapter-postgres",
+ "mnt-messenger-rest",
  "mnt-platform-auth",
  "mnt-platform-auth-rest",
  "mnt-platform-authz",
@@ -1907,6 +1909,63 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-messenger-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-messenger-application",
+ "mnt-messenger-domain",
+ "mnt-platform-db",
+ "mnt-workorder-application",
+ "serde_json",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-messenger-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-messenger-domain",
+ "serde",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-messenger-domain"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+]
+
+[[package]]
+name = "mnt-messenger-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "http",
+ "mnt-kernel-core",
+ "mnt-messenger-adapter-postgres",
+ "mnt-messenger-application",
+ "mnt-messenger-domain",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-db",
+ "p256",
+ "serde",
+ "serde_json",
+ "sqlx 0.9.0",
+ "time",
+ "tower",
  "uuid",
 ]
 

@@ -38,6 +38,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/messenger/threads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List branch-scoped messenger threads for the authenticated member */
+        get: operations["listMessengerThreads"];
+        put?: never;
+        /** Create a branch-scoped messenger thread */
+        post: operations["createMessengerThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/messenger/threads/{threadId}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Page messenger messages before an optional cursor */
+        get: operations["listMessengerMessages"];
+        put?: never;
+        /** Send a message with optional evidence attachments */
+        post: operations["sendMessengerMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/messenger/threads/{threadId}/read-receipt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Mark the authenticated member's thread read cursor */
+        put: operations["markMessengerThreadRead"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/messenger/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search branch-scoped messenger messages visible to the authenticated member */
+        get: operations["searchMessengerMessages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/work-orders": {
         parameters: {
             query?: never;
@@ -270,26 +340,6 @@ export interface paths {
         put?: never;
         /** Create an outsource work request for a work order */
         post: operations["createOutsourceWork"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/kpi": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Fetch branch-scoped KPI rollups for the seven standard metrics
-         * @description Computes KPI metrics from approved work-order reports within the requested approval period. Metrics whose source domains have not merged yet are returned in `unavailable_metrics` instead of fabricated values.
-         */
-        get: operations["getKpiReport"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -744,55 +794,21 @@ export interface components {
         /** @enum {string} */
         TargetChangeDecision: "APPROVED" | "REJECTED";
         /** @enum {string} */
-        KpiMetric: "completed_count" | "average_response_speed" | "completion_duration_and_due_compliance" | "revisit_rate" | "delay_rate_and_reason_distribution" | "inspection_plan_completion_rate" | "p1_acceptance_rate";
-        Period: {
-            start: components["schemas"]["Timestamp"];
-            end: components["schemas"]["Timestamp"];
+        MessengerThreadKind: "work_order" | "team" | "dm" | "group";
+        CreateMessengerThreadRequest: {
+            branch_id: components["schemas"]["Uuid"];
+            kind: components["schemas"]["MessengerThreadKind"];
+            title?: string | null;
+            /** Format: uuid */
+            work_order_id?: string | null;
+            member_ids: components["schemas"]["Uuid"][];
         };
-        /** @description `id` is present for region, branch, and technician scopes and absent for company. */
-        KpiScope: {
-            /** @enum {string} */
-            kind: "company" | "region" | "branch" | "technician";
-            id?: components["schemas"]["Uuid"];
+        SendMessengerMessageRequest: {
+            body: string;
+            attachment_evidence_ids?: components["schemas"]["Uuid"][];
         };
-        /** @description `id` is present for region, branch, and technician rollups and absent for company. */
-        KpiRollupScope: {
-            /** @enum {string} */
-            kind: "company" | "region" | "branch" | "technician";
-            id?: components["schemas"]["Uuid"];
-        };
-        KpiReport: {
-            period: components["schemas"]["Period"];
-            requested_scope: components["schemas"]["KpiScope"];
-            rollups: components["schemas"]["KpiRollup"][];
-            unavailable_metrics: components["schemas"]["UnavailableMetric"][];
-        };
-        KpiRollup: {
-            scope: components["schemas"]["KpiRollupScope"];
-            /** Format: int32 */
-            approved_report_count: number;
-            /** Format: int32 */
-            completed_count: number;
-            /** Format: int32 */
-            weighted_completed_points: number;
-            /** Format: int64 */
-            average_response_seconds: number | null;
-            /** Format: int64 */
-            average_completion_seconds: number | null;
-            /** Format: int32 */
-            target_due_compliance_bps: number | null;
-            /** Format: int32 */
-            revisit_rate_bps: number;
-            /** Format: int32 */
-            delay_rate_bps: number;
-            delay_reason_distribution: {
-                [key: string]: number;
-            };
-        };
-        UnavailableMetric: {
-            metric: components["schemas"]["KpiMetric"];
-            source_domain: string;
-            reason: string;
+        MarkMessengerThreadReadRequest: {
+            last_read_message_id: components["schemas"]["Uuid"];
         };
         CreateWorkOrderRequest: {
             branch_id: components["schemas"]["Uuid"];
@@ -1097,6 +1113,50 @@ export interface components {
             token_type: "Bearer";
             refresh_expires_at: components["schemas"]["Timestamp"];
         };
+        MessengerThreadSummary: {
+            id: components["schemas"]["Uuid"];
+            kind: components["schemas"]["MessengerThreadKind"];
+            branch_id: components["schemas"]["Uuid"];
+            title: string | null;
+            /** Format: uuid */
+            work_order_id: string | null;
+            /** Format: uuid */
+            last_message_id: string | null;
+            /** Format: date-time */
+            last_message_at: string | null;
+            /** Format: int64 */
+            member_count: number;
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        MessengerThreadListResponse: {
+            items: components["schemas"]["MessengerThreadSummary"][];
+        };
+        MessengerMessageSummary: {
+            id: components["schemas"]["Uuid"];
+            thread_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            sender_id: components["schemas"]["Uuid"];
+            body: string;
+            attachment_evidence_ids: components["schemas"]["Uuid"][];
+            sent_at: components["schemas"]["Timestamp"];
+            created_at: components["schemas"]["Timestamp"];
+        };
+        MessengerMessageListResponse: {
+            items: components["schemas"]["MessengerMessageSummary"][];
+        };
+        MessengerMessagePage: {
+            items: components["schemas"]["MessengerMessageSummary"][];
+            /** Format: uuid */
+            next_cursor: string | null;
+        };
+        MessengerReadReceiptSummary: {
+            thread_id: components["schemas"]["Uuid"];
+            user_id: components["schemas"]["Uuid"];
+            last_read_message_id: components["schemas"]["Uuid"];
+            read_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
         WorkOrderSummary: {
             id: components["schemas"]["Uuid"];
             request_no: string;
@@ -1188,6 +1248,7 @@ export interface components {
     };
     parameters: {
         WorkOrderId: string;
+        ThreadId: string;
         PlanId: string;
         RequestId: string;
         EvidenceId: string;
@@ -1241,6 +1302,170 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    listMessengerThreads: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Messenger threads visible to the authenticated member. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerThreadListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createMessengerThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateMessengerThreadRequest"];
+            };
+        };
+        responses: {
+            /** @description Messenger thread created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerThreadSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listMessengerMessages: {
+        parameters: {
+            query?: {
+                before_message_id?: components["schemas"]["Uuid"];
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                threadId: components["parameters"]["ThreadId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cursor-stable message page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerMessagePage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    sendMessengerMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                threadId: components["parameters"]["ThreadId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendMessengerMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Message persisted. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerMessageSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    markMessengerThreadRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                threadId: components["parameters"]["ThreadId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkMessengerThreadReadRequest"];
+            };
+        };
+        responses: {
+            /** @description Read receipt upserted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerReadReceiptSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    searchMessengerMessages: {
+        parameters: {
+            query: {
+                q: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching messenger messages. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerMessageListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     createWorkOrder: {
@@ -1586,46 +1811,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OutsourceWorkSummary"];
-                };
-            };
-        };
-    };
-    getKpiReport: {
-        parameters: {
-            query: {
-                /**
-                 * @description Inclusive start date and exclusive end date in UTC day boundaries.
-                 * @example 2026-06-01..2026-07-01
-                 */
-                period: string;
-                scope?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description KPI report with company, region, branch, and technician rollups constrained by the authenticated principal branch scope. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KpiReport"];
-                };
-            };
-            400: components["responses"]["ValidationError"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            422: components["responses"]["ValidationError"];
-            /** @description JWT verification is not configured. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
         };
