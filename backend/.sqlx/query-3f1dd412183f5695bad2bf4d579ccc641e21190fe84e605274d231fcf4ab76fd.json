@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO location_collection_logs (\n                user_id, branch_id, ping_id, recorded_at, reason\n            )\n            VALUES ($1, $2, $3, $4, 'on_duty_location_ping')\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3f1dd412183f5695bad2bf4d579ccc641e21190fe84e605274d231fcf4ab76fd"
+}
