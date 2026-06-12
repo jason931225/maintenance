@@ -23,6 +23,8 @@ use mnt_kernel_core::{
 use mnt_platform_auth::{AccessClaims, JwtSettings, JwtVerifier};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
 use mnt_platform_db::{DbError, with_audit};
+use mnt_workorder_adapter_postgres::PgWorkOrderStore;
+use mnt_workorder_rest::WorkOrderRestState;
 use opentelemetry::global;
 use opentelemetry::trace::{TraceContextExt, TracerProvider};
 use opentelemetry_otlp::WithExportConfig;
@@ -45,6 +47,7 @@ const DEFAULT_JWT_ISSUER: &str = "mnt-platform-auth";
 const DEFAULT_JWT_AUDIENCE: &str = "mnt-api";
 const DEFAULT_AUDIT_LIMIT: i64 = 50;
 const MAX_AUDIT_LIMIT: i64 = 200;
+const OPENAPI_YAML: &str = include_str!("../../openapi/openapi.yaml");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -303,10 +306,11 @@ struct ErrorPayload {
 }
 
 pub fn build_router(state: AppState) -> Router {
-    Router::new()
+    let router = Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .route("/api/audit", get(audit_log))
+        .route("/openapi/openapi.yaml", get(openapi_yaml))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &Request<Body>| {
@@ -340,7 +344,14 @@ pub fn build_router(state: AppState) -> Router {
                     },
                 ),
         )
-        .with_state(state)
+        .with_state(state.clone());
+
+    match &state.database {
+        DatabaseDependency::Postgres(pool) => router.merge(mnt_workorder_rest::router(
+            WorkOrderRestState::new(PgWorkOrderStore::new(pool.clone()), state.jwt_verifier),
+        )),
+        DatabaseDependency::NotConfigured => router,
+    }
 }
 
 async fn healthz(State(state): State<AppState>) -> impl IntoResponse {
@@ -396,6 +407,13 @@ async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
             }
         }
     }
+}
+
+async fn openapi_yaml() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/yaml; charset=utf-8")],
+        OPENAPI_YAML,
+    )
 }
 
 async fn audit_log(

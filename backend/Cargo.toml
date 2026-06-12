@@ -64,6 +64,9 @@ mnt-compliance-application = { path = "crates/compliance/application" }
 mnt-registry-domain = { path = "crates/registry/domain" }
 mnt-registry-application = { path = "crates/registry/application" }
 mnt-workorder-domain = { path = "crates/workorder/domain" }
+mnt-workorder-application = { path = "crates/workorder/application" }
+mnt-workorder-adapter-postgres = { path = "crates/workorder/adapter-postgres" }
+mnt-workorder-rest = { path = "crates/workorder/rest" }
 mnt-platform-db = { path = "crates/platform/db" }
 
 [workspace.lints.rust]

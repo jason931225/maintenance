@@ -1,0 +1,24 @@
+[package]
+name = "mnt-workorder-rest"
+version = "0.1.0"
+description = "REST API for work-order lifecycle use cases."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum = { workspace = true }
+http = { workspace = true }
+mnt-kernel-core = { workspace = true }
+mnt-platform-auth = { path = "../../platform/auth" }
+mnt-platform-authz = { path = "../../platform/authz" }
+mnt-workorder-adapter-postgres = { workspace = true }
+mnt-workorder-application = { workspace = true }
+mnt-workorder-domain = { workspace = true }
+serde = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+
+[lints]
+workspace = true

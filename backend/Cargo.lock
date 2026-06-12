@@ -1679,6 +1679,8 @@ dependencies = [
  "mnt-platform-auth",
  "mnt-platform-authz",
  "mnt-platform-db",
+ "mnt-workorder-adapter-postgres",
+ "mnt-workorder-rest",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
@@ -1871,6 +1873,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-workorder-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-platform-db",
+ "mnt-workorder-application",
+ "mnt-workorder-domain",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-workorder-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-workorder-domain",
+ "serde",
+ "serde_json",
+ "time",
+ "uuid",
+]
+
+[[package]]
 name = "mnt-workorder-domain"
 version = "0.1.0"
 dependencies = [
@@ -1878,6 +1909,23 @@ dependencies = [
  "serde",
  "serde_json",
  "time",
+]
+
+[[package]]
+name = "mnt-workorder-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "http",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-workorder-adapter-postgres",
+ "mnt-workorder-application",
+ "mnt-workorder-domain",
+ "serde",
+ "time",
+ "uuid",
 ]
 
 [[package]]

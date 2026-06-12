@@ -1,0 +1,568 @@
+openapi: 3.1.0
+info:
+  title: Maintenance FSM Backend API
+  version: 0.1.0
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: Service is alive.
+  /readyz:
+    get:
+      summary: Readiness check
+      responses:
+        "200":
+          description: Service dependencies are ready.
+        "503":
+          description: A required dependency is unavailable.
+  /api/work-orders:
+    post:
+      summary: Create a work order from branch-scoped equipment management number
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkOrderRequest"
+      responses:
+        "201":
+          description: Work order created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkOrderSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/work-orders/{workOrderId}:
+    get:
+      summary: Fetch one work order
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkOrderId"
+      responses:
+        "200":
+          description: Work order summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkOrderSummary"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/work-orders/{workOrderId}/priority:
+    patch:
+      summary: Update work-order priority
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkOrderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [priority]
+              properties:
+                priority:
+                  $ref: "#/components/schemas/PriorityLevel"
+      responses:
+        "200":
+          description: Updated work order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkOrderSummary"
+  /api/work-orders/{workOrderId}/assignments:
+    put:
+      summary: Assign mechanics and approval-line approvers
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkOrderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignWorkOrderRequest"
+      responses:
+        "200":
+          description: Assigned work order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkOrderSummary"
+  /api/work-orders/{workOrderId}/start:
+    post:
+      summary: Start assigned work
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkOrderId"
+      responses:
+        "200":
+          description: In-progress work order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkOrderSummary"
+  /api/work-orders/{workOrderId}/report:
+    post:
+      summary: Submit a mechanic work report
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkOrderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitReportRequest"
+      responses:
+        "200":
+          description: Report-submitted work order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkOrderSummary"
+  /api/work-orders/{workOrderId}/approve:
+    post:
+      summary: Approve the next pending non-mechanic approval step
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkOrderId"
+      responses:
+        "200":
+          description: Updated work-order approval state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkOrderSummary"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/work-orders/{workOrderId}/target-change-requests:
+    post:
+      summary: Request a target due-date change
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkOrderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TargetChangeRequest"
+      responses:
+        "201":
+          description: Target change request created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TargetChangeRequestSummary"
+  /api/target-change-requests/{requestId}/review:
+    post:
+      summary: Review a target due-date change request
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewTargetChangeRequest"
+      responses:
+        "200":
+          description: Target change review persisted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TargetChangeRequestSummary"
+  /api/daily-work-plans:
+    post:
+      summary: Create a daily work plan
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDailyPlanRequest"
+      responses:
+        "201":
+          description: Daily plan created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyPlanSummary"
+  /api/daily-work-plans/{planId}/request-review:
+    post:
+      summary: Send a daily work plan for review
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+      responses:
+        "200":
+          description: Daily plan moved to requested.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyPlanSummary"
+  /api/daily-work-plans/{planId}/review:
+    post:
+      summary: Review a daily work plan
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewDailyPlanRequest"
+      responses:
+        "200":
+          description: Daily plan reviewed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyPlanSummary"
+  /api/daily-work-plans/{planId}/confirm:
+    post:
+      summary: Confirm an approved daily work plan
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+      responses:
+        "200":
+          description: Daily plan confirmed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyPlanSummary"
+  /api/work-orders/{workOrderId}/outsource-works:
+    post:
+      summary: Create an outsource work request for a work order
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkOrderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOutsourceWorkRequest"
+      responses:
+        "201":
+          description: Outsource work created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutsourceWorkSummary"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    WorkOrderId:
+      name: workOrderId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PlanId:
+      name: planId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RequestId:
+      name: requestId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    Forbidden:
+      description: Principal lacks role or branch authority.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    ValidationError:
+      description: Request failed validation.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    NotFound:
+      description: Resource was not found in branch scope.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    Conflict:
+      description: State conflict or illegal transition.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+    Timestamp:
+      type: string
+      format: date-time
+    Date:
+      type: string
+      format: date
+    PriorityLevel:
+      type: string
+      enum: [P1, P2, P3, OUTSOURCE, UNSET]
+    WorkOrderStatus:
+      type: string
+      enum:
+        - RECEIVED
+        - UNASSIGNED
+        - ASSIGNED
+        - IN_PROGRESS
+        - REPORT_SUBMITTED
+        - ADMIN_REVIEW
+        - FINAL_COMPLETED
+        - REJECTED
+        - ON_HOLD
+        - DELAYED
+        - TEMPORARY_ACTION
+        - PART_WAITING
+        - EQUIPMENT_IN_USE
+        - REVISIT_REQUIRED
+        - ARCHIVED
+        - CANCELLED
+    WorkResultType:
+      type: string
+      enum: [COMPLETED, TEMPORARY_ACTION, INCOMPLETE, REVISIT_REQUIRED, UNKNOWN]
+    AssignmentRole:
+      type: string
+      enum: [PRIMARY, SECONDARY]
+    DailyPlanStatus:
+      type: string
+      enum: [DRAFT, REQUESTED, APPROVED, REJECTED, FINAL_CONFIRMED]
+    TargetChangeDecision:
+      type: string
+      enum: [APPROVED, REJECTED]
+    CreateWorkOrderRequest:
+      type: object
+      required: [branch_id, management_no, symptom]
+      properties:
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        management_no:
+          type: string
+        symptom:
+          type: string
+        customer_request:
+          type: string
+        target_due_at:
+          $ref: "#/components/schemas/Timestamp"
+    AssignWorkOrderRequest:
+      type: object
+      required: [assignments]
+      properties:
+        assignments:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [mechanic_id, role]
+            properties:
+              mechanic_id:
+                $ref: "#/components/schemas/Uuid"
+              role:
+                $ref: "#/components/schemas/AssignmentRole"
+        admin_approver_id:
+          $ref: "#/components/schemas/Uuid"
+        executive_approver_id:
+          $ref: "#/components/schemas/Uuid"
+    SubmitReportRequest:
+      type: object
+      required: [result_type, diagnosis, action_taken]
+      properties:
+        result_type:
+          $ref: "#/components/schemas/WorkResultType"
+        diagnosis:
+          type: string
+        action_taken:
+          type: string
+    TargetChangeRequest:
+      type: object
+      required: [requested_target_due_at, reason]
+      properties:
+        requested_target_due_at:
+          $ref: "#/components/schemas/Timestamp"
+        reason:
+          type: string
+    ReviewTargetChangeRequest:
+      type: object
+      required: [decision]
+      properties:
+        decision:
+          $ref: "#/components/schemas/TargetChangeDecision"
+        memo:
+          type: string
+    CreateDailyPlanRequest:
+      type: object
+      required: [branch_id, mechanic_id, plan_date, items]
+      properties:
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        mechanic_id:
+          $ref: "#/components/schemas/Uuid"
+        plan_date:
+          $ref: "#/components/schemas/Date"
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [description]
+            properties:
+              work_order_id:
+                $ref: "#/components/schemas/Uuid"
+              description:
+                type: string
+    ReviewDailyPlanRequest:
+      type: object
+      required: [decision]
+      properties:
+        decision:
+          $ref: "#/components/schemas/DailyPlanStatus"
+        memo:
+          type: string
+    CreateOutsourceWorkRequest:
+      type: object
+      required: [vendor_name, reason]
+      properties:
+        vendor_name:
+          type: string
+        vendor_contact:
+          type: string
+        reason:
+          type: string
+    WorkOrderSummary:
+      type: object
+      required:
+        - id
+        - request_no
+        - branch_id
+        - equipment_id
+        - customer_id
+        - site_id
+        - status
+        - priority
+        - result_type
+        - evidence_verified
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        request_no:
+          type: string
+          pattern: "^[0-9]{8}-[0-9]{3}$"
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        equipment_id:
+          $ref: "#/components/schemas/Uuid"
+        customer_id:
+          $ref: "#/components/schemas/Uuid"
+        site_id:
+          $ref: "#/components/schemas/Uuid"
+        status:
+          $ref: "#/components/schemas/WorkOrderStatus"
+        priority:
+          $ref: "#/components/schemas/PriorityLevel"
+        result_type:
+          $ref: "#/components/schemas/WorkResultType"
+        evidence_verified:
+          type: boolean
+    TargetChangeRequestSummary:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        work_order_id:
+          $ref: "#/components/schemas/Uuid"
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        requested_target_due_at:
+          $ref: "#/components/schemas/Timestamp"
+        status:
+          type: string
+          enum: [REQUESTED, APPROVED, REJECTED]
+    DailyPlanSummary:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        mechanic_id:
+          $ref: "#/components/schemas/Uuid"
+        plan_date:
+          $ref: "#/components/schemas/Date"
+        status:
+          $ref: "#/components/schemas/DailyPlanStatus"
+    OutsourceWorkSummary:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        work_order_id:
+          $ref: "#/components/schemas/Uuid"
+        vendor_id:
+          $ref: "#/components/schemas/Uuid"
+        vendor_name:
+          type: string
+        status:
+          type: string
+          enum: [REQUESTED, ASSIGNED, IN_PROGRESS, RESULT_SUBMITTED, COMPLETED, CANCELLED]
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
