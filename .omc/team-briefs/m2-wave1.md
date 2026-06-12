@@ -27,3 +27,13 @@ Same Hard Rules as `m0-wave1.md`. Entry gate T1.10 SATISFIED (soak evidence ×2 
 - REST: thread list (branch-scoped + membership), message page (cursor pagination), send, read-receipt, FTS search endpoint. Media attachments reuse the evidence presign flow (reference, don't duplicate).
 - Re-emit openapi + regen clients (expect lead-side merge reconciliation with T2.4 — keep your changes additive).
 - Tests: #[sqlx::test] persist+audit same-tx; WO-thread auto-create; membership/branch-scope denial; FTS Korean text hits (config: simple or mecab-less tsvector — document Korean FTS limits honestly, e.g. bigram fallback); cursor pagination stability.
+
+### 5. T2.5 — escalation chain (backend; T2.4 merged)
+- Per Subtask 2 above. The dispatch engine, JobQueue timers, push/Alimtalk adapters all exist (T2.4) — this task builds the full configurable chain on top: push immediate → no-ack N min → Alimtalk (config template IDs; refuses-to-enable without them via clear startup log) → no-ack M min → manager 유선 alert surface (wall-board exception flag via a flagged state the web already renders in its exception strip + audit event dispatch.escalation.manual_call_required).
+- Drive the whole chain in tests with FixedClock + the JobQueue test patterns from T1.10/T2.4; timers config-driven and asserted.
+- E2E: 등록→no accepts→timer→alimtalk-leg-skipped-without-config (asserted log/status)→manager alert flag set→force-assign clears chain.
+
+### 6. T3.3 — messenger clients (web + Android + iOS; backend merged: RESTpolling + /api/v1/ws realtime)
+- Web: thread list (WO-threads + team/DM/group), message view w/ cursor pagination + WS live updates (reconnect→cursor resume per T3.2 contract), composer, read receipts, FTS search box, media via the evidence presign flow where thread is WO-bound. shadcn patterns consistent with existing console.
+- Android + iOS: messenger tab mirroring web capabilities (parity checklist UPDATE required — add messenger rows for both apps + string-key parity); native WS clients with resume cursors; offline-composed messages queue through the existing offline queue patterns (sync replay NOT applicable to chat sends — they go direct when online; offline sends queue locally with clear pending state, send on reconnect, NEVER silent-drop).
+- Tests: web vitest (thread list, pagination, live-update reducer, reconnect resume), Android JVM (queue + reducer + mappers), iOS behavior-runner additions (mirror Android 1:1). Parity gate + i18n gates green.
