@@ -21,3 +21,4 @@ dist/
 !.env.example
 **/.omc/sessions/
 **/.omc/project-memory.json
+.claude/worktrees/
