@@ -293,6 +293,204 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OutsourceWorkSummary"
+  /api/v1/work-orders:
+    get:
+      operationId: listWorkOrders
+      summary: List branch-scoped work orders
+      description: Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/WorkOrderStatus"
+        - name: priority
+          in: query
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/PriorityLevel"
+        - name: assigned_to
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Use `me` for the authenticated user or a user UUID.
+        - name: customer_id
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: site_id
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: target_due_from
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Timestamp"
+        - name: target_due_to
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Timestamp"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Paginated work-order list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkOrderListPage"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/work-orders/{workOrderId}:
+    get:
+      operationId: getWorkOrderDetail
+      summary: Fetch branch-scoped work-order detail
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkOrderId"
+      responses:
+        "200":
+          description: Full work-order detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkOrderDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/work-orders/{workOrderId}/reject:
+    post:
+      operationId: rejectWorkOrder
+      summary: Reject a submitted work order with an audit memo
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkOrderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectWorkOrderRequest"
+      responses:
+        "200":
+          description: Rejected work order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkOrderSummary"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/equipment/lookup:
+    get:
+      operationId: lookupEquipment
+      summary: Resolve branch-scoped equipment by management number
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: management_no
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+          description: Equipment management number. A leading `#` is accepted and ignored.
+      responses:
+        "200":
+          description: Matching equipment, model, customer, and site.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EquipmentLookupResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/equipment:
+    get:
+      operationId: autocompleteEquipment
+      summary: Autocomplete branch-scoped equipment by management number, equipment number, or model
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+            maximum: 20
+            default: 10
+      responses:
+        "200":
+          description: Prefix-search equipment matches.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EquipmentAutocompletePage"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/v1/sync:
     post:
       operationId: replayOfflineSyncBatch
@@ -758,6 +956,337 @@ components:
           type: string
         reason:
           type: string
+    RejectWorkOrderRequest:
+      type: object
+      required: [memo]
+      properties:
+        memo:
+          type: string
+          minLength: 1
+    NamedEntity:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        name:
+          type: string
+    EquipmentSummary:
+      type: object
+      required: [id, equipment_no, management_no, model, status, specification, ton_text]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        equipment_no:
+          type: string
+        management_no:
+          type:
+            - string
+            - "null"
+        model:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+        specification:
+          type: string
+        ton_text:
+          type: string
+    EquipmentLookupResponse:
+      type: object
+      required:
+        - id
+        - branch_id
+        - equipment_no
+        - management_no
+        - model
+        - status
+        - specification
+        - ton_text
+        - customer
+        - site
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        equipment_no:
+          type: string
+        management_no:
+          type:
+            - string
+            - "null"
+        model:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+        specification:
+          type: string
+        ton_text:
+          type: string
+        customer:
+          $ref: "#/components/schemas/NamedEntity"
+        site:
+          $ref: "#/components/schemas/NamedEntity"
+    EquipmentAutocompletePage:
+      type: object
+      required: [items, limit]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/EquipmentLookupResponse"
+        limit:
+          type: integer
+          format: int64
+    AssignmentSummary:
+      type: object
+      required: [id, mechanic_id, mechanic_name, role, assigned_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        mechanic_id:
+          $ref: "#/components/schemas/Uuid"
+        mechanic_name:
+          type: string
+        role:
+          $ref: "#/components/schemas/AssignmentRole"
+        assigned_at:
+          $ref: "#/components/schemas/Timestamp"
+    ApprovalStepSummary:
+      type: object
+      required:
+        - id
+        - step_order
+        - role
+        - approver_id
+        - status
+        - requested_at
+        - approved_at
+        - approved_by_id
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        step_order:
+          type: integer
+          format: int32
+        role:
+          type: string
+        approver_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        status:
+          type: string
+        requested_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        approved_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        approved_by_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+    StatusHistorySummary:
+      type: object
+      required: [id, actor, action, from_status, to_status, occurred_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        actor:
+          type:
+            - string
+            - "null"
+          format: uuid
+        action:
+          type: string
+        from_status:
+          type:
+            - string
+            - "null"
+        to_status:
+          $ref: "#/components/schemas/WorkOrderStatus"
+        occurred_at:
+          $ref: "#/components/schemas/Timestamp"
+    EvidenceSummary:
+      type: object
+      required:
+        - id
+        - stage
+        - content_type
+        - size_bytes
+        - uploaded_by
+        - worm_replica_status
+        - retry_count
+        - verified_at
+        - created_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        stage:
+          $ref: "#/components/schemas/AttachmentStage"
+        content_type:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+        uploaded_by:
+          $ref: "#/components/schemas/Uuid"
+        worm_replica_status:
+          $ref: "#/components/schemas/WormReplicaStatus"
+        retry_count:
+          type: integer
+          format: int32
+        verified_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+    WorkOrderListItem:
+      type: object
+      required:
+        - id
+        - request_no
+        - branch_id
+        - status
+        - priority
+        - result_type
+        - target_due_at
+        - created_at
+        - updated_at
+        - equipment
+        - customer
+        - site
+        - assignments
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        request_no:
+          type: string
+          pattern: "^[0-9]{8}-[0-9]{3}$"
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        status:
+          $ref: "#/components/schemas/WorkOrderStatus"
+        priority:
+          $ref: "#/components/schemas/PriorityLevel"
+        result_type:
+          $ref: "#/components/schemas/WorkResultType"
+        target_due_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+        equipment:
+          $ref: "#/components/schemas/EquipmentSummary"
+        customer:
+          $ref: "#/components/schemas/NamedEntity"
+        site:
+          $ref: "#/components/schemas/NamedEntity"
+        assignments:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssignmentSummary"
+    WorkOrderListPage:
+      type: object
+      required: [items, limit, offset, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkOrderListItem"
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
+        total:
+          type: integer
+          format: int64
+    WorkOrderDetail:
+      allOf:
+        - $ref: "#/components/schemas/WorkOrderListItem"
+        - type: object
+          required:
+            - symptom
+            - customer_request
+            - delay_reason
+            - delay_note
+            - diagnosis
+            - action_taken
+            - report_submitted_by
+            - report_submitted_at
+            - kpi_excluded
+            - evidence_verified
+            - approval_line
+            - status_history
+            - evidence
+          properties:
+            symptom:
+              type: string
+            customer_request:
+              type:
+                - string
+                - "null"
+            delay_reason:
+              type:
+                - string
+                - "null"
+            delay_note:
+              type:
+                - string
+                - "null"
+            diagnosis:
+              type:
+                - string
+                - "null"
+            action_taken:
+              type:
+                - string
+                - "null"
+            report_submitted_by:
+              type:
+                - string
+                - "null"
+              format: uuid
+            report_submitted_at:
+              type:
+                - string
+                - "null"
+              format: date-time
+            kpi_excluded:
+              type: boolean
+            evidence_verified:
+              type: boolean
+            approval_line:
+              type: array
+              items:
+                $ref: "#/components/schemas/ApprovalStepSummary"
+            status_history:
+              type: array
+              items:
+                $ref: "#/components/schemas/StatusHistorySummary"
+            evidence:
+              type: array
+              items:
+                $ref: "#/components/schemas/EvidenceSummary"
     SyncBatchRequest:
       type: object
       required: [sync_id, operations]

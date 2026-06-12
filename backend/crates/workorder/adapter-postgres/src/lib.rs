@@ -8,12 +8,12 @@ use mnt_kernel_core::{
 use mnt_platform_db::{DbError, with_audit};
 use mnt_workorder_application::{
     CreateDailyPlanCommand, CreateOutsourceWorkCommand, CreateWorkOrderCommand, DailyPlanStatus,
-    DailyPlanSummary, OutsourceWorkStatus, OutsourceWorkSummary, ReviewDailyPlanCommand,
-    ReviewTargetChangeCommand, SendDailyPlanForReviewCommand, SubmitReportCommand,
-    TargetChangeDecision, TargetChangeRequestCommand, TargetChangeRequestSummary,
-    TargetChangeStatus, UpdatePriorityCommand, WorkOrderApprovalCommand,
-    WorkOrderAssignmentCommand, WorkOrderStartCommand, WorkOrderSummary, daily_plan_audit_event,
-    work_order_audit_event,
+    DailyPlanSummary, OutsourceWorkStatus, OutsourceWorkSummary, RejectWorkOrderCommand,
+    ReviewDailyPlanCommand, ReviewTargetChangeCommand, SendDailyPlanForReviewCommand,
+    SubmitReportCommand, TargetChangeDecision, TargetChangeRequestCommand,
+    TargetChangeRequestSummary, TargetChangeStatus, UpdatePriorityCommand,
+    WorkOrderApprovalCommand, WorkOrderAssignmentCommand, WorkOrderStartCommand, WorkOrderSummary,
+    daily_plan_audit_event, work_order_audit_event,
 };
 use mnt_workorder_domain::{
     ApprovalRole, PriorityLevel, TransitionActor, TransitionGuardContext, WorkOrderAssignment,
@@ -62,6 +62,11 @@ impl PgWorkOrderStore {
     #[must_use]
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    #[must_use]
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
     }
 
     pub async fn create_work_order(
@@ -527,6 +532,69 @@ impl PgWorkOrderStore {
                 }
 
                 update_status(tx, row, actor, "work_order.approve", to, occurred_at).await
+            })
+        })
+        .await
+    }
+
+    pub async fn reject_work_order(
+        &self,
+        command: RejectWorkOrderCommand,
+    ) -> Result<WorkOrderSummary, PgWorkOrderError> {
+        let branch_id = self.branch_for_work_order(command.work_order_id).await?;
+        let work_order_id = command.work_order_id;
+        let actor = command.actor;
+        let memo = command.memo;
+        let occurred_at = command.occurred_at;
+        let memo = memo.trim().to_owned();
+        if memo.is_empty() {
+            return Err(KernelError::validation("reject memo is required").into());
+        }
+        let event = work_order_audit_event(
+            "work_order.reject",
+            actor,
+            branch_id,
+            work_order_id,
+            command.trace,
+            occurred_at,
+        )?
+        .with_snapshots(None, Some(serde_json::json!({ "memo": memo })));
+
+        with_audit::<_, WorkOrderSummary, PgWorkOrderError>(&self.pool, event, |tx| {
+            Box::pin(async move {
+                let row = lock_work_order(tx, work_order_id).await?;
+                validate_status_transition(
+                    row.status,
+                    WorkOrderStatus::Rejected,
+                    TransitionGuardContext::admin(),
+                )?;
+
+                sqlx::query(
+                    r#"
+                    UPDATE work_order_approval_steps
+                    SET status = 'REJECTED',
+                        approved_at = $2,
+                        approved_by_id = $3,
+                        updated_at = $2
+                    WHERE work_order_id = $1
+                      AND status = 'PENDING'
+                    "#,
+                )
+                .bind(row.id)
+                .bind(occurred_at)
+                .bind(*actor.as_uuid())
+                .execute(tx.as_mut())
+                .await?;
+
+                update_status(
+                    tx,
+                    row,
+                    actor,
+                    "work_order.reject",
+                    WorkOrderStatus::Rejected,
+                    occurred_at,
+                )
+                .await
             })
         })
         .await

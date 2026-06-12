@@ -5,10 +5,10 @@
 //! which writes through `with_audit`.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, RawQuery, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post, put};
@@ -18,7 +18,7 @@ use mnt_kernel_core::{
     KernelError, TraceContext, UserId, WorkOrderId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
-use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
+use mnt_platform_authz::{Action, BranchColumn, Feature, Principal, Role, authorize};
 use mnt_platform_db::{DbError, with_audit};
 use mnt_platform_storage::{
     EvidenceService, EvidenceUploadCommand, EvidenceUploadTicket, PresignedUpload, S3ObjectStore,
@@ -27,15 +27,18 @@ use mnt_platform_storage::{
 use mnt_workorder_adapter_postgres::{PgWorkOrderError, PgWorkOrderStore};
 use mnt_workorder_application::{
     AssignmentInput, CreateDailyPlanCommand, CreateOutsourceWorkCommand, CreateWorkOrderCommand,
-    DailyPlanItemInput, DailyPlanStatus, ReviewDailyPlanCommand, ReviewTargetChangeCommand,
-    SendDailyPlanForReviewCommand, SubmitReportCommand, TargetChangeDecision,
-    TargetChangeRequestCommand, UpdatePriorityCommand, WorkOrderApprovalCommand,
-    WorkOrderAssignmentCommand, WorkOrderStartCommand,
+    DailyPlanItemInput, DailyPlanStatus, RejectWorkOrderCommand, ReviewDailyPlanCommand,
+    ReviewTargetChangeCommand, SendDailyPlanForReviewCommand, SubmitReportCommand,
+    TargetChangeDecision, TargetChangeRequestCommand, UpdatePriorityCommand,
+    WorkOrderApprovalCommand, WorkOrderAssignmentCommand, WorkOrderStartCommand,
 };
-use mnt_workorder_domain::{AssignmentRole, AttachmentStage, PriorityLevel, WorkResultType};
+use mnt_workorder_domain::{
+    AssignmentRole, AttachmentStage, PriorityLevel, WorkOrderStatus, WorkResultType,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, QueryBuilder, Row};
+use time::format_description::well_known::Rfc3339;
 
 pub const SYNC_PATH: &str = "/api/v1/sync";
 pub const EVIDENCE_PRESIGN_PATH: &str = "/api/v1/evidence/presign";
@@ -91,6 +94,17 @@ impl<S> MobileRestState<S> {
 
 pub fn router(state: WorkOrderRestState) -> Router {
     Router::new()
+        .route("/api/v1/work-orders", get(list_work_orders))
+        .route(
+            "/api/v1/work-orders/{work_order_id}",
+            get(get_work_order_detail),
+        )
+        .route(
+            "/api/v1/work-orders/{work_order_id}/reject",
+            post(reject_work_order),
+        )
+        .route("/api/v1/equipment/lookup", get(lookup_equipment))
+        .route("/api/v1/equipment", get(autocomplete_equipment))
         .route("/api/work-orders", post(create_work_order))
         .route("/api/work-orders/{work_order_id}", get(get_work_order))
         .route(
@@ -224,6 +238,184 @@ struct CreateOutsourceWorkRequest {
     vendor_name: String,
     vendor_contact: Option<String>,
     reason: String,
+}
+
+#[derive(Debug, Default)]
+struct WorkOrderListQuery {
+    status: Vec<String>,
+    priority: Vec<String>,
+    assigned_to: Option<String>,
+    customer_id: Option<uuid::Uuid>,
+    site_id: Option<uuid::Uuid>,
+    target_due_from: Option<time::OffsetDateTime>,
+    target_due_to: Option<time::OffsetDateTime>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+#[derive(Debug)]
+struct NormalizedWorkOrderListQuery {
+    statuses: Vec<String>,
+    priorities: Vec<String>,
+    assigned_to: Option<UserId>,
+    customer_id: Option<uuid::Uuid>,
+    site_id: Option<uuid::Uuid>,
+    target_due_from: Option<time::OffsetDateTime>,
+    target_due_to: Option<time::OffsetDateTime>,
+    limit: i64,
+    offset: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct EquipmentLookupQuery {
+    management_no: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct EquipmentAutocompleteQuery {
+    q: String,
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RejectWorkOrderRequest {
+    memo: String,
+}
+
+#[derive(Debug, Serialize)]
+struct WorkOrderListPage {
+    items: Vec<WorkOrderListItem>,
+    limit: i64,
+    offset: i64,
+    total: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct WorkOrderListItem {
+    id: WorkOrderId,
+    request_no: String,
+    branch_id: BranchId,
+    status: String,
+    priority: String,
+    result_type: String,
+    target_due_at: Option<time::OffsetDateTime>,
+    created_at: time::OffsetDateTime,
+    updated_at: time::OffsetDateTime,
+    equipment: EquipmentSummary,
+    customer: NamedEntity,
+    site: NamedEntity,
+    assignments: Vec<AssignmentSummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct WorkOrderDetail {
+    id: WorkOrderId,
+    request_no: String,
+    branch_id: BranchId,
+    status: String,
+    priority: String,
+    result_type: String,
+    symptom: String,
+    customer_request: Option<String>,
+    target_due_at: Option<time::OffsetDateTime>,
+    delay_reason: Option<String>,
+    delay_note: Option<String>,
+    diagnosis: Option<String>,
+    action_taken: Option<String>,
+    report_submitted_by: Option<UserId>,
+    report_submitted_at: Option<time::OffsetDateTime>,
+    kpi_excluded: bool,
+    evidence_verified: bool,
+    created_at: time::OffsetDateTime,
+    updated_at: time::OffsetDateTime,
+    equipment: EquipmentSummary,
+    customer: NamedEntity,
+    site: NamedEntity,
+    assignments: Vec<AssignmentSummary>,
+    approval_line: Vec<ApprovalStepSummary>,
+    status_history: Vec<StatusHistorySummary>,
+    evidence: Vec<EvidenceSummary>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct EquipmentSummary {
+    id: uuid::Uuid,
+    equipment_no: String,
+    management_no: Option<String>,
+    model: Option<String>,
+    status: String,
+    specification: String,
+    ton_text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct NamedEntity {
+    id: uuid::Uuid,
+    name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct AssignmentSummary {
+    id: uuid::Uuid,
+    mechanic_id: UserId,
+    mechanic_name: String,
+    role: String,
+    assigned_at: time::OffsetDateTime,
+}
+
+#[derive(Debug, Serialize)]
+struct ApprovalStepSummary {
+    id: uuid::Uuid,
+    step_order: i16,
+    role: String,
+    approver_id: Option<UserId>,
+    status: String,
+    requested_at: Option<time::OffsetDateTime>,
+    approved_at: Option<time::OffsetDateTime>,
+    approved_by_id: Option<UserId>,
+}
+
+#[derive(Debug, Serialize)]
+struct StatusHistorySummary {
+    id: uuid::Uuid,
+    actor: Option<UserId>,
+    action: String,
+    from_status: Option<String>,
+    to_status: String,
+    occurred_at: time::OffsetDateTime,
+}
+
+#[derive(Debug, Serialize)]
+struct EvidenceSummary {
+    id: EvidenceId,
+    stage: String,
+    content_type: String,
+    size_bytes: i64,
+    uploaded_by: UserId,
+    worm_replica_status: String,
+    retry_count: i32,
+    verified_at: Option<time::OffsetDateTime>,
+    created_at: time::OffsetDateTime,
+}
+
+#[derive(Debug, Serialize)]
+struct EquipmentAutocompletePage {
+    items: Vec<EquipmentLookupResponse>,
+    limit: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct EquipmentLookupResponse {
+    id: uuid::Uuid,
+    branch_id: BranchId,
+    equipment_no: String,
+    management_no: Option<String>,
+    model: Option<String>,
+    status: String,
+    specification: String,
+    ton_text: String,
+    customer: NamedEntity,
+    site: NamedEntity,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1148,6 +1340,255 @@ async fn record_evidence_presign_audit(
     with_audit::<_, (), RestError>(pool, event, |_tx| Box::pin(async move { Ok(()) })).await
 }
 
+async fn list_work_orders(
+    State(state): State<WorkOrderRestState>,
+    headers: HeaderMap,
+    RawQuery(raw_query): RawQuery,
+) -> Result<Json<WorkOrderListPage>, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    authorize_read_access(&principal)?;
+    let query = parse_work_order_list_query(raw_query.as_deref(), principal.user_id)?;
+    let pool = state.store.pool();
+
+    let total = {
+        let mut builder =
+            QueryBuilder::<Postgres>::new("SELECT COUNT(*) FROM work_orders w WHERE ");
+        push_work_order_filters(&mut builder, &principal.branch_scope, &query)?;
+        builder.build_query_scalar::<i64>().fetch_one(pool).await?
+    };
+
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            w.id, w.request_no, w.branch_id, w.status, w.priority, w.result_type,
+            w.target_due_at, w.created_at, w.updated_at,
+            e.id AS equipment_id, e.equipment_no, e.management_no, e.model,
+            e.status AS equipment_status, e.specification, e.ton_text,
+            c.id AS customer_id, c.name AS customer_name,
+            s.id AS site_id, s.name AS site_name
+        FROM work_orders w
+        JOIN registry_equipment e ON e.id = w.equipment_id
+        JOIN registry_customers c ON c.id = w.customer_id
+        JOIN registry_sites s ON s.id = w.site_id
+        WHERE
+        "#,
+    );
+    push_work_order_filters(&mut builder, &principal.branch_scope, &query)?;
+    builder.push(
+        r#"
+        ORDER BY
+            CASE w.priority
+                WHEN 'P1' THEN 1
+                WHEN 'P2' THEN 2
+                WHEN 'P3' THEN 3
+                WHEN 'OUTSOURCE' THEN 4
+                ELSE 5
+            END,
+            w.target_due_at ASC NULLS LAST,
+            w.created_at ASC,
+            w.id ASC
+        LIMIT
+        "#,
+    );
+    builder.push_bind(query.limit);
+    builder.push(" OFFSET ");
+    builder.push_bind(query.offset);
+    let rows = builder.build().fetch_all(pool).await?;
+    let work_order_ids = rows
+        .iter()
+        .map(|row| row.try_get("id"))
+        .collect::<Result<Vec<uuid::Uuid>, _>>()?;
+    let assignments = fetch_assignment_map(pool, &work_order_ids).await?;
+    let items = rows
+        .iter()
+        .map(|row| work_order_list_item_from_row(row, &assignments))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(Json(WorkOrderListPage {
+        items,
+        limit: query.limit,
+        offset: query.offset,
+        total,
+    }))
+}
+
+async fn get_work_order_detail(
+    State(state): State<WorkOrderRestState>,
+    headers: HeaderMap,
+    Path(work_order_id): Path<uuid::Uuid>,
+) -> Result<Json<WorkOrderDetail>, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    authorize_read_access(&principal)?;
+    let pool = state.store.pool();
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            w.id, w.request_no, w.branch_id, w.status, w.priority, w.result_type,
+            w.symptom, w.customer_request, w.target_due_at, w.delay_reason, w.delay_note,
+            w.diagnosis, w.action_taken, w.report_submitted_by, w.report_submitted_at,
+            w.kpi_excluded, w.created_at, w.updated_at,
+            EXISTS (
+                SELECT 1
+                FROM evidence_media verified
+                WHERE verified.work_order_id = w.id
+                  AND verified.stage IN ('AFTER', 'REPORT')
+                  AND verified.worm_replica_status = 'VERIFIED'
+            ) AND NOT EXISTS (
+                SELECT 1
+                FROM evidence_media unverified
+                WHERE unverified.work_order_id = w.id
+                  AND unverified.stage IN ('AFTER', 'REPORT')
+                  AND unverified.worm_replica_status <> 'VERIFIED'
+            ) AS evidence_verified,
+            e.id AS equipment_id, e.equipment_no, e.management_no, e.model,
+            e.status AS equipment_status, e.specification, e.ton_text,
+            c.id AS customer_id, c.name AS customer_name,
+            s.id AS site_id, s.name AS site_name
+        FROM work_orders w
+        JOIN registry_equipment e ON e.id = w.equipment_id
+        JOIN registry_customers c ON c.id = w.customer_id
+        JOIN registry_sites s ON s.id = w.site_id
+        WHERE w.id =
+        "#,
+    );
+    builder.push_bind(work_order_id);
+    builder.push(" AND ");
+    push_branch_scope_filter(
+        &mut builder,
+        &principal.branch_scope,
+        BranchColumn::new("w.branch_id").map_err(RestError::from_kernel)?,
+    );
+    let row = builder.build().fetch_optional(pool).await?.ok_or_else(|| {
+        RestError::from_kernel(KernelError::not_found("work order was not found"))
+    })?;
+    let work_order_id = WorkOrderId::from_uuid(work_order_id);
+    let assignments = fetch_assignment_map(pool, &[*work_order_id.as_uuid()])
+        .await?
+        .remove(work_order_id.as_uuid())
+        .unwrap_or_default();
+    let approval_line = fetch_approval_line(pool, work_order_id).await?;
+    let status_history = fetch_status_history(pool, work_order_id).await?;
+    let evidence = fetch_evidence_summaries(pool, work_order_id).await?;
+
+    Ok(Json(work_order_detail_from_row(
+        &row,
+        assignments,
+        approval_line,
+        status_history,
+        evidence,
+    )?))
+}
+
+async fn lookup_equipment(
+    State(state): State<WorkOrderRestState>,
+    headers: HeaderMap,
+    Query(query): Query<EquipmentLookupQuery>,
+) -> Result<Json<EquipmentLookupResponse>, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    authorize_read_access(&principal)?;
+    let management_no = normalize_management_no(&query.management_no)?;
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            e.id, e.branch_id, e.equipment_no, e.management_no, e.model, e.status,
+            e.specification, e.ton_text,
+            c.id AS customer_id, c.name AS customer_name,
+            s.id AS site_id, s.name AS site_name
+        FROM registry_equipment e
+        JOIN registry_customers c ON c.id = e.customer_id
+        JOIN registry_sites s ON s.id = e.site_id
+        WHERE
+        "#,
+    );
+    push_branch_scope_filter(
+        &mut builder,
+        &principal.branch_scope,
+        BranchColumn::new("e.branch_id").map_err(RestError::from_kernel)?,
+    );
+    builder.push(" AND e.management_no = ");
+    builder.push_bind(management_no);
+    builder.push(" ORDER BY e.updated_at DESC LIMIT 1");
+    let row = builder
+        .build()
+        .fetch_optional(state.store.pool())
+        .await?
+        .ok_or_else(|| RestError::from_kernel(KernelError::not_found("equipment was not found")))?;
+    Ok(Json(equipment_lookup_from_row(&row)?))
+}
+
+async fn autocomplete_equipment(
+    State(state): State<WorkOrderRestState>,
+    headers: HeaderMap,
+    Query(query): Query<EquipmentAutocompleteQuery>,
+) -> Result<Json<EquipmentAutocompletePage>, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    authorize_read_access(&principal)?;
+    let raw_query = normalize_management_no(&query.q)?;
+    let limit = normalize_limit(query.limit, 10, 20)?;
+    let prefix = format!("{raw_query}%");
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            e.id, e.branch_id, e.equipment_no, e.management_no, e.model, e.status,
+            e.specification, e.ton_text,
+            c.id AS customer_id, c.name AS customer_name,
+            s.id AS site_id, s.name AS site_name
+        FROM registry_equipment e
+        JOIN registry_customers c ON c.id = e.customer_id
+        JOIN registry_sites s ON s.id = e.site_id
+        WHERE
+        "#,
+    );
+    push_branch_scope_filter(
+        &mut builder,
+        &principal.branch_scope,
+        BranchColumn::new("e.branch_id").map_err(RestError::from_kernel)?,
+    );
+    builder.push(" AND (e.management_no ILIKE ");
+    builder.push_bind(prefix.clone());
+    builder.push(" OR e.equipment_no ILIKE ");
+    builder.push_bind(prefix.clone());
+    builder.push(" OR e.model ILIKE ");
+    builder.push_bind(prefix);
+    builder.push(") ORDER BY e.management_no ASC NULLS LAST, e.updated_at DESC LIMIT ");
+    builder.push_bind(limit);
+    let rows = builder.build().fetch_all(state.store.pool()).await?;
+    let items = rows
+        .iter()
+        .map(equipment_lookup_from_row)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(Json(EquipmentAutocompletePage { items, limit }))
+}
+
+async fn reject_work_order(
+    State(state): State<WorkOrderRestState>,
+    headers: HeaderMap,
+    Path(work_order_id): Path<uuid::Uuid>,
+    Json(body): Json<RejectWorkOrderRequest>,
+) -> Result<impl IntoResponse, RestError> {
+    let work_order_id = WorkOrderId::from_uuid(work_order_id);
+    let principal = authorize_for_work_order(
+        &state,
+        &headers,
+        work_order_id,
+        Action::new(Feature::CompletionReview),
+    )
+    .await?;
+    let summary = state
+        .store
+        .reject_work_order(RejectWorkOrderCommand {
+            actor: principal.user_id,
+            work_order_id,
+            memo: body.memo,
+            trace: TraceContext::generate(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(summary))
+}
+
 async fn create_work_order(
     State(state): State<WorkOrderRestState>,
     headers: HeaderMap,
@@ -1572,6 +2013,569 @@ async fn transition_daily_plan_endpoint(
     }
     .map_err(RestError::from_store)?;
     Ok(Json(summary).into_response())
+}
+
+fn authorize_read_access(principal: &Principal) -> Result<(), RestError> {
+    let resource_branch = match &principal.branch_scope {
+        BranchScope::All => BranchId::new(),
+        BranchScope::Branches(branches) => branches.iter().next().copied().ok_or_else(|| {
+            RestError::from_kernel(KernelError::forbidden("principal has no branch scope"))
+        })?,
+    };
+    authorize(
+        principal,
+        Action::new(Feature::WorkOrderReadAll),
+        resource_branch,
+    )
+    .map_err(RestError::from_kernel)
+}
+
+fn parse_work_order_list_query(
+    raw_query: Option<&str>,
+    actor: UserId,
+) -> Result<NormalizedWorkOrderListQuery, RestError> {
+    let mut query = WorkOrderListQuery::default();
+    if let Some(raw_query) = raw_query {
+        for pair in raw_query.split('&').filter(|pair| !pair.is_empty()) {
+            let (raw_key, raw_value) = pair.split_once('=').unwrap_or((pair, ""));
+            let key = decode_query_component(raw_key)?;
+            let value = decode_query_component(raw_value)?;
+            match key.as_str() {
+                "status" | "status[]" => query.status.push(value),
+                "priority" | "priority[]" => query.priority.push(value),
+                "assigned_to" => query.assigned_to = non_empty_query_value(value),
+                "customer_id" => query.customer_id = parse_uuid_query_value("customer_id", value)?,
+                "site_id" => query.site_id = parse_uuid_query_value("site_id", value)?,
+                "target_due_from" => {
+                    query.target_due_from = parse_datetime_query_value("target_due_from", value)?;
+                }
+                "target_due_to" => {
+                    query.target_due_to = parse_datetime_query_value("target_due_to", value)?;
+                }
+                "limit" => query.limit = parse_i64_query_value("limit", value)?,
+                "offset" => query.offset = parse_i64_query_value("offset", value)?,
+                _ => {}
+            }
+        }
+    }
+    Ok(NormalizedWorkOrderListQuery {
+        statuses: normalize_status_filters(query.status)?,
+        priorities: normalize_priority_filters(query.priority)?,
+        assigned_to: normalize_assigned_to(query.assigned_to, actor)?,
+        customer_id: query.customer_id,
+        site_id: query.site_id,
+        target_due_from: query.target_due_from,
+        target_due_to: query.target_due_to,
+        limit: normalize_limit(query.limit, 50, 100)?,
+        offset: normalize_offset(query.offset)?,
+    })
+}
+
+fn normalize_status_filters(raw: Vec<String>) -> Result<Vec<String>, RestError> {
+    let mut statuses = Vec::new();
+    for value in expand_query_values(raw) {
+        let normalized = value.to_ascii_uppercase();
+        let status = WorkOrderStatus::from_db_str(&normalized).map_err(RestError::from_kernel)?;
+        statuses.push(status.as_db_str().to_owned());
+    }
+    Ok(statuses)
+}
+
+fn normalize_priority_filters(raw: Vec<String>) -> Result<Vec<String>, RestError> {
+    let mut priorities = Vec::new();
+    for value in expand_query_values(raw) {
+        let normalized = value.to_ascii_uppercase();
+        let priority = PriorityLevel::from_db_str(&normalized).map_err(RestError::from_kernel)?;
+        priorities.push(priority.as_db_str().to_owned());
+    }
+    Ok(priorities)
+}
+
+fn expand_query_values(raw: Vec<String>) -> Vec<String> {
+    raw.into_iter()
+        .flat_map(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|part| !part.is_empty())
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn non_empty_query_value(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_owned())
+    }
+}
+
+fn parse_uuid_query_value(name: &str, value: String) -> Result<Option<uuid::Uuid>, RestError> {
+    let Some(value) = non_empty_query_value(value) else {
+        return Ok(None);
+    };
+    uuid::Uuid::parse_str(&value).map(Some).map_err(|_| {
+        RestError::from_kernel(KernelError::validation(format!("{name} must be a UUID")))
+    })
+}
+
+fn parse_datetime_query_value(
+    name: &str,
+    value: String,
+) -> Result<Option<time::OffsetDateTime>, RestError> {
+    let Some(value) = non_empty_query_value(value) else {
+        return Ok(None);
+    };
+    time::OffsetDateTime::parse(&value, &Rfc3339)
+        .map(Some)
+        .map_err(|_| {
+            RestError::from_kernel(KernelError::validation(format!(
+                "{name} must be an RFC 3339 timestamp"
+            )))
+        })
+}
+
+fn parse_i64_query_value(name: &str, value: String) -> Result<Option<i64>, RestError> {
+    let Some(value) = non_empty_query_value(value) else {
+        return Ok(None);
+    };
+    value.parse::<i64>().map(Some).map_err(|_| {
+        RestError::from_kernel(KernelError::validation(format!(
+            "{name} must be an integer"
+        )))
+    })
+}
+
+fn decode_query_component(input: &str) -> Result<String, RestError> {
+    let bytes = input.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'+' => {
+                decoded.push(b' ');
+                index += 1;
+            }
+            b'%' => {
+                if index + 2 >= bytes.len() {
+                    return Err(RestError::from_kernel(KernelError::validation(
+                        "query contains an incomplete percent-escape",
+                    )));
+                }
+                let high = hex_value(bytes[index + 1]).ok_or_else(|| {
+                    RestError::from_kernel(KernelError::validation(
+                        "query contains an invalid percent-escape",
+                    ))
+                })?;
+                let low = hex_value(bytes[index + 2]).ok_or_else(|| {
+                    RestError::from_kernel(KernelError::validation(
+                        "query contains an invalid percent-escape",
+                    ))
+                })?;
+                decoded.push((high << 4) | low);
+                index += 3;
+            }
+            byte => {
+                decoded.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8(decoded).map_err(|_| {
+        RestError::from_kernel(KernelError::validation("query contains invalid UTF-8 data"))
+    })
+}
+
+const fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn normalize_assigned_to(raw: Option<String>, actor: UserId) -> Result<Option<UserId>, RestError> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.eq_ignore_ascii_case("me") {
+        return Ok(Some(actor));
+    }
+    UserId::from_str(trimmed).map(Some).map_err(|_| {
+        RestError::from_kernel(KernelError::validation(
+            "assigned_to must be me or a user id",
+        ))
+    })
+}
+
+fn normalize_management_no(raw: &str) -> Result<String, RestError> {
+    let normalized = raw.trim().trim_start_matches('#').trim();
+    if normalized.is_empty() {
+        return Err(RestError::from_kernel(KernelError::validation(
+            "management_no must not be empty",
+        )));
+    }
+    Ok(normalized.to_owned())
+}
+
+fn normalize_limit(raw: Option<i64>, default: i64, max: i64) -> Result<i64, RestError> {
+    let limit = raw.unwrap_or(default);
+    if !(1..=max).contains(&limit) {
+        return Err(RestError::from_kernel(KernelError::validation(format!(
+            "limit must be between 1 and {max}"
+        ))));
+    }
+    Ok(limit)
+}
+
+fn normalize_offset(raw: Option<i64>) -> Result<i64, RestError> {
+    let offset = raw.unwrap_or(0);
+    if offset < 0 {
+        return Err(RestError::from_kernel(KernelError::validation(
+            "offset must be non-negative",
+        )));
+    }
+    Ok(offset)
+}
+
+fn push_work_order_filters(
+    builder: &mut QueryBuilder<Postgres>,
+    branch_scope: &BranchScope,
+    query: &NormalizedWorkOrderListQuery,
+) -> Result<(), RestError> {
+    push_branch_scope_filter(
+        builder,
+        branch_scope,
+        BranchColumn::new("w.branch_id").map_err(RestError::from_kernel)?,
+    );
+    if !query.statuses.is_empty() {
+        builder.push(" AND w.status = ANY(");
+        builder.push_bind(query.statuses.clone());
+        builder.push(")");
+    }
+    if !query.priorities.is_empty() {
+        builder.push(" AND w.priority = ANY(");
+        builder.push_bind(query.priorities.clone());
+        builder.push(")");
+    }
+    if let Some(assigned_to) = query.assigned_to {
+        builder.push(
+            r#"
+            AND EXISTS (
+                SELECT 1
+                FROM work_order_assignments filtered_assignments
+                WHERE filtered_assignments.work_order_id = w.id
+                  AND filtered_assignments.mechanic_id =
+            "#,
+        );
+        builder.push_bind(*assigned_to.as_uuid());
+        builder.push(")");
+    }
+    if let Some(customer_id) = query.customer_id {
+        builder.push(" AND w.customer_id = ");
+        builder.push_bind(customer_id);
+    }
+    if let Some(site_id) = query.site_id {
+        builder.push(" AND w.site_id = ");
+        builder.push_bind(site_id);
+    }
+    if let Some(from) = query.target_due_from {
+        builder.push(" AND w.target_due_at >= ");
+        builder.push_bind(from);
+    }
+    if let Some(to) = query.target_due_to {
+        builder.push(" AND w.target_due_at <= ");
+        builder.push_bind(to);
+    }
+    Ok(())
+}
+
+fn push_branch_scope_filter(
+    builder: &mut QueryBuilder<Postgres>,
+    scope: &BranchScope,
+    column: BranchColumn,
+) {
+    match scope {
+        BranchScope::All => {
+            builder.push("TRUE");
+        }
+        BranchScope::Branches(branches) if branches.is_empty() => {
+            builder.push("FALSE");
+        }
+        BranchScope::Branches(branches) => {
+            let branch_ids = branches
+                .iter()
+                .map(|branch| *branch.as_uuid())
+                .collect::<Vec<_>>();
+            builder.push(column.as_str());
+            builder.push(" = ANY(");
+            builder.push_bind(branch_ids);
+            builder.push(")");
+        }
+    }
+}
+
+async fn fetch_assignment_map(
+    pool: &PgPool,
+    work_order_ids: &[uuid::Uuid],
+) -> Result<BTreeMap<uuid::Uuid, Vec<AssignmentSummary>>, RestError> {
+    if work_order_ids.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            a.work_order_id, a.id, a.mechanic_id, u.display_name AS mechanic_name,
+            a.role, a.assigned_at
+        FROM work_order_assignments a
+        JOIN users u ON u.id = a.mechanic_id
+        WHERE a.work_order_id = ANY($1)
+        ORDER BY a.work_order_id,
+                 CASE a.role WHEN 'PRIMARY' THEN 1 ELSE 2 END,
+                 a.assigned_at,
+                 a.id
+        "#,
+    )
+    .bind(work_order_ids.to_vec())
+    .fetch_all(pool)
+    .await?;
+    let mut assignments = BTreeMap::<uuid::Uuid, Vec<AssignmentSummary>>::new();
+    for row in rows {
+        let work_order_id = row.try_get("work_order_id")?;
+        assignments
+            .entry(work_order_id)
+            .or_default()
+            .push(assignment_from_row(&row)?);
+    }
+    Ok(assignments)
+}
+
+async fn fetch_approval_line(
+    pool: &PgPool,
+    work_order_id: WorkOrderId,
+) -> Result<Vec<ApprovalStepSummary>, RestError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            id, step_order, role, approver_id, status, requested_at,
+            approved_at, approved_by_id
+        FROM work_order_approval_steps
+        WHERE work_order_id = $1
+        ORDER BY step_order
+        "#,
+    )
+    .bind(*work_order_id.as_uuid())
+    .fetch_all(pool)
+    .await?;
+    rows.iter().map(approval_step_from_row).collect()
+}
+
+async fn fetch_status_history(
+    pool: &PgPool,
+    work_order_id: WorkOrderId,
+) -> Result<Vec<StatusHistorySummary>, RestError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT id, actor, action, from_status, to_status, occurred_at
+        FROM work_order_status_history
+        WHERE work_order_id = $1
+        ORDER BY occurred_at, id
+        "#,
+    )
+    .bind(*work_order_id.as_uuid())
+    .fetch_all(pool)
+    .await?;
+    rows.iter().map(status_history_from_row).collect()
+}
+
+async fn fetch_evidence_summaries(
+    pool: &PgPool,
+    work_order_id: WorkOrderId,
+) -> Result<Vec<EvidenceSummary>, RestError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            id, stage, content_type, size_bytes, uploaded_by,
+            worm_replica_status, retry_count, verified_at, created_at
+        FROM evidence_media
+        WHERE work_order_id = $1
+        ORDER BY created_at, id
+        "#,
+    )
+    .bind(*work_order_id.as_uuid())
+    .fetch_all(pool)
+    .await?;
+    rows.iter().map(evidence_from_row).collect()
+}
+
+fn work_order_list_item_from_row(
+    row: &sqlx::postgres::PgRow,
+    assignments: &BTreeMap<uuid::Uuid, Vec<AssignmentSummary>>,
+) -> Result<WorkOrderListItem, RestError> {
+    let id: uuid::Uuid = row.try_get("id")?;
+    Ok(WorkOrderListItem {
+        id: WorkOrderId::from_uuid(id),
+        request_no: row.try_get("request_no")?,
+        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+        status: row.try_get("status")?,
+        priority: row.try_get("priority")?,
+        result_type: row.try_get("result_type")?,
+        target_due_at: row.try_get("target_due_at")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+        equipment: equipment_summary_from_row(row)?,
+        customer: NamedEntity {
+            id: row.try_get("customer_id")?,
+            name: row.try_get("customer_name")?,
+        },
+        site: NamedEntity {
+            id: row.try_get("site_id")?,
+            name: row.try_get("site_name")?,
+        },
+        assignments: assignments.get(&id).cloned().unwrap_or_default(),
+    })
+}
+
+fn work_order_detail_from_row(
+    row: &sqlx::postgres::PgRow,
+    assignments: Vec<AssignmentSummary>,
+    approval_line: Vec<ApprovalStepSummary>,
+    status_history: Vec<StatusHistorySummary>,
+    evidence: Vec<EvidenceSummary>,
+) -> Result<WorkOrderDetail, RestError> {
+    Ok(WorkOrderDetail {
+        id: WorkOrderId::from_uuid(row.try_get("id")?),
+        request_no: row.try_get("request_no")?,
+        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+        status: row.try_get("status")?,
+        priority: row.try_get("priority")?,
+        result_type: row.try_get("result_type")?,
+        symptom: row.try_get("symptom")?,
+        customer_request: row.try_get("customer_request")?,
+        target_due_at: row.try_get("target_due_at")?,
+        delay_reason: row.try_get("delay_reason")?,
+        delay_note: row.try_get("delay_note")?,
+        diagnosis: row.try_get("diagnosis")?,
+        action_taken: row.try_get("action_taken")?,
+        report_submitted_by: row
+            .try_get::<Option<uuid::Uuid>, _>("report_submitted_by")?
+            .map(UserId::from_uuid),
+        report_submitted_at: row.try_get("report_submitted_at")?,
+        kpi_excluded: row.try_get("kpi_excluded")?,
+        evidence_verified: row.try_get("evidence_verified")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+        equipment: equipment_summary_from_row(row)?,
+        customer: NamedEntity {
+            id: row.try_get("customer_id")?,
+            name: row.try_get("customer_name")?,
+        },
+        site: NamedEntity {
+            id: row.try_get("site_id")?,
+            name: row.try_get("site_name")?,
+        },
+        assignments,
+        approval_line,
+        status_history,
+        evidence,
+    })
+}
+
+fn equipment_summary_from_row(row: &sqlx::postgres::PgRow) -> Result<EquipmentSummary, RestError> {
+    Ok(EquipmentSummary {
+        id: row.try_get("equipment_id")?,
+        equipment_no: row.try_get("equipment_no")?,
+        management_no: row.try_get("management_no")?,
+        model: row.try_get("model")?,
+        status: row.try_get("equipment_status")?,
+        specification: row.try_get("specification")?,
+        ton_text: row.try_get("ton_text")?,
+    })
+}
+
+fn equipment_lookup_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<EquipmentLookupResponse, RestError> {
+    Ok(EquipmentLookupResponse {
+        id: row.try_get("id")?,
+        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+        equipment_no: row.try_get("equipment_no")?,
+        management_no: row.try_get("management_no")?,
+        model: row.try_get("model")?,
+        status: row.try_get("status")?,
+        specification: row.try_get("specification")?,
+        ton_text: row.try_get("ton_text")?,
+        customer: NamedEntity {
+            id: row.try_get("customer_id")?,
+            name: row.try_get("customer_name")?,
+        },
+        site: NamedEntity {
+            id: row.try_get("site_id")?,
+            name: row.try_get("site_name")?,
+        },
+    })
+}
+
+fn assignment_from_row(row: &sqlx::postgres::PgRow) -> Result<AssignmentSummary, RestError> {
+    Ok(AssignmentSummary {
+        id: row.try_get("id")?,
+        mechanic_id: UserId::from_uuid(row.try_get("mechanic_id")?),
+        mechanic_name: row.try_get("mechanic_name")?,
+        role: row.try_get("role")?,
+        assigned_at: row.try_get("assigned_at")?,
+    })
+}
+
+fn approval_step_from_row(row: &sqlx::postgres::PgRow) -> Result<ApprovalStepSummary, RestError> {
+    Ok(ApprovalStepSummary {
+        id: row.try_get("id")?,
+        step_order: row.try_get("step_order")?,
+        role: row.try_get("role")?,
+        approver_id: row
+            .try_get::<Option<uuid::Uuid>, _>("approver_id")?
+            .map(UserId::from_uuid),
+        status: row.try_get("status")?,
+        requested_at: row.try_get("requested_at")?,
+        approved_at: row.try_get("approved_at")?,
+        approved_by_id: row
+            .try_get::<Option<uuid::Uuid>, _>("approved_by_id")?
+            .map(UserId::from_uuid),
+    })
+}
+
+fn status_history_from_row(row: &sqlx::postgres::PgRow) -> Result<StatusHistorySummary, RestError> {
+    Ok(StatusHistorySummary {
+        id: row.try_get("id")?,
+        actor: row
+            .try_get::<Option<uuid::Uuid>, _>("actor")?
+            .map(UserId::from_uuid),
+        action: row.try_get("action")?,
+        from_status: row.try_get("from_status")?,
+        to_status: row.try_get("to_status")?,
+        occurred_at: row.try_get("occurred_at")?,
+    })
+}
+
+fn evidence_from_row(row: &sqlx::postgres::PgRow) -> Result<EvidenceSummary, RestError> {
+    Ok(EvidenceSummary {
+        id: EvidenceId::from_uuid(row.try_get("id")?),
+        stage: row.try_get("stage")?,
+        content_type: row.try_get("content_type")?,
+        size_bytes: row.try_get("size_bytes")?,
+        uploaded_by: UserId::from_uuid(row.try_get("uploaded_by")?),
+        worm_replica_status: row.try_get("worm_replica_status")?,
+        retry_count: row.try_get("retry_count")?,
+        verified_at: row.try_get("verified_at")?,
+        created_at: row.try_get("created_at")?,
+    })
 }
 
 async fn authorize_for_work_order(

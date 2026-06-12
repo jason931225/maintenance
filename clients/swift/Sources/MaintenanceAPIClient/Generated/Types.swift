@@ -91,6 +91,33 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/work-orders/{workOrderId}/outsource-works`.
     /// - Remark: Generated from `#/paths//api/work-orders/{workOrderId}/outsource-works/post(createOutsourceWork)`.
     func createOutsourceWork(_ input: Operations.CreateOutsourceWork.Input) async throws -> Operations.CreateOutsourceWork.Output
+    /// List branch-scoped work orders
+    ///
+    /// Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values.
+    ///
+    /// - Remark: HTTP `GET /api/v1/work-orders`.
+    /// - Remark: Generated from `#/paths//api/v1/work-orders/get(listWorkOrders)`.
+    func listWorkOrders(_ input: Operations.ListWorkOrders.Input) async throws -> Operations.ListWorkOrders.Output
+    /// Fetch branch-scoped work-order detail
+    ///
+    /// - Remark: HTTP `GET /api/v1/work-orders/{workOrderId}`.
+    /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/get(getWorkOrderDetail)`.
+    func getWorkOrderDetail(_ input: Operations.GetWorkOrderDetail.Input) async throws -> Operations.GetWorkOrderDetail.Output
+    /// Reject a submitted work order with an audit memo
+    ///
+    /// - Remark: HTTP `POST /api/v1/work-orders/{workOrderId}/reject`.
+    /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/reject/post(rejectWorkOrder)`.
+    func rejectWorkOrder(_ input: Operations.RejectWorkOrder.Input) async throws -> Operations.RejectWorkOrder.Output
+    /// Resolve branch-scoped equipment by management number
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment/lookup`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/lookup/get(lookupEquipment)`.
+    func lookupEquipment(_ input: Operations.LookupEquipment.Input) async throws -> Operations.LookupEquipment.Output
+    /// Autocomplete branch-scoped equipment by management number, equipment number, or model
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/get(autocompleteEquipment)`.
+    func autocompleteEquipment(_ input: Operations.AutocompleteEquipment.Input) async throws -> Operations.AutocompleteEquipment.Output
     /// Replay an idempotent mobile offline-operation batch
     ///
     /// - Remark: HTTP `POST /api/v1/sync`.
@@ -361,6 +388,75 @@ extension APIProtocol {
             path: path,
             headers: headers,
             body: body
+        ))
+    }
+    /// List branch-scoped work orders
+    ///
+    /// Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values.
+    ///
+    /// - Remark: HTTP `GET /api/v1/work-orders`.
+    /// - Remark: Generated from `#/paths//api/v1/work-orders/get(listWorkOrders)`.
+    public func listWorkOrders(
+        query: Operations.ListWorkOrders.Input.Query = .init(),
+        headers: Operations.ListWorkOrders.Input.Headers = .init()
+    ) async throws -> Operations.ListWorkOrders.Output {
+        try await listWorkOrders(Operations.ListWorkOrders.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Fetch branch-scoped work-order detail
+    ///
+    /// - Remark: HTTP `GET /api/v1/work-orders/{workOrderId}`.
+    /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/get(getWorkOrderDetail)`.
+    public func getWorkOrderDetail(
+        path: Operations.GetWorkOrderDetail.Input.Path,
+        headers: Operations.GetWorkOrderDetail.Input.Headers = .init()
+    ) async throws -> Operations.GetWorkOrderDetail.Output {
+        try await getWorkOrderDetail(Operations.GetWorkOrderDetail.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Reject a submitted work order with an audit memo
+    ///
+    /// - Remark: HTTP `POST /api/v1/work-orders/{workOrderId}/reject`.
+    /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/reject/post(rejectWorkOrder)`.
+    public func rejectWorkOrder(
+        path: Operations.RejectWorkOrder.Input.Path,
+        headers: Operations.RejectWorkOrder.Input.Headers = .init(),
+        body: Operations.RejectWorkOrder.Input.Body
+    ) async throws -> Operations.RejectWorkOrder.Output {
+        try await rejectWorkOrder(Operations.RejectWorkOrder.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Resolve branch-scoped equipment by management number
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment/lookup`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/lookup/get(lookupEquipment)`.
+    public func lookupEquipment(
+        query: Operations.LookupEquipment.Input.Query,
+        headers: Operations.LookupEquipment.Input.Headers = .init()
+    ) async throws -> Operations.LookupEquipment.Output {
+        try await lookupEquipment(Operations.LookupEquipment.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Autocomplete branch-scoped equipment by management number, equipment number, or model
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/get(autocompleteEquipment)`.
+    public func autocompleteEquipment(
+        query: Operations.AutocompleteEquipment.Input.Query,
+        headers: Operations.AutocompleteEquipment.Input.Headers = .init()
+    ) async throws -> Operations.AutocompleteEquipment.Output {
+        try await autocompleteEquipment(Operations.AutocompleteEquipment.Input(
+            query: query,
+            headers: headers
         ))
     }
     /// Replay an idempotent mobile offline-operation batch
@@ -879,6 +975,643 @@ public enum Components {
                 case vendorName = "vendor_name"
                 case vendorContact = "vendor_contact"
                 case reason
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RejectWorkOrderRequest`.
+        public struct RejectWorkOrderRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RejectWorkOrderRequest/memo`.
+            public var memo: Swift.String
+            /// Creates a new `RejectWorkOrderRequest`.
+            ///
+            /// - Parameters:
+            ///   - memo:
+            public init(memo: Swift.String) {
+                self.memo = memo
+            }
+            public enum CodingKeys: String, CodingKey {
+                case memo
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/NamedEntity`.
+        public struct NamedEntity: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/NamedEntity/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/NamedEntity/name`.
+            public var name: Swift.String
+            /// Creates a new `NamedEntity`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - name:
+            public init(
+                id: Components.Schemas.Uuid,
+                name: Swift.String
+            ) {
+                self.id = id
+                self.name = name
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case name
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EquipmentSummary`.
+        public struct EquipmentSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EquipmentSummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EquipmentSummary/equipment_no`.
+            public var equipmentNo: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentSummary/management_no`.
+            public var managementNo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EquipmentSummary/model`.
+            public var model: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EquipmentSummary/status`.
+            public var status: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentSummary/specification`.
+            public var specification: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentSummary/ton_text`.
+            public var tonText: Swift.String
+            /// Creates a new `EquipmentSummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - equipmentNo:
+            ///   - managementNo:
+            ///   - model:
+            ///   - status:
+            ///   - specification:
+            ///   - tonText:
+            public init(
+                id: Components.Schemas.Uuid,
+                equipmentNo: Swift.String,
+                managementNo: Swift.String? = nil,
+                model: Swift.String? = nil,
+                status: Swift.String,
+                specification: Swift.String,
+                tonText: Swift.String
+            ) {
+                self.id = id
+                self.equipmentNo = equipmentNo
+                self.managementNo = managementNo
+                self.model = model
+                self.status = status
+                self.specification = specification
+                self.tonText = tonText
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case equipmentNo = "equipment_no"
+                case managementNo = "management_no"
+                case model
+                case status
+                case specification
+                case tonText = "ton_text"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EquipmentLookupResponse`.
+        public struct EquipmentLookupResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EquipmentLookupResponse/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EquipmentLookupResponse/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EquipmentLookupResponse/equipment_no`.
+            public var equipmentNo: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentLookupResponse/management_no`.
+            public var managementNo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EquipmentLookupResponse/model`.
+            public var model: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EquipmentLookupResponse/status`.
+            public var status: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentLookupResponse/specification`.
+            public var specification: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentLookupResponse/ton_text`.
+            public var tonText: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentLookupResponse/customer`.
+            public var customer: Components.Schemas.NamedEntity
+            /// - Remark: Generated from `#/components/schemas/EquipmentLookupResponse/site`.
+            public var site: Components.Schemas.NamedEntity
+            /// Creates a new `EquipmentLookupResponse`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - branchId:
+            ///   - equipmentNo:
+            ///   - managementNo:
+            ///   - model:
+            ///   - status:
+            ///   - specification:
+            ///   - tonText:
+            ///   - customer:
+            ///   - site:
+            public init(
+                id: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid,
+                equipmentNo: Swift.String,
+                managementNo: Swift.String? = nil,
+                model: Swift.String? = nil,
+                status: Swift.String,
+                specification: Swift.String,
+                tonText: Swift.String,
+                customer: Components.Schemas.NamedEntity,
+                site: Components.Schemas.NamedEntity
+            ) {
+                self.id = id
+                self.branchId = branchId
+                self.equipmentNo = equipmentNo
+                self.managementNo = managementNo
+                self.model = model
+                self.status = status
+                self.specification = specification
+                self.tonText = tonText
+                self.customer = customer
+                self.site = site
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case branchId = "branch_id"
+                case equipmentNo = "equipment_no"
+                case managementNo = "management_no"
+                case model
+                case status
+                case specification
+                case tonText = "ton_text"
+                case customer
+                case site
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EquipmentAutocompletePage`.
+        public struct EquipmentAutocompletePage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EquipmentAutocompletePage/items`.
+            public var items: [Components.Schemas.EquipmentLookupResponse]
+            /// - Remark: Generated from `#/components/schemas/EquipmentAutocompletePage/limit`.
+            public var limit: Swift.Int64
+            /// Creates a new `EquipmentAutocompletePage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - limit:
+            public init(
+                items: [Components.Schemas.EquipmentLookupResponse],
+                limit: Swift.Int64
+            ) {
+                self.items = items
+                self.limit = limit
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case limit
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AssignmentSummary`.
+        public struct AssignmentSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AssignmentSummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/AssignmentSummary/mechanic_id`.
+            public var mechanicId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/AssignmentSummary/mechanic_name`.
+            public var mechanicName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AssignmentSummary/role`.
+            public var role: Components.Schemas.AssignmentRole
+            /// - Remark: Generated from `#/components/schemas/AssignmentSummary/assigned_at`.
+            public var assignedAt: Components.Schemas.Timestamp
+            /// Creates a new `AssignmentSummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - mechanicId:
+            ///   - mechanicName:
+            ///   - role:
+            ///   - assignedAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                mechanicId: Components.Schemas.Uuid,
+                mechanicName: Swift.String,
+                role: Components.Schemas.AssignmentRole,
+                assignedAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.mechanicId = mechanicId
+                self.mechanicName = mechanicName
+                self.role = role
+                self.assignedAt = assignedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case mechanicId = "mechanic_id"
+                case mechanicName = "mechanic_name"
+                case role
+                case assignedAt = "assigned_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ApprovalStepSummary`.
+        public struct ApprovalStepSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ApprovalStepSummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/ApprovalStepSummary/step_order`.
+            public var stepOrder: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/ApprovalStepSummary/role`.
+            public var role: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ApprovalStepSummary/approver_id`.
+            public var approverId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ApprovalStepSummary/status`.
+            public var status: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ApprovalStepSummary/requested_at`.
+            public var requestedAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/ApprovalStepSummary/approved_at`.
+            public var approvedAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/ApprovalStepSummary/approved_by_id`.
+            public var approvedById: Swift.String?
+            /// Creates a new `ApprovalStepSummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - stepOrder:
+            ///   - role:
+            ///   - approverId:
+            ///   - status:
+            ///   - requestedAt:
+            ///   - approvedAt:
+            ///   - approvedById:
+            public init(
+                id: Components.Schemas.Uuid,
+                stepOrder: Swift.Int32,
+                role: Swift.String,
+                approverId: Swift.String? = nil,
+                status: Swift.String,
+                requestedAt: Foundation.Date? = nil,
+                approvedAt: Foundation.Date? = nil,
+                approvedById: Swift.String? = nil
+            ) {
+                self.id = id
+                self.stepOrder = stepOrder
+                self.role = role
+                self.approverId = approverId
+                self.status = status
+                self.requestedAt = requestedAt
+                self.approvedAt = approvedAt
+                self.approvedById = approvedById
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case stepOrder = "step_order"
+                case role
+                case approverId = "approver_id"
+                case status
+                case requestedAt = "requested_at"
+                case approvedAt = "approved_at"
+                case approvedById = "approved_by_id"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/StatusHistorySummary`.
+        public struct StatusHistorySummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/StatusHistorySummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/StatusHistorySummary/actor`.
+            public var actor: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/StatusHistorySummary/action`.
+            public var action: Swift.String
+            /// - Remark: Generated from `#/components/schemas/StatusHistorySummary/from_status`.
+            public var fromStatus: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/StatusHistorySummary/to_status`.
+            public var toStatus: Components.Schemas.WorkOrderStatus
+            /// - Remark: Generated from `#/components/schemas/StatusHistorySummary/occurred_at`.
+            public var occurredAt: Components.Schemas.Timestamp
+            /// Creates a new `StatusHistorySummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - actor:
+            ///   - action:
+            ///   - fromStatus:
+            ///   - toStatus:
+            ///   - occurredAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                actor: Swift.String? = nil,
+                action: Swift.String,
+                fromStatus: Swift.String? = nil,
+                toStatus: Components.Schemas.WorkOrderStatus,
+                occurredAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.actor = actor
+                self.action = action
+                self.fromStatus = fromStatus
+                self.toStatus = toStatus
+                self.occurredAt = occurredAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case actor
+                case action
+                case fromStatus = "from_status"
+                case toStatus = "to_status"
+                case occurredAt = "occurred_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EvidenceSummary`.
+        public struct EvidenceSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EvidenceSummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EvidenceSummary/stage`.
+            public var stage: Components.Schemas.AttachmentStage
+            /// - Remark: Generated from `#/components/schemas/EvidenceSummary/content_type`.
+            public var contentType: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EvidenceSummary/size_bytes`.
+            public var sizeBytes: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/EvidenceSummary/uploaded_by`.
+            public var uploadedBy: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EvidenceSummary/worm_replica_status`.
+            public var wormReplicaStatus: Components.Schemas.WormReplicaStatus
+            /// - Remark: Generated from `#/components/schemas/EvidenceSummary/retry_count`.
+            public var retryCount: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/EvidenceSummary/verified_at`.
+            public var verifiedAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/EvidenceSummary/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// Creates a new `EvidenceSummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - stage:
+            ///   - contentType:
+            ///   - sizeBytes:
+            ///   - uploadedBy:
+            ///   - wormReplicaStatus:
+            ///   - retryCount:
+            ///   - verifiedAt:
+            ///   - createdAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                stage: Components.Schemas.AttachmentStage,
+                contentType: Swift.String,
+                sizeBytes: Swift.Int64,
+                uploadedBy: Components.Schemas.Uuid,
+                wormReplicaStatus: Components.Schemas.WormReplicaStatus,
+                retryCount: Swift.Int32,
+                verifiedAt: Foundation.Date? = nil,
+                createdAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.stage = stage
+                self.contentType = contentType
+                self.sizeBytes = sizeBytes
+                self.uploadedBy = uploadedBy
+                self.wormReplicaStatus = wormReplicaStatus
+                self.retryCount = retryCount
+                self.verifiedAt = verifiedAt
+                self.createdAt = createdAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case stage
+                case contentType = "content_type"
+                case sizeBytes = "size_bytes"
+                case uploadedBy = "uploaded_by"
+                case wormReplicaStatus = "worm_replica_status"
+                case retryCount = "retry_count"
+                case verifiedAt = "verified_at"
+                case createdAt = "created_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkOrderListItem`.
+        public struct WorkOrderListItem: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkOrderListItem/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/WorkOrderListItem/request_no`.
+            public var requestNo: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkOrderListItem/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/WorkOrderListItem/status`.
+            public var status: Components.Schemas.WorkOrderStatus
+            /// - Remark: Generated from `#/components/schemas/WorkOrderListItem/priority`.
+            public var priority: Components.Schemas.PriorityLevel
+            /// - Remark: Generated from `#/components/schemas/WorkOrderListItem/result_type`.
+            public var resultType: Components.Schemas.WorkResultType
+            /// - Remark: Generated from `#/components/schemas/WorkOrderListItem/target_due_at`.
+            public var targetDueAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/WorkOrderListItem/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/WorkOrderListItem/updated_at`.
+            public var updatedAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/WorkOrderListItem/equipment`.
+            public var equipment: Components.Schemas.EquipmentSummary
+            /// - Remark: Generated from `#/components/schemas/WorkOrderListItem/customer`.
+            public var customer: Components.Schemas.NamedEntity
+            /// - Remark: Generated from `#/components/schemas/WorkOrderListItem/site`.
+            public var site: Components.Schemas.NamedEntity
+            /// - Remark: Generated from `#/components/schemas/WorkOrderListItem/assignments`.
+            public var assignments: [Components.Schemas.AssignmentSummary]
+            /// Creates a new `WorkOrderListItem`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - requestNo:
+            ///   - branchId:
+            ///   - status:
+            ///   - priority:
+            ///   - resultType:
+            ///   - targetDueAt:
+            ///   - createdAt:
+            ///   - updatedAt:
+            ///   - equipment:
+            ///   - customer:
+            ///   - site:
+            ///   - assignments:
+            public init(
+                id: Components.Schemas.Uuid,
+                requestNo: Swift.String,
+                branchId: Components.Schemas.Uuid,
+                status: Components.Schemas.WorkOrderStatus,
+                priority: Components.Schemas.PriorityLevel,
+                resultType: Components.Schemas.WorkResultType,
+                targetDueAt: Foundation.Date? = nil,
+                createdAt: Components.Schemas.Timestamp,
+                updatedAt: Components.Schemas.Timestamp,
+                equipment: Components.Schemas.EquipmentSummary,
+                customer: Components.Schemas.NamedEntity,
+                site: Components.Schemas.NamedEntity,
+                assignments: [Components.Schemas.AssignmentSummary]
+            ) {
+                self.id = id
+                self.requestNo = requestNo
+                self.branchId = branchId
+                self.status = status
+                self.priority = priority
+                self.resultType = resultType
+                self.targetDueAt = targetDueAt
+                self.createdAt = createdAt
+                self.updatedAt = updatedAt
+                self.equipment = equipment
+                self.customer = customer
+                self.site = site
+                self.assignments = assignments
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case requestNo = "request_no"
+                case branchId = "branch_id"
+                case status
+                case priority
+                case resultType = "result_type"
+                case targetDueAt = "target_due_at"
+                case createdAt = "created_at"
+                case updatedAt = "updated_at"
+                case equipment
+                case customer
+                case site
+                case assignments
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkOrderListPage`.
+        public struct WorkOrderListPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkOrderListPage/items`.
+            public var items: [Components.Schemas.WorkOrderListItem]
+            /// - Remark: Generated from `#/components/schemas/WorkOrderListPage/limit`.
+            public var limit: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/WorkOrderListPage/offset`.
+            public var offset: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/WorkOrderListPage/total`.
+            public var total: Swift.Int64
+            /// Creates a new `WorkOrderListPage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - limit:
+            ///   - offset:
+            ///   - total:
+            public init(
+                items: [Components.Schemas.WorkOrderListItem],
+                limit: Swift.Int64,
+                offset: Swift.Int64,
+                total: Swift.Int64
+            ) {
+                self.items = items
+                self.limit = limit
+                self.offset = offset
+                self.total = total
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case limit
+                case offset
+                case total
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkOrderDetail`.
+        public struct WorkOrderDetail: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkOrderDetail/value1`.
+            public var value1: Components.Schemas.WorkOrderListItem
+            /// - Remark: Generated from `#/components/schemas/WorkOrderDetail/value2`.
+            public struct Value2Payload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/WorkOrderDetail/value2/symptom`.
+                public var symptom: Swift.String
+                /// - Remark: Generated from `#/components/schemas/WorkOrderDetail/value2/customer_request`.
+                public var customerRequest: Swift.String?
+                /// - Remark: Generated from `#/components/schemas/WorkOrderDetail/value2/delay_reason`.
+                public var delayReason: Swift.String?
+                /// - Remark: Generated from `#/components/schemas/WorkOrderDetail/value2/delay_note`.
+                public var delayNote: Swift.String?
+                /// - Remark: Generated from `#/components/schemas/WorkOrderDetail/value2/diagnosis`.
+                public var diagnosis: Swift.String?
+                /// - Remark: Generated from `#/components/schemas/WorkOrderDetail/value2/action_taken`.
+                public var actionTaken: Swift.String?
+                /// - Remark: Generated from `#/components/schemas/WorkOrderDetail/value2/report_submitted_by`.
+                public var reportSubmittedBy: Swift.String?
+                /// - Remark: Generated from `#/components/schemas/WorkOrderDetail/value2/report_submitted_at`.
+                public var reportSubmittedAt: Foundation.Date?
+                /// - Remark: Generated from `#/components/schemas/WorkOrderDetail/value2/kpi_excluded`.
+                public var kpiExcluded: Swift.Bool
+                /// - Remark: Generated from `#/components/schemas/WorkOrderDetail/value2/evidence_verified`.
+                public var evidenceVerified: Swift.Bool
+                /// - Remark: Generated from `#/components/schemas/WorkOrderDetail/value2/approval_line`.
+                public var approvalLine: [Components.Schemas.ApprovalStepSummary]
+                /// - Remark: Generated from `#/components/schemas/WorkOrderDetail/value2/status_history`.
+                public var statusHistory: [Components.Schemas.StatusHistorySummary]
+                /// - Remark: Generated from `#/components/schemas/WorkOrderDetail/value2/evidence`.
+                public var evidence: [Components.Schemas.EvidenceSummary]
+                /// Creates a new `Value2Payload`.
+                ///
+                /// - Parameters:
+                ///   - symptom:
+                ///   - customerRequest:
+                ///   - delayReason:
+                ///   - delayNote:
+                ///   - diagnosis:
+                ///   - actionTaken:
+                ///   - reportSubmittedBy:
+                ///   - reportSubmittedAt:
+                ///   - kpiExcluded:
+                ///   - evidenceVerified:
+                ///   - approvalLine:
+                ///   - statusHistory:
+                ///   - evidence:
+                public init(
+                    symptom: Swift.String,
+                    customerRequest: Swift.String? = nil,
+                    delayReason: Swift.String? = nil,
+                    delayNote: Swift.String? = nil,
+                    diagnosis: Swift.String? = nil,
+                    actionTaken: Swift.String? = nil,
+                    reportSubmittedBy: Swift.String? = nil,
+                    reportSubmittedAt: Foundation.Date? = nil,
+                    kpiExcluded: Swift.Bool,
+                    evidenceVerified: Swift.Bool,
+                    approvalLine: [Components.Schemas.ApprovalStepSummary],
+                    statusHistory: [Components.Schemas.StatusHistorySummary],
+                    evidence: [Components.Schemas.EvidenceSummary]
+                ) {
+                    self.symptom = symptom
+                    self.customerRequest = customerRequest
+                    self.delayReason = delayReason
+                    self.delayNote = delayNote
+                    self.diagnosis = diagnosis
+                    self.actionTaken = actionTaken
+                    self.reportSubmittedBy = reportSubmittedBy
+                    self.reportSubmittedAt = reportSubmittedAt
+                    self.kpiExcluded = kpiExcluded
+                    self.evidenceVerified = evidenceVerified
+                    self.approvalLine = approvalLine
+                    self.statusHistory = statusHistory
+                    self.evidence = evidence
+                }
+                public enum CodingKeys: String, CodingKey {
+                    case symptom
+                    case customerRequest = "customer_request"
+                    case delayReason = "delay_reason"
+                    case delayNote = "delay_note"
+                    case diagnosis
+                    case actionTaken = "action_taken"
+                    case reportSubmittedBy = "report_submitted_by"
+                    case reportSubmittedAt = "report_submitted_at"
+                    case kpiExcluded = "kpi_excluded"
+                    case evidenceVerified = "evidence_verified"
+                    case approvalLine = "approval_line"
+                    case statusHistory = "status_history"
+                    case evidence
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/WorkOrderDetail/value2`.
+            public var value2: Components.Schemas.WorkOrderDetail.Value2Payload
+            /// Creates a new `WorkOrderDetail`.
+            ///
+            /// - Parameters:
+            ///   - value1:
+            ///   - value2:
+            public init(
+                value1: Components.Schemas.WorkOrderListItem,
+                value2: Components.Schemas.WorkOrderDetail.Value2Payload
+            ) {
+                self.value1 = value1
+                self.value2 = value2
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                self.value1 = try .init(from: decoder)
+                self.value2 = try .init(from: decoder)
+            }
+            public func encode(to encoder: any Swift.Encoder) throws {
+                try self.value1.encode(to: encoder)
+                try self.value2.encode(to: encoder)
             }
         }
         /// - Remark: Generated from `#/components/schemas/SyncBatchRequest`.
@@ -4162,6 +4895,1124 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List branch-scoped work orders
+    ///
+    /// Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values.
+    ///
+    /// - Remark: HTTP `GET /api/v1/work-orders`.
+    /// - Remark: Generated from `#/paths//api/v1/work-orders/get(listWorkOrders)`.
+    public enum ListWorkOrders {
+        public static let id: Swift.String = "listWorkOrders"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/work-orders/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/work-orders/GET/query/status`.
+                public var status: [Components.Schemas.WorkOrderStatus]?
+                /// - Remark: Generated from `#/paths/api/v1/work-orders/GET/query/priority`.
+                public var priority: [Components.Schemas.PriorityLevel]?
+                /// Use `me` for the authenticated user or a user UUID.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/work-orders/GET/query/assigned_to`.
+                public var assignedTo: Swift.String?
+                /// - Remark: Generated from `#/paths/api/v1/work-orders/GET/query/customer_id`.
+                public var customerId: Components.Schemas.Uuid?
+                /// - Remark: Generated from `#/paths/api/v1/work-orders/GET/query/site_id`.
+                public var siteId: Components.Schemas.Uuid?
+                /// - Remark: Generated from `#/paths/api/v1/work-orders/GET/query/target_due_from`.
+                public var targetDueFrom: Components.Schemas.Timestamp?
+                /// - Remark: Generated from `#/paths/api/v1/work-orders/GET/query/target_due_to`.
+                public var targetDueTo: Components.Schemas.Timestamp?
+                /// - Remark: Generated from `#/paths/api/v1/work-orders/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// - Remark: Generated from `#/paths/api/v1/work-orders/GET/query/offset`.
+                public var offset: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - status:
+                ///   - priority:
+                ///   - assignedTo: Use `me` for the authenticated user or a user UUID.
+                ///   - customerId:
+                ///   - siteId:
+                ///   - targetDueFrom:
+                ///   - targetDueTo:
+                ///   - limit:
+                ///   - offset:
+                public init(
+                    status: [Components.Schemas.WorkOrderStatus]? = nil,
+                    priority: [Components.Schemas.PriorityLevel]? = nil,
+                    assignedTo: Swift.String? = nil,
+                    customerId: Components.Schemas.Uuid? = nil,
+                    siteId: Components.Schemas.Uuid? = nil,
+                    targetDueFrom: Components.Schemas.Timestamp? = nil,
+                    targetDueTo: Components.Schemas.Timestamp? = nil,
+                    limit: Swift.Int64? = nil,
+                    offset: Swift.Int64? = nil
+                ) {
+                    self.status = status
+                    self.priority = priority
+                    self.assignedTo = assignedTo
+                    self.customerId = customerId
+                    self.siteId = siteId
+                    self.targetDueFrom = targetDueFrom
+                    self.targetDueTo = targetDueTo
+                    self.limit = limit
+                    self.offset = offset
+                }
+            }
+            public var query: Operations.ListWorkOrders.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/work-orders/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListWorkOrders.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListWorkOrders.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListWorkOrders.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListWorkOrders.Input.Query = .init(),
+                headers: Operations.ListWorkOrders.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/work-orders/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/work-orders/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkOrderListPage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkOrderListPage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListWorkOrders.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListWorkOrders.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Paginated work-order list.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/work-orders/get(listWorkOrders)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListWorkOrders.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListWorkOrders.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/work-orders/get(listWorkOrders)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/work-orders/get(listWorkOrders)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/work-orders/get(listWorkOrders)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Fetch branch-scoped work-order detail
+    ///
+    /// - Remark: HTTP `GET /api/v1/work-orders/{workOrderId}`.
+    /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/get(getWorkOrderDetail)`.
+    public enum GetWorkOrderDetail {
+        public static let id: Swift.String = "getWorkOrderDetail"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/work-orders/{workOrderId}/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/work-orders/{workOrderId}/GET/path/workOrderId`.
+                public var workOrderId: Components.Parameters.WorkOrderId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - workOrderId:
+                public init(workOrderId: Components.Parameters.WorkOrderId) {
+                    self.workOrderId = workOrderId
+                }
+            }
+            public var path: Operations.GetWorkOrderDetail.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/work-orders/{workOrderId}/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetWorkOrderDetail.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetWorkOrderDetail.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetWorkOrderDetail.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.GetWorkOrderDetail.Input.Path,
+                headers: Operations.GetWorkOrderDetail.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/work-orders/{workOrderId}/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/work-orders/{workOrderId}/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkOrderDetail)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkOrderDetail {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetWorkOrderDetail.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetWorkOrderDetail.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Full work-order detail.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/get(getWorkOrderDetail)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetWorkOrderDetail.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetWorkOrderDetail.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/get(getWorkOrderDetail)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/get(getWorkOrderDetail)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/get(getWorkOrderDetail)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Reject a submitted work order with an audit memo
+    ///
+    /// - Remark: HTTP `POST /api/v1/work-orders/{workOrderId}/reject`.
+    /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/reject/post(rejectWorkOrder)`.
+    public enum RejectWorkOrder {
+        public static let id: Swift.String = "rejectWorkOrder"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/work-orders/{workOrderId}/reject/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/work-orders/{workOrderId}/reject/POST/path/workOrderId`.
+                public var workOrderId: Components.Parameters.WorkOrderId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - workOrderId:
+                public init(workOrderId: Components.Parameters.WorkOrderId) {
+                    self.workOrderId = workOrderId
+                }
+            }
+            public var path: Operations.RejectWorkOrder.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/work-orders/{workOrderId}/reject/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RejectWorkOrder.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RejectWorkOrder.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.RejectWorkOrder.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/work-orders/{workOrderId}/reject/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/work-orders/{workOrderId}/reject/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.RejectWorkOrderRequest)
+            }
+            public var body: Operations.RejectWorkOrder.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.RejectWorkOrder.Input.Path,
+                headers: Operations.RejectWorkOrder.Input.Headers = .init(),
+                body: Operations.RejectWorkOrder.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/work-orders/{workOrderId}/reject/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/work-orders/{workOrderId}/reject/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkOrderSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkOrderSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.RejectWorkOrder.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.RejectWorkOrder.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Rejected work order.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/reject/post(rejectWorkOrder)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.RejectWorkOrder.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.RejectWorkOrder.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/reject/post(rejectWorkOrder)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/reject/post(rejectWorkOrder)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/reject/post(rejectWorkOrder)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/reject/post(rejectWorkOrder)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/reject/post(rejectWorkOrder)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Resolve branch-scoped equipment by management number
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment/lookup`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/lookup/get(lookupEquipment)`.
+    public enum LookupEquipment {
+        public static let id: Swift.String = "lookupEquipment"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/equipment/lookup/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// Equipment management number. A leading `#` is accepted and ignored.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/equipment/lookup/GET/query/management_no`.
+                public var managementNo: Swift.String
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - managementNo: Equipment management number. A leading `#` is accepted and ignored.
+                public init(managementNo: Swift.String) {
+                    self.managementNo = managementNo
+                }
+            }
+            public var query: Operations.LookupEquipment.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/equipment/lookup/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.LookupEquipment.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.LookupEquipment.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.LookupEquipment.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.LookupEquipment.Input.Query,
+                headers: Operations.LookupEquipment.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment/lookup/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/equipment/lookup/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.EquipmentLookupResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.EquipmentLookupResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.LookupEquipment.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.LookupEquipment.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Matching equipment, model, customer, and site.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/lookup/get(lookupEquipment)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.LookupEquipment.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.LookupEquipment.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/lookup/get(lookupEquipment)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/lookup/get(lookupEquipment)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/lookup/get(lookupEquipment)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/lookup/get(lookupEquipment)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Autocomplete branch-scoped equipment by management number, equipment number, or model
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/get(autocompleteEquipment)`.
+    public enum AutocompleteEquipment {
+        public static let id: Swift.String = "autocompleteEquipment"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/equipment/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment/GET/query/q`.
+                public var q: Swift.String
+                /// - Remark: Generated from `#/paths/api/v1/equipment/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - q:
+                ///   - limit:
+                public init(
+                    q: Swift.String,
+                    limit: Swift.Int64? = nil
+                ) {
+                    self.q = q
+                    self.limit = limit
+                }
+            }
+            public var query: Operations.AutocompleteEquipment.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/equipment/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.AutocompleteEquipment.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.AutocompleteEquipment.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.AutocompleteEquipment.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.AutocompleteEquipment.Input.Query,
+                headers: Operations.AutocompleteEquipment.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/equipment/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.EquipmentAutocompletePage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.EquipmentAutocompletePage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.AutocompleteEquipment.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.AutocompleteEquipment.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Prefix-search equipment matches.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/get(autocompleteEquipment)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.AutocompleteEquipment.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.AutocompleteEquipment.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/get(autocompleteEquipment)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/get(autocompleteEquipment)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/get(autocompleteEquipment)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
                             response: self
                         )
                     }

@@ -34,6 +34,8 @@ import com.maintenance.api.client.model.CreateWorkOrderRequest
 import com.maintenance.api.client.model.DailyPlanSummary
 import com.maintenance.api.client.model.DeviceRegistrationRequest
 import com.maintenance.api.client.model.DeviceRegistrationResponse
+import com.maintenance.api.client.model.EquipmentAutocompletePage
+import com.maintenance.api.client.model.EquipmentLookupResponse
 import com.maintenance.api.client.model.ErrorBody
 import com.maintenance.api.client.model.EvidenceConfirmResponse
 import com.maintenance.api.client.model.EvidencePresignRequest
@@ -46,7 +48,9 @@ import com.maintenance.api.client.model.PasskeyRegisterFinishRequest
 import com.maintenance.api.client.model.PasskeyRegisterFinishResponse
 import com.maintenance.api.client.model.PasskeyRegisterStartRequest
 import com.maintenance.api.client.model.PasskeyRegisterStartResponse
+import com.maintenance.api.client.model.PriorityLevel
 import com.maintenance.api.client.model.RefreshTokenRequest
+import com.maintenance.api.client.model.RejectWorkOrderRequest
 import com.maintenance.api.client.model.ReviewDailyPlanRequest
 import com.maintenance.api.client.model.ReviewTargetChangeRequest
 import com.maintenance.api.client.model.SubmitReportRequest
@@ -56,6 +60,9 @@ import com.maintenance.api.client.model.TargetChangeRequest
 import com.maintenance.api.client.model.TargetChangeRequestSummary
 import com.maintenance.api.client.model.TokenPairResponse
 import com.maintenance.api.client.model.UpdateWorkOrderPriorityRequest
+import com.maintenance.api.client.model.WorkOrderDetail
+import com.maintenance.api.client.model.WorkOrderListPage
+import com.maintenance.api.client.model.WorkOrderStatus
 import com.maintenance.api.client.model.WorkOrderSummary
 
 import kotlinx.serialization.SerialName
@@ -679,6 +686,88 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/equipment
+     * Autocomplete branch-scoped equipment by management number, equipment number, or model
+     *
+     * @param q
+     * @param limit  (optional, default to 10L)
+     * @return EquipmentAutocompletePage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun autocompleteEquipment(q: kotlin.String, limit: kotlin.Long? = 10L) : EquipmentAutocompletePage = withContext(Dispatchers.IO) {
+        val localVarResponse = autocompleteEquipmentWithHttpInfo(q = q, limit = limit)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EquipmentAutocompletePage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/equipment
+     * Autocomplete branch-scoped equipment by management number, equipment number, or model
+     *
+     * @param q
+     * @param limit  (optional, default to 10L)
+     * @return ApiResponse<EquipmentAutocompletePage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun autocompleteEquipmentWithHttpInfo(q: kotlin.String, limit: kotlin.Long?) : ApiResponse<EquipmentAutocompletePage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = autocompleteEquipmentRequestConfig(q = q, limit = limit)
+
+        return@withContext request<Unit, EquipmentAutocompletePage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation autocompleteEquipment
+     *
+     * @param q
+     * @param limit  (optional, default to 10L)
+     * @return RequestConfig
+     */
+    fun autocompleteEquipmentRequestConfig(q: kotlin.String, limit: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("q", listOf(q.toString()))
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/equipment",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/daily-work-plans/{planId}/confirm
      * Confirm an approved daily work plan
      *
@@ -1123,6 +1212,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/work-orders/{workOrderId}
+     * Fetch branch-scoped work-order detail
+     *
+     * @param workOrderId
+     * @return WorkOrderDetail
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getWorkOrderDetail(workOrderId: java.util.UUID) : WorkOrderDetail = withContext(Dispatchers.IO) {
+        val localVarResponse = getWorkOrderDetailWithHttpInfo(workOrderId = workOrderId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkOrderDetail
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/work-orders/{workOrderId}
+     * Fetch branch-scoped work-order detail
+     *
+     * @param workOrderId
+     * @return ApiResponse<WorkOrderDetail?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getWorkOrderDetailWithHttpInfo(workOrderId: java.util.UUID) : ApiResponse<WorkOrderDetail?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getWorkOrderDetailRequestConfig(workOrderId = workOrderId)
+
+        return@withContext request<Unit, WorkOrderDetail>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getWorkOrderDetail
+     *
+     * @param workOrderId
+     * @return RequestConfig
+     */
+    fun getWorkOrderDetailRequestConfig(workOrderId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/work-orders/{workOrderId}".replace("{"+"workOrderId"+"}", encodeURIComponent(workOrderId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /healthz
      * Health check
      *
@@ -1185,6 +1347,208 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/work-orders
+     * List branch-scoped work orders
+     * Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated &#x60;status&#x60;, &#x60;status[]&#x60;, &#x60;priority&#x60;, and &#x60;priority[]&#x60; query keys, plus comma-separated values.
+     * @param status  (optional)
+     * @param priority  (optional)
+     * @param assignedTo Use &#x60;me&#x60; for the authenticated user or a user UUID. (optional)
+     * @param customerId  (optional)
+     * @param siteId  (optional)
+     * @param targetDueFrom  (optional)
+     * @param targetDueTo  (optional)
+     * @param limit  (optional, default to 50L)
+     * @param offset  (optional, default to 0L)
+     * @return WorkOrderListPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listWorkOrders(status: kotlin.collections.List<WorkOrderStatus>? = null, priority: kotlin.collections.List<PriorityLevel>? = null, assignedTo: kotlin.String? = null, customerId: java.util.UUID? = null, siteId: java.util.UUID? = null, targetDueFrom: java.time.OffsetDateTime? = null, targetDueTo: java.time.OffsetDateTime? = null, limit: kotlin.Long? = 50L, offset: kotlin.Long? = 0L) : WorkOrderListPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listWorkOrdersWithHttpInfo(status = status, priority = priority, assignedTo = assignedTo, customerId = customerId, siteId = siteId, targetDueFrom = targetDueFrom, targetDueTo = targetDueTo, limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkOrderListPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/work-orders
+     * List branch-scoped work orders
+     * Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated &#x60;status&#x60;, &#x60;status[]&#x60;, &#x60;priority&#x60;, and &#x60;priority[]&#x60; query keys, plus comma-separated values.
+     * @param status  (optional)
+     * @param priority  (optional)
+     * @param assignedTo Use &#x60;me&#x60; for the authenticated user or a user UUID. (optional)
+     * @param customerId  (optional)
+     * @param siteId  (optional)
+     * @param targetDueFrom  (optional)
+     * @param targetDueTo  (optional)
+     * @param limit  (optional, default to 50L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<WorkOrderListPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listWorkOrdersWithHttpInfo(status: kotlin.collections.List<WorkOrderStatus>?, priority: kotlin.collections.List<PriorityLevel>?, assignedTo: kotlin.String?, customerId: java.util.UUID?, siteId: java.util.UUID?, targetDueFrom: java.time.OffsetDateTime?, targetDueTo: java.time.OffsetDateTime?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<WorkOrderListPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listWorkOrdersRequestConfig(status = status, priority = priority, assignedTo = assignedTo, customerId = customerId, siteId = siteId, targetDueFrom = targetDueFrom, targetDueTo = targetDueTo, limit = limit, offset = offset)
+
+        return@withContext request<Unit, WorkOrderListPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listWorkOrders
+     *
+     * @param status  (optional)
+     * @param priority  (optional)
+     * @param assignedTo Use &#x60;me&#x60; for the authenticated user or a user UUID. (optional)
+     * @param customerId  (optional)
+     * @param siteId  (optional)
+     * @param targetDueFrom  (optional)
+     * @param targetDueTo  (optional)
+     * @param limit  (optional, default to 50L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun listWorkOrdersRequestConfig(status: kotlin.collections.List<WorkOrderStatus>?, priority: kotlin.collections.List<PriorityLevel>?, assignedTo: kotlin.String?, customerId: java.util.UUID?, siteId: java.util.UUID?, targetDueFrom: java.time.OffsetDateTime?, targetDueTo: java.time.OffsetDateTime?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (status != null) {
+                    put("status", toMultiValue(status.toList(), "multi"))
+                }
+                if (priority != null) {
+                    put("priority", toMultiValue(priority.toList(), "multi"))
+                }
+                if (assignedTo != null) {
+                    put("assigned_to", listOf(assignedTo.toString()))
+                }
+                if (customerId != null) {
+                    put("customer_id", listOf(customerId.toString()))
+                }
+                if (siteId != null) {
+                    put("site_id", listOf(siteId.toString()))
+                }
+                if (targetDueFrom != null) {
+                    put("target_due_from", listOf(parseDateToQueryString<java.time.OffsetDateTime>(targetDueFrom)))
+                }
+                if (targetDueTo != null) {
+                    put("target_due_to", listOf(parseDateToQueryString<java.time.OffsetDateTime>(targetDueTo)))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/work-orders",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/equipment/lookup
+     * Resolve branch-scoped equipment by management number
+     *
+     * @param managementNo Equipment management number. A leading &#x60;#&#x60; is accepted and ignored.
+     * @return EquipmentLookupResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun lookupEquipment(managementNo: kotlin.String) : EquipmentLookupResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = lookupEquipmentWithHttpInfo(managementNo = managementNo)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EquipmentLookupResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/equipment/lookup
+     * Resolve branch-scoped equipment by management number
+     *
+     * @param managementNo Equipment management number. A leading &#x60;#&#x60; is accepted and ignored.
+     * @return ApiResponse<EquipmentLookupResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun lookupEquipmentWithHttpInfo(managementNo: kotlin.String) : ApiResponse<EquipmentLookupResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = lookupEquipmentRequestConfig(managementNo = managementNo)
+
+        return@withContext request<Unit, EquipmentLookupResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation lookupEquipment
+     *
+     * @param managementNo Equipment management number. A leading &#x60;#&#x60; is accepted and ignored.
+     * @return RequestConfig
+     */
+    fun lookupEquipmentRequestConfig(managementNo: kotlin.String) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("management_no", listOf(managementNo.toString()))
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/equipment/lookup",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
             body = localVariableBody
         )
     }
@@ -1401,6 +1765,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/devices",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/work-orders/{workOrderId}/reject
+     * Reject a submitted work order with an audit memo
+     *
+     * @param workOrderId
+     * @param rejectWorkOrderRequest
+     * @return WorkOrderSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun rejectWorkOrder(workOrderId: java.util.UUID, rejectWorkOrderRequest: RejectWorkOrderRequest) : WorkOrderSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = rejectWorkOrderWithHttpInfo(workOrderId = workOrderId, rejectWorkOrderRequest = rejectWorkOrderRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkOrderSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/work-orders/{workOrderId}/reject
+     * Reject a submitted work order with an audit memo
+     *
+     * @param workOrderId
+     * @param rejectWorkOrderRequest
+     * @return ApiResponse<WorkOrderSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun rejectWorkOrderWithHttpInfo(workOrderId: java.util.UUID, rejectWorkOrderRequest: RejectWorkOrderRequest) : ApiResponse<WorkOrderSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = rejectWorkOrderRequestConfig(workOrderId = workOrderId, rejectWorkOrderRequest = rejectWorkOrderRequest)
+
+        return@withContext request<RejectWorkOrderRequest, WorkOrderSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation rejectWorkOrder
+     *
+     * @param workOrderId
+     * @param rejectWorkOrderRequest
+     * @return RequestConfig
+     */
+    fun rejectWorkOrderRequestConfig(workOrderId: java.util.UUID, rejectWorkOrderRequest: RejectWorkOrderRequest) : RequestConfig<RejectWorkOrderRequest> {
+        val localVariableBody = rejectWorkOrderRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/work-orders/{workOrderId}/reject".replace("{"+"workOrderId"+"}", encodeURIComponent(workOrderId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

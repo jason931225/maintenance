@@ -164,6 +164,15 @@ pub struct WorkOrderApprovalCommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RejectWorkOrderCommand {
+    pub actor: UserId,
+    pub work_order_id: WorkOrderId,
+    pub memo: String,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TargetChangeRequestCommand {
     pub actor: UserId,
     pub work_order_id: WorkOrderId,

@@ -276,6 +276,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/work-orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List branch-scoped work orders
+         * @description Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values.
+         */
+        get: operations["listWorkOrders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/work-orders/{workOrderId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fetch branch-scoped work-order detail */
+        get: operations["getWorkOrderDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/work-orders/{workOrderId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject a submitted work order with an audit memo */
+        post: operations["rejectWorkOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Resolve branch-scoped equipment by management number */
+        get: operations["lookupEquipment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Autocomplete branch-scoped equipment by management number, equipment number, or model */
+        get: operations["autocompleteEquipment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sync": {
         parameters: {
             query?: never;
@@ -680,6 +768,126 @@ export interface components {
             vendor_name: string;
             vendor_contact?: string;
             reason: string;
+        };
+        RejectWorkOrderRequest: {
+            memo: string;
+        };
+        NamedEntity: {
+            id: components["schemas"]["Uuid"];
+            name: string;
+        };
+        EquipmentSummary: {
+            id: components["schemas"]["Uuid"];
+            equipment_no: string;
+            management_no: string | null;
+            model: string | null;
+            status: string;
+            specification: string;
+            ton_text: string;
+        };
+        EquipmentLookupResponse: {
+            id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            equipment_no: string;
+            management_no: string | null;
+            model: string | null;
+            status: string;
+            specification: string;
+            ton_text: string;
+            customer: components["schemas"]["NamedEntity"];
+            site: components["schemas"]["NamedEntity"];
+        };
+        EquipmentAutocompletePage: {
+            items: components["schemas"]["EquipmentLookupResponse"][];
+            /** Format: int64 */
+            limit: number;
+        };
+        AssignmentSummary: {
+            id: components["schemas"]["Uuid"];
+            mechanic_id: components["schemas"]["Uuid"];
+            mechanic_name: string;
+            role: components["schemas"]["AssignmentRole"];
+            assigned_at: components["schemas"]["Timestamp"];
+        };
+        ApprovalStepSummary: {
+            id: components["schemas"]["Uuid"];
+            /** Format: int32 */
+            step_order: number;
+            role: string;
+            /** Format: uuid */
+            approver_id: string | null;
+            status: string;
+            /** Format: date-time */
+            requested_at: string | null;
+            /** Format: date-time */
+            approved_at: string | null;
+            /** Format: uuid */
+            approved_by_id: string | null;
+        };
+        StatusHistorySummary: {
+            id: components["schemas"]["Uuid"];
+            /** Format: uuid */
+            actor: string | null;
+            action: string;
+            from_status: string | null;
+            to_status: components["schemas"]["WorkOrderStatus"];
+            occurred_at: components["schemas"]["Timestamp"];
+        };
+        EvidenceSummary: {
+            id: components["schemas"]["Uuid"];
+            stage: components["schemas"]["AttachmentStage"];
+            content_type: string;
+            /** Format: int64 */
+            size_bytes: number;
+            uploaded_by: components["schemas"]["Uuid"];
+            worm_replica_status: components["schemas"]["WormReplicaStatus"];
+            /** Format: int32 */
+            retry_count: number;
+            /** Format: date-time */
+            verified_at: string | null;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        WorkOrderListItem: {
+            id: components["schemas"]["Uuid"];
+            request_no: string;
+            branch_id: components["schemas"]["Uuid"];
+            status: components["schemas"]["WorkOrderStatus"];
+            priority: components["schemas"]["PriorityLevel"];
+            result_type: components["schemas"]["WorkResultType"];
+            /** Format: date-time */
+            target_due_at: string | null;
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+            equipment: components["schemas"]["EquipmentSummary"];
+            customer: components["schemas"]["NamedEntity"];
+            site: components["schemas"]["NamedEntity"];
+            assignments: components["schemas"]["AssignmentSummary"][];
+        };
+        WorkOrderListPage: {
+            items: components["schemas"]["WorkOrderListItem"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
+        WorkOrderDetail: components["schemas"]["WorkOrderListItem"] & {
+            symptom: string;
+            customer_request: string | null;
+            delay_reason: string | null;
+            delay_note: string | null;
+            diagnosis: string | null;
+            action_taken: string | null;
+            /** Format: uuid */
+            report_submitted_by: string | null;
+            /** Format: date-time */
+            report_submitted_at: string | null;
+            kpi_excluded: boolean;
+            evidence_verified: boolean;
+            approval_line: components["schemas"]["ApprovalStepSummary"][];
+            status_history: components["schemas"]["StatusHistorySummary"][];
+            evidence: components["schemas"]["EvidenceSummary"][];
         };
         SyncBatchRequest: {
             sync_id: string;
@@ -1309,6 +1517,149 @@ export interface operations {
                     "application/json": components["schemas"]["OutsourceWorkSummary"];
                 };
             };
+        };
+    };
+    listWorkOrders: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["WorkOrderStatus"][];
+                priority?: components["schemas"]["PriorityLevel"][];
+                /** @description Use `me` for the authenticated user or a user UUID. */
+                assigned_to?: string;
+                customer_id?: components["schemas"]["Uuid"];
+                site_id?: components["schemas"]["Uuid"];
+                target_due_from?: components["schemas"]["Timestamp"];
+                target_due_to?: components["schemas"]["Timestamp"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated work-order list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkOrderListPage"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getWorkOrderDetail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workOrderId: components["parameters"]["WorkOrderId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Full work-order detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkOrderDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    rejectWorkOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workOrderId: components["parameters"]["WorkOrderId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectWorkOrderRequest"];
+            };
+        };
+        responses: {
+            /** @description Rejected work order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkOrderSummary"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    lookupEquipment: {
+        parameters: {
+            query: {
+                /** @description Equipment management number. A leading `#` is accepted and ignored. */
+                management_no: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching equipment, model, customer, and site. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EquipmentLookupResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    autocompleteEquipment: {
+        parameters: {
+            query: {
+                q: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Prefix-search equipment matches. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EquipmentAutocompletePage"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     replayOfflineSyncBatch: {
