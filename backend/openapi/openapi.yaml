@@ -3428,6 +3428,7 @@ components:
       - target_count
       - accepted_count
       - declined_count
+      - manual_call_required
       properties:
         id:
           $ref: '#/components/schemas/Uuid'
@@ -3446,6 +3447,12 @@ components:
         auto_assigned_mechanic_id:
           $ref: '#/components/schemas/Uuid'
         manager_force_pending_at:
+          $ref: '#/components/schemas/Timestamp'
+        manual_call_required:
+          type: boolean
+        manual_call_required_at:
+          $ref: '#/components/schemas/Timestamp'
+        manual_call_cleared_at:
           $ref: '#/components/schemas/Timestamp'
         target_count:
           type: integer

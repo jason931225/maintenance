@@ -23,18 +23,49 @@ pub enum DispatchWorkerError {
     UnsupportedJob,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AlimtalkEscalationPolicy {
+    enabled: bool,
+}
+
+impl AlimtalkEscalationPolicy {
+    #[must_use]
+    pub const fn enabled() -> Self {
+        Self { enabled: true }
+    }
+
+    #[must_use]
+    pub const fn disabled() -> Self {
+        Self { enabled: false }
+    }
+
+    #[must_use]
+    pub const fn is_enabled(self) -> bool {
+        self.enabled
+    }
+}
+
+const ALIMTALK_DISABLED_REASON: &str =
+    "Solapi Alimtalk disabled: approved dispatch template id is not configured";
+
 #[derive(Clone)]
 pub struct DispatchWorker {
     store: PgDispatchStore,
     push_notifier: Option<Arc<dyn PushNotifier>>,
+    alimtalk_policy: AlimtalkEscalationPolicy,
 }
 
 impl DispatchWorker {
     #[must_use]
-    pub fn new(store: PgDispatchStore, push_notifier: Option<Arc<dyn PushNotifier>>) -> Self {
+    pub fn new(
+        store: PgDispatchStore,
+        push_notifier: Option<Arc<dyn PushNotifier>>,
+        alimtalk_policy: AlimtalkEscalationPolicy,
+    ) -> Self {
         Self {
             store,
             push_notifier,
+            alimtalk_policy,
         }
     }
 
@@ -46,6 +77,10 @@ impl DispatchWorker {
             }
             PlatformJob::DispatchAlimtalkNoAck(job) => {
                 self.handle_alimtalk_no_ack(job).await?;
+                Ok(())
+            }
+            PlatformJob::DispatchManualCallRequired(job) => {
+                self.handle_manual_call_required(job).await?;
                 Ok(())
             }
             PlatformJob::EscalationTimer(_) => Err(DispatchWorkerError::UnsupportedJob),
@@ -79,17 +114,41 @@ impl DispatchWorker {
         Ok(())
     }
 
+    async fn handle_manual_call_required(
+        &self,
+        job: DispatchTimerJob,
+    ) -> Result<(), DispatchWorkerError> {
+        self.store
+            .mark_manual_call_required(ExpireP1DispatchCommand {
+                dispatch_id: job.dispatch_id,
+                trace: TraceContext::generate(),
+                occurred_at: job.scheduled_for,
+            })
+            .await?;
+        Ok(())
+    }
+
     async fn deliver_alimtalk_no_ack_alerts(
         &self,
         dispatch_id: mnt_kernel_core::P1DispatchId,
     ) -> Result<(), DispatchWorkerError> {
-        let Some(notifier) = self.push_notifier.as_ref() else {
-            return Ok(());
-        };
         let alerts = self
             .store
             .pending_alimtalk_no_ack_alerts(dispatch_id)
             .await?;
+        if alerts.is_empty() {
+            return Ok(());
+        }
+        if !self.alimtalk_policy.is_enabled() {
+            self.skip_alimtalk_alerts(alerts, ALIMTALK_DISABLED_REASON)
+                .await?;
+            return Ok(());
+        }
+        let Some(notifier) = self.push_notifier.as_ref() else {
+            self.skip_alimtalk_alerts(alerts, ALIMTALK_DISABLED_REASON)
+                .await?;
+            return Ok(());
+        };
         for alert in alerts {
             self.send_alimtalk(notifier.as_ref(), alert, "P1 emergency dispatch")
                 .await?;
@@ -113,12 +172,23 @@ impl DispatchWorker {
             .pending_manager_force_alimtalks(dispatch_id)
             .await?;
         for alert in fallback_alerts {
-            self.send_alimtalk(
-                notifier.as_ref(),
-                alert,
-                "P1 dispatch needs manager assignment",
-            )
-            .await?;
+            if self.alimtalk_policy.is_enabled() {
+                self.send_alimtalk(
+                    notifier.as_ref(),
+                    alert,
+                    "P1 dispatch needs manager assignment",
+                )
+                .await?;
+            } else {
+                self.store
+                    .mark_alert_skipped(
+                        alert.alert_id,
+                        ALIMTALK_DISABLED_REASON.to_owned(),
+                        TraceContext::generate(),
+                        time::OffsetDateTime::now_utc(),
+                    )
+                    .await?;
+            }
         }
         Ok(())
     }
@@ -188,6 +258,16 @@ impl DispatchWorker {
                     )
                     .await?;
             }
+            Err(PushError::Config(message)) => {
+                self.store
+                    .mark_alert_skipped(
+                        alert.alert_id,
+                        format!("Solapi Alimtalk disabled: {message}"),
+                        TraceContext::generate(),
+                        time::OffsetDateTime::now_utc(),
+                    )
+                    .await?;
+            }
             Err(err) => {
                 self.store
                     .mark_alert_failed(
@@ -198,6 +278,24 @@ impl DispatchWorker {
                     )
                     .await?;
             }
+        }
+        Ok(())
+    }
+
+    async fn skip_alimtalk_alerts(
+        &self,
+        alerts: Vec<PendingAlimtalkAlert>,
+        reason: &str,
+    ) -> Result<(), DispatchWorkerError> {
+        for alert in alerts {
+            self.store
+                .mark_alert_skipped(
+                    alert.alert_id,
+                    reason.to_owned(),
+                    TraceContext::generate(),
+                    time::OffsetDateTime::now_utc(),
+                )
+                .await?;
         }
         Ok(())
     }

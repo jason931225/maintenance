@@ -243,6 +243,16 @@ async fn schedule_dispatch_jobs(
         .schedule_at(no_ack, no_ack_at)
         .await
         .map_err(RestError::from_jobs)?;
+    let manual_call_at = summary
+        .accept_window_started_at
+        .checked_add(state.timers.force_assign_alert_after)
+        .ok_or_else(|| RestError::internal("dispatch manual-call timer overflows time"))?;
+    let manual_call = JobRequest::dispatch_manual_call_required(summary.id, manual_call_at)
+        .map_err(RestError::from_jobs)?;
+    queue
+        .schedule_at(manual_call, manual_call_at)
+        .await
+        .map_err(RestError::from_jobs)?;
     Ok(())
 }
 
