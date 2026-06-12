@@ -1217,7 +1217,20 @@ async fn lock_work_order(
     let row = sqlx::query(
         r#"
         SELECT id, request_no, branch_id, equipment_id, customer_id, site_id,
-               status, priority, result_type, evidence_verified
+               status, priority, result_type,
+               EXISTS (
+                   SELECT 1
+                   FROM evidence_media e
+                   WHERE e.work_order_id = work_orders.id
+                     AND e.stage IN ('AFTER', 'REPORT')
+                     AND e.worm_replica_status = 'VERIFIED'
+               ) AND NOT EXISTS (
+                   SELECT 1
+                   FROM evidence_media e
+                   WHERE e.work_order_id = work_orders.id
+                     AND e.stage IN ('AFTER', 'REPORT')
+                     AND e.worm_replica_status <> 'VERIFIED'
+               ) AS evidence_verified
         FROM work_orders
         WHERE id = $1
         FOR UPDATE
@@ -1238,7 +1251,20 @@ async fn fetch_work_order_summary_tx(
     let row = sqlx::query(
         r#"
         SELECT id, request_no, branch_id, equipment_id, customer_id, site_id,
-               status, priority, result_type, evidence_verified
+               status, priority, result_type,
+               EXISTS (
+                   SELECT 1
+                   FROM evidence_media e
+                   WHERE e.work_order_id = work_orders.id
+                     AND e.stage IN ('AFTER', 'REPORT')
+                     AND e.worm_replica_status = 'VERIFIED'
+               ) AND NOT EXISTS (
+                   SELECT 1
+                   FROM evidence_media e
+                   WHERE e.work_order_id = work_orders.id
+                     AND e.stage IN ('AFTER', 'REPORT')
+                     AND e.worm_replica_status <> 'VERIFIED'
+               ) AS evidence_verified
         FROM work_orders
         WHERE id = $1
         "#,
@@ -1257,7 +1283,20 @@ async fn fetch_work_order_summary_pool(
     let row = sqlx::query(
         r#"
         SELECT id, request_no, branch_id, equipment_id, customer_id, site_id,
-               status, priority, result_type, evidence_verified
+               status, priority, result_type,
+               EXISTS (
+                   SELECT 1
+                   FROM evidence_media e
+                   WHERE e.work_order_id = work_orders.id
+                     AND e.stage IN ('AFTER', 'REPORT')
+                     AND e.worm_replica_status = 'VERIFIED'
+               ) AND NOT EXISTS (
+                   SELECT 1
+                   FROM evidence_media e
+                   WHERE e.work_order_id = work_orders.id
+                     AND e.stage IN ('AFTER', 'REPORT')
+                     AND e.worm_replica_status <> 'VERIFIED'
+               ) AS evidence_verified
         FROM work_orders
         WHERE id = $1
         "#,
