@@ -13,6 +13,7 @@ use webauthn_rs::prelude::{
 use crate::AuthError;
 
 pub type PasskeyRegistrationCredential = RegisterPublicKeyCredential;
+pub type PasskeyAuthenticationCredential = PublicKeyCredential;
 
 #[derive(Debug, Clone)]
 pub struct WebauthnSettings {

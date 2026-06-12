@@ -277,6 +277,126 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OutsourceWorkSummary"
+  /api/v1/auth/passkey/register/start:
+    post:
+      summary: Start passkey registration
+      description: Starts registration with either a bootstrap credential or an authenticated bearer session adding a device.
+      security:
+        - bearerAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyRegisterStartRequest"
+      responses:
+        "200":
+          description: Registration ceremony challenge.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyRegisterStartResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/auth/passkey/register/finish:
+    post:
+      summary: Finish passkey registration
+      description: Finishes a bootstrap-linked registration ceremony or an authenticated add-device ceremony.
+      security:
+        - bearerAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyRegisterFinishRequest"
+      responses:
+        "201":
+          description: Passkey registered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyRegisterFinishResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/auth/passkey/login/start:
+    post:
+      summary: Start passkey login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyLoginStartRequest"
+      responses:
+        "200":
+          description: Authentication ceremony challenge.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyLoginStartResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/auth/passkey/login/finish:
+    post:
+      summary: Finish passkey login
+      description: Verifies the passkey assertion and issues an ES256 access JWT plus an opaque rotating refresh token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyLoginFinishRequest"
+      responses:
+        "200":
+          description: Access and refresh tokens.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPairResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/auth/token/refresh:
+    post:
+      summary: Rotate refresh token
+      description: Rotates an opaque refresh token; reuse of an old token revokes the whole family and returns 401.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshTokenRequest"
+      responses:
+        "200":
+          description: New access and refresh tokens.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPairResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/auth/logout:
+    post:
+      summary: Logout and revoke refresh-token family
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LogoutRequest"
+      responses:
+        "204":
+          description: Refresh-token family revoked.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 components:
   securitySchemes:
     bearerAuth:
@@ -478,6 +598,93 @@ components:
           type: string
         reason:
           type: string
+    PasskeyRegisterStartRequest:
+      type: object
+      properties:
+        bootstrap_token:
+          type: string
+          description: One-time bootstrap credential for zero-credential users.
+        username:
+          type: string
+        display_name:
+          type: string
+    PasskeyRegisterStartResponse:
+      type: object
+      required: [ceremony_id, challenge, expires_at]
+      properties:
+        ceremony_id:
+          $ref: "#/components/schemas/Uuid"
+        challenge:
+          type: object
+          additionalProperties: true
+        expires_at:
+          $ref: "#/components/schemas/Timestamp"
+    PasskeyRegisterFinishRequest:
+      type: object
+      required: [ceremony_id, credential]
+      properties:
+        ceremony_id:
+          $ref: "#/components/schemas/Uuid"
+        credential:
+          type: object
+          additionalProperties: true
+    PasskeyRegisterFinishResponse:
+      type: object
+      required: [passkey_id, user_id, credential_id]
+      properties:
+        passkey_id:
+          $ref: "#/components/schemas/Uuid"
+        user_id:
+          $ref: "#/components/schemas/Uuid"
+        credential_id:
+          type: string
+    PasskeyLoginStartRequest:
+      type: object
+      required: [user_id]
+      properties:
+        user_id:
+          $ref: "#/components/schemas/Uuid"
+    PasskeyLoginStartResponse:
+      type: object
+      required: [ceremony_id, challenge, expires_at]
+      properties:
+        ceremony_id:
+          $ref: "#/components/schemas/Uuid"
+        challenge:
+          type: object
+          additionalProperties: true
+        expires_at:
+          $ref: "#/components/schemas/Timestamp"
+    PasskeyLoginFinishRequest:
+      type: object
+      required: [ceremony_id, credential]
+      properties:
+        ceremony_id:
+          $ref: "#/components/schemas/Uuid"
+        credential:
+          type: object
+          additionalProperties: true
+    RefreshTokenRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+    LogoutRequest:
+      $ref: "#/components/schemas/RefreshTokenRequest"
+    TokenPairResponse:
+      type: object
+      required: [access_token, refresh_token, token_type, refresh_expires_at]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          enum: [Bearer]
+        refresh_expires_at:
+          $ref: "#/components/schemas/Timestamp"
     WorkOrderSummary:
       type: object
       required:

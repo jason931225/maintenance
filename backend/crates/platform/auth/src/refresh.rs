@@ -22,6 +22,7 @@ pub struct RefreshTokenIssue {
     pub token: RefreshToken,
     pub family_id: Uuid,
     pub token_id: Uuid,
+    pub user_id: Uuid,
     pub expires_at: OffsetDateTime,
 }
 
@@ -113,6 +114,7 @@ impl RefreshTokenStore {
             token: RefreshToken(token),
             family_id,
             token_id,
+            user_id,
             expires_at,
         })
     }
@@ -188,6 +190,11 @@ impl RefreshTokenStore {
                 family_id,
                 "auth.refresh.reuse_detected",
                 now,
+                serde_json::json!({
+                    "family_id": family_id,
+                    "revoked_reason": "reuse_detected",
+                    "reused_token_id": token_id,
+                }),
             )
             .await?;
             tx.commit().await?;
@@ -238,14 +245,124 @@ impl RefreshTokenStore {
         .execute(tx.as_mut())
         .await?;
 
+        insert_audit_in_tx(
+            &mut tx,
+            user_id,
+            family_id,
+            "auth.refresh",
+            now,
+            serde_json::json!({
+                "family_id": family_id,
+                "used_token_id": token_id,
+                "replacement_token_id": replacement_id,
+                "expires_at": replacement_expires_at,
+            }),
+        )
+        .await?;
+
         tx.commit().await?;
 
         Ok(RefreshTokenIssue {
             token: RefreshToken(replacement),
             family_id,
             token_id: replacement_id,
+            user_id,
             expires_at: replacement_expires_at,
         })
+    }
+
+    pub async fn revoke_family_for_logout(
+        &self,
+        pool: &PgPool,
+        presented_token: &str,
+        now: OffsetDateTime,
+    ) -> Result<(), RefreshTokenUseError> {
+        self.revoke_family_for_logout_inner(pool, presented_token, now)
+            .await
+            .map_err(|err| match err {
+                AuthError::Refresh(refresh) => refresh,
+                _ => RefreshTokenUseError::Storage,
+            })
+    }
+
+    async fn revoke_family_for_logout_inner(
+        &self,
+        pool: &PgPool,
+        presented_token: &str,
+        now: OffsetDateTime,
+    ) -> Result<(), AuthError> {
+        let token_hash = hash_token(presented_token);
+        let mut tx = pool.begin().await?;
+
+        let row = sqlx::query(
+            r#"
+            SELECT
+                t.family_id,
+                t.user_id,
+                f.revoked_at AS family_revoked_at
+            FROM auth_refresh_tokens t
+            JOIN auth_refresh_token_families f ON f.id = t.family_id
+            WHERE t.token_hash = $1
+            FOR UPDATE OF t, f
+            "#,
+        )
+        .bind(token_hash)
+        .fetch_optional(tx.as_mut())
+        .await?;
+
+        let Some(row) = row else {
+            tx.rollback().await?;
+            return Err(RefreshTokenUseError::InvalidToken.into());
+        };
+
+        let family_id: Uuid = row.try_get("family_id")?;
+        let user_id: Uuid = row.try_get("user_id")?;
+        let family_revoked_at: Option<OffsetDateTime> = row.try_get("family_revoked_at")?;
+
+        if family_revoked_at.is_some() {
+            tx.rollback().await?;
+            return Err(RefreshTokenUseError::FamilyRevoked.into());
+        }
+
+        sqlx::query(
+            r#"
+            UPDATE auth_refresh_token_families
+            SET revoked_at = $1, revoked_reason = 'logout'
+            WHERE id = $2 AND revoked_at IS NULL
+            "#,
+        )
+        .bind(now)
+        .bind(family_id)
+        .execute(tx.as_mut())
+        .await?;
+
+        sqlx::query(
+            r#"
+            UPDATE auth_refresh_tokens
+            SET revoked_at = COALESCE(revoked_at, $1)
+            WHERE family_id = $2
+            "#,
+        )
+        .bind(now)
+        .bind(family_id)
+        .execute(tx.as_mut())
+        .await?;
+
+        insert_audit_in_tx(
+            &mut tx,
+            user_id,
+            family_id,
+            "auth.logout",
+            now,
+            serde_json::json!({
+                "family_id": family_id,
+                "revoked_reason": "logout",
+            }),
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
     }
 }
 
@@ -290,6 +407,7 @@ async fn insert_audit_in_tx(
     family_id: Uuid,
     action: &str,
     now: OffsetDateTime,
+    after: serde_json::Value,
 ) -> Result<(), AuthError> {
     let event = AuditEvent::new(
         Some(UserId::from_uuid(user_id)),
@@ -299,13 +417,7 @@ async fn insert_audit_in_tx(
         TraceContext::generate(),
         now,
     )
-    .with_snapshots(
-        None,
-        Some(serde_json::json!({
-            "family_id": family_id,
-            "revoked_reason": "reuse_detected",
-        })),
-    );
+    .with_snapshots(None, Some(after));
 
     sqlx::query(
         r#"

@@ -68,6 +68,7 @@ mnt-workorder-application = { path = "crates/workorder/application" }
 mnt-workorder-adapter-postgres = { path = "crates/workorder/adapter-postgres" }
 mnt-workorder-rest = { path = "crates/workorder/rest" }
 mnt-platform-db = { path = "crates/platform/db" }
+mnt-platform-auth-rest = { path = "crates/platform/auth-rest" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

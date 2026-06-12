@@ -21,6 +21,7 @@ use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, TraceContext, UserId,
 };
 use mnt_platform_auth::{AccessClaims, JwtSettings, JwtVerifier};
+use mnt_platform_auth_rest::{AuthRestConfig, AuthRestState};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
 use mnt_platform_db::{DbError, with_audit};
 use mnt_workorder_adapter_postgres::PgWorkOrderStore;
@@ -45,6 +46,9 @@ const DEFAULT_SERVICE_NAME: &str = "mnt-app";
 const DEFAULT_SHUTDOWN_TIMEOUT_SECS: u64 = 10;
 const DEFAULT_JWT_ISSUER: &str = "mnt-platform-auth";
 const DEFAULT_JWT_AUDIENCE: &str = "mnt-api";
+const DEFAULT_WEBAUTHN_RP_NAME: &str = "MNT Maintenance";
+const DEFAULT_AUTH_CEREMONY_TTL_SECS: u64 = 300;
+const DEFAULT_REFRESH_TOKEN_TTL_SECS: u64 = 60 * 60 * 24 * 30;
 const DEFAULT_AUDIT_LIMIT: i64 = 50;
 const MAX_AUDIT_LIMIT: i64 = 200;
 const OPENAPI_YAML: &str = include_str!("../../openapi/openapi.yaml");
@@ -87,6 +91,7 @@ pub struct AppConfig {
     pub database_url: Option<String>,
     pub otlp_endpoint: Option<String>,
     pub jwt: Option<JwtVerifierConfig>,
+    pub auth_rest: Option<AuthRestConfig>,
     pub shutdown_timeout: Duration,
 }
 
@@ -162,6 +167,7 @@ impl AppConfig {
                 .unwrap_or_else(|| DEFAULT_JWT_AUDIENCE.to_owned()),
             public_key_pem,
         });
+        let auth_rest = auth_rest_config_from_vars(&vars, jwt.as_ref())?;
         let shutdown_timeout = match vars.get("MNT_SHUTDOWN_TIMEOUT_SECS") {
             Some(raw) => raw.parse::<u64>().map(Duration::from_secs).map_err(|err| {
                 AppError::Config(format!("invalid MNT_SHUTDOWN_TIMEOUT_SECS: {err}"))
@@ -176,9 +182,69 @@ impl AppConfig {
             database_url,
             otlp_endpoint,
             jwt,
+            auth_rest,
             shutdown_timeout,
         })
     }
+}
+
+fn auth_rest_config_from_vars(
+    vars: &HashMap<String, String>,
+    jwt: Option<&JwtVerifierConfig>,
+) -> Result<Option<AuthRestConfig>, AppError> {
+    let Some(jwt_private_key_pem) = non_empty(vars.get("MNT_JWT_PRIVATE_KEY_PEM")) else {
+        return Ok(None);
+    };
+    let jwt = jwt.ok_or_else(|| {
+        AppError::Config(
+            "MNT_JWT_PUBLIC_KEY_PEM is required when MNT_JWT_PRIVATE_KEY_PEM is configured"
+                .to_owned(),
+        )
+    })?;
+    let rp_id = non_empty(vars.get("MNT_WEBAUTHN_RP_ID")).ok_or_else(|| {
+        AppError::Config("MNT_WEBAUTHN_RP_ID is required when auth REST is configured".to_owned())
+    })?;
+    let rp_origin = non_empty(vars.get("MNT_WEBAUTHN_RP_ORIGIN")).ok_or_else(|| {
+        AppError::Config(
+            "MNT_WEBAUTHN_RP_ORIGIN is required when auth REST is configured".to_owned(),
+        )
+    })?;
+
+    Ok(Some(AuthRestConfig {
+        rp_id,
+        rp_origin,
+        rp_name: non_empty(vars.get("MNT_WEBAUTHN_RP_NAME"))
+            .unwrap_or_else(|| DEFAULT_WEBAUTHN_RP_NAME.to_owned()),
+        ceremony_ttl: parse_time_duration_secs(
+            vars.get("MNT_AUTH_CEREMONY_TTL_SECS"),
+            DEFAULT_AUTH_CEREMONY_TTL_SECS,
+            "MNT_AUTH_CEREMONY_TTL_SECS",
+        )?,
+        jwt_issuer: jwt.issuer.clone(),
+        jwt_audience: jwt.audience.clone(),
+        jwt_private_key_pem,
+        jwt_public_key_pem: jwt.public_key_pem.clone(),
+        refresh_token_ttl: parse_time_duration_secs(
+            vars.get("MNT_REFRESH_TOKEN_TTL_SECS"),
+            DEFAULT_REFRESH_TOKEN_TTL_SECS,
+            "MNT_REFRESH_TOKEN_TTL_SECS",
+        )?,
+    }))
+}
+
+fn parse_time_duration_secs(
+    raw: Option<&String>,
+    default_secs: u64,
+    name: &str,
+) -> Result<time::Duration, AppError> {
+    let secs = match raw {
+        Some(raw) => raw
+            .parse::<i64>()
+            .map_err(|err| AppError::Config(format!("invalid {name}: {err}")))?,
+        None => i64::try_from(default_secs)
+            .map_err(|err| AppError::Config(format!("invalid default for {name}: {err}")))?,
+    };
+    Ok(time::Duration::seconds(secs))
 }
 
 fn non_empty(value: Option<&String>) -> Option<String> {
@@ -203,6 +269,7 @@ pub struct AppState {
     config: AppConfig,
     database: DatabaseDependency,
     jwt_verifier: Option<JwtVerifier>,
+    auth_rest: Option<AuthRestState>,
 }
 
 impl AppState {
@@ -212,10 +279,22 @@ impl AppState {
             .as_ref()
             .map(JwtVerifierConfig::build)
             .transpose()?;
+        let auth_rest = match &database {
+            DatabaseDependency::Postgres(pool) => match &config.auth_rest {
+                Some(auth_config) => Some(
+                    AuthRestState::new(pool.clone(), auth_config.clone()).map_err(|err| {
+                        AppError::Config(format!("invalid auth REST config: {err}"))
+                    })?,
+                ),
+                None => Some(AuthRestState::disabled(pool.clone())),
+            },
+            DatabaseDependency::NotConfigured => None,
+        };
         Ok(Self {
             config,
             database,
             jwt_verifier,
+            auth_rest,
         })
     }
 
@@ -347,9 +426,16 @@ pub fn build_router(state: AppState) -> Router {
         .with_state(state.clone());
 
     match &state.database {
-        DatabaseDependency::Postgres(pool) => router.merge(mnt_workorder_rest::router(
-            WorkOrderRestState::new(PgWorkOrderStore::new(pool.clone()), state.jwt_verifier),
-        )),
+        DatabaseDependency::Postgres(pool) => {
+            let router = router.merge(mnt_workorder_rest::router(WorkOrderRestState::new(
+                PgWorkOrderStore::new(pool.clone()),
+                state.jwt_verifier,
+            )));
+            match state.auth_rest {
+                Some(auth_rest) => router.merge(mnt_platform_auth_rest::router(auth_rest)),
+                None => router,
+            }
+        }
         DatabaseDependency::NotConfigured => router,
     }
 }
