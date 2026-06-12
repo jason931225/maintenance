@@ -12,7 +12,7 @@ on:
 
 jobs:
   backend:
-    name: Backend — fmt / clippy / test / layer-gate
+    name: Backend — fmt / clippy / test / gates
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -52,3 +52,12 @@ jobs:
 
       - name: Layer-boundary gate
         run: cargo run -p mnt-gate-layer-boundary
+
+      - name: Audit-coverage gate
+        run: cargo run -p mnt-gate-audit-coverage
+
+      - name: Migration-safety gate
+        run: cargo run -p mnt-gate-migration-safety
+
+      - name: PII-no-logs gate
+        run: cargo run -p mnt-gate-pii-no-logs
