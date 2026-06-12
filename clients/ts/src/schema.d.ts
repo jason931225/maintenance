@@ -276,6 +276,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replay an idempotent mobile offline-operation batch */
+        post: operations["replayOfflineSyncBatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/evidence/presign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Issue a presigned upload ticket for work-order evidence */
+        post: operations["presignEvidenceUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/evidence/{evidenceId}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm direct evidence upload completion and trigger replica verification */
+        post: operations["confirmEvidenceUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register or refresh a mobile device binding */
+        post: operations["registerMobileDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/passkey/register/start": {
         parameters: {
             query?: never;
@@ -554,6 +622,16 @@ export interface components {
         /** @enum {string} */
         AssignmentRole: "PRIMARY" | "SECONDARY";
         /** @enum {string} */
+        AttachmentStage: "REQUEST" | "BEFORE" | "DURING" | "AFTER" | "REPORT" | "OUTSOURCE_RESULT";
+        /** @enum {string} */
+        SyncOperationKind: "WORK_ORDER_START" | "WORK_ORDER_REPORT";
+        /** @enum {string} */
+        SyncOperationStatus: "APPLIED" | "FAILED";
+        /** @enum {string} */
+        DevicePlatform: "ios" | "android";
+        /** @enum {string} */
+        WormReplicaStatus: "PENDING" | "VERIFIED" | "FAILED";
+        /** @enum {string} */
         DailyPlanStatus: "DRAFT" | "REQUESTED" | "APPROVED" | "REJECTED" | "FINAL_CONFIRMED";
         /** @enum {string} */
         TargetChangeDecision: "APPROVED" | "REJECTED";
@@ -602,6 +680,92 @@ export interface components {
             vendor_name: string;
             vendor_contact?: string;
             reason: string;
+        };
+        SyncBatchRequest: {
+            sync_id: string;
+            operations: components["schemas"]["SyncOperationRequest"][];
+        };
+        SyncOperationRequest: {
+            request_id: string;
+            operation: components["schemas"]["SyncOperationKind"];
+            created_at: components["schemas"]["Timestamp"];
+            payload: components["schemas"]["SyncWorkOrderStartPayload"] | components["schemas"]["SyncWorkOrderReportPayload"];
+        };
+        SyncWorkOrderStartPayload: {
+            work_order_id: components["schemas"]["Uuid"];
+        };
+        SyncWorkOrderReportPayload: {
+            work_order_id: components["schemas"]["Uuid"];
+            result_type: components["schemas"]["WorkResultType"];
+            diagnosis: string;
+            action_taken: string;
+        };
+        SyncBatchResponse: {
+            sync_id: string;
+            results: components["schemas"]["SyncOperationResult"][];
+        };
+        SyncOperationResult: {
+            request_id: string;
+            operation: components["schemas"]["SyncOperationKind"];
+            status: components["schemas"]["SyncOperationStatus"];
+            /** Format: int32 */
+            http_status: number;
+            result?: components["schemas"]["WorkOrderSummary"];
+            error?: components["schemas"]["SyncError"];
+            replayed: boolean;
+        };
+        SyncError: {
+            code: string;
+            message: string;
+        };
+        EvidencePresignRequest: {
+            work_order_id: components["schemas"]["Uuid"];
+            stage: components["schemas"]["AttachmentStage"];
+            content_type: string;
+            /** Format: int64 */
+            size_bytes: number;
+            checksum_sha256?: string;
+        };
+        PresignedUpload: {
+            /** @enum {string} */
+            method: "PUT";
+            /** Format: uri */
+            url: string;
+            headers: [
+                string,
+                string
+            ][];
+            /** Format: int64 */
+            expires_in_secs: number;
+        };
+        EvidencePresignResponse: {
+            id: components["schemas"]["Uuid"];
+            work_order_id: components["schemas"]["Uuid"];
+            stage: components["schemas"]["AttachmentStage"];
+            upload: components["schemas"]["PresignedUpload"];
+        };
+        EvidenceConfirmResponse: {
+            id: components["schemas"]["Uuid"];
+            work_order_id: components["schemas"]["Uuid"];
+            stage: components["schemas"]["AttachmentStage"];
+            worm_replica_status: components["schemas"]["WormReplicaStatus"];
+            /** Format: int32 */
+            retry_count: number;
+            verified_at?: components["schemas"]["Timestamp"];
+        };
+        DeviceRegistrationRequest: {
+            platform: components["schemas"]["DevicePlatform"];
+            push_token?: string | null;
+            app_version: string;
+        };
+        DeviceRegistrationResponse: {
+            id: components["schemas"]["Uuid"];
+            user_id: components["schemas"]["Uuid"];
+            device_hash: string;
+            platform: components["schemas"]["DevicePlatform"];
+            push_token?: string | null;
+            app_version: string;
+            last_registered_at: components["schemas"]["Timestamp"];
         };
         PasskeyRegisterStartRequest: {
             /** @description One-time bootstrap credential for zero-credential users. */
@@ -747,6 +911,9 @@ export interface components {
         WorkOrderId: string;
         PlanId: string;
         RequestId: string;
+        EvidenceId: string;
+        /** @description Client-stable device identifier. The server stores only a SHA-256 hash. */
+        XDeviceId: string;
     };
     requestBodies: never;
     headers: never;
@@ -1142,6 +1309,143 @@ export interface operations {
                     "application/json": components["schemas"]["OutsourceWorkSummary"];
                 };
             };
+        };
+    };
+    replayOfflineSyncBatch: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Client-stable device identifier. The server stores only a SHA-256 hash. */
+                "X-Device-Id": components["parameters"]["XDeviceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SyncBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Per-operation replay results. Individual failures do not abort the batch. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncBatchResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    presignEvidenceUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvidencePresignRequest"];
+            };
+        };
+        responses: {
+            /** @description Presigned evidence upload ticket. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidencePresignResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Evidence storage is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    confirmEvidenceUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evidenceId: components["parameters"]["EvidenceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Evidence confirmation and replica status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceConfirmResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Evidence storage is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    registerMobileDevice: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Client-stable device identifier. The server stores only a SHA-256 hash. */
+                "X-Device-Id": components["parameters"]["XDeviceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceRegistrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Registered device binding. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceRegistrationResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
         };
     };
 }

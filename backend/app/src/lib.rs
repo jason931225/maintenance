@@ -24,8 +24,9 @@ use mnt_platform_auth::{AccessClaims, JwtSettings, JwtVerifier};
 use mnt_platform_auth_rest::{AuthRestConfig, AuthRestState};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
 use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_storage::{EvidenceService, S3StorageConfig, SeaweedS3Storage, StorageError};
 use mnt_workorder_adapter_postgres::PgWorkOrderStore;
-use mnt_workorder_rest::WorkOrderRestState;
+use mnt_workorder_rest::{MobileRestState, WorkOrderRestState};
 use opentelemetry::global;
 use opentelemetry::trace::{TraceContextExt, TracerProvider};
 use opentelemetry_otlp::WithExportConfig;
@@ -92,6 +93,7 @@ pub struct AppConfig {
     pub otlp_endpoint: Option<String>,
     pub jwt: Option<JwtVerifierConfig>,
     pub auth_rest: Option<AuthRestConfig>,
+    pub storage: Option<S3StorageConfig>,
     pub shutdown_timeout: Duration,
 }
 
@@ -168,6 +170,7 @@ impl AppConfig {
             public_key_pem,
         });
         let auth_rest = auth_rest_config_from_vars(&vars, jwt.as_ref())?;
+        let storage = storage_config_from_vars(&vars)?;
         let shutdown_timeout = match vars.get("MNT_SHUTDOWN_TIMEOUT_SECS") {
             Some(raw) => raw.parse::<u64>().map(Duration::from_secs).map_err(|err| {
                 AppError::Config(format!("invalid MNT_SHUTDOWN_TIMEOUT_SECS: {err}"))
@@ -183,6 +186,7 @@ impl AppConfig {
             otlp_endpoint,
             jwt,
             auth_rest,
+            storage,
             shutdown_timeout,
         })
     }
@@ -232,6 +236,35 @@ fn auth_rest_config_from_vars(
     }))
 }
 
+fn storage_config_from_vars(
+    vars: &HashMap<String, String>,
+) -> Result<Option<S3StorageConfig>, AppError> {
+    let Some(endpoint_url) = non_empty(vars.get("MNT_S3_ENDPOINT_URL")) else {
+        return Ok(None);
+    };
+    let required = |name: &'static str| {
+        non_empty(vars.get(name)).ok_or_else(|| {
+            AppError::Config(format!("{name} is required when S3 storage is configured"))
+        })
+    };
+    let force_path_style = match non_empty(vars.get("MNT_S3_FORCE_PATH_STYLE")) {
+        Some(raw) => raw
+            .parse::<bool>()
+            .map_err(|err| AppError::Config(format!("invalid MNT_S3_FORCE_PATH_STYLE: {err}")))?,
+        None => true,
+    };
+
+    Ok(Some(S3StorageConfig {
+        endpoint_url,
+        region: non_empty(vars.get("MNT_S3_REGION")).unwrap_or_else(|| "us-east-1".to_owned()),
+        access_key_id: required("MNT_S3_ACCESS_KEY_ID")?,
+        secret_access_key: required("MNT_S3_SECRET_ACCESS_KEY")?,
+        primary_bucket: required("MNT_S3_PRIMARY_BUCKET")?,
+        replica_bucket: required("MNT_S3_REPLICA_BUCKET")?,
+        force_path_style,
+    }))
+}
+
 fn parse_time_duration_secs(
     raw: Option<&String>,
     default_secs: u64,
@@ -270,6 +303,7 @@ pub struct AppState {
     database: DatabaseDependency,
     jwt_verifier: Option<JwtVerifier>,
     auth_rest: Option<AuthRestState>,
+    evidence_storage: Option<EvidenceService<SeaweedS3Storage>>,
 }
 
 impl AppState {
@@ -295,6 +329,7 @@ impl AppState {
             database,
             jwt_verifier,
             auth_rest,
+            evidence_storage: None,
         })
     }
 
@@ -312,7 +347,21 @@ impl AppState {
             None => DatabaseDependency::NotConfigured,
         };
 
-        Self::new(config, database)
+        let mut state = Self::new(config.clone(), database)?;
+        if let (DatabaseDependency::Postgres(pool), Some(storage_config)) =
+            (&state.database, config.storage.as_ref())
+        {
+            let object_store = SeaweedS3Storage::from_config(storage_config)
+                .await
+                .map_err(AppError::Storage)?;
+            state.evidence_storage = Some(EvidenceService::new(
+                pool.clone(),
+                object_store,
+                storage_config.primary_bucket.clone(),
+                storage_config.replica_bucket.clone(),
+            ));
+        }
+        Ok(state)
     }
 
     pub fn config(&self) -> &AppConfig {
@@ -427,11 +476,19 @@ pub fn build_router(state: AppState) -> Router {
 
     match &state.database {
         DatabaseDependency::Postgres(pool) => {
-            let router = router.merge(mnt_workorder_rest::router(WorkOrderRestState::new(
-                PgWorkOrderStore::new(pool.clone()),
-                state.jwt_verifier,
-            )));
-            match state.auth_rest {
+            let work_order_store = PgWorkOrderStore::new(pool.clone());
+            let router = router
+                .merge(mnt_workorder_rest::router(WorkOrderRestState::new(
+                    work_order_store.clone(),
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_workorder_rest::mobile_router(MobileRestState::new(
+                    pool.clone(),
+                    work_order_store,
+                    state.jwt_verifier.clone(),
+                    state.evidence_storage.clone(),
+                )));
+            match state.auth_rest.clone() {
                 Some(auth_rest) => router.merge(mnt_platform_auth_rest::router(auth_rest)),
                 None => router,
             }
@@ -804,6 +861,7 @@ impl ApiError {
             AppError::Config(message) => Self::service_unavailable(message),
             AppError::Database(_)
             | AppError::Io(_)
+            | AppError::Storage(_)
             | AppError::Telemetry(_)
             | AppError::Internal(_) => Self::internal("internal server error"),
         }
@@ -943,6 +1001,8 @@ pub enum AppError {
     Internal(String),
     #[error("i/o error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
     #[error("telemetry error: {0}")]
     Telemetry(String),
 }

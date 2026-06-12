@@ -1819,6 +1819,7 @@ dependencies = [
  "mnt-platform-authz",
  "mnt-platform-db",
  "mnt-platform-provisioning",
+ "mnt-platform-storage",
  "mnt-workorder-adapter-postgres",
  "mnt-workorder-rest",
  "opentelemetry",
@@ -2119,15 +2120,23 @@ name = "mnt-workorder-rest"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "hex",
  "http",
  "mnt-kernel-core",
  "mnt-platform-auth",
  "mnt-platform-authz",
+ "mnt-platform-db",
+ "mnt-platform-storage",
  "mnt-workorder-adapter-postgres",
  "mnt-workorder-application",
  "mnt-workorder-domain",
+ "p256",
  "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sqlx 0.9.0",
  "time",
+ "tower",
  "uuid",
 ]
 

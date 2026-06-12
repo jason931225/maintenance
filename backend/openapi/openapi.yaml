@@ -293,6 +293,120 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OutsourceWorkSummary"
+  /api/v1/sync:
+    post:
+      operationId: replayOfflineSyncBatch
+      summary: Replay an idempotent mobile offline-operation batch
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XDeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SyncBatchRequest"
+      responses:
+        "200":
+          description: Per-operation replay results. Individual failures do not abort the batch.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncBatchResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /api/v1/evidence/presign:
+    post:
+      operationId: presignEvidenceUpload
+      summary: Issue a presigned upload ticket for work-order evidence
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvidencePresignRequest"
+      responses:
+        "200":
+          description: Presigned evidence upload ticket.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvidencePresignResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: Evidence storage is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /api/v1/evidence/{evidenceId}/confirm:
+    post:
+      operationId: confirmEvidenceUpload
+      summary: Confirm direct evidence upload completion and trigger replica verification
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/EvidenceId"
+      responses:
+        "200":
+          description: Evidence confirmation and replica status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvidenceConfirmResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: Evidence storage is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /api/v1/devices:
+    post:
+      operationId: registerMobileDevice
+      summary: Register or refresh a mobile device binding
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XDeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceRegistrationRequest"
+      responses:
+        "200":
+          description: Registered device binding.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceRegistrationResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /api/v1/auth/passkey/register/start:
     post:
       summary: Start passkey registration
@@ -441,6 +555,21 @@ components:
       schema:
         type: string
         format: uuid
+    EvidenceId:
+      name: evidenceId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    XDeviceId:
+      name: X-Device-Id
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+      description: Client-stable device identifier. The server stores only a SHA-256 hash.
   responses:
     Unauthorized:
       description: Missing or invalid bearer token.
@@ -510,6 +639,21 @@ components:
     AssignmentRole:
       type: string
       enum: [PRIMARY, SECONDARY]
+    AttachmentStage:
+      type: string
+      enum: [REQUEST, BEFORE, DURING, AFTER, REPORT, OUTSOURCE_RESULT]
+    SyncOperationKind:
+      type: string
+      enum: [WORK_ORDER_START, WORK_ORDER_REPORT]
+    SyncOperationStatus:
+      type: string
+      enum: [APPLIED, FAILED]
+    DevicePlatform:
+      type: string
+      enum: [ios, android]
+    WormReplicaStatus:
+      type: string
+      enum: [PENDING, VERIFIED, FAILED]
     DailyPlanStatus:
       type: string
       enum: [DRAFT, REQUESTED, APPROVED, REJECTED, FINAL_CONFIRMED]
@@ -614,6 +758,192 @@ components:
           type: string
         reason:
           type: string
+    SyncBatchRequest:
+      type: object
+      required: [sync_id, operations]
+      properties:
+        sync_id:
+          type: string
+          minLength: 1
+        operations:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/SyncOperationRequest"
+    SyncOperationRequest:
+      type: object
+      required: [request_id, operation, created_at, payload]
+      properties:
+        request_id:
+          type: string
+          minLength: 1
+        operation:
+          $ref: "#/components/schemas/SyncOperationKind"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        payload:
+          oneOf:
+            - $ref: "#/components/schemas/SyncWorkOrderStartPayload"
+            - $ref: "#/components/schemas/SyncWorkOrderReportPayload"
+    SyncWorkOrderStartPayload:
+      type: object
+      required: [work_order_id]
+      properties:
+        work_order_id:
+          $ref: "#/components/schemas/Uuid"
+    SyncWorkOrderReportPayload:
+      type: object
+      required: [work_order_id, result_type, diagnosis, action_taken]
+      properties:
+        work_order_id:
+          $ref: "#/components/schemas/Uuid"
+        result_type:
+          $ref: "#/components/schemas/WorkResultType"
+        diagnosis:
+          type: string
+        action_taken:
+          type: string
+    SyncBatchResponse:
+      type: object
+      required: [sync_id, results]
+      properties:
+        sync_id:
+          type: string
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/SyncOperationResult"
+    SyncOperationResult:
+      type: object
+      required: [request_id, operation, status, http_status, replayed]
+      properties:
+        request_id:
+          type: string
+        operation:
+          $ref: "#/components/schemas/SyncOperationKind"
+        status:
+          $ref: "#/components/schemas/SyncOperationStatus"
+        http_status:
+          type: integer
+          format: int32
+          minimum: 100
+          maximum: 599
+        result:
+          $ref: "#/components/schemas/WorkOrderSummary"
+        error:
+          $ref: "#/components/schemas/SyncError"
+        replayed:
+          type: boolean
+    SyncError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+    EvidencePresignRequest:
+      type: object
+      required: [work_order_id, stage, content_type, size_bytes]
+      properties:
+        work_order_id:
+          $ref: "#/components/schemas/Uuid"
+        stage:
+          $ref: "#/components/schemas/AttachmentStage"
+        content_type:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        checksum_sha256:
+          type: string
+    PresignedUpload:
+      type: object
+      required: [method, url, headers, expires_in_secs]
+      properties:
+        method:
+          type: string
+          enum: [PUT]
+        url:
+          type: string
+          format: uri
+        headers:
+          type: array
+          items:
+            type: array
+            prefixItems:
+              - type: string
+              - type: string
+            minItems: 2
+            maxItems: 2
+        expires_in_secs:
+          type: integer
+          format: int64
+          minimum: 1
+    EvidencePresignResponse:
+      type: object
+      required: [id, work_order_id, stage, upload]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        work_order_id:
+          $ref: "#/components/schemas/Uuid"
+        stage:
+          $ref: "#/components/schemas/AttachmentStage"
+        upload:
+          $ref: "#/components/schemas/PresignedUpload"
+    EvidenceConfirmResponse:
+      type: object
+      required: [id, work_order_id, stage, worm_replica_status, retry_count]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        work_order_id:
+          $ref: "#/components/schemas/Uuid"
+        stage:
+          $ref: "#/components/schemas/AttachmentStage"
+        worm_replica_status:
+          $ref: "#/components/schemas/WormReplicaStatus"
+        retry_count:
+          type: integer
+          format: int32
+        verified_at:
+          $ref: "#/components/schemas/Timestamp"
+    DeviceRegistrationRequest:
+      type: object
+      required: [platform, app_version]
+      properties:
+        platform:
+          $ref: "#/components/schemas/DevicePlatform"
+        push_token:
+          type:
+            - string
+            - "null"
+        app_version:
+          type: string
+          minLength: 1
+    DeviceRegistrationResponse:
+      type: object
+      required: [id, user_id, device_hash, platform, app_version, last_registered_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        user_id:
+          $ref: "#/components/schemas/Uuid"
+        device_hash:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+        platform:
+          $ref: "#/components/schemas/DevicePlatform"
+        push_token:
+          type:
+            - string
+            - "null"
+        app_version:
+          type: string
+        last_registered_at:
+          $ref: "#/components/schemas/Timestamp"
     PasskeyRegisterStartRequest:
       type: object
       properties:
