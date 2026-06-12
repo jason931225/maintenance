@@ -1,0 +1,144 @@
+require "shellwords"
+
+fastlane_version "2.236.1"
+opt_out_usage
+
+def repo_root
+  File.expand_path("..", __dir__)
+end
+
+def run_from_root(command)
+  sh("cd #{Shellwords.escape(repo_root)} && #{command}")
+end
+
+def require_env!(names)
+  missing = names.select { |name| ENV[name].to_s.strip.empty? }
+  return if missing.empty?
+
+  UI.user_error!(
+    "Missing required release environment variables: #{missing.join(', ')}. " \
+    "Add the matching GitHub secrets or local env vars documented in docs/release/SECRETS.md."
+  )
+end
+
+def android_aab_path
+  File.join(repo_root, "android/app/build/outputs/bundle/release/app-release.aab")
+end
+
+def android_release_apks
+  Dir[File.join(repo_root, "android/app/build/outputs/apk/release/*.apk")]
+end
+
+def ios_package_sources_exist?
+  !Dir[File.join(repo_root, "ios/Sources/**/*.swift")].empty?
+end
+
+def ios_export_options
+  {
+    "method" => "app-store-connect",
+    "signingStyle" => "manual",
+    "stripSwiftSymbols" => true,
+    "uploadSymbols" => true,
+    "provisioningProfiles" => {
+      ENV.fetch("IOS_APP_IDENTIFIER") => ENV.fetch("IOS_PROVISIONING_PROFILE_NAME")
+    }
+  }
+end
+
+platform :android do
+  desc "Build Android release artifacts locally without uploading to Google Play."
+  lane :dry_run do
+    run_from_root("cd android && ./gradlew --no-daemon :app:assembleRelease :app:bundleRelease")
+
+    UI.user_error!("Expected Android release AAB was not produced at #{android_aab_path}") unless File.exist?(android_aab_path)
+    UI.message("Android release AAB: #{android_aab_path}")
+    android_release_apks.each { |apk| UI.message("Android release APK: #{apk}") }
+  end
+
+  desc "Build Android release artifacts and upload the AAB to the Play internal track."
+  lane :release do
+    require_env!(%w[
+      ANDROID_KEYSTORE_PATH
+      ANDROID_KEYSTORE_PASSWORD
+      ANDROID_KEY_ALIAS
+      ANDROID_KEY_PASSWORD
+      PLAY_JSON_KEY_PATH
+    ])
+
+    run_from_root("cd android && ./gradlew --no-daemon :app:bundleRelease")
+    UI.user_error!("Expected Android release AAB was not produced at #{android_aab_path}") unless File.exist?(android_aab_path)
+
+    upload_to_play_store(
+      package_name: ENV.fetch("ANDROID_PACKAGE_NAME", "com.maintenance.field"),
+      track: "internal",
+      aab: android_aab_path,
+      json_key: ENV.fetch("PLAY_JSON_KEY_PATH"),
+      skip_upload_metadata: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+end
+
+platform :ios do
+  desc "Verify the iOS Swift package path without archiving or uploading."
+  lane :dry_run do
+    UI.user_error!("ios/Sources does not contain Swift sources") unless ios_package_sources_exist?
+    run_from_root("swift build --package-path ios")
+
+    unless ENV["IOS_XCODE_PROJECT"].to_s.strip != "" || ENV["IOS_XCODE_WORKSPACE"].to_s.strip != ""
+      UI.important(
+        "No IOS_XCODE_PROJECT or IOS_XCODE_WORKSPACE was provided. " \
+        "This repository currently contains an iOS SwiftPM package; TestFlight archive/export requires the Xcode packaging layer documented in docs/release/SECRETS.md."
+      )
+    end
+  end
+
+  desc "Archive an iOS app and upload it to TestFlight."
+  lane :release do
+    require_env!(%w[
+      APP_STORE_CONNECT_KEY_ID
+      APP_STORE_CONNECT_ISSUER_ID
+      APP_STORE_CONNECT_KEY_PATH
+      IOS_APP_IDENTIFIER
+      IOS_PROVISIONING_PROFILE_NAME
+      IOS_SCHEME
+    ])
+
+    project = ENV["IOS_XCODE_PROJECT"].to_s.strip
+    workspace = ENV["IOS_XCODE_WORKSPACE"].to_s.strip
+    if project.empty? && workspace.empty?
+      UI.user_error!(
+        "Missing IOS_XCODE_PROJECT or IOS_XCODE_WORKSPACE. " \
+        "The current ios/ deliverable is SwiftPM-only; add the Xcode packaging layer and set one of those paths before TestFlight upload."
+      )
+    end
+
+    api_key = app_store_connect_api_key(
+      key_id: ENV.fetch("APP_STORE_CONNECT_KEY_ID"),
+      issuer_id: ENV.fetch("APP_STORE_CONNECT_ISSUER_ID"),
+      key_filepath: ENV.fetch("APP_STORE_CONNECT_KEY_PATH"),
+      duration: 1200,
+      in_house: false
+    )
+
+    build_args = {
+      scheme: ENV.fetch("IOS_SCHEME"),
+      export_options: ios_export_options,
+      output_directory: File.join(repo_root, "ios/build/release"),
+      clean: true
+    }
+    build_args[:workspace] = workspace unless workspace.empty?
+    build_args[:project] = project unless project.empty?
+
+    ipa_path = build_app(**build_args)
+
+    upload_to_testflight(
+      api_key: api_key,
+      app_identifier: ENV.fetch("IOS_APP_IDENTIFIER"),
+      ipa: ipa_path,
+      skip_waiting_for_build_processing: true
+    )
+  end
+end

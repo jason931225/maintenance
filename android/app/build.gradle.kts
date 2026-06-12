@@ -5,6 +5,17 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+val androidKeystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH")
+val androidKeystorePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD")
+val androidKeyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS")
+val androidKeyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD")
+val androidReleaseSigningReady = listOf(
+    androidKeystorePath,
+    androidKeystorePassword,
+    androidKeyAlias,
+    androidKeyPassword,
+).all { it.isPresent }
+
 android {
     namespace = "com.maintenance.field"
     compileSdk = 36
@@ -22,6 +33,23 @@ android {
     buildFeatures {
         buildConfig = true
         compose = true
+    }
+
+    signingConfigs {
+        create("release") {
+            androidKeystorePath.orNull?.let { storeFile = file(it) }
+            storePassword = androidKeystorePassword.orNull
+            keyAlias = androidKeyAlias.orNull
+            keyPassword = androidKeyPassword.orNull
+        }
+    }
+
+    buildTypes {
+        release {
+            if (androidReleaseSigningReady) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
     }
 
     lint {
