@@ -5,6 +5,7 @@ struct FieldAppContainer {
     let authRepository: PasskeyAuthRepository
     let workOrderRepository: WorkOrderRepository
     let evidenceRepository: EvidenceRepository
+    let messengerRepository: MessengerRepository
 
     static func live() -> FieldAppContainer {
         let tokenProvider = CurrentTokenProvider()
@@ -43,6 +44,13 @@ struct FieldAppContainer {
             preconditionFailure("Evidence queue initialization failed: \(error)")
         }
         let evidence = EvidenceRepository(gateway: gateway, store: evidenceStore)
+        let messengerStore: any MessengerOutboxStore
+        do {
+            messengerStore = try FileMessengerOutboxStore(fileURL: FileMessengerOutboxStore.defaultStoreURL())
+        } catch {
+            preconditionFailure("Messenger outbox initialization failed: \(error)")
+        }
+        let messenger = MessengerRepository(gateway: gateway, outbox: messengerStore)
         let passkeys = AuthorizationPasskeyCredentialProvider(relyingPartyIdentifier: serverURL.host ?? "localhost")
 
         return FieldAppContainer(
@@ -54,7 +62,8 @@ struct FieldAppContainer {
                 appVersion: MaintenanceFieldCoreVersion.value
             ),
             workOrderRepository: workOrders,
-            evidenceRepository: evidence
+            evidenceRepository: evidence,
+            messengerRepository: messenger
         )
     }
 }

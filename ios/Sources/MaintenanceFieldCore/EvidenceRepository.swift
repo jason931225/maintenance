@@ -94,6 +94,80 @@ public actor FileEvidenceUploadStore: EvidenceUploadStore {
     }
 }
 
+public actor FileMessengerOutboxStore: MessengerOutboxStore {
+    private let fileURL: URL
+    private var messages: [String: QueuedMessengerMessage]
+
+    public init(fileURL: URL) throws {
+        self.fileURL = fileURL
+        if let data = try? Data(contentsOf: fileURL),
+           let decoded = try? JSONDecoder().decode([String: QueuedMessengerMessage].self, from: data) {
+            self.messages = decoded
+        } else {
+            self.messages = [:]
+        }
+    }
+
+    public static func defaultStoreURL() throws -> URL {
+        let root = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ).appendingPathComponent("MaintenanceField", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root.appendingPathComponent("messenger-outbox.json")
+    }
+
+    public func upsert(_ message: QueuedMessengerMessage) {
+        messages[message.requestID] = message
+        save()
+    }
+
+    public func pending() -> [QueuedMessengerMessage] {
+        messages.values
+            .filter { $0.state == .pending }
+            .sorted { $0.createdAt < $1.createdAt }
+    }
+
+    public func get(requestID: String) -> QueuedMessengerMessage? {
+        messages[requestID]
+    }
+
+    public func markSent(requestID: String) {
+        guard let message = messages[requestID] else { return }
+        messages[requestID] = QueuedMessengerMessage(
+            requestID: message.requestID,
+            threadID: message.threadID,
+            body: message.body,
+            attachmentEvidenceIDs: message.attachmentEvidenceIDs,
+            createdAt: message.createdAt,
+            state: .sent,
+            lastError: nil
+        )
+        save()
+    }
+
+    public func markFailed(requestID: String, message errorMessage: String) {
+        guard let message = messages[requestID] else { return }
+        messages[requestID] = QueuedMessengerMessage(
+            requestID: message.requestID,
+            threadID: message.threadID,
+            body: message.body,
+            attachmentEvidenceIDs: message.attachmentEvidenceIDs,
+            createdAt: message.createdAt,
+            state: .failed,
+            lastError: errorMessage
+        )
+        save()
+    }
+
+    private func save() {
+        guard let data = try? JSONEncoder().encode(messages) else { return }
+        try? data.write(to: fileURL, options: [.atomic])
+    }
+}
+
 public struct EvidenceRepository: Sendable {
     private let gateway: any MaintenanceAPIGateway
     private let store: any EvidenceUploadStore

@@ -58,4 +58,23 @@
     <string name="result_incomplete">미완료</string>
     <string name="result_revisit_required">재방문 필요</string>
     <string name="result_unknown">미정</string>
+    <string name="messenger_title">메신저</string>
+    <string name="messenger_threads">대화방</string>
+    <string name="messenger_messages">메시지</string>
+    <string name="messenger_search">메시지 검색</string>
+    <string name="messenger_search_button">검색</string>
+    <string name="messenger_composer">메시지 입력</string>
+    <string name="messenger_send">전송</string>
+    <string name="messenger_empty_threads">표시할 대화방이 없습니다.</string>
+    <string name="messenger_empty_messages">메시지가 없습니다.</string>
+    <string name="messenger_select_thread">대화방을 선택하세요.</string>
+    <string name="messenger_load_older">이전 메시지</string>
+    <string name="messenger_selected">선택됨</string>
+    <string name="messenger_attachment">첨부</string>
+    <string name="messenger_member_count_format">%1$d명</string>
+    <string name="messenger_send_pending">오프라인 메시지로 저장되었습니다.</string>
+    <string name="messenger_kind_work_order">작업</string>
+    <string name="messenger_kind_team">팀</string>
+    <string name="messenger_kind_dm">1:1</string>
+    <string name="messenger_kind_group">그룹</string>
 </resources>

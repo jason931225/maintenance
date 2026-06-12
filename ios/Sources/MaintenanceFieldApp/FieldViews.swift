@@ -10,7 +10,7 @@ struct FieldRootView: View {
         NavigationStack {
             Group {
                 if viewModel.isAuthenticated {
-                    TodayListView(viewModel: viewModel)
+                    FieldAuthenticatedTabs(viewModel: viewModel)
                 } else {
                     LoginView(viewModel: viewModel)
                 }
@@ -29,6 +29,23 @@ struct FieldRootView: View {
             } onCancel: {
                 viewModel.isCameraPresented = false
             }
+        }
+    }
+}
+
+struct FieldAuthenticatedTabs: View {
+    @ObservedObject var viewModel: FieldViewModel
+
+    var body: some View {
+        TabView {
+            TodayListView(viewModel: viewModel)
+                .tabItem {
+                    Label("today_title", systemImage: "list.bullet")
+                }
+            MessengerTabView(viewModel: viewModel)
+                .tabItem {
+                    Label("messenger_title", systemImage: "message.fill")
+                }
         }
     }
 }
@@ -98,6 +115,150 @@ struct TodayListView: View {
         }
         .sheet(item: $viewModel.selectedWorkOrder) { _ in
             WorkOrderDetailView(viewModel: viewModel)
+        }
+    }
+}
+
+struct MessengerTabView: View {
+    @ObservedObject var viewModel: FieldViewModel
+
+    var body: some View {
+        List {
+            Section {
+                HStack {
+                    TextField(String(localized: "messenger_search"), text: $viewModel.messengerSearchQuery)
+                    Button {
+                        Task { await viewModel.searchMessengerMessages() }
+                    } label: {
+                        Label("messenger_search_button", systemImage: "magnifyingglass")
+                    }
+                }
+                if viewModel.messengerState.searchResults.isEmpty == false {
+                    ForEach(viewModel.messengerState.searchResults) { message in
+                        MessengerMessageRow(message: message)
+                    }
+                }
+            }
+
+            Section {
+                if viewModel.messengerState.threads.isEmpty {
+                    Text("messenger_empty_threads")
+                }
+                ForEach(viewModel.messengerState.threads) { thread in
+                    Button {
+                        Task { await viewModel.selectMessengerThread(thread) }
+                    } label: {
+                        MessengerThreadRow(
+                            thread: thread,
+                            isSelected: viewModel.messengerState.selectedThreadID == thread.id
+                        )
+                    }
+                }
+            } header: {
+                Text("messenger_threads")
+            }
+
+            Section {
+                if let selectedThreadID = viewModel.messengerState.selectedThreadID {
+                    let messages = viewModel.messengerState.messagesByThread[selectedThreadID] ?? []
+                    if viewModel.messengerState.nextCursorByThread[selectedThreadID] != nil {
+                        Button {
+                            Task { await viewModel.loadOlderMessengerMessages() }
+                        } label: {
+                            Label("messenger_load_older", systemImage: "arrow.up.circle")
+                        }
+                    }
+                    if messages.isEmpty {
+                        Text("messenger_empty_messages")
+                    }
+                    ForEach(messages) { message in
+                        MessengerMessageRow(message: message)
+                    }
+                    TextField(String(localized: "messenger_composer"), text: $viewModel.messengerDraft, axis: .vertical)
+                        .lineLimit(2...5)
+                    Button {
+                        Task { await viewModel.sendMessengerMessage() }
+                    } label: {
+                        Label("messenger_send", systemImage: "paperplane.fill")
+                    }
+                } else {
+                    Text("messenger_select_thread")
+                }
+            } header: {
+                Text("messenger_messages")
+            }
+
+            if let messageKey = viewModel.messageKey {
+                Text(LocalizedStringKey(messageKey))
+            }
+        }
+        .navigationTitle(Text("messenger_title"))
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    Task { await viewModel.refreshMessenger() }
+                } label: {
+                    Label("refresh", systemImage: "arrow.clockwise")
+                }
+                Button {
+                    Task { await viewModel.logout() }
+                } label: {
+                    Label("logout", systemImage: "rectangle.portrait.and.arrow.right")
+                }
+            }
+        }
+        .overlay {
+            if viewModel.isLoading {
+                ProgressView("loading")
+            }
+        }
+        .task {
+            if viewModel.messengerState.threads.isEmpty {
+                await viewModel.refreshMessenger()
+            }
+        }
+    }
+}
+
+struct MessengerThreadRow: View {
+    let thread: MessengerThread
+    let isSelected: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(thread.displayTitle)
+                    .font(.headline)
+                Spacer()
+                FieldChip(key: thread.kind.fieldLabelKey)
+            }
+            Text(localizedString("messenger_member_count_format", thread.memberCount))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            if isSelected {
+                Text("messenger_selected")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+struct MessengerMessageRow: View {
+    let message: MessengerMessage
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(message.body)
+                .font(.body)
+            HStack {
+                Text(message.sentAt.formatted(date: .omitted, time: .shortened))
+                if message.attachmentEvidenceIDs.isEmpty == false {
+                    FieldChip(key: "messenger_attachment")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
     }
 }

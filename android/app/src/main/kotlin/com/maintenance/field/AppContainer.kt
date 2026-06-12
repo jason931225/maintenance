@@ -7,8 +7,10 @@ import com.maintenance.field.auth.PasskeyAuthRepository
 import com.maintenance.field.data.api.GeneratedMaintenanceApiGateway
 import com.maintenance.field.data.evidence.EvidenceRepository
 import com.maintenance.field.data.local.FieldDatabase
+import com.maintenance.field.data.local.RoomMessengerOutboxStore
 import com.maintenance.field.data.local.RoomMutationQueueStore
 import com.maintenance.field.data.local.RoomWorkOrderStore
+import com.maintenance.field.data.messenger.MessengerRepository
 import com.maintenance.field.data.offline.OfflineQueueRepository
 import com.maintenance.field.data.session.DeviceIdStore
 import com.maintenance.field.data.session.SessionTokenStore
@@ -40,6 +42,10 @@ class AppContainer(context: Context) {
         api = apiGateway,
         uploads = database.evidenceUploads(),
         httpClient = httpClient,
+    )
+    val messenger = MessengerRepository(
+        gateway = apiGateway,
+        outbox = RoomMessengerOutboxStore(database.messengerOutbox()),
     )
     val auth = PasskeyAuthRepository(
         api = apiGateway,

@@ -901,17 +901,43 @@ fn principal_from_headers(
 }
 
 fn bearer_token(headers: &HeaderMap) -> Result<&str, RealtimeApiError> {
-    let header_value = headers
-        .get(header::AUTHORIZATION)
-        .ok_or_else(|| RealtimeApiError::unauthorized("missing bearer token"))?
+    if let Some(token) = authorization_bearer_token(headers)? {
+        return Ok(token);
+    }
+    if let Some(token) = websocket_protocol_bearer_token(headers)? {
+        return Ok(token);
+    }
+    Err(RealtimeApiError::unauthorized("missing bearer token"))
+}
+
+fn authorization_bearer_token(headers: &HeaderMap) -> Result<Option<&str>, RealtimeApiError> {
+    let Some(header_value) = headers.get(header::AUTHORIZATION) else {
+        return Ok(None);
+    };
+    let header_value = header_value
         .to_str()
         .map_err(|_| RealtimeApiError::unauthorized("invalid authorization header"))?;
-    header_value
+    let token = header_value
         .strip_prefix("Bearer ")
         .filter(|token| !token.trim().is_empty())
         .ok_or_else(|| {
             RealtimeApiError::unauthorized("authorization header must use Bearer scheme")
-        })
+        })?;
+    Ok(Some(token))
+}
+
+fn websocket_protocol_bearer_token(headers: &HeaderMap) -> Result<Option<&str>, RealtimeApiError> {
+    let Some(header_value) = headers.get(header::SEC_WEBSOCKET_PROTOCOL) else {
+        return Ok(None);
+    };
+    let header_value = header_value
+        .to_str()
+        .map_err(|_| RealtimeApiError::unauthorized("invalid websocket protocol header"))?;
+    let protocols = header_value.split(',').map(str::trim).collect::<Vec<_>>();
+    let token = protocols
+        .windows(2)
+        .find_map(|pair| (pair[0] == "bearer" && !pair[1].is_empty()).then_some(pair[1]));
+    Ok(token)
 }
 
 fn principal_from_claims(claims: AccessClaims) -> Result<RealtimePrincipal, RealtimeApiError> {
@@ -986,6 +1012,31 @@ impl IntoResponse for RealtimeApiError {
             }),
         )
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod auth_tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    #[test]
+    fn bearer_token_accepts_authorization_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::AUTHORIZATION, HeaderValue::from_static("Bearer native-token"));
+
+        assert_eq!(bearer_token(&headers).expect("token"), "native-token");
+    }
+
+    #[test]
+    fn bearer_token_accepts_websocket_subprotocol_pair() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::SEC_WEBSOCKET_PROTOCOL,
+            HeaderValue::from_static("bearer, browser-token"),
+        );
+
+        assert_eq!(bearer_token(&headers).expect("token"), "browser-token");
     }
 }
 
