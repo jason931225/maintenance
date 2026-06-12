@@ -1836,6 +1836,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-platform-storage"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "hex",
+ "hmac 0.13.0",
+ "mnt-kernel-core",
+ "mnt-platform-db",
+ "mnt-workorder-domain",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sqlx",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "mnt-registry-adapter-postgres"
 version = "0.1.0"
 dependencies = [

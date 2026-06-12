@@ -9,7 +9,9 @@ use mnt_workorder_application::{
     TargetChangeRequestCommand, UpdatePriorityCommand, WorkOrderApprovalCommand,
     WorkOrderAssignmentCommand, WorkOrderStartCommand,
 };
-use mnt_workorder_domain::{AssignmentRole, PriorityLevel, WorkOrderStatus, WorkResultType};
+use mnt_workorder_domain::{
+    AssignmentRole, AttachmentStage, PriorityLevel, WorkOrderStatus, WorkResultType,
+};
 use sqlx::PgPool;
 use time::{Duration, OffsetDateTime, macros::date};
 
@@ -123,11 +125,14 @@ async fn lifecycle_mutations_persist_state_and_audit_in_order(pool: PgPool) {
         WorkOrderStatus::AdminReview
     );
 
-    sqlx::query("UPDATE work_orders SET evidence_verified = true WHERE id = $1")
-        .bind(*created.id.as_uuid())
-        .execute(&pool)
-        .await
-        .unwrap();
+    insert_evidence_media(
+        &pool,
+        created.id,
+        seeded.mechanic,
+        AttachmentStage::Report,
+        "VERIFIED",
+    )
+    .await;
 
     let completed = store
         .approve_work_order(WorkOrderApprovalCommand {
@@ -152,6 +157,55 @@ async fn lifecycle_mutations_persist_state_and_audit_in_order(pool: PgPool) {
             "work_order.approve",
             "work_order.approve",
         ]
+    );
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn final_completion_ignores_legacy_flag_and_blocks_unverified_completion_evidence(
+    pool: PgPool,
+) {
+    let seeded = seed_operational_context(&pool).await;
+    let store = PgWorkOrderStore::new(pool.clone());
+    let created = create_reported_work_order(&store, &seeded).await;
+
+    let admin_review = store
+        .approve_work_order(WorkOrderApprovalCommand {
+            actor: seeded.admin,
+            work_order_id: created.id,
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(admin_review.status, WorkOrderStatus::AdminReview);
+
+    sqlx::query("UPDATE work_orders SET evidence_verified = true WHERE id = $1")
+        .bind(*created.id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    insert_evidence_media(
+        &pool,
+        created.id,
+        seeded.mechanic,
+        AttachmentStage::After,
+        "PENDING",
+    )
+    .await;
+
+    let blocked = store
+        .approve_work_order(WorkOrderApprovalCommand {
+            actor: seeded.executive,
+            work_order_id: created.id,
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(blocked.kind(), ErrorKind::Conflict);
+    assert_eq!(
+        store.work_order(created.id).await.unwrap().status,
+        WorkOrderStatus::AdminReview
     );
 }
 
@@ -352,6 +406,65 @@ async fn create_assigned_work_order(
         })
         .await
         .unwrap()
+}
+
+async fn create_reported_work_order(
+    store: &PgWorkOrderStore,
+    seeded: &SeededContext,
+) -> mnt_workorder_application::WorkOrderSummary {
+    let assigned = create_assigned_work_order(store, seeded).await;
+    store
+        .start_work(WorkOrderStartCommand {
+            actor: seeded.mechanic,
+            work_order_id: assigned.id,
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .unwrap();
+    store
+        .submit_report(SubmitReportCommand {
+            actor: seeded.mechanic,
+            work_order_id: assigned.id,
+            result_type: WorkResultType::Completed,
+            diagnosis: "Pump cavitation under load".to_owned(),
+            action_taken: "Replaced inlet seal and pressure-tested".to_owned(),
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .unwrap()
+}
+
+async fn insert_evidence_media(
+    pool: &PgPool,
+    work_order_id: WorkOrderId,
+    uploaded_by: UserId,
+    stage: AttachmentStage,
+    status: &str,
+) {
+    sqlx::query(
+        r#"
+        INSERT INTO evidence_media (
+            work_order_id, stage, s3_key, content_type, size_bytes,
+            uploaded_by, worm_replica_status, retry_count
+        )
+        VALUES ($1, $2, $3, 'image/jpeg', 1024, $4, $5, 0)
+        "#,
+    )
+    .bind(*work_order_id.as_uuid())
+    .bind(stage.as_db_str())
+    .bind(format!(
+        "work-orders/{}/{}/{}.jpg",
+        work_order_id,
+        stage.as_db_str(),
+        uuid::Uuid::new_v4()
+    ))
+    .bind(*uploaded_by.as_uuid())
+    .bind(status)
+    .execute(pool)
+    .await
+    .unwrap();
 }
 
 async fn audit_actions_for(pool: &PgPool, work_order_id: WorkOrderId) -> Vec<String> {
