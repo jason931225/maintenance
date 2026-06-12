@@ -83,6 +83,8 @@ mnt-reporting-domain = { path = "crates/reporting/domain" }
 mnt-reporting-application = { path = "crates/reporting/application" }
 mnt-reporting-adapter-postgres = { path = "crates/reporting/adapter-postgres" }
 mnt-reporting-rest = { path = "crates/reporting/rest" }
+mnt-registry-adapter-postgres = { path = "crates/registry/adapter-postgres" }
+mnt-registry-rest = { path = "crates/registry/rest" }
 mnt-workorder-domain = { path = "crates/workorder/domain" }
 mnt-workorder-application = { path = "crates/workorder/application" }
 mnt-workorder-adapter-postgres = { path = "crates/workorder/adapter-postgres" }

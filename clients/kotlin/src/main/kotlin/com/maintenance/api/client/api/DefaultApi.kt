@@ -64,6 +64,7 @@ import com.maintenance.api.client.model.ReviewDailyPlanRequest
 import com.maintenance.api.client.model.ReviewTargetChangeRequest
 import com.maintenance.api.client.model.SendMessengerMessageRequest
 import com.maintenance.api.client.model.SubmitReportRequest
+import com.maintenance.api.client.model.SubstituteCandidatePage
 import com.maintenance.api.client.model.SyncBatchRequest
 import com.maintenance.api.client.model.SyncBatchResponse
 import com.maintenance.api.client.model.TargetChangeRequest
@@ -1513,6 +1514,87 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/equipment/{id}/substitutes
+     * List compatible spare equipment candidates for a down unit
+     * Same branch by default. SUPER_ADMIN may set all_branches&#x3D;true to search across branches.
+     * @param id
+     * @param allBranches SUPER_ADMIN-only flag to include candidates outside the down unit&#39;s branch. (optional, default to false)
+     * @return SubstituteCandidatePage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listEquipmentSubstitutes(id: java.util.UUID, allBranches: kotlin.Boolean? = false) : SubstituteCandidatePage = withContext(Dispatchers.IO) {
+        val localVarResponse = listEquipmentSubstitutesWithHttpInfo(id = id, allBranches = allBranches)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SubstituteCandidatePage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/equipment/{id}/substitutes
+     * List compatible spare equipment candidates for a down unit
+     * Same branch by default. SUPER_ADMIN may set all_branches&#x3D;true to search across branches.
+     * @param id
+     * @param allBranches SUPER_ADMIN-only flag to include candidates outside the down unit&#39;s branch. (optional, default to false)
+     * @return ApiResponse<SubstituteCandidatePage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listEquipmentSubstitutesWithHttpInfo(id: java.util.UUID, allBranches: kotlin.Boolean?) : ApiResponse<SubstituteCandidatePage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listEquipmentSubstitutesRequestConfig(id = id, allBranches = allBranches)
+
+        return@withContext request<Unit, SubstituteCandidatePage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listEquipmentSubstitutes
+     *
+     * @param id
+     * @param allBranches SUPER_ADMIN-only flag to include candidates outside the down unit&#39;s branch. (optional, default to false)
+     * @return RequestConfig
+     */
+    fun listEquipmentSubstitutesRequestConfig(id: java.util.UUID, allBranches: kotlin.Boolean?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (allBranches != null) {
+                    put("all_branches", listOf(allBranches.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/equipment/{id}/substitutes".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
             body = localVariableBody
         )
     }

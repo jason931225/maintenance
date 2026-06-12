@@ -1,6 +1,10 @@
 #![allow(clippy::unwrap_used)]
 
-use mnt_registry_domain::{EquipmentNo, EquipmentStatus, MoneyWon, Ton};
+use mnt_kernel_core::{BranchId, EquipmentId};
+use mnt_registry_domain::{
+    EquipmentNo, EquipmentStatus, MoneyWon, SubstituteEquipmentProfile, SubstituteMatchKind, Ton,
+    rank_substitute_candidates,
+};
 
 #[test]
 fn equipment_no_derives_the_same_mid_formula_columns_as_the_workbook() {
@@ -47,4 +51,72 @@ fn ton_keeps_original_text_and_derives_milli_tons_when_numeric() {
     let undecided = Ton::parse("미정");
     assert_eq!(undecided.as_text(), "미정");
     assert_eq!(undecided.milli_tons(), None);
+}
+
+#[test]
+fn substitute_matching_keeps_exact_ton_before_nearest_above() {
+    let branch_id = BranchId::new();
+    let down = substitute_profile(branch_id, "CFO25-0290", "좌식", "2.5T");
+    let exact = substitute_profile(branch_id, "DFO25-0106", "좌식", "2.5T");
+    let above = substitute_profile(branch_id, "CFO35-0075", "좌식", "3.5T");
+
+    let ranked = rank_substitute_candidates(&down, [above.clone(), exact.clone()]);
+
+    assert_eq!(ranked.len(), 2);
+    assert_eq!(
+        ranked[0].equipment.equipment_no.as_str(),
+        exact.equipment_no.as_str()
+    );
+    assert_eq!(ranked[0].kind, SubstituteMatchKind::ExactTon);
+    assert_eq!(
+        ranked[1].equipment.equipment_no.as_str(),
+        above.equipment_no.as_str()
+    );
+    assert_eq!(ranked[1].kind, SubstituteMatchKind::NearestAbove);
+}
+
+#[test]
+fn substitute_matching_excludes_wrong_spec_power_and_lower_capacity() {
+    let branch_id = BranchId::new();
+    let down = substitute_profile(branch_id, "CFO25-0290", "좌식", "2.5T");
+    let wrong_spec = substitute_profile(branch_id, "CFB25-0284", "입식", "2.5T");
+    let wrong_power = substitute_profile(branch_id, "CFB25-0100", "좌식", "2.5T");
+    let lower_ton = substitute_profile(branch_id, "CFO18-9998", "좌식", "1.8T");
+
+    let ranked = rank_substitute_candidates(&down, [wrong_spec, wrong_power, lower_ton]);
+
+    assert!(ranked.is_empty());
+}
+
+#[test]
+fn substitute_matching_keeps_unknown_ton_conservative() {
+    let branch_id = BranchId::new();
+    let down = substitute_profile(branch_id, "EOB00-0067", "입식", "미정");
+    let unknown_candidate = substitute_profile(branch_id, "EOB00-0442", "입식", "미정");
+    let numeric_candidate = substitute_profile(branch_id, "EOB15-9999", "입식", "1.5T");
+
+    let ranked = rank_substitute_candidates(&down, [numeric_candidate, unknown_candidate.clone()]);
+
+    assert_eq!(ranked.len(), 1);
+    assert_eq!(
+        ranked[0].equipment.equipment_no.as_str(),
+        unknown_candidate.equipment_no.as_str()
+    );
+    assert_eq!(ranked[0].kind, SubstituteMatchKind::UnknownTonExactText);
+}
+
+fn substitute_profile(
+    branch_id: BranchId,
+    equipment_no: &str,
+    specification: &str,
+    ton: &str,
+) -> SubstituteEquipmentProfile {
+    SubstituteEquipmentProfile {
+        id: EquipmentId::new(),
+        branch_id,
+        equipment_no: EquipmentNo::parse(equipment_no).unwrap(),
+        status: EquipmentStatus::Spare,
+        specification: specification.to_owned(),
+        ton: Ton::parse(ton),
+    }
 }

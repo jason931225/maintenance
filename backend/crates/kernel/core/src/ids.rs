@@ -75,6 +75,7 @@ typed_id!(CustomerId);
 typed_id!(SiteId);
 typed_id!(WorkOrderId);
 typed_id!(AssignmentId);
+typed_id!(EquipmentSubstitutionId);
 typed_id!(ApprovalId);
 typed_id!(DailyPlanId);
 typed_id!(ConsentId);

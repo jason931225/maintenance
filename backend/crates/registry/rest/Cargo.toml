@@ -1,0 +1,22 @@
+[package]
+name = "mnt-registry-rest"
+version = "0.1.0"
+description = "REST API for equipment registry use cases."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum = { workspace = true }
+http = { workspace = true }
+mnt-kernel-core = { workspace = true }
+mnt-platform-auth = { path = "../../platform/auth" }
+mnt-platform-authz = { path = "../../platform/authz" }
+mnt-registry-adapter-postgres = { workspace = true }
+mnt-registry-application = { workspace = true }
+mnt-registry-domain = { workspace = true }
+serde = { workspace = true }
+
+[lints]
+workspace = true

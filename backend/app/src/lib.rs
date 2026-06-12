@@ -28,6 +28,8 @@ use mnt_platform_auth_rest::{AuthRestConfig, AuthRestState};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
 use mnt_platform_db::{DbError, with_audit};
 use mnt_platform_storage::{EvidenceService, S3StorageConfig, SeaweedS3Storage, StorageError};
+use mnt_registry_adapter_postgres::PgRegistryStore;
+use mnt_registry_rest::RegistryRestState;
 use mnt_reporting_adapter_postgres::PgKpiRepository;
 use mnt_reporting_rest::KpiRestState;
 use mnt_workorder_adapter_postgres::PgWorkOrderStore;
@@ -483,9 +485,14 @@ pub fn build_router(state: AppState) -> Router {
         DatabaseDependency::Postgres(pool) => {
             let kpi_repository = PgKpiRepository::new(pool.clone());
             let messenger_store = PgMessengerStore::new(pool.clone());
+            let registry_store = PgRegistryStore::new(pool.clone());
             let work_order_store = PgWorkOrderStore::new(pool.clone())
                 .with_created_listener(Arc::new(messenger_store.clone()));
             let router = router
+                .merge(mnt_registry_rest::router(RegistryRestState::new(
+                    registry_store,
+                    state.jwt_verifier.clone(),
+                )))
                 .merge(mnt_reporting_rest::router(KpiRestState::new(
                     kpi_repository,
                     state.jwt_verifier.clone(),

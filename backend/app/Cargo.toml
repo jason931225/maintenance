@@ -28,6 +28,8 @@ mnt-platform-db = { workspace = true }
 mnt-platform-storage = { workspace = true }
 mnt-reporting-adapter-postgres = { workspace = true }
 mnt-reporting-rest = { workspace = true }
+mnt-registry-adapter-postgres = { workspace = true }
+mnt-registry-rest = { workspace = true }
 mnt-workorder-adapter-postgres = { workspace = true }
 mnt-workorder-rest = { workspace = true }
 opentelemetry = { workspace = true }

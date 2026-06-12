@@ -1822,6 +1822,8 @@ dependencies = [
  "mnt-platform-db",
  "mnt-platform-provisioning",
  "mnt-platform-storage",
+ "mnt-registry-adapter-postgres",
+ "mnt-registry-rest",
  "mnt-reporting-adapter-postgres",
  "mnt-reporting-rest",
  "mnt-workorder-adapter-postgres",
@@ -2134,6 +2136,21 @@ name = "mnt-registry-domain"
 version = "0.1.0"
 dependencies = [
  "mnt-kernel-core",
+ "serde",
+]
+
+[[package]]
+name = "mnt-registry-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "http",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-registry-adapter-postgres",
+ "mnt-registry-application",
+ "mnt-registry-domain",
  "serde",
 ]
 

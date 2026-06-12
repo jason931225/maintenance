@@ -962,6 +962,39 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /api/v1/equipment/{id}/substitutes:
+    get:
+      operationId: listEquipmentSubstitutes
+      summary: List compatible spare equipment candidates for a down unit
+      description: Same branch by default. SUPER_ADMIN may set all_branches=true to search across branches.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/EquipmentId'
+      - name: all_branches
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+        description: SUPER_ADMIN-only flag to include candidates outside the down unit's branch.
+      responses:
+        '200':
+          description: Compatible spare equipment candidates ranked by exact ton then nearest-above capacity.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubstituteCandidatePage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
 components:
   securitySchemes:
     bearerAuth:
@@ -1007,6 +1040,13 @@ components:
       description: Client-stable device identifier. The server stores only a SHA-256 hash.
     ThreadId:
       name: threadId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EquipmentId:
+      name: id
       in: path
       required: true
       schema:
@@ -2375,3 +2415,96 @@ components:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
+    EquipmentStatus:
+      type: string
+      enum:
+      - rented
+      - spare
+      - disposed
+      - replacement
+      - sold
+    SubstituteMatchKind:
+      type: string
+      enum:
+      - exact_ton
+      - nearest_above
+      - unknown_ton_exact_text
+    SubstituteCandidate:
+      type: object
+      required:
+      - equipment_id
+      - branch_id
+      - equipment_no
+      - management_no
+      - model
+      - status
+      - specification
+      - ton_text
+      - ton_milli
+      - power_code
+      - power_label
+      - customer_name
+      - site_name
+      - placement_location
+      - match_kind
+      - ton_delta_milli
+      properties:
+        equipment_id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        equipment_no:
+          type: string
+        management_no:
+          type:
+          - string
+          - 'null'
+        model:
+          type:
+          - string
+          - 'null'
+        status:
+          $ref: '#/components/schemas/EquipmentStatus'
+        specification:
+          type: string
+        ton_text:
+          type: string
+        ton_milli:
+          type:
+          - integer
+          - 'null'
+          format: int32
+        power_code:
+          type: string
+        power_label:
+          type:
+          - string
+          - 'null'
+        customer_name:
+          type: string
+        site_name:
+          type: string
+        placement_location:
+          type:
+          - string
+          - 'null'
+        match_kind:
+          $ref: '#/components/schemas/SubstituteMatchKind'
+        ton_delta_milli:
+          type:
+          - integer
+          - 'null'
+          format: int32
+    SubstituteCandidatePage:
+      type: object
+      required:
+      - items
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubstituteCandidate'
+        total:
+          type: integer
+          minimum: 0

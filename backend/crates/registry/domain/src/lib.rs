@@ -312,6 +312,137 @@ impl Equipment {
     }
 }
 
+/// Compatibility rules for 대체장비 matching.
+///
+/// Source requirement: "대체장비: 유효설비/동일 기종ton수/입식 좌식/납산리튬엔진 유사시".
+/// In the imported master-list schema this means:
+/// - candidate equipment must be an active spare (`상태=예비`) selected outside
+///   this pure function by the repository;
+/// - `규격` must match exactly after trimming (for example 입식 vs 좌식);
+/// - 동력 compatibility is derived from the 장비No prefix power code, keeping
+///   `B` electric/lead-lithium style units separate from diesel (`O` in the
+///   workbook, `D` in the brief) and LPG (`L`) units;
+/// - numeric tons match when candidate ton is equal to the down unit or is the
+///   nearest higher capacity; unknown `미정` tons only match the same unknown
+///   text because no safe capacity ordering exists.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SubstituteEquipmentProfile {
+    pub id: EquipmentId,
+    pub branch_id: BranchId,
+    pub equipment_no: EquipmentNo,
+    pub status: EquipmentStatus,
+    pub specification: String,
+    pub ton: Ton,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubstituteMatchKind {
+    ExactTon,
+    NearestAbove,
+    UnknownTonExactText,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RankedSubstituteCandidate {
+    pub equipment: SubstituteEquipmentProfile,
+    pub kind: SubstituteMatchKind,
+    pub ton_delta_milli: Option<i32>,
+}
+
+/// Filter and rank already-loaded spare candidates for one down unit.
+#[must_use]
+pub fn rank_substitute_candidates<I>(
+    down: &SubstituteEquipmentProfile,
+    candidates: I,
+) -> Vec<RankedSubstituteCandidate>
+where
+    I: IntoIterator<Item = SubstituteEquipmentProfile>,
+{
+    let mut ranked = candidates
+        .into_iter()
+        .filter_map(|candidate| substitute_match(down, candidate))
+        .collect::<Vec<_>>();
+    ranked.sort_by(|left, right| {
+        match_priority(left.kind)
+            .cmp(&match_priority(right.kind))
+            .then_with(|| {
+                left.ton_delta_milli
+                    .unwrap_or(i32::MAX)
+                    .cmp(&right.ton_delta_milli.unwrap_or(i32::MAX))
+            })
+            .then_with(|| {
+                left.equipment
+                    .equipment_no
+                    .as_str()
+                    .cmp(right.equipment.equipment_no.as_str())
+            })
+    });
+    ranked
+}
+
+fn substitute_match(
+    down: &SubstituteEquipmentProfile,
+    candidate: SubstituteEquipmentProfile,
+) -> Option<RankedSubstituteCandidate> {
+    if candidate.id == down.id
+        || candidate.status != EquipmentStatus::Spare
+        || !same_specification(&down.specification, &candidate.specification)
+        || !compatible_power(&down.equipment_no, &candidate.equipment_no)
+    {
+        return None;
+    }
+
+    match (down.ton.milli_tons(), candidate.ton.milli_tons()) {
+        (Some(down_ton), Some(candidate_ton)) if candidate_ton == down_ton => {
+            Some(RankedSubstituteCandidate {
+                equipment: candidate,
+                kind: SubstituteMatchKind::ExactTon,
+                ton_delta_milli: Some(0),
+            })
+        }
+        (Some(down_ton), Some(candidate_ton)) if candidate_ton > down_ton => {
+            Some(RankedSubstituteCandidate {
+                equipment: candidate,
+                kind: SubstituteMatchKind::NearestAbove,
+                ton_delta_milli: Some(candidate_ton - down_ton),
+            })
+        }
+        (None, None) if down.ton.as_text() == candidate.ton.as_text() => {
+            Some(RankedSubstituteCandidate {
+                equipment: candidate,
+                kind: SubstituteMatchKind::UnknownTonExactText,
+                ton_delta_milli: None,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn same_specification(left: &str, right: &str) -> bool {
+    left.trim() == right.trim()
+}
+
+fn compatible_power(left: &EquipmentNo, right: &EquipmentNo) -> bool {
+    power_family(left.power_code()) == power_family(right.power_code())
+}
+
+fn power_family(power_code: &str) -> &str {
+    match power_code {
+        "B" => "battery",
+        "O" | "D" => "diesel",
+        "L" => "lpg",
+        other => other,
+    }
+}
+
+fn match_priority(kind: SubstituteMatchKind) -> u8 {
+    match kind {
+        SubstituteMatchKind::ExactTon | SubstituteMatchKind::UnknownTonExactText => 0,
+        SubstituteMatchKind::NearestAbove => 1,
+    }
+}
+
 fn normalize_required(value: String, field: &str) -> Result<String, KernelError> {
     let trimmed = value.trim().to_string();
     if trimmed.is_empty() {
