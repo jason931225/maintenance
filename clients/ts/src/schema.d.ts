@@ -38,6 +38,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/messenger/threads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List branch-scoped messenger threads for the authenticated member */
+        get: operations["listMessengerThreads"];
+        put?: never;
+        /** Create a branch-scoped messenger thread */
+        post: operations["createMessengerThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/messenger/threads/{threadId}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Page messenger messages before an optional cursor */
+        get: operations["listMessengerMessages"];
+        put?: never;
+        /** Send a message with optional evidence attachments */
+        post: operations["sendMessengerMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/messenger/threads/{threadId}/read-receipt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Mark the authenticated member's thread read cursor */
+        put: operations["markMessengerThreadRead"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/messenger/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search branch-scoped messenger messages visible to the authenticated member */
+        get: operations["searchMessengerMessages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/work-orders": {
         parameters: {
             query?: never;
@@ -723,6 +793,23 @@ export interface components {
         DailyPlanStatus: "DRAFT" | "REQUESTED" | "APPROVED" | "REJECTED" | "FINAL_CONFIRMED";
         /** @enum {string} */
         TargetChangeDecision: "APPROVED" | "REJECTED";
+        /** @enum {string} */
+        MessengerThreadKind: "work_order" | "team" | "dm" | "group";
+        CreateMessengerThreadRequest: {
+            branch_id: components["schemas"]["Uuid"];
+            kind: components["schemas"]["MessengerThreadKind"];
+            title?: string | null;
+            /** Format: uuid */
+            work_order_id?: string | null;
+            member_ids: components["schemas"]["Uuid"][];
+        };
+        SendMessengerMessageRequest: {
+            body: string;
+            attachment_evidence_ids?: components["schemas"]["Uuid"][];
+        };
+        MarkMessengerThreadReadRequest: {
+            last_read_message_id: components["schemas"]["Uuid"];
+        };
         CreateWorkOrderRequest: {
             branch_id: components["schemas"]["Uuid"];
             management_no: string;
@@ -1026,6 +1113,50 @@ export interface components {
             token_type: "Bearer";
             refresh_expires_at: components["schemas"]["Timestamp"];
         };
+        MessengerThreadSummary: {
+            id: components["schemas"]["Uuid"];
+            kind: components["schemas"]["MessengerThreadKind"];
+            branch_id: components["schemas"]["Uuid"];
+            title: string | null;
+            /** Format: uuid */
+            work_order_id: string | null;
+            /** Format: uuid */
+            last_message_id: string | null;
+            /** Format: date-time */
+            last_message_at: string | null;
+            /** Format: int64 */
+            member_count: number;
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        MessengerThreadListResponse: {
+            items: components["schemas"]["MessengerThreadSummary"][];
+        };
+        MessengerMessageSummary: {
+            id: components["schemas"]["Uuid"];
+            thread_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            sender_id: components["schemas"]["Uuid"];
+            body: string;
+            attachment_evidence_ids: components["schemas"]["Uuid"][];
+            sent_at: components["schemas"]["Timestamp"];
+            created_at: components["schemas"]["Timestamp"];
+        };
+        MessengerMessageListResponse: {
+            items: components["schemas"]["MessengerMessageSummary"][];
+        };
+        MessengerMessagePage: {
+            items: components["schemas"]["MessengerMessageSummary"][];
+            /** Format: uuid */
+            next_cursor: string | null;
+        };
+        MessengerReadReceiptSummary: {
+            thread_id: components["schemas"]["Uuid"];
+            user_id: components["schemas"]["Uuid"];
+            last_read_message_id: components["schemas"]["Uuid"];
+            read_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
         WorkOrderSummary: {
             id: components["schemas"]["Uuid"];
             request_no: string;
@@ -1117,6 +1248,7 @@ export interface components {
     };
     parameters: {
         WorkOrderId: string;
+        ThreadId: string;
         PlanId: string;
         RequestId: string;
         EvidenceId: string;
@@ -1170,6 +1302,170 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    listMessengerThreads: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Messenger threads visible to the authenticated member. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerThreadListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createMessengerThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateMessengerThreadRequest"];
+            };
+        };
+        responses: {
+            /** @description Messenger thread created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerThreadSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listMessengerMessages: {
+        parameters: {
+            query?: {
+                before_message_id?: components["schemas"]["Uuid"];
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                threadId: components["parameters"]["ThreadId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cursor-stable message page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerMessagePage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    sendMessengerMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                threadId: components["parameters"]["ThreadId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendMessengerMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Message persisted. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerMessageSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    markMessengerThreadRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                threadId: components["parameters"]["ThreadId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkMessengerThreadReadRequest"];
+            };
+        };
+        responses: {
+            /** @description Read receipt upserted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerReadReceiptSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    searchMessengerMessages: {
+        parameters: {
+            query: {
+                q: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching messenger messages. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerMessageListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     createWorkOrder: {

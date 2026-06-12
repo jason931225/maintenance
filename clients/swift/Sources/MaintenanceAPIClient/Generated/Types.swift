@@ -21,6 +21,36 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /readyz`.
     /// - Remark: Generated from `#/paths//readyz/get(readyz)`.
     func readyz(_ input: Operations.Readyz.Input) async throws -> Operations.Readyz.Output
+    /// List branch-scoped messenger threads for the authenticated member
+    ///
+    /// - Remark: HTTP `GET /api/messenger/threads`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/get(listMessengerThreads)`.
+    func listMessengerThreads(_ input: Operations.ListMessengerThreads.Input) async throws -> Operations.ListMessengerThreads.Output
+    /// Create a branch-scoped messenger thread
+    ///
+    /// - Remark: HTTP `POST /api/messenger/threads`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/post(createMessengerThread)`.
+    func createMessengerThread(_ input: Operations.CreateMessengerThread.Input) async throws -> Operations.CreateMessengerThread.Output
+    /// Page messenger messages before an optional cursor
+    ///
+    /// - Remark: HTTP `GET /api/messenger/threads/{threadId}/messages`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/messages/get(listMessengerMessages)`.
+    func listMessengerMessages(_ input: Operations.ListMessengerMessages.Input) async throws -> Operations.ListMessengerMessages.Output
+    /// Send a message with optional evidence attachments
+    ///
+    /// - Remark: HTTP `POST /api/messenger/threads/{threadId}/messages`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/messages/post(sendMessengerMessage)`.
+    func sendMessengerMessage(_ input: Operations.SendMessengerMessage.Input) async throws -> Operations.SendMessengerMessage.Output
+    /// Mark the authenticated member's thread read cursor
+    ///
+    /// - Remark: HTTP `PUT /api/messenger/threads/{threadId}/read-receipt`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/read-receipt/put(markMessengerThreadRead)`.
+    func markMessengerThreadRead(_ input: Operations.MarkMessengerThreadRead.Input) async throws -> Operations.MarkMessengerThreadRead.Output
+    /// Search branch-scoped messenger messages visible to the authenticated member
+    ///
+    /// - Remark: HTTP `GET /api/messenger/search`.
+    /// - Remark: Generated from `#/paths//api/messenger/search/get(searchMessengerMessages)`.
+    func searchMessengerMessages(_ input: Operations.SearchMessengerMessages.Input) async throws -> Operations.SearchMessengerMessages.Output
     /// Create a work order from branch-scoped equipment management number
     ///
     /// - Remark: HTTP `POST /api/work-orders`.
@@ -193,6 +223,90 @@ extension APIProtocol {
     /// - Remark: Generated from `#/paths//readyz/get(readyz)`.
     public func readyz() async throws -> Operations.Readyz.Output {
         try await readyz(Operations.Readyz.Input())
+    }
+    /// List branch-scoped messenger threads for the authenticated member
+    ///
+    /// - Remark: HTTP `GET /api/messenger/threads`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/get(listMessengerThreads)`.
+    public func listMessengerThreads(
+        query: Operations.ListMessengerThreads.Input.Query = .init(),
+        headers: Operations.ListMessengerThreads.Input.Headers = .init()
+    ) async throws -> Operations.ListMessengerThreads.Output {
+        try await listMessengerThreads(Operations.ListMessengerThreads.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Create a branch-scoped messenger thread
+    ///
+    /// - Remark: HTTP `POST /api/messenger/threads`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/post(createMessengerThread)`.
+    public func createMessengerThread(
+        headers: Operations.CreateMessengerThread.Input.Headers = .init(),
+        body: Operations.CreateMessengerThread.Input.Body
+    ) async throws -> Operations.CreateMessengerThread.Output {
+        try await createMessengerThread(Operations.CreateMessengerThread.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Page messenger messages before an optional cursor
+    ///
+    /// - Remark: HTTP `GET /api/messenger/threads/{threadId}/messages`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/messages/get(listMessengerMessages)`.
+    public func listMessengerMessages(
+        path: Operations.ListMessengerMessages.Input.Path,
+        query: Operations.ListMessengerMessages.Input.Query = .init(),
+        headers: Operations.ListMessengerMessages.Input.Headers = .init()
+    ) async throws -> Operations.ListMessengerMessages.Output {
+        try await listMessengerMessages(Operations.ListMessengerMessages.Input(
+            path: path,
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Send a message with optional evidence attachments
+    ///
+    /// - Remark: HTTP `POST /api/messenger/threads/{threadId}/messages`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/messages/post(sendMessengerMessage)`.
+    public func sendMessengerMessage(
+        path: Operations.SendMessengerMessage.Input.Path,
+        headers: Operations.SendMessengerMessage.Input.Headers = .init(),
+        body: Operations.SendMessengerMessage.Input.Body
+    ) async throws -> Operations.SendMessengerMessage.Output {
+        try await sendMessengerMessage(Operations.SendMessengerMessage.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Mark the authenticated member's thread read cursor
+    ///
+    /// - Remark: HTTP `PUT /api/messenger/threads/{threadId}/read-receipt`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/read-receipt/put(markMessengerThreadRead)`.
+    public func markMessengerThreadRead(
+        path: Operations.MarkMessengerThreadRead.Input.Path,
+        headers: Operations.MarkMessengerThreadRead.Input.Headers = .init(),
+        body: Operations.MarkMessengerThreadRead.Input.Body
+    ) async throws -> Operations.MarkMessengerThreadRead.Output {
+        try await markMessengerThreadRead(Operations.MarkMessengerThreadRead.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Search branch-scoped messenger messages visible to the authenticated member
+    ///
+    /// - Remark: HTTP `GET /api/messenger/search`.
+    /// - Remark: Generated from `#/paths//api/messenger/search/get(searchMessengerMessages)`.
+    public func searchMessengerMessages(
+        query: Operations.SearchMessengerMessages.Input.Query,
+        headers: Operations.SearchMessengerMessages.Input.Headers = .init()
+    ) async throws -> Operations.SearchMessengerMessages.Output {
+        try await searchMessengerMessages(Operations.SearchMessengerMessages.Input(
+            query: query,
+            headers: headers
+        ))
     }
     /// Create a work order from branch-scoped equipment management number
     ///
@@ -694,6 +808,92 @@ public enum Components {
         @frozen public enum TargetChangeDecision: String, Codable, Hashable, Sendable, CaseIterable {
             case approved = "APPROVED"
             case rejected = "REJECTED"
+        }
+        /// - Remark: Generated from `#/components/schemas/MessengerThreadKind`.
+        @frozen public enum MessengerThreadKind: String, Codable, Hashable, Sendable, CaseIterable {
+            case workOrder = "work_order"
+            case team = "team"
+            case dm = "dm"
+            case group = "group"
+        }
+        /// - Remark: Generated from `#/components/schemas/CreateMessengerThreadRequest`.
+        public struct CreateMessengerThreadRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CreateMessengerThreadRequest/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CreateMessengerThreadRequest/kind`.
+            public var kind: Components.Schemas.MessengerThreadKind
+            /// - Remark: Generated from `#/components/schemas/CreateMessengerThreadRequest/title`.
+            public var title: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateMessengerThreadRequest/work_order_id`.
+            public var workOrderId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateMessengerThreadRequest/member_ids`.
+            public var memberIds: [Components.Schemas.Uuid]
+            /// Creates a new `CreateMessengerThreadRequest`.
+            ///
+            /// - Parameters:
+            ///   - branchId:
+            ///   - kind:
+            ///   - title:
+            ///   - workOrderId:
+            ///   - memberIds:
+            public init(
+                branchId: Components.Schemas.Uuid,
+                kind: Components.Schemas.MessengerThreadKind,
+                title: Swift.String? = nil,
+                workOrderId: Swift.String? = nil,
+                memberIds: [Components.Schemas.Uuid]
+            ) {
+                self.branchId = branchId
+                self.kind = kind
+                self.title = title
+                self.workOrderId = workOrderId
+                self.memberIds = memberIds
+            }
+            public enum CodingKeys: String, CodingKey {
+                case branchId = "branch_id"
+                case kind
+                case title
+                case workOrderId = "work_order_id"
+                case memberIds = "member_ids"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SendMessengerMessageRequest`.
+        public struct SendMessengerMessageRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SendMessengerMessageRequest/body`.
+            public var body: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SendMessengerMessageRequest/attachment_evidence_ids`.
+            public var attachmentEvidenceIds: [Components.Schemas.Uuid]?
+            /// Creates a new `SendMessengerMessageRequest`.
+            ///
+            /// - Parameters:
+            ///   - body:
+            ///   - attachmentEvidenceIds:
+            public init(
+                body: Swift.String,
+                attachmentEvidenceIds: [Components.Schemas.Uuid]? = nil
+            ) {
+                self.body = body
+                self.attachmentEvidenceIds = attachmentEvidenceIds
+            }
+            public enum CodingKeys: String, CodingKey {
+                case body
+                case attachmentEvidenceIds = "attachment_evidence_ids"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MarkMessengerThreadReadRequest`.
+        public struct MarkMessengerThreadReadRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MarkMessengerThreadReadRequest/last_read_message_id`.
+            public var lastReadMessageId: Components.Schemas.Uuid
+            /// Creates a new `MarkMessengerThreadReadRequest`.
+            ///
+            /// - Parameters:
+            ///   - lastReadMessageId:
+            public init(lastReadMessageId: Components.Schemas.Uuid) {
+                self.lastReadMessageId = lastReadMessageId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case lastReadMessageId = "last_read_message_id"
+            }
         }
         /// - Remark: Generated from `#/components/schemas/CreateWorkOrderRequest`.
         public struct CreateWorkOrderRequest: Codable, Hashable, Sendable {
@@ -2407,6 +2607,230 @@ public enum Components {
                 case refreshExpiresAt = "refresh_expires_at"
             }
         }
+        /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary`.
+        public struct MessengerThreadSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary/kind`.
+            public var kind: Components.Schemas.MessengerThreadKind
+            /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary/title`.
+            public var title: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary/work_order_id`.
+            public var workOrderId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary/last_message_id`.
+            public var lastMessageId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary/last_message_at`.
+            public var lastMessageAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary/member_count`.
+            public var memberCount: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/MessengerThreadSummary/updated_at`.
+            public var updatedAt: Components.Schemas.Timestamp
+            /// Creates a new `MessengerThreadSummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - kind:
+            ///   - branchId:
+            ///   - title:
+            ///   - workOrderId:
+            ///   - lastMessageId:
+            ///   - lastMessageAt:
+            ///   - memberCount:
+            ///   - createdAt:
+            ///   - updatedAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                kind: Components.Schemas.MessengerThreadKind,
+                branchId: Components.Schemas.Uuid,
+                title: Swift.String? = nil,
+                workOrderId: Swift.String? = nil,
+                lastMessageId: Swift.String? = nil,
+                lastMessageAt: Foundation.Date? = nil,
+                memberCount: Swift.Int64,
+                createdAt: Components.Schemas.Timestamp,
+                updatedAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.kind = kind
+                self.branchId = branchId
+                self.title = title
+                self.workOrderId = workOrderId
+                self.lastMessageId = lastMessageId
+                self.lastMessageAt = lastMessageAt
+                self.memberCount = memberCount
+                self.createdAt = createdAt
+                self.updatedAt = updatedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case kind
+                case branchId = "branch_id"
+                case title
+                case workOrderId = "work_order_id"
+                case lastMessageId = "last_message_id"
+                case lastMessageAt = "last_message_at"
+                case memberCount = "member_count"
+                case createdAt = "created_at"
+                case updatedAt = "updated_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MessengerThreadListResponse`.
+        public struct MessengerThreadListResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MessengerThreadListResponse/items`.
+            public var items: [Components.Schemas.MessengerThreadSummary]
+            /// Creates a new `MessengerThreadListResponse`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            public init(items: [Components.Schemas.MessengerThreadSummary]) {
+                self.items = items
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary`.
+        public struct MessengerMessageSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/thread_id`.
+            public var threadId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/sender_id`.
+            public var senderId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/body`.
+            public var body: Swift.String
+            /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/attachment_evidence_ids`.
+            public var attachmentEvidenceIds: [Components.Schemas.Uuid]
+            /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/sent_at`.
+            public var sentAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// Creates a new `MessengerMessageSummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - threadId:
+            ///   - branchId:
+            ///   - senderId:
+            ///   - body:
+            ///   - attachmentEvidenceIds:
+            ///   - sentAt:
+            ///   - createdAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                threadId: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid,
+                senderId: Components.Schemas.Uuid,
+                body: Swift.String,
+                attachmentEvidenceIds: [Components.Schemas.Uuid],
+                sentAt: Components.Schemas.Timestamp,
+                createdAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.threadId = threadId
+                self.branchId = branchId
+                self.senderId = senderId
+                self.body = body
+                self.attachmentEvidenceIds = attachmentEvidenceIds
+                self.sentAt = sentAt
+                self.createdAt = createdAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case threadId = "thread_id"
+                case branchId = "branch_id"
+                case senderId = "sender_id"
+                case body
+                case attachmentEvidenceIds = "attachment_evidence_ids"
+                case sentAt = "sent_at"
+                case createdAt = "created_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MessengerMessageListResponse`.
+        public struct MessengerMessageListResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MessengerMessageListResponse/items`.
+            public var items: [Components.Schemas.MessengerMessageSummary]
+            /// Creates a new `MessengerMessageListResponse`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            public init(items: [Components.Schemas.MessengerMessageSummary]) {
+                self.items = items
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MessengerMessagePage`.
+        public struct MessengerMessagePage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MessengerMessagePage/items`.
+            public var items: [Components.Schemas.MessengerMessageSummary]
+            /// - Remark: Generated from `#/components/schemas/MessengerMessagePage/next_cursor`.
+            public var nextCursor: Swift.String?
+            /// Creates a new `MessengerMessagePage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - nextCursor:
+            public init(
+                items: [Components.Schemas.MessengerMessageSummary],
+                nextCursor: Swift.String? = nil
+            ) {
+                self.items = items
+                self.nextCursor = nextCursor
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case nextCursor = "next_cursor"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MessengerReadReceiptSummary`.
+        public struct MessengerReadReceiptSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MessengerReadReceiptSummary/thread_id`.
+            public var threadId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MessengerReadReceiptSummary/user_id`.
+            public var userId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MessengerReadReceiptSummary/last_read_message_id`.
+            public var lastReadMessageId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MessengerReadReceiptSummary/read_at`.
+            public var readAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/MessengerReadReceiptSummary/updated_at`.
+            public var updatedAt: Components.Schemas.Timestamp
+            /// Creates a new `MessengerReadReceiptSummary`.
+            ///
+            /// - Parameters:
+            ///   - threadId:
+            ///   - userId:
+            ///   - lastReadMessageId:
+            ///   - readAt:
+            ///   - updatedAt:
+            public init(
+                threadId: Components.Schemas.Uuid,
+                userId: Components.Schemas.Uuid,
+                lastReadMessageId: Components.Schemas.Uuid,
+                readAt: Components.Schemas.Timestamp,
+                updatedAt: Components.Schemas.Timestamp
+            ) {
+                self.threadId = threadId
+                self.userId = userId
+                self.lastReadMessageId = lastReadMessageId
+                self.readAt = readAt
+                self.updatedAt = updatedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case threadId = "thread_id"
+                case userId = "user_id"
+                case lastReadMessageId = "last_read_message_id"
+                case readAt = "read_at"
+                case updatedAt = "updated_at"
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/WorkOrderSummary`.
         public struct WorkOrderSummary: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/WorkOrderSummary/id`.
@@ -2659,6 +3083,8 @@ public enum Components {
     public enum Parameters {
         /// - Remark: Generated from `#/components/parameters/WorkOrderId`.
         public typealias WorkOrderId = Swift.String
+        /// - Remark: Generated from `#/components/parameters/ThreadId`.
+        public typealias ThreadId = Swift.String
         /// - Remark: Generated from `#/components/parameters/PlanId`.
         public typealias PlanId = Swift.String
         /// - Remark: Generated from `#/components/parameters/RequestId`.
@@ -2958,6 +3384,1229 @@ public enum Operations {
             ///
             /// A response with a code that is not documented in the OpenAPI document.
             case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+    }
+    /// List branch-scoped messenger threads for the authenticated member
+    ///
+    /// - Remark: HTTP `GET /api/messenger/threads`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/get(listMessengerThreads)`.
+    public enum ListMessengerThreads {
+        public static let id: Swift.String = "listMessengerThreads"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/messenger/threads/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - limit:
+                public init(limit: Swift.Int64? = nil) {
+                    self.limit = limit
+                }
+            }
+            public var query: Operations.ListMessengerThreads.Input.Query
+            /// - Remark: Generated from `#/paths/api/messenger/threads/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMessengerThreads.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMessengerThreads.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListMessengerThreads.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListMessengerThreads.Input.Query = .init(),
+                headers: Operations.ListMessengerThreads.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/messenger/threads/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.MessengerThreadListResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.MessengerThreadListResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMessengerThreads.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMessengerThreads.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Messenger threads visible to the authenticated member.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/get(listMessengerThreads)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListMessengerThreads.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListMessengerThreads.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/get(listMessengerThreads)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/get(listMessengerThreads)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Create a branch-scoped messenger thread
+    ///
+    /// - Remark: HTTP `POST /api/messenger/threads`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/post(createMessengerThread)`.
+    public enum CreateMessengerThread {
+        public static let id: Swift.String = "createMessengerThread"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/messenger/threads/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateMessengerThread.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateMessengerThread.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CreateMessengerThread.Input.Headers
+            /// - Remark: Generated from `#/paths/api/messenger/threads/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.CreateMessengerThreadRequest)
+            }
+            public var body: Operations.CreateMessengerThread.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.CreateMessengerThread.Input.Headers = .init(),
+                body: Operations.CreateMessengerThread.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/messenger/threads/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.MessengerThreadSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.MessengerThreadSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreateMessengerThread.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreateMessengerThread.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Messenger thread created.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/post(createMessengerThread)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.CreateMessengerThread.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.CreateMessengerThread.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/post(createMessengerThread)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/post(createMessengerThread)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/post(createMessengerThread)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/post(createMessengerThread)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Page messenger messages before an optional cursor
+    ///
+    /// - Remark: HTTP `GET /api/messenger/threads/{threadId}/messages`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/messages/get(listMessengerMessages)`.
+    public enum ListMessengerMessages {
+        public static let id: Swift.String = "listMessengerMessages"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/messages/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/messages/GET/path/threadId`.
+                public var threadId: Components.Parameters.ThreadId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - threadId:
+                public init(threadId: Components.Parameters.ThreadId) {
+                    self.threadId = threadId
+                }
+            }
+            public var path: Operations.ListMessengerMessages.Input.Path
+            /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/messages/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/messages/GET/query/before_message_id`.
+                public var beforeMessageId: Components.Schemas.Uuid?
+                /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/messages/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - beforeMessageId:
+                ///   - limit:
+                public init(
+                    beforeMessageId: Components.Schemas.Uuid? = nil,
+                    limit: Swift.Int64? = nil
+                ) {
+                    self.beforeMessageId = beforeMessageId
+                    self.limit = limit
+                }
+            }
+            public var query: Operations.ListMessengerMessages.Input.Query
+            /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/messages/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMessengerMessages.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMessengerMessages.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListMessengerMessages.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - query:
+            ///   - headers:
+            public init(
+                path: Operations.ListMessengerMessages.Input.Path,
+                query: Operations.ListMessengerMessages.Input.Query = .init(),
+                headers: Operations.ListMessengerMessages.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/messages/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/messages/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.MessengerMessagePage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.MessengerMessagePage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMessengerMessages.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMessengerMessages.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Cursor-stable message page.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/messages/get(listMessengerMessages)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListMessengerMessages.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListMessengerMessages.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/messages/get(listMessengerMessages)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/messages/get(listMessengerMessages)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/messages/get(listMessengerMessages)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Send a message with optional evidence attachments
+    ///
+    /// - Remark: HTTP `POST /api/messenger/threads/{threadId}/messages`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/messages/post(sendMessengerMessage)`.
+    public enum SendMessengerMessage {
+        public static let id: Swift.String = "sendMessengerMessage"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/messages/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/messages/POST/path/threadId`.
+                public var threadId: Components.Parameters.ThreadId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - threadId:
+                public init(threadId: Components.Parameters.ThreadId) {
+                    self.threadId = threadId
+                }
+            }
+            public var path: Operations.SendMessengerMessage.Input.Path
+            /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/messages/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SendMessengerMessage.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SendMessengerMessage.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.SendMessengerMessage.Input.Headers
+            /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/messages/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/messages/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.SendMessengerMessageRequest)
+            }
+            public var body: Operations.SendMessengerMessage.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.SendMessengerMessage.Input.Path,
+                headers: Operations.SendMessengerMessage.Input.Headers = .init(),
+                body: Operations.SendMessengerMessage.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/messages/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/messages/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.MessengerMessageSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.MessengerMessageSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.SendMessengerMessage.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.SendMessengerMessage.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Message persisted.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/messages/post(sendMessengerMessage)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.SendMessengerMessage.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.SendMessengerMessage.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/messages/post(sendMessengerMessage)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/messages/post(sendMessengerMessage)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/messages/post(sendMessengerMessage)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/messages/post(sendMessengerMessage)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Mark the authenticated member's thread read cursor
+    ///
+    /// - Remark: HTTP `PUT /api/messenger/threads/{threadId}/read-receipt`.
+    /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/read-receipt/put(markMessengerThreadRead)`.
+    public enum MarkMessengerThreadRead {
+        public static let id: Swift.String = "markMessengerThreadRead"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/read-receipt/PUT/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/read-receipt/PUT/path/threadId`.
+                public var threadId: Components.Parameters.ThreadId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - threadId:
+                public init(threadId: Components.Parameters.ThreadId) {
+                    self.threadId = threadId
+                }
+            }
+            public var path: Operations.MarkMessengerThreadRead.Input.Path
+            /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/read-receipt/PUT/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.MarkMessengerThreadRead.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.MarkMessengerThreadRead.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.MarkMessengerThreadRead.Input.Headers
+            /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/read-receipt/PUT/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/read-receipt/PUT/requestBody/content/application\/json`.
+                case json(Components.Schemas.MarkMessengerThreadReadRequest)
+            }
+            public var body: Operations.MarkMessengerThreadRead.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.MarkMessengerThreadRead.Input.Path,
+                headers: Operations.MarkMessengerThreadRead.Input.Headers = .init(),
+                body: Operations.MarkMessengerThreadRead.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/read-receipt/PUT/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/messenger/threads/{threadId}/read-receipt/PUT/responses/200/content/application\/json`.
+                    case json(Components.Schemas.MessengerReadReceiptSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.MessengerReadReceiptSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.MarkMessengerThreadRead.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.MarkMessengerThreadRead.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Read receipt upserted.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/read-receipt/put(markMessengerThreadRead)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.MarkMessengerThreadRead.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.MarkMessengerThreadRead.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/read-receipt/put(markMessengerThreadRead)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/read-receipt/put(markMessengerThreadRead)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/threads/{threadId}/read-receipt/put(markMessengerThreadRead)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Search branch-scoped messenger messages visible to the authenticated member
+    ///
+    /// - Remark: HTTP `GET /api/messenger/search`.
+    /// - Remark: Generated from `#/paths//api/messenger/search/get(searchMessengerMessages)`.
+    public enum SearchMessengerMessages {
+        public static let id: Swift.String = "searchMessengerMessages"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/messenger/search/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/search/GET/query/q`.
+                public var q: Swift.String
+                /// - Remark: Generated from `#/paths/api/messenger/search/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - q:
+                ///   - limit:
+                public init(
+                    q: Swift.String,
+                    limit: Swift.Int64? = nil
+                ) {
+                    self.q = q
+                    self.limit = limit
+                }
+            }
+            public var query: Operations.SearchMessengerMessages.Input.Query
+            /// - Remark: Generated from `#/paths/api/messenger/search/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SearchMessengerMessages.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SearchMessengerMessages.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.SearchMessengerMessages.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.SearchMessengerMessages.Input.Query,
+                headers: Operations.SearchMessengerMessages.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/search/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/messenger/search/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.MessengerMessageListResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.MessengerMessageListResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.SearchMessengerMessages.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.SearchMessengerMessages.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Matching messenger messages.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/search/get(searchMessengerMessages)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.SearchMessengerMessages.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.SearchMessengerMessages.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/search/get(searchMessengerMessages)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/search/get(searchMessengerMessages)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
         }
     }
     /// Create a work order from branch-scoped equipment management number

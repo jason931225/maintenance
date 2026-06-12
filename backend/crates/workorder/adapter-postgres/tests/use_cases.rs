@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use std::sync::{Arc, Mutex};
+
 use mnt_kernel_core::{BranchId, ErrorKind, TraceContext, UserId, WorkOrderId};
 use mnt_workorder_adapter_postgres::PgWorkOrderStore;
 use mnt_workorder_application::{
@@ -7,12 +9,13 @@ use mnt_workorder_application::{
     DailyPlanItemInput, DailyPlanStatus, ReviewDailyPlanCommand, ReviewTargetChangeCommand,
     SendDailyPlanForReviewCommand, SubmitReportCommand, TargetChangeDecision,
     TargetChangeRequestCommand, UpdatePriorityCommand, WorkOrderApprovalCommand,
-    WorkOrderAssignmentCommand, WorkOrderStartCommand,
+    WorkOrderAssignmentCommand, WorkOrderCreatedEvent, WorkOrderCreatedFuture,
+    WorkOrderCreatedListener, WorkOrderStartCommand,
 };
 use mnt_workorder_domain::{
     AssignmentRole, AttachmentStage, PriorityLevel, WorkOrderStatus, WorkResultType,
 };
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use time::{Duration, OffsetDateTime, macros::date};
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
@@ -251,6 +254,33 @@ async fn request_numbers_are_race_safe_and_sequential_per_day(pool: PgPool) {
         request_numbers,
         vec![format!("{prefix}-001"), format!("{prefix}-002")]
     );
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn create_work_order_emits_post_commit_created_event(pool: PgPool) {
+    let seeded = seed_operational_context(&pool).await;
+    let listener = Arc::new(RecordingCreatedListener::new(pool.clone()));
+    let store = PgWorkOrderStore::new(pool.clone()).with_created_listener(listener.clone());
+
+    let created = store
+        .create_work_order(CreateWorkOrderCommand {
+            actor: seeded.receptionist,
+            branch_id: seeded.branch_id,
+            management_no: "290".to_owned(),
+            symptom: "Create messenger thread".to_owned(),
+            customer_request: None,
+            target_due_at: None,
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .unwrap();
+
+    let events = listener.events.lock().unwrap().clone();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].work_order_id, created.id);
+    assert_eq!(events[0].branch_id, seeded.branch_id);
+    assert_eq!(events[0].actor, seeded.receptionist);
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
@@ -535,6 +565,49 @@ async fn seed_user(pool: &PgPool, name: &str, role: &str, branch_id: BranchId) -
         .await
         .unwrap();
     user_id
+}
+
+#[derive(Debug)]
+struct RecordingCreatedListener {
+    pool: PgPool,
+    events: Arc<Mutex<Vec<WorkOrderCreatedEvent>>>,
+}
+
+impl RecordingCreatedListener {
+    fn new(pool: PgPool) -> Self {
+        Self {
+            pool,
+            events: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+}
+
+impl WorkOrderCreatedListener for RecordingCreatedListener {
+    fn work_order_created(&self, event: WorkOrderCreatedEvent) -> WorkOrderCreatedFuture<'_> {
+        Box::pin(async move {
+            let row = sqlx::query(
+                r#"
+                SELECT EXISTS(
+                    SELECT 1 FROM work_orders WHERE id = $1
+                ) AS work_order_exists,
+                EXISTS(
+                    SELECT 1 FROM audit_events
+                    WHERE action = 'work_order.create'
+                      AND target_id = $2
+                ) AS audit_exists
+                "#,
+            )
+            .bind(*event.work_order_id.as_uuid())
+            .bind(event.work_order_id.to_string())
+            .fetch_one(&self.pool)
+            .await
+            .unwrap();
+            assert!(row.get::<Option<bool>, _>("work_order_exists").unwrap());
+            assert!(row.get::<Option<bool>, _>("audit_exists").unwrap());
+            self.events.lock().unwrap().push(event);
+            Ok(())
+        })
+    }
 }
 
 async fn seed_equipment(pool: &PgPool, branch_id: BranchId) -> uuid::Uuid {

@@ -9,6 +9,7 @@ use std::env;
 use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::Body;
@@ -20,6 +21,8 @@ use axum::{Json, Router};
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, TraceContext, UserId,
 };
+use mnt_messenger_adapter_postgres::PgMessengerStore;
+use mnt_messenger_rest::MessengerRestState;
 use mnt_platform_auth::{AccessClaims, JwtSettings, JwtVerifier};
 use mnt_platform_auth_rest::{AuthRestConfig, AuthRestState};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
@@ -476,7 +479,9 @@ pub fn build_router(state: AppState) -> Router {
 
     match &state.database {
         DatabaseDependency::Postgres(pool) => {
-            let work_order_store = PgWorkOrderStore::new(pool.clone());
+            let messenger_store = PgMessengerStore::new(pool.clone());
+            let work_order_store = PgWorkOrderStore::new(pool.clone())
+                .with_created_listener(Arc::new(messenger_store.clone()));
             let router = router
                 .merge(mnt_workorder_rest::router(WorkOrderRestState::new(
                     work_order_store.clone(),
@@ -487,6 +492,10 @@ pub fn build_router(state: AppState) -> Router {
                     work_order_store,
                     state.jwt_verifier.clone(),
                     state.evidence_storage.clone(),
+                )))
+                .merge(mnt_messenger_rest::router(MessengerRestState::new(
+                    messenger_store,
+                    state.jwt_verifier.clone(),
                 )));
             match state.auth_rest.clone() {
                 Some(auth_rest) => router.merge(mnt_platform_auth_rest::router(auth_rest)),

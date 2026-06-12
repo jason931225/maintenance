@@ -19,6 +19,182 @@ paths:
           description: Service dependencies are ready.
         "503":
           description: A required dependency is unavailable.
+  /api/messenger/threads:
+    get:
+      operationId: listMessengerThreads
+      summary: List branch-scoped messenger threads for the authenticated member
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Messenger threads visible to the authenticated member.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessengerThreadListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      operationId: createMessengerThread
+      summary: Create a branch-scoped messenger thread
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMessengerThreadRequest"
+      responses:
+        "201":
+          description: Messenger thread created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessengerThreadSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/messenger/threads/{threadId}/messages:
+    get:
+      operationId: listMessengerMessages
+      summary: Page messenger messages before an optional cursor
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ThreadId"
+        - name: before_message_id
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Cursor-stable message page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessengerMessagePage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: sendMessengerMessage
+      summary: Send a message with optional evidence attachments
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ThreadId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessengerMessageRequest"
+      responses:
+        "201":
+          description: Message persisted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessengerMessageSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/messenger/threads/{threadId}/read-receipt:
+    put:
+      operationId: markMessengerThreadRead
+      summary: Mark the authenticated member's thread read cursor
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ThreadId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarkMessengerThreadReadRequest"
+      responses:
+        "200":
+          description: Read receipt upserted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessengerReadReceiptSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/messenger/search:
+    get:
+      operationId: searchMessengerMessages
+      summary: Search branch-scoped messenger messages visible to the authenticated member
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Matching messenger messages.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessengerMessageListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/work-orders:
     post:
       operationId: createWorkOrder
@@ -739,6 +915,13 @@ components:
       schema:
         type: string
         format: uuid
+    ThreadId:
+      name: threadId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     PlanId:
       name: planId
       in: path
@@ -858,6 +1041,47 @@ components:
     TargetChangeDecision:
       type: string
       enum: [APPROVED, REJECTED]
+    MessengerThreadKind:
+      type: string
+      enum: [work_order, team, dm, group]
+    CreateMessengerThreadRequest:
+      type: object
+      required: [branch_id, kind, member_ids]
+      properties:
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        kind:
+          $ref: "#/components/schemas/MessengerThreadKind"
+        title:
+          type:
+            - string
+            - "null"
+        work_order_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        member_ids:
+          type: array
+          items:
+            $ref: "#/components/schemas/Uuid"
+    SendMessengerMessageRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          minLength: 1
+        attachment_evidence_ids:
+          type: array
+          items:
+            $ref: "#/components/schemas/Uuid"
+    MarkMessengerThreadReadRequest:
+      type: object
+      required: [last_read_message_id]
+      properties:
+        last_read_message_id:
+          $ref: "#/components/schemas/Uuid"
     CreateWorkOrderRequest:
       type: object
       required: [branch_id, management_no, symptom]
@@ -1559,6 +1783,117 @@ components:
           type: string
           enum: [Bearer]
         refresh_expires_at:
+          $ref: "#/components/schemas/Timestamp"
+    MessengerThreadSummary:
+      type: object
+      required:
+        - id
+        - kind
+        - branch_id
+        - title
+        - work_order_id
+        - last_message_id
+        - last_message_at
+        - member_count
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        kind:
+          $ref: "#/components/schemas/MessengerThreadKind"
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        title:
+          type:
+            - string
+            - "null"
+        work_order_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        last_message_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        last_message_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        member_count:
+          type: integer
+          format: int64
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+    MessengerThreadListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MessengerThreadSummary"
+    MessengerMessageSummary:
+      type: object
+      required: [id, thread_id, branch_id, sender_id, body, attachment_evidence_ids, sent_at, created_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        thread_id:
+          $ref: "#/components/schemas/Uuid"
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        sender_id:
+          $ref: "#/components/schemas/Uuid"
+        body:
+          type: string
+        attachment_evidence_ids:
+          type: array
+          items:
+            $ref: "#/components/schemas/Uuid"
+        sent_at:
+          $ref: "#/components/schemas/Timestamp"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+    MessengerMessageListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MessengerMessageSummary"
+    MessengerMessagePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MessengerMessageSummary"
+        next_cursor:
+          type:
+            - string
+            - "null"
+          format: uuid
+    MessengerReadReceiptSummary:
+      type: object
+      required: [thread_id, user_id, last_read_message_id, read_at, updated_at]
+      properties:
+        thread_id:
+          $ref: "#/components/schemas/Uuid"
+        user_id:
+          $ref: "#/components/schemas/Uuid"
+        last_read_message_id:
+          $ref: "#/components/schemas/Uuid"
+        read_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
           $ref: "#/components/schemas/Timestamp"
     WorkOrderSummary:
       type: object

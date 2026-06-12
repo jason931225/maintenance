@@ -37,6 +37,7 @@ src/main/kotlin/com/maintenance/api/client/model/AssignmentSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/AttachmentStage.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateDailyPlanRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateDailyPlanRequestItemsInner.kt
+src/main/kotlin/com/maintenance/api/client/model/CreateMessengerThreadRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateOutsourceWorkRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateWorkOrderRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DailyPlanStatus.kt
@@ -53,6 +54,14 @@ src/main/kotlin/com/maintenance/api/client/model/EvidenceConfirmResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidencePresignRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidencePresignResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidenceSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/MarkMessengerThreadReadRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/MessengerMessageListResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/MessengerMessagePage.kt
+src/main/kotlin/com/maintenance/api/client/model/MessengerMessageSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/MessengerReadReceiptSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/MessengerThreadKind.kt
+src/main/kotlin/com/maintenance/api/client/model/MessengerThreadListResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/MessengerThreadSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/NamedEntity.kt
 src/main/kotlin/com/maintenance/api/client/model/OutsourceWorkSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyLoginFinishRequest.kt
@@ -68,6 +77,7 @@ src/main/kotlin/com/maintenance/api/client/model/RefreshTokenRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/RejectWorkOrderRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ReviewDailyPlanRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ReviewTargetChangeRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/SendMessengerMessageRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/StatusHistorySummary.kt
 src/main/kotlin/com/maintenance/api/client/model/SubmitReportRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SyncBatchRequest.kt

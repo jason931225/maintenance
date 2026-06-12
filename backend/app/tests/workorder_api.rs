@@ -120,6 +120,23 @@ async fn workorder_create_is_jwt_authorized_and_branch_scoped(pool: PgPool) {
             .await
             .unwrap();
     assert_eq!(create_count, 1);
+
+    let messenger_thread_count: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)
+        FROM messenger_threads t
+        JOIN messenger_thread_members tm ON tm.thread_id = t.id
+        WHERE t.work_order_id = $1
+          AND t.kind = 'work_order'
+          AND tm.user_id = $2
+        "#,
+    )
+    .bind(uuid::Uuid::parse_str(json["id"].as_str().unwrap()).unwrap())
+    .bind(*admin_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(messenger_thread_count, 1);
 }
 
 #[sqlx::test(migrations = "../crates/platform/db/migrations")]

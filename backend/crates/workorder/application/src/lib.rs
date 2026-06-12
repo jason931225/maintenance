@@ -4,6 +4,9 @@
 //! runtime, and HTTP concerns remain in outer crates.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+use std::future::Future;
+use std::pin::Pin;
+
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, CustomerId, DailyPlanId, EquipmentId, KernelError, SiteId,
     Timestamp, TraceContext, UserId, VendorId, WorkOrderId,
@@ -108,6 +111,22 @@ pub struct CreateWorkOrderCommand {
     pub target_due_at: Option<Timestamp>,
     pub trace: TraceContext,
     pub occurred_at: Timestamp,
+}
+
+pub type WorkOrderCreatedFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<(), KernelError>> + Send + 'a>>;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkOrderCreatedEvent {
+    pub actor: UserId,
+    pub branch_id: BranchId,
+    pub work_order_id: WorkOrderId,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+pub trait WorkOrderCreatedListener: Send + Sync {
+    fn work_order_created(&self, event: WorkOrderCreatedEvent) -> WorkOrderCreatedFuture<'_>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

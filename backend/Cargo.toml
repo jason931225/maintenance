@@ -11,6 +11,7 @@ members = [
   "crates/compliance/*",
   "crates/registry/*",
   "crates/workorder/*",
+  "crates/messenger/*",
   "crates/platform/*",
   "ci/gates/*",
 ]
@@ -81,6 +82,10 @@ mnt-workorder-domain = { path = "crates/workorder/domain" }
 mnt-workorder-application = { path = "crates/workorder/application" }
 mnt-workorder-adapter-postgres = { path = "crates/workorder/adapter-postgres" }
 mnt-workorder-rest = { path = "crates/workorder/rest" }
+mnt-messenger-domain = { path = "crates/messenger/domain" }
+mnt-messenger-application = { path = "crates/messenger/application" }
+mnt-messenger-adapter-postgres = { path = "crates/messenger/adapter-postgres" }
+mnt-messenger-rest = { path = "crates/messenger/rest" }
 mnt-platform-db = { path = "crates/platform/db" }
 mnt-platform-auth-rest = { path = "crates/platform/auth-rest" }
 mnt-platform-storage = { path = "crates/platform/storage" }
