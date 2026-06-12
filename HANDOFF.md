@@ -4,7 +4,7 @@
 
 ## 0. TL;DR — current state
 
-- **Phase:** **G002 / M1 registry + WO core slice** (ultragoal 1/8 complete — **G001/M0 DONE & checkpointed 2026-06-12**, main `9883308`)
+- **Phase:** **G003/M2 + G004/M3 + G005/M4 + G006/M5 lanes in parallel** (ultragoal 2/8 — **G001/M0 + G002/M1 BOTH complete & checkpointed 2026-06-12**, main `2fe6c81`+)
 - **Plan:** `.omc/plans/fsm-maintenance-plan.md` (consensus-APPROVED 2026-06-12, ralplan iteration 3) — task IDs T0.x–T6.x are stable, ledger references them
 - **Spec:** `.omc/specs/deep-interview-fsm-maintenance.md` (interview-locked user decisions — do not relitigate)
 - **M0 (13/13):** kernel · layer gate · schema+with_audit · 3 safety gates · auth (SoftPasskey-proven) · authz (4-level 22-feature matrix) · Compose stack + mnt-app · observability (/api/audit self-auditing, OpenSLO) · backup/restore drill · Excel spike PASS · compliance (destruction proven) · provisioning · DR/PITR (lead-verified arbitrary-timestamp drill; VM-down rehearsal evidence)
