@@ -75,3 +75,13 @@ Same Hard Rules as `/Users/jasonlee/Developer/maintenance/.omc/team-briefs/m0-wa
   - POST /api/v1/devices — register device (platform ios|android, push_token nullable until M2, app_version); upsert keyed (user, device_hash); audit device.register.
 - Re-emit + commit openapi.yaml; regenerate tri-clients (npm run gen:api — Docker needed for kotlin, present); ALL drift + compile checks green (check:ts/kotlin/swift, check:openapi-app, api-drift gates).
 - Tests: #[sqlx::test] sync dedup (same request_id twice → one effect + cached response), per-op partial failure, device upsert idempotent; evidence presign→confirm flow audited; HTTP-level test exercising /sync with a JWT.
+
+### 10. T1.3d — read/query REST surface (third contract-gap closure; REQUIRED by web board + Android to-do)
+- Routes (axum+utoipa, JWT+authz+branch-scoped, mounted /api/v1): GET /work-orders (paginated list; filters: status[], priority[], assigned_to=me|user_id, customer/site, date range; branch-scope default-deny; sorted by priority then target due); GET /work-orders/{id} (full detail incl. assignments, approval line, status history, evidence summaries); GET /equipment/lookup?management_no=290 (호기→equipment+model+customer/site — the 접수 autocomplete; T1.1 built the application query: REUSE); GET /equipment?q= (autocomplete prefix search); POST /work-orders/{id}/reject with memo ONLY if T1.3 lacks it (check first — do not duplicate).
+- Reads are NOT state changes: do NOT route list/detail/lookup through with_audit (no audit-coverage exclusion needed; the gate only checks state-changing handlers).
+- Re-emit openapi.yaml; regenerate tri-clients (npm run gen:api); all drift/compile checks green.
+- Tests: branch-scope on list (user in branch A cannot see branch B WOs — fixture both); filter combinations; pagination stability; lookup by real imported 호기 (#290 → model from the master list — use the T1.1 importer in test setup); detail includes approval line + history.
+
+### 11. T1.5b — web console wiring to read surface (after T1.3d)
+- Wire equipment autocomplete in the intake form to GET /equipment/lookup; dispatch board + WO list to GET /work-orders; approval queue to list filters (status=REPORT_SUBMITTED|ADMIN_REVIEW); reject-with-memo wired.
+- Regenerate clients/ts (gen:api:ts); extend vitest coverage for the new flows (msw fixtures matching the real schema); lint/build/test green.
