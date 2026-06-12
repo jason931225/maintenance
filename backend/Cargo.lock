@@ -1960,6 +1960,16 @@ name = "mnt-gate-pii-no-logs"
 version = "0.1.0"
 
 [[package]]
+name = "mnt-identity-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "serde_json",
+ "time",
+]
+
+[[package]]
 name = "mnt-kernel-core"
 version = "0.1.0"
 dependencies = [
