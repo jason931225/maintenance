@@ -204,6 +204,7 @@ pub enum ViolationKind {
     MissingMntPrefix,
     WrongEdition,
     MissingLintsWorkspace,
+    ConflictMarker,
 }
 
 impl std::fmt::Display for Violation {
@@ -214,6 +215,7 @@ impl std::fmt::Display for Violation {
             ViolationKind::MissingMntPrefix => "MISSING_MNT_PREFIX",
             ViolationKind::WrongEdition => "WRONG_EDITION",
             ViolationKind::MissingLintsWorkspace => "MISSING_LINTS_WORKSPACE",
+            ViolationKind::ConflictMarker => "CONFLICT_MARKER",
         };
         write!(f, "[{}] {}: {}", kind, self.crate_name, self.detail)
     }
@@ -232,6 +234,61 @@ impl GateResult {
     pub fn passed(&self) -> bool {
         self.violations.is_empty()
     }
+}
+
+// ---------------------------------------------------------------------------
+// Conflict-marker scan (MFL-0001)
+// ---------------------------------------------------------------------------
+
+/// Scans the given files for unresolved git conflict markers. Binary files
+/// (non-UTF-8) are skipped. Patterns are built at runtime so this source file
+/// never contains a literal marker and cannot flag itself.
+pub fn check_conflict_markers(files: &[PathBuf]) -> Vec<Violation> {
+    let open = format!("{} ", "<".repeat(7));
+    let close = format!("{} ", ">".repeat(7));
+    let mut violations = Vec::new();
+
+    for path in files {
+        let Ok(content) = std::fs::read_to_string(path) else {
+            continue; // binary or unreadable: not a text merge-conflict candidate
+        };
+        for (idx, line) in content.lines().enumerate() {
+            if line.starts_with(&open) || line.starts_with(&close) {
+                violations.push(Violation {
+                    kind: ViolationKind::ConflictMarker,
+                    crate_name: path.display().to_string(),
+                    detail: format!("unresolved git conflict marker at line {}", idx + 1),
+                });
+            }
+        }
+    }
+    violations
+}
+
+/// Lists git-tracked files for the repository containing `dir`.
+pub fn git_tracked_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let root_out = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(dir)
+        .output()
+        .map_err(|e| format!("failed to run git rev-parse: {e}"))?;
+    if !root_out.status.success() {
+        return Err("git rev-parse --show-toplevel failed".to_owned());
+    }
+    let root = PathBuf::from(String::from_utf8_lossy(&root_out.stdout).trim().to_owned());
+
+    let ls_out = std::process::Command::new("git")
+        .args(["ls-files"])
+        .current_dir(&root)
+        .output()
+        .map_err(|e| format!("failed to run git ls-files: {e}"))?;
+    if !ls_out.status.success() {
+        return Err("git ls-files failed".to_owned());
+    }
+    Ok(String::from_utf8_lossy(&ls_out.stdout)
+        .lines()
+        .map(|l| root.join(l))
+        .collect())
 }
 
 // ---------------------------------------------------------------------------
@@ -593,5 +650,65 @@ mod tests {
             classify_crate("mnt-gate-foo", "/ws/ci/gates/foo/Cargo.toml", "/ws"),
             Layer::Gate
         );
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod conflict_marker_tests {
+    use super::*;
+
+    fn write_temp(name: &str, content: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join("mnt-gate-marker-tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, content).unwrap();
+        path
+    }
+
+    #[test]
+    fn flags_files_containing_markers_and_passes_clean_files() {
+        let open_marker = format!("{} HEAD\nbody\n", "<".repeat(7));
+        let close_marker = format!("ok\n{} branch-x\n", ">".repeat(7));
+        let dirty_open = write_temp("dirty_open.toml", &open_marker);
+        let dirty_close = write_temp("dirty_close.rs", &close_marker);
+        // "=======" alone must NOT be flagged (legit markdown/separator usage).
+        let clean = write_temp("clean.md", "title\n=======\nbody with <<< and >>> short\n");
+
+        let violations = check_conflict_markers(&[dirty_open.clone(), dirty_close.clone(), clean]);
+        assert_eq!(violations.len(), 2, "{violations:#?}");
+        assert!(
+            violations
+                .iter()
+                .all(|v| v.kind == ViolationKind::ConflictMarker)
+        );
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.crate_name.contains("dirty_open"))
+        );
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.crate_name.contains("dirty_close"))
+        );
+    }
+
+    #[test]
+    fn skips_non_utf8_binary_files() {
+        let dir = std::env::temp_dir().join("mnt-gate-marker-tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("binary.bin");
+        std::fs::write(&path, [0u8, 159, 146, 150, 255]).unwrap();
+        assert!(check_conflict_markers(&[path]).is_empty());
+    }
+
+    #[test]
+    fn real_repo_tracked_files_are_marker_free() {
+        let cwd = std::env::current_dir().unwrap();
+        let files = git_tracked_files(&cwd).unwrap();
+        assert!(files.len() > 50, "expected a real tracked file list");
+        let violations = check_conflict_markers(&files);
+        assert!(violations.is_empty(), "{violations:#?}");
     }
 }

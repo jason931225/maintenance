@@ -28,7 +28,18 @@ fn run_gate(workspace_dir: &Path) {
             std::process::exit(1);
         });
 
-    let result = mnt_gate_layer_boundary::check(&metadata, &workspace_edition);
+    let mut result = mnt_gate_layer_boundary::check(&metadata, &workspace_edition);
+
+    // MFL-0001: repo-wide unresolved-conflict-marker scan over git-tracked files.
+    match mnt_gate_layer_boundary::git_tracked_files(workspace_dir) {
+        Ok(files) => result
+            .violations
+            .extend(mnt_gate_layer_boundary::check_conflict_markers(&files)),
+        Err(e) => {
+            eprintln!("ERROR: conflict-marker scan: {e}");
+            std::process::exit(1);
+        }
+    }
 
     if result.passed() {
         eprintln!(
