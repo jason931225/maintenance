@@ -38,6 +38,9 @@ use mnt_platform_push::{
     FcmConfig, FcmHttpV1Client, ProviderPushNotifier, PushNotifier, SolapiAlimtalkClient,
     SolapiConfig,
 };
+use mnt_platform_realtime::{
+    PgRealtimeHub, PostgresBridgeHandle, PostgresMessageNotifier, RealtimeRestState,
+};
 use mnt_platform_storage::{EvidenceService, S3StorageConfig, SeaweedS3Storage, StorageError};
 use mnt_registry_adapter_postgres::PgRegistryStore;
 use mnt_registry_rest::RegistryRestState;
@@ -441,6 +444,8 @@ pub struct AppState {
     evidence_storage: Option<EvidenceService<SeaweedS3Storage>>,
     dispatch_job_queue: Option<Arc<dyn JobQueue>>,
     push_notifier: Option<Arc<dyn PushNotifier>>,
+    realtime_hub: Option<Arc<PgRealtimeHub>>,
+    realtime_bridge: Option<PostgresBridgeHandle>,
 }
 
 impl AppState {
@@ -461,6 +466,7 @@ impl AppState {
             },
             DatabaseDependency::NotConfigured => None,
         };
+        let realtime_hub = realtime_hub_from_database(&database);
         Ok(Self {
             config,
             database,
@@ -469,6 +475,8 @@ impl AppState {
             evidence_storage: None,
             dispatch_job_queue: None,
             push_notifier: None,
+            realtime_hub,
+            realtime_bridge: None,
         })
     }
 
@@ -524,11 +532,37 @@ impl AppState {
         if fcm.is_some() || solapi.is_some() {
             state.push_notifier = Some(Arc::new(ProviderPushNotifier::new(fcm, solapi)));
         }
+        if let Some(hub) = state.realtime_hub.clone() {
+            state.realtime_bridge = Some(
+                hub.start_postgres_listener()
+                    .await
+                    .map_err(AppError::Realtime)?,
+            );
+        }
         Ok(state)
     }
 
     pub fn config(&self) -> &AppConfig {
         &self.config
+    }
+
+    pub async fn shutdown_realtime(&self) {
+        if let Some(bridge) = &self.realtime_bridge {
+            bridge.shutdown();
+        }
+        if let Some(hub) = &self.realtime_hub {
+            hub.shutdown().await;
+        }
+    }
+}
+
+fn realtime_hub_from_database(database: &DatabaseDependency) -> Option<Arc<PgRealtimeHub>> {
+    match database {
+        DatabaseDependency::Postgres(pool) => Some(Arc::new(PgRealtimeHub::new(
+            pool.clone(),
+            Default::default(),
+        ))),
+        DatabaseDependency::NotConfigured => None,
     }
 }
 
@@ -640,7 +674,12 @@ pub fn build_router(state: AppState) -> Router {
     match &state.database {
         DatabaseDependency::Postgres(pool) => {
             let kpi_repository = PgKpiRepository::new(pool.clone());
-            let messenger_store = PgMessengerStore::new(pool.clone());
+            let realtime_hub = state
+                .realtime_hub
+                .clone()
+                .unwrap_or_else(|| Arc::new(PgRealtimeHub::new(pool.clone(), Default::default())));
+            let messenger_store = PgMessengerStore::new(pool.clone())
+                .with_notifier(Arc::new(PostgresMessageNotifier::new(pool.clone())));
             let registry_store = PgRegistryStore::new(pool.clone());
             let financial_store = PgFinancialStore::new(pool.clone());
             let dispatch_store = PgDispatchStore::new(pool.clone());
@@ -678,6 +717,10 @@ pub fn build_router(state: AppState) -> Router {
                 )))
                 .merge(mnt_messenger_rest::router(MessengerRestState::new(
                     messenger_store,
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_platform_realtime::router(RealtimeRestState::new(
+                    realtime_hub,
                     state.jwt_verifier.clone(),
                 )));
             match state.auth_rest.clone() {
@@ -1054,6 +1097,7 @@ impl ApiError {
             AppError::Database(_)
             | AppError::Io(_)
             | AppError::Storage(_)
+            | AppError::Realtime(_)
             | AppError::Telemetry(_)
             | AppError::Worker(_)
             | AppError::Internal(_) => Self::internal("internal server error"),
@@ -1151,8 +1195,8 @@ async fn serve_api(config: AppConfig, state: AppState) -> Result<(), AppError> {
         "starting mnt-app"
     );
 
-    axum::serve(listener, build_router(state))
-        .with_graceful_shutdown(shutdown_signal(config.shutdown_timeout))
+    axum::serve(listener, build_router(state.clone()))
+        .with_graceful_shutdown(shutdown_signal(config.shutdown_timeout, state))
         .await
         .map_err(AppError::Io)
 }
@@ -1182,13 +1226,13 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
         "mnt.dispatch",
         format!("{}-dispatch-worker", config.service_name),
         worker,
-        shutdown_signal(config.shutdown_timeout),
+        shutdown_signal(config.shutdown_timeout, state.clone()),
     )
     .await
     .map_err(|err| AppError::Worker(err.to_string()))
 }
 
-async fn shutdown_signal(timeout: Duration) {
+async fn shutdown_signal(timeout: Duration, state: AppState) {
     let ctrl_c = async {
         if let Err(err) = tokio::signal::ctrl_c().await {
             tracing::warn!(error = %err, "failed to install ctrl-c handler");
@@ -1218,8 +1262,9 @@ async fn shutdown_signal(timeout: Duration) {
 
     tracing::info!(
         timeout_secs = timeout.as_secs(),
-        "shutdown signal received; draining in-flight work"
+        "shutdown signal received; draining in-flight requests and realtime connections"
     );
+    state.shutdown_realtime().await;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -1238,6 +1283,8 @@ pub enum AppError {
     Telemetry(String),
     #[error("worker error: {0}")]
     Worker(String),
+    #[error("realtime error: {0}")]
+    Realtime(#[from] mnt_platform_realtime::RealtimeError),
 }
 
 impl From<DbError> for AppError {

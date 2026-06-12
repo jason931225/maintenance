@@ -1,0 +1,31 @@
+[package]
+name = "mnt-platform-realtime"
+version = "0.1.0"
+description = "WebSocket realtime hub and Postgres LISTEN/NOTIFY bridge."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum = { workspace = true, features = ["ws"] }
+mnt-kernel-core = { workspace = true }
+mnt-messenger-application = { workspace = true }
+mnt-platform-auth = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time"] }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+mnt-messenger-domain = { workspace = true }
+mnt-messenger-adapter-postgres = { workspace = true }
+mnt-platform-db = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+
+[lints]
+workspace = true

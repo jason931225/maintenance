@@ -42,5 +42,9 @@ async fn openapi_yaml_covers_mounted_auth_routes() -> Result<(), Box<dyn std::er
     for path in REGISTRY_ROUTE_PATHS {
         assert!(yaml.contains(path), "OpenAPI YAML is missing {path}");
     }
+    assert!(
+        yaml.contains("/api/v1/ws"),
+        "OpenAPI YAML is missing /api/v1/ws"
+    );
     Ok(())
 }

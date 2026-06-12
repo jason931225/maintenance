@@ -109,6 +109,7 @@ mnt-platform-db = { path = "crates/platform/db" }
 mnt-platform-auth = { path = "crates/platform/auth" }
 mnt-platform-auth-rest = { path = "crates/platform/auth-rest" }
 mnt-platform-authz = { path = "crates/platform/authz" }
+mnt-platform-realtime = { path = "crates/platform/realtime" }
 mnt-platform-storage = { path = "crates/platform/storage" }
 mnt-platform-jobs = { path = "crates/platform/jobs" }
 mnt-platform-push = { path = "crates/platform/push" }

@@ -29,6 +29,7 @@ mnt-platform-authz = { path = "../crates/platform/authz" }
 mnt-platform-db = { workspace = true }
 mnt-platform-jobs = { workspace = true }
 mnt-platform-push = { workspace = true }
+mnt-platform-realtime = { workspace = true }
 mnt-platform-storage = { workspace = true }
 mnt-reporting-adapter-postgres = { workspace = true }
 mnt-reporting-rest = { workspace = true }
@@ -58,6 +59,7 @@ uuid = { workspace = true }
 [dev-dependencies]
 mnt-platform-provisioning = { path = "../crates/platform/provisioning" }
 p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8", "pem"] }
+tokio = { workspace = true, features = ["io-util", "net", "macros", "rt-multi-thread"] }
 tower = { workspace = true, features = ["util"] }
 url = "2.5.8"
 webauthn-authenticator-rs = { version = "0.5.5", features = ["softpasskey"] }
