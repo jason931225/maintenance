@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO audit_events (\n                    id, actor, action, target_type, target_id,\n                    branch_id, before_snap, after_snap,\n                    trace_id, span_id, occurred_at\n                ) VALUES (\n                    $1, $2, $3, $4, $5,\n                    $6, $7, $8,\n                    $9, $10, $11\n                )\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Uuid",
+        "Jsonb",
+        "Jsonb",
+        "Bpchar",
+        "Bpchar",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6b3d22a8243da2fd86e994c73bc9e1bea226a75d30f3da9fc1d3c837805b8134"
+}
