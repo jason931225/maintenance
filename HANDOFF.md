@@ -8,8 +8,10 @@
 - **Plan:** `.omc/plans/fsm-maintenance-plan.md` (consensus-APPROVED 2026-06-12, ralplan iteration 3) — task IDs T0.x–T6.x are stable, ledger references them
 - **Spec:** `.omc/specs/deep-interview-fsm-maintenance.md` (interview-locked user decisions — do not relitigate)
 - **M0 (13/13):** kernel · layer gate · schema+with_audit · 3 safety gates · auth (SoftPasskey-proven) · authz (4-level 22-feature matrix) · Compose stack + mnt-app · observability (/api/audit self-auditing, OpenSLO) · backup/restore drill · Excel spike PASS · compliance (destruction proven) · provisioning · DR/PITR (lead-verified arbitrary-timestamp drill; VM-down rehearsal evidence)
-- **M1 in flight:** T1.1 registry + master-list importer (codex worker). **Chain:** T1.2 WO FSM → T1.3 app/REST/OpenAPI → fan-out {T1.4 evidence, T1.5 web, T1.9 client-gen, T1.10 apalis soak} → T1.6 Android → T1.7 iOS → T1.8 parity · T1.11 distribution (NEEDS Apple/Google accounts — user) · T1.12 i18n
-- **Main:** 52 green test suites / 0 failed; 4/4 gates PASS; 14 workspace crates; migrations 0001–0006
+- **M1 (10+2 gap-fixes merged):** T1.1 registry+importer · T1.2 FSM(256-cell) · T1.3 spine · T1.3b auth-REST · T1.3c mobile surface (/sync idempotent, evidence presign, devices) · T1.3d read surface · T1.4 evidence/WORM (lead-reproduced retention test) · T1.5+T1.5b web console (complete slice) · T1.9 tri-client codegen+drift gates · T1.10 apalis soak PASS×2 (M2 gate SATISFIED)
+- **In flight:** T1.6 Android. **Then:** T1.7 iOS → T1.8 parity → T1.11 distribution (Apple/Play accounts READY) → T1.12 i18n → G002 checkpoint
+- **Main:** 86 green suites / 0 failed; 4/4 gates; 24 crates; migrations 0001–0010; contract↔app stable; tri-client drift green
+- **Ops lessons (persisted to memory):** never pipe codex exec stdout (stalls); grep -c exits 1 on zero; sqlx prepare needs -- --all-targets; union-resolve Cargo.toml member/dep conflicts via python not Edit-tool (race)
 - **Local env:** Rust stable 1.96.0 pinned; Homebrew Postgres 18.4 (latest stable, live-verified); Docker 29.5.2 via colima; Node 24
 
 ## 1. Hard guardrails (persist)
