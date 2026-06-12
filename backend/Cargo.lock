@@ -1820,6 +1820,8 @@ dependencies = [
  "mnt-platform-db",
  "mnt-platform-provisioning",
  "mnt-platform-storage",
+ "mnt-reporting-adapter-postgres",
+ "mnt-reporting-rest",
  "mnt-workorder-adapter-postgres",
  "mnt-workorder-rest",
  "opentelemetry",
@@ -2074,6 +2076,59 @@ version = "0.1.0"
 dependencies = [
  "mnt-kernel-core",
  "serde",
+]
+
+[[package]]
+name = "mnt-reporting-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-reporting-application",
+ "mnt-reporting-domain",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-reporting-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-reporting-domain",
+ "serde",
+ "thiserror 2.0.18",
+ "time",
+]
+
+[[package]]
+name = "mnt-reporting-domain"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-reporting-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "http",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-reporting-adapter-postgres",
+ "mnt-reporting-application",
+ "mnt-reporting-domain",
+ "serde",
+ "sqlx 0.9.0",
+ "time",
+ "uuid",
 ]
 
 [[package]]

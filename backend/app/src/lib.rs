@@ -25,6 +25,8 @@ use mnt_platform_auth_rest::{AuthRestConfig, AuthRestState};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
 use mnt_platform_db::{DbError, with_audit};
 use mnt_platform_storage::{EvidenceService, S3StorageConfig, SeaweedS3Storage, StorageError};
+use mnt_reporting_adapter_postgres::PgKpiRepository;
+use mnt_reporting_rest::KpiRestState;
 use mnt_workorder_adapter_postgres::PgWorkOrderStore;
 use mnt_workorder_rest::{MobileRestState, WorkOrderRestState};
 use opentelemetry::global;
@@ -476,8 +478,13 @@ pub fn build_router(state: AppState) -> Router {
 
     match &state.database {
         DatabaseDependency::Postgres(pool) => {
+            let kpi_repository = PgKpiRepository::new(pool.clone());
             let work_order_store = PgWorkOrderStore::new(pool.clone());
             let router = router
+                .merge(mnt_reporting_rest::router(KpiRestState::new(
+                    kpi_repository,
+                    state.jwt_verifier.clone(),
+                )))
                 .merge(mnt_workorder_rest::router(WorkOrderRestState::new(
                     work_order_store.clone(),
                     state.jwt_verifier.clone(),

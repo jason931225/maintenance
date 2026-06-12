@@ -286,6 +286,118 @@ async fn workorder_read_surface_is_branch_scoped_filterable_and_detailed(pool: P
 }
 
 #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn kpi_endpoint_is_jwt_authorized_and_branch_scoped(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_id = seed_branch(&pool, "KPI Region", "KPI Branch").await;
+    let other_branch_id = seed_branch(&pool, "KPI Other Region", "KPI Other Branch").await;
+    let admin = UserId::new();
+    let mechanic = UserId::new();
+    seed_user_with_branch(&pool, admin, "ADMIN", branch_id).await;
+    seed_user_with_branch(&pool, mechanic, "MECHANIC", branch_id).await;
+    let equipment = seed_equipment_record(&pool, branch_id, "290", "GTS25DE").await;
+    let other_equipment = seed_equipment_record(&pool, other_branch_id, "777", "OTHER").await;
+    let created_at = OffsetDateTime::parse("2026-06-12T08:00:00Z", &Rfc3339).unwrap();
+    seed_kpi_completed_work_order(
+        &pool,
+        KpiWorkOrderFixture {
+            branch_id,
+            equipment,
+            actor: admin,
+            mechanic,
+            request_no: "20260612-950",
+            priority: "P1",
+            created_at,
+            approved_at: created_at + Duration::hours(8),
+        },
+    )
+    .await;
+    seed_kpi_completed_work_order(
+        &pool,
+        KpiWorkOrderFixture {
+            branch_id: other_branch_id,
+            equipment: other_equipment,
+            actor: admin,
+            mechanic,
+            request_no: "20260612-951",
+            priority: "P2",
+            created_at,
+            approved_at: created_at + Duration::hours(9),
+        },
+    )
+    .await;
+
+    let admin_token = issue_token(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        admin,
+        vec!["ADMIN".to_owned()],
+        vec![branch_id],
+    )
+    .unwrap();
+    let mechanic_token = issue_token(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        mechanic,
+        vec!["MECHANIC".to_owned()],
+        vec![branch_id],
+    )
+    .unwrap();
+    let service = build_router(app_state(pool, public_key_pem).unwrap());
+
+    let denied = get_json(
+        service.clone(),
+        "/api/v1/kpi?period=2026-06-01..2026-07-01&scope=company",
+        &mechanic_token,
+    )
+    .await;
+    assert_eq!(denied.status, StatusCode::FORBIDDEN, "{:?}", denied.json);
+
+    let report = get_json(
+        service,
+        "/api/v1/kpi?period=2026-06-01..2026-07-01&scope=company",
+        &admin_token,
+    )
+    .await;
+    assert_eq!(report.status, StatusCode::OK, "{:?}", report.json);
+    let company = report.json["rollups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|rollup| rollup["scope"]["kind"] == "company")
+        .unwrap();
+    assert_eq!(company["completed_count"], 1);
+    assert_eq!(company["weighted_completed_points"], 3);
+    assert_eq!(
+        report.json["rollups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|rollup| rollup["scope"]["kind"] == "branch")
+            .count(),
+        1
+    );
+    assert!(
+        report.json["unavailable_metrics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|metric| metric["metric"] == "inspection_plan_completion_rate")
+    );
+    assert!(
+        report.json["unavailable_metrics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|metric| metric["metric"] == "p1_acceptance_rate")
+    );
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
 async fn equipment_lookup_and_autocomplete_are_branch_scoped(pool: PgPool) {
     let signing_key = SigningKey::random(&mut OsRng);
     let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
@@ -570,6 +682,17 @@ struct ReadWorkOrderFixture {
     target_due_at: OffsetDateTime,
 }
 
+struct KpiWorkOrderFixture {
+    branch_id: BranchId,
+    equipment: SeededEquipment,
+    actor: UserId,
+    mechanic: UserId,
+    request_no: &'static str,
+    priority: &'static str,
+    created_at: OffsetDateTime,
+    approved_at: OffsetDateTime,
+}
+
 async fn seed_equipment_record(
     pool: &PgPool,
     branch_id: BranchId,
@@ -630,6 +753,98 @@ async fn seed_equipment_record(
         customer_id,
         site_id,
     }
+}
+
+async fn seed_kpi_completed_work_order(pool: &PgPool, fixture: KpiWorkOrderFixture) -> WorkOrderId {
+    let work_order_id = WorkOrderId::new();
+    sqlx::query(
+        r#"
+        INSERT INTO work_orders (
+            id, request_no, branch_id, equipment_id, customer_id, site_id,
+            requested_by, status, priority, symptom, result_type,
+            report_submitted_by, report_submitted_at, created_at, updated_at
+        )
+        VALUES (
+            $1, $2, $3, $4, $5, $6, $7, 'FINAL_COMPLETED', $8, 'KPI fixture',
+            'COMPLETED', $9, $10, $11, $10
+        )
+        "#,
+    )
+    .bind(*work_order_id.as_uuid())
+    .bind(fixture.request_no)
+    .bind(*fixture.branch_id.as_uuid())
+    .bind(fixture.equipment.id)
+    .bind(fixture.equipment.customer_id)
+    .bind(fixture.equipment.site_id)
+    .bind(*fixture.actor.as_uuid())
+    .bind(fixture.priority)
+    .bind(*fixture.mechanic.as_uuid())
+    .bind(fixture.approved_at)
+    .bind(fixture.created_at)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO work_order_assignments (work_order_id, mechanic_id, role, assigned_at)
+        VALUES ($1, $2, 'PRIMARY', $3)
+        "#,
+    )
+    .bind(*work_order_id.as_uuid())
+    .bind(*fixture.mechanic.as_uuid())
+    .bind(fixture.created_at + Duration::minutes(30))
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO work_order_approval_steps (
+            work_order_id, step_order, role, approver_id, status,
+            requested_at, approved_at, approved_by_id
+        )
+        VALUES ($1, 2, 'ADMIN', $2, 'APPROVED', $3, $3, $2)
+        "#,
+    )
+    .bind(*work_order_id.as_uuid())
+    .bind(*fixture.actor.as_uuid())
+    .bind(fixture.approved_at)
+    .execute(pool)
+    .await
+    .unwrap();
+    for (action, from_status, to_status, occurred_at) in [
+        ("work_order.create", None, "RECEIVED", fixture.created_at),
+        (
+            "work_order.start",
+            Some("ASSIGNED"),
+            "IN_PROGRESS",
+            fixture.created_at + Duration::hours(1),
+        ),
+        (
+            "work_order.approve",
+            Some("ADMIN_REVIEW"),
+            "FINAL_COMPLETED",
+            fixture.approved_at,
+        ),
+    ] {
+        sqlx::query(
+            r#"
+            INSERT INTO work_order_status_history (
+                work_order_id, actor, action, from_status, to_status, occurred_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(*work_order_id.as_uuid())
+        .bind(*fixture.actor.as_uuid())
+        .bind(action)
+        .bind(from_status)
+        .bind(to_status)
+        .bind(occurred_at)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+    work_order_id
 }
 
 async fn seed_received_work_order(

@@ -1,0 +1,18 @@
+[package]
+name = "mnt-reporting-application"
+version = "0.1.0"
+description = "Reporting application ports and KPI query contracts."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mnt-kernel-core = { workspace = true }
+mnt-reporting-domain = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+
+[lints]
+workspace = true
