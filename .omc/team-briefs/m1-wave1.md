@@ -93,3 +93,19 @@ Same Hard Rules as `/Users/jasonlee/Developer/maintenance/.omc/team-briefs/m0-wa
 - OFFLINE-FIRST core (the spec AC): Room (or SQLDelight — justify) local store mirroring today's WOs; mutation queue (start/report ops with client request_id ULIDs); connectivity-aware replay via POST /api/v1/sync (batch, X-Device-Id hash); evidence files queued locally and uploaded on reconnect; per-item sync-state indicators; conflict policy = server wins, queue result surfaced.
 - Tests (JVM unit — no emulator required): queue repository (enqueue offline → replay → dedup on retry → cached-result handling from sync response), report/WO mappers against generated client models, login state machine. Instrumented/E2E tests deferred to T1.8 with explicit note (NOT a stub — the JVM layer is fully real).
 - Verification: ./gradlew build (compiles + unit tests + lint) green from android/; ktlint or android lint zero errors policy documented.
+
+### 13. T1.7 — iOS technician app slice (`ios/`) — FEATURE PARITY with android/
+- Native Swift + SwiftUI, SPM project consuming clients/swift (the generated MaintenanceAPIClient package). Versions live-verified (Swift tools, swift-openapi-runtime). Build with `swift build` + `xcodebuild` if available (Command Line Tools only on this host — document what was verified locally vs deferred to CI macOS runner with full Xcode).
+- READ android/ first — it is the parity reference. Same capabilities, same flows, same Korean strings (Localizable.strings externalized): passkey login (ASAuthorizationController platform + security key flows against /api/v1/auth) + device registration; today's to-do (assigned_to=me, priority-sorted, sync-state indicators); WO detail + start; report submission; evidence capture (AVFoundation → presign → PUT → confirm); offline-first queue (SwiftData or Core Data — justify) replaying /api/v1/sync with client request_id ULIDs, X-Device-Id hash.
+- Tests (XCTest, simulator-free where possible): offline queue logic, mappers against generated models, login state machine — mirror android's JVM test coverage 1:1 (parity includes test parity).
+- Update/extend the parity checklist artifact: create docs/parity-checklist.md table (capability × android × ios × notes) — every row checked for both.
+- Verification: swift build green + swift test green from ios/; report honestly anything requiring full Xcode (e.g., asset catalogs, signing) as CI-deferred items for T1.8/T1.11.
+
+### 14. T1.8 — parity checklist + CI dual-build gate
+- CI: path-filtered macOS job building ios/ (xcodebuild or swift build) + ubuntu job building android/ (./gradlew build with SDK setup via android-actions/setup-android or sdkmanager); both trigger on android/**, ios/**, clients/**, backend/openapi/** changes and on release tags.
+- Parity gate: a script (scripts/check-parity.mjs) that fails CI if docs/parity-checklist.md has any row not checked for both platforms, or if either app's externalized-strings file is missing keys present in the other (string-key parity as a proxy for feature parity — document limits honestly).
+- Wire into .github/workflows/ci.yml after existing jobs.
+
+### 15. T1.12 — i18n-ready verification across 3 clients
+- Verify/enforce: web (check-ui-strings gate exists — extend if gaps), android (strings.xml — add a lint check forbidding hardcoded UI strings in Compose code), ios (Localizable.strings + a check script). All content Korean-only; structure locale-ready.
+- One CI step running all three checks; document the i18n architecture in docs/i18n.md (3 paragraphs max, honest about what locale-adding would take).
