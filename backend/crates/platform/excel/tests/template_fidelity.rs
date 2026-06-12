@@ -18,10 +18,9 @@ use umya_spreadsheet::Workbook;
 // ---------------------------------------------------------------------------
 
 fn template_path() -> PathBuf {
-    let manifest = std::env::var("CARGO_MANIFEST_DIR")
-        .expect("CARGO_MANIFEST_DIR must be set by cargo test");
-    PathBuf::from(manifest)
-        .join("../../../../docs/reference/일일업무진행현황_0605.xlsx")
+    let manifest =
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set by cargo test");
+    PathBuf::from(manifest).join("../../../../docs/reference/일일업무진행현황_0605.xlsx")
 }
 
 fn load(path: &std::path::Path) -> Workbook {
@@ -42,10 +41,7 @@ fn cell_value(ws: &umya_spreadsheet::Worksheet, col: u32, row: u32) -> String {
 
 /// Collect all merged-cell range strings from a worksheet, sorted for stable comparison.
 fn merged_ranges(ws: &umya_spreadsheet::Worksheet) -> BTreeSet<String> {
-    ws.merge_cells()
-        .iter()
-        .map(|mc| mc.range())
-        .collect()
+    ws.merge_cells().iter().map(|mc| mc.range()).collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -98,10 +94,7 @@ fn precondition_section_headers() {
 
     for (header, row) in sections {
         let found = (1u32..=34).any(|col| cell_value(ws, col, *row).contains(*header));
-        assert!(
-            found,
-            "Section header '{header}' not found in row {row}"
-        );
+        assert!(found, "Section header '{header}' not found in row {row}");
     }
 }
 
@@ -132,13 +125,13 @@ fn roundtrip_fill_and_read_back() {
             .sheet_by_name_mut("6월05일")
             .expect("Sheet '6월05일' must be present for writing");
 
-        ws.cell_mut((1u32, ROW_DATA)).set_value("미");          // 구분
-        ws.cell_mut((2u32, ROW_DATA)).set_value("99");          // No
-        ws.cell_mut((3u32, ROW_DATA)).set_value("태성이엔지");  // 사업장
-        ws.cell_mut((4u32, ROW_DATA)).set_value("#290");        // 호기
-        ws.cell_mut((5u32, ROW_DATA)).set_value("시동안걸림");  // 불량내용
-        ws.cell_mut((6u32, ROW_DATA)).set_value("김용현");      // 작업자
-        ws.cell_mut((7u32, ROW_DATA)).set_value("Priority#1");  // Warning/Priority
+        ws.cell_mut((1u32, ROW_DATA)).set_value("미"); // 구분
+        ws.cell_mut((2u32, ROW_DATA)).set_value("99"); // No
+        ws.cell_mut((3u32, ROW_DATA)).set_value("태성이엔지"); // 사업장
+        ws.cell_mut((4u32, ROW_DATA)).set_value("#290"); // 호기
+        ws.cell_mut((5u32, ROW_DATA)).set_value("시동안걸림"); // 불량내용
+        ws.cell_mut((6u32, ROW_DATA)).set_value("김용현"); // 작업자
+        ws.cell_mut((7u32, ROW_DATA)).set_value("Priority#1"); // Warning/Priority
     }
 
     // ── 3. Write to temp file ────────────────────────────────────────────────
@@ -153,7 +146,11 @@ fn roundtrip_fill_and_read_back() {
 
     // ── 5. Assert sheet name survives ────────────────────────────────────────
     let ws_out = get_sheet(&reread, "6월05일");
-    assert_eq!(ws_out.name(), "6월05일", "Sheet name changed after round-trip");
+    assert_eq!(
+        ws_out.name(),
+        "6월05일",
+        "Sheet name changed after round-trip"
+    );
 
     // ── 6. Assert dimension: original 97-row extent must be intact ───────────
     let max_row = ws_out.highest_row();
@@ -170,15 +167,23 @@ fn roundtrip_fill_and_read_back() {
         "Merged range count changed: before={}, after={}.\nLost: {:#?}\nGained: {:#?}",
         original_ranges.len(),
         output_ranges.len(),
-        original_ranges.difference(&output_ranges).collect::<Vec<_>>(),
-        output_ranges.difference(&original_ranges).collect::<Vec<_>>(),
+        original_ranges
+            .difference(&output_ranges)
+            .collect::<Vec<_>>(),
+        output_ranges
+            .difference(&original_ranges)
+            .collect::<Vec<_>>(),
     );
     assert_eq!(
         original_ranges,
         output_ranges,
         "Merged cell ranges changed after round-trip.\nLost: {:#?}\nGained: {:#?}",
-        original_ranges.difference(&output_ranges).collect::<Vec<_>>(),
-        output_ranges.difference(&original_ranges).collect::<Vec<_>>(),
+        original_ranges
+            .difference(&output_ranges)
+            .collect::<Vec<_>>(),
+        output_ranges
+            .difference(&original_ranges)
+            .collect::<Vec<_>>(),
     );
 
     // ── 8. Assert title cell still contains '◈' ──────────────────────────────
@@ -201,13 +206,25 @@ fn roundtrip_fill_and_read_back() {
     }
 
     // ── 10. Assert written values are readable back ──────────────────────────
-    assert_eq!(cell_value(ws_out, 1, ROW_DATA), "미",         "구분 mismatch");
-    assert_eq!(cell_value(ws_out, 2, ROW_DATA), "99",         "No mismatch");
-    assert_eq!(cell_value(ws_out, 3, ROW_DATA), "태성이엔지", "사업장 mismatch");
-    assert_eq!(cell_value(ws_out, 4, ROW_DATA), "#290",       "호기 mismatch");
-    assert_eq!(cell_value(ws_out, 5, ROW_DATA), "시동안걸림", "불량내용 mismatch");
-    assert_eq!(cell_value(ws_out, 6, ROW_DATA), "김용현",     "작업자 mismatch");
-    assert_eq!(cell_value(ws_out, 7, ROW_DATA), "Priority#1", "Warning mismatch");
+    assert_eq!(cell_value(ws_out, 1, ROW_DATA), "미", "구분 mismatch");
+    assert_eq!(cell_value(ws_out, 2, ROW_DATA), "99", "No mismatch");
+    assert_eq!(
+        cell_value(ws_out, 3, ROW_DATA),
+        "태성이엔지",
+        "사업장 mismatch"
+    );
+    assert_eq!(cell_value(ws_out, 4, ROW_DATA), "#290", "호기 mismatch");
+    assert_eq!(
+        cell_value(ws_out, 5, ROW_DATA),
+        "시동안걸림",
+        "불량내용 mismatch"
+    );
+    assert_eq!(cell_value(ws_out, 6, ROW_DATA), "김용현", "작업자 mismatch");
+    assert_eq!(
+        cell_value(ws_out, 7, ROW_DATA),
+        "Priority#1",
+        "Warning mismatch"
+    );
 
     // ── 11. Assert column widths survive for sample columns ──────────────────
     // Column A (index "A") is expected to have an explicit width in this template.

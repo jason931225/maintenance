@@ -36,15 +36,13 @@ use crate::error::DbError;
 ///     Ok(())
 /// }).await?;
 /// ```
-pub async fn with_audit<F, T, E>(
-    pool: &PgPool,
-    event: AuditEvent,
-    f: F,
-) -> Result<T, E>
+pub async fn with_audit<F, T, E>(pool: &PgPool, event: AuditEvent, f: F) -> Result<T, E>
 where
     F: for<'tx> FnOnce(
         &'tx mut Transaction<'_, Postgres>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, E>> + Send + 'tx>>,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<T, E>> + Send + 'tx>,
+    >,
     E: From<DbError>,
 {
     let mut tx = pool.begin().await.map_err(|e| E::from(DbError::Sqlx(e)))?;
@@ -64,11 +62,9 @@ where
             let before_json: Option<serde_json::Value> = event.before.clone();
             let after_json: Option<serde_json::Value> = event.after.clone();
 
-            let actor_uuid: Option<uuid::Uuid> =
-                event.actor.map(|uid| *uid.as_uuid());
+            let actor_uuid: Option<uuid::Uuid> = event.actor.map(|uid| *uid.as_uuid());
             let event_id_uuid: uuid::Uuid = *event.id.as_uuid();
-            let branch_uuid: Option<uuid::Uuid> =
-                event.branch_id.map(|bid| *bid.as_uuid());
+            let branch_uuid: Option<uuid::Uuid> = event.branch_id.map(|bid| *bid.as_uuid());
             let action_str = event.action.as_str();
             let occurred_at = event.occurred_at;
             let trace_id = event.trace.trace_id();
@@ -180,12 +176,9 @@ mod tests {
 
         with_audit::<_, (), DbError>(&pool, event, |tx| {
             Box::pin(async move {
-                sqlx::query!(
-                    "UPDATE users SET is_active = false WHERE id = $1",
-                    user_id,
-                )
-                .execute(tx.as_mut())
-                .await?;
+                sqlx::query!("UPDATE users SET is_active = false WHERE id = $1", user_id,)
+                    .execute(tx.as_mut())
+                    .await?;
                 Ok(())
             })
         })
@@ -257,12 +250,9 @@ mod tests {
         let result = with_audit::<_, (), DbError>(&pool, event, |tx| {
             Box::pin(async move {
                 // Perform a real mutation first...
-                sqlx::query!(
-                    "UPDATE users SET is_active = false WHERE id = $1",
-                    user_id,
-                )
-                .execute(tx.as_mut())
-                .await?;
+                sqlx::query!("UPDATE users SET is_active = false WHERE id = $1", user_id,)
+                    .execute(tx.as_mut())
+                    .await?;
                 // ...then simulate a domain validation failure.
                 Err(DbError::Sqlx(sqlx::Error::RowNotFound))
             })
@@ -404,12 +394,10 @@ mod tests {
             .await
             .unwrap();
 
-        let delete_result = sqlx::query!(
-            "DELETE FROM audit_events WHERE id = $1",
-            insert_event_id,
-        )
-        .execute(&pool)
-        .await;
+        let delete_result =
+            sqlx::query!("DELETE FROM audit_events WHERE id = $1", insert_event_id,)
+                .execute(&pool)
+                .await;
 
         assert!(
             delete_result.is_err(),
@@ -422,15 +410,14 @@ mod tests {
         );
 
         // Row must still exist.
-        let count: i64 =
-            sqlx::query_scalar!(
-                "SELECT COUNT(*) FROM audit_events WHERE id = $1",
-                insert_event_id,
-            )
-            .fetch_one(&pool)
-            .await
-            .unwrap()
-            .unwrap_or(0);
+        let count: i64 = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM audit_events WHERE id = $1",
+            insert_event_id,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+        .unwrap_or(0);
         assert_eq!(count, 1, "row should still exist after failed DELETE");
     }
 
