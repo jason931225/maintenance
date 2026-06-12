@@ -5,14 +5,17 @@ import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { App } from "./App";
+import { getDefaultKpiPeriod } from "./features/kpi/kpi-format";
 import {
   equipmentLookup,
+  kpiReport,
   tokenPair,
   workOrderListItems,
   workOrders,
 } from "./test/fixtures";
 
 const listRequests: URL[] = [];
+const kpiRequests: URL[] = [];
 const autocompleteRequests: URL[] = [];
 const lookupRequests: URL[] = [];
 let rejectRequest:
@@ -42,6 +45,11 @@ const server = setupServer(
       offset: Number(url.searchParams.get("offset") ?? 0),
       total: items.length,
     });
+  }),
+  http.get("*/api/v1/kpi", ({ request }) => {
+    const url = new URL(request.url);
+    kpiRequests.push(url);
+    return HttpResponse.json(kpiReport);
   }),
   http.get("*/api/v1/equipment", ({ request }) => {
     const url = new URL(request.url);
@@ -78,9 +86,11 @@ beforeAll(() => {
 afterEach(() => {
   server.resetHandlers();
   listRequests.length = 0;
+  kpiRequests.length = 0;
   autocompleteRequests.length = 0;
   lookupRequests.length = 0;
   rejectRequest = undefined;
+  window.history.pushState({}, "", "/");
 });
 
 afterAll(() => {
@@ -111,7 +121,27 @@ describe("App", () => {
             url.search.includes("ADMIN_REVIEW"),
         ),
       ).toBe(true);
+      expect(
+        kpiRequests.some(
+          (url) =>
+            url.pathname === "/api/v1/kpi" &&
+            url.searchParams.get("period") === getDefaultKpiPeriod(),
+        ),
+      ).toBe(true);
     });
+  });
+
+  it("renders the wallboard route without the console controls", async () => {
+    window.history.pushState({}, "", "/wallboard");
+
+    render(<App initialSession={tokenPair} />);
+
+    expect(
+      await screen.findByRole("heading", { name: "일일현황 월보드" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "패스키 로그인" }),
+    ).not.toBeInTheDocument();
   });
 
   it("uses equipment autocomplete and lookup when the intake 호기 changes", async () => {

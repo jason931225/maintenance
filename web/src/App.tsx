@@ -5,6 +5,7 @@ import type {
   CreateWorkOrderRequest,
   EquipmentLookupResponse,
   EquipmentLookupState,
+  KpiReport,
   TokenPairResponse,
   WorkOrderListItem,
 } from "./api/types";
@@ -14,6 +15,12 @@ import { IntakeForm } from "./features/intake/IntakeForm";
 import { DispatchBoard } from "./features/dispatch/DispatchBoard";
 import { WorkOrderList } from "./features/dispatch/WorkOrderList";
 import { ApprovalQueue } from "./features/approvals/ApprovalQueue";
+import { KpiDashboard } from "./features/kpi/KpiDashboard";
+import { WallBoard } from "./features/kpi/WallBoard";
+import {
+  getDefaultKpiPeriod,
+  getWallboardRefreshIntervalMs,
+} from "./features/kpi/kpi-format";
 
 const defaultBranchId = "00000000-0000-4000-8000-000000000001";
 const defaultMechanicId = "00000000-0000-4000-8000-000000000002";
@@ -39,6 +46,8 @@ export function App({ initialSession }: AppProps = {}) {
   const [approvalWorkOrders, setApprovalWorkOrders] = useState<
     WorkOrderListItem[]
   >([]);
+  const [kpiReport, setKpiReport] = useState<KpiReport>();
+  const [kpiPeriod, setKpiPeriod] = useState(getDefaultKpiPeriod);
   const [readState, setReadState] = useState<ReadState>(
     initialSession ? "loading" : "idle",
   );
@@ -57,7 +66,7 @@ export function App({ initialSession }: AppProps = {}) {
     document.title = ko.app.title;
   }, []);
 
-  const loadWorkOrders = useCallback(async () => {
+  const loadDashboardData = useCallback(async () => {
     const responses = await Promise.all([
       api.GET("/api/v1/work-orders", {
         params: { query: { limit: 100, offset: 0 } },
@@ -67,6 +76,9 @@ export function App({ initialSession }: AppProps = {}) {
           query: { status: approvalStatuses, limit: 100, offset: 0 },
         },
       }),
+      api.GET("/api/v1/kpi", {
+        params: { query: { period: kpiPeriod } },
+      }),
     ]).catch(() => undefined);
 
     if (!responses) {
@@ -74,25 +86,26 @@ export function App({ initialSession }: AppProps = {}) {
       return;
     }
 
-    const [listResponse, approvalResponse] = responses;
+    const [listResponse, approvalResponse, kpiResponse] = responses;
 
-    if (!listResponse.data || !approvalResponse.data) {
+    if (!listResponse.data || !approvalResponse.data || !kpiResponse.data) {
       setReadState("error");
       return;
     }
 
     setWorkOrders(listResponse.data.items);
     setApprovalWorkOrders(approvalResponse.data.items);
+    setKpiReport(kpiResponse.data);
     setReadState("idle");
-  }, [api]);
+  }, [api, kpiPeriod]);
 
   useEffect(() => {
     if (!session) {
       return undefined;
     }
-    void Promise.resolve().then(loadWorkOrders);
+    void Promise.resolve().then(loadDashboardData);
     return undefined;
-  }, [loadWorkOrders, session]);
+  }, [loadDashboardData, session]);
 
   useEffect(() => {
     const query = managementNo.trim();
@@ -145,6 +158,7 @@ export function App({ initialSession }: AppProps = {}) {
     if (!nextSession) {
       setWorkOrders([]);
       setApprovalWorkOrders([]);
+      setKpiReport(undefined);
       setReadState("idle");
       setEquipmentSuggestions([]);
       setEquipmentLookupState({ status: "idle" });
@@ -163,6 +177,13 @@ export function App({ initialSession }: AppProps = {}) {
     setEquipmentLookupState({ status: "loading" });
   }
 
+  function handleKpiPeriodChange(nextPeriod: string) {
+    setKpiPeriod(nextPeriod);
+    if (session) {
+      setReadState("loading");
+    }
+  }
+
   async function createWorkOrder(request: CreateWorkOrderRequest) {
     const response = await api.POST("/api/work-orders", { body: request });
     if (!response.data) {
@@ -179,7 +200,7 @@ export function App({ initialSession }: AppProps = {}) {
       },
     });
     if (response.data) {
-      await loadWorkOrders();
+      await loadDashboardData();
     }
   }
 
@@ -188,7 +209,7 @@ export function App({ initialSession }: AppProps = {}) {
       params: { path: { workOrderId } },
     });
     if (response.data) {
-      await loadWorkOrders();
+      await loadDashboardData();
     }
   }
 
@@ -198,8 +219,20 @@ export function App({ initialSession }: AppProps = {}) {
       body: { memo },
     });
     if (response.data) {
-      await loadWorkOrders();
+      await loadDashboardData();
     }
+  }
+
+  if (window.location.pathname === "/wallboard") {
+    return (
+      <WallBoard
+        isLoading={readState === "loading"}
+        refreshIntervalMs={getWallboardRefreshIntervalMs()}
+        report={kpiReport}
+        workOrders={workOrders}
+        onRefresh={loadDashboardData}
+      />
+    );
   }
 
   return (
@@ -224,7 +257,7 @@ export function App({ initialSession }: AppProps = {}) {
             onManagementNoChange={handleManagementNoChange}
             onCreateWorkOrder={createWorkOrder}
             onCreated={() => {
-              void loadWorkOrders();
+              void loadDashboardData();
             }}
           />
         </div>
@@ -240,6 +273,12 @@ export function App({ initialSession }: AppProps = {}) {
             </p>
           ) : null}
           <WorkOrderList workOrders={workOrders} />
+          <KpiDashboard
+            isLoading={readState === "loading"}
+            period={kpiPeriod}
+            report={kpiReport}
+            onPeriodChange={handleKpiPeriodChange}
+          />
           <DispatchBoard
             workOrders={workOrders}
             selectedMechanicId={defaultMechanicId}

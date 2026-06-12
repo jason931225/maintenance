@@ -7,6 +7,11 @@ export type CreateWorkOrderRequest =
   components["schemas"]["CreateWorkOrderRequest"];
 export type EquipmentLookupResponse =
   components["schemas"]["EquipmentLookupResponse"];
+export type KpiMetric = components["schemas"]["KpiMetric"];
+export type KpiReport = components["schemas"]["KpiReport"];
+export type KpiRollup = components["schemas"]["KpiRollup"];
+export type KpiRollupScope = components["schemas"]["KpiRollupScope"];
+export type UnavailableMetric = components["schemas"]["UnavailableMetric"];
 export type TokenPairResponse = components["schemas"]["TokenPairResponse"];
 
 export interface EquipmentLookupResult {

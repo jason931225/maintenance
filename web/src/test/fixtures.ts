@@ -160,3 +160,93 @@ export const workOrders: components["schemas"]["WorkOrderSummary"][] = [
     evidence_verified: false,
   },
 ];
+
+export const kpiReport: components["schemas"]["KpiReport"] = {
+  period: {
+    start: "2026-06-01T00:00:00Z",
+    end: "2026-07-01T00:00:00Z",
+  },
+  requested_scope: {
+    kind: "company",
+  },
+  rollups: [
+    {
+      scope: {
+        kind: "company",
+      },
+      approved_report_count: 20,
+      completed_count: 18,
+      weighted_completed_points: 27,
+      average_response_seconds: 540,
+      average_completion_seconds: 14_400,
+      target_due_compliance_bps: 8_750,
+      revisit_rate_bps: 500,
+      delay_rate_bps: 1_250,
+      delay_reason_distribution: {
+        "부품 대기": 2,
+        "장비 사용 중": 1,
+      },
+    },
+    {
+      scope: {
+        kind: "branch",
+        id: branchId,
+      },
+      approved_report_count: 8,
+      completed_count: 7,
+      weighted_completed_points: 10,
+      average_response_seconds: 420,
+      average_completion_seconds: 10_800,
+      target_due_compliance_bps: 9_000,
+      revisit_rate_bps: 250,
+      delay_rate_bps: 750,
+      delay_reason_distribution: {
+        "부품 대기": 1,
+      },
+    },
+    {
+      scope: {
+        kind: "region",
+        id: "abababab-abab-4bab-8bab-abababababab",
+      },
+      approved_report_count: 14,
+      completed_count: 12,
+      weighted_completed_points: 18,
+      average_response_seconds: 500,
+      average_completion_seconds: 12_600,
+      target_due_compliance_bps: 8_900,
+      revisit_rate_bps: 430,
+      delay_rate_bps: 900,
+      delay_reason_distribution: {
+        "부품 대기": 2,
+      },
+    },
+    {
+      scope: {
+        kind: "technician",
+        id: primaryMechanicId,
+      },
+      approved_report_count: 4,
+      completed_count: 4,
+      weighted_completed_points: 6,
+      average_response_seconds: 360,
+      average_completion_seconds: 9_000,
+      target_due_compliance_bps: 10_000,
+      revisit_rate_bps: 0,
+      delay_rate_bps: 0,
+      delay_reason_distribution: {},
+    },
+  ],
+  unavailable_metrics: [
+    {
+      metric: "inspection_plan_completion_rate",
+      source_domain: "regular-inspection",
+      reason: "정기검사 도메인 병합 대기",
+    },
+    {
+      metric: "p1_acceptance_rate",
+      source_domain: "p1-broadcast",
+      reason: "P1 수락 이벤트 수집 전",
+    },
+  ],
+};
