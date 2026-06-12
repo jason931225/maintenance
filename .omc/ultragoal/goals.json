@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "createdAt": "2026-06-12T04:40:06.079Z",
+  "updatedAt": "2026-06-12T04:43:16.013Z",
+  "briefPath": ".omc/ultragoal/brief.md",
+  "goalsPath": ".omc/ultragoal/goals.json",
+  "ledgerPath": ".omc/ultragoal/ledger.jsonl",
+  "claudeGoalMode": "aggregate",
+  "goals": [
+    {
+      "id": "G001-m0-platform-spine",
+      "title": "M0 Platform spine",
+      "objective": "Complete all M0 tasks T0.1-T0.13 (workspace+layering, audit-first tx, branch-scoped authz, passkeys+provisioning, Compose-on-OCI, OTel/OpenSLO, PITR DR, CI gates, Excel viability spike T0.10, compliance core T0.11) with parallel sub-tracks; every acceptance criterion green",
+      "status": "in_progress",
+      "attempt": 1,
+      "createdAt": "2026-06-12T04:40:06.079Z",
+      "updatedAt": "2026-06-12T04:43:16.013Z",
+      "startedAt": "2026-06-12T04:43:16.013Z"
+    },
+    {
+      "id": "G002-m1-registry-wo-core-slice",
+      "title": "M1 Registry + WO core slice",
+      "objective": "Complete T1.1-T1.12: equipment registry with idempotent importer, 16-state WO FSM, evidence pipeline with WORM interlock, web+Android+iOS slice, OpenAPI tri-client gen, apalis soak gate, mobile distribution pipeline, offline sync, parity gate green",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-12T04:40:06.079Z",
+      "updatedAt": "2026-06-12T04:40:06.079Z"
+    },
+    {
+      "id": "G003-m2-p1-dispatch-compliance",
+      "title": "M2 P1 dispatch + compliance",
+      "objective": "Complete T2.1-T2.6: consent UI, dispatch accept-window FSM with branch-scoped fan-out and GPS scoring, escalation timers, Alimtalk templates pre-approved, KCC LBS 신고 filed; E2E multi-client P1 simulation passes",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-12T04:40:06.079Z",
+      "updatedAt": "2026-06-12T04:40:06.079Z"
+    },
+    {
+      "id": "G004-m3-full-messenger",
+      "title": "M3 Full messenger",
+      "objective": "Complete M3 tasks: WO threads + team channels + DM/group, persist-before-fanout, LISTEN/NOTIFY IDs-only bridge, read receipts, search, full audit; multi-instance fan-out correct",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-12T04:40:06.079Z",
+      "updatedAt": "2026-06-12T04:40:06.079Z"
+    },
+    {
+      "id": "G005-m4-reporting-kpi",
+      "title": "M4 Reporting + KPI",
+      "objective": "Complete M4 tasks: 일일업무진행현황 golden-file Excel export byte-fidelity, 업무일지 auto-generation, KPI 표준 7종 with golden datasets, wall-board kiosk mode",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-12T04:40:06.079Z",
+      "updatedAt": "2026-06-12T04:40:06.079Z"
+    },
+    {
+      "id": "G006-m5-registry-economics",
+      "title": "M5 Registry economics",
+      "objective": "Complete M5 tasks: substitute-equipment matching, rental quote engine (negative 잔존가 handled), cost ledger with 잔존가 recompute, purchase/expenditure approval chain",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-12T04:40:06.079Z",
+      "updatedAt": "2026-06-12T04:40:06.079Z"
+    },
+    {
+      "id": "G007-m6-seams-launch-hardening",
+      "title": "M6 Seams + launch hardening",
+      "objective": "Complete M6 tasks: oyatie AI port + Bitween identity port (definitions only, no mocks), security review, load test, backup/restore + DR drills with evidence logs, pilot readiness for HQ team of 8",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-12T04:40:06.079Z",
+      "updatedAt": "2026-06-12T04:40:06.079Z"
+    },
+    {
+      "id": "G008-rollout",
+      "title": "Rollout",
+      "objective": "Pilot HQ 8명 on production, then branch waves 수도권→충청→영남→호남, each gated on seeded branch data, KCC coverage, parity/CI green, backup drill, OTel dashboards, audit-access review",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-12T04:40:06.079Z",
+      "updatedAt": "2026-06-12T04:40:06.079Z"
+    }
+  ],
+  "claudeObjective": "Complete all ultragoal stories in .omc/ultragoal/goals.json: G001-m0-platform-spine M0 Platform spine; G002-m1-registry-wo-core-slice M1 Registry + WO core slice; G003-m2-p1-dispatch-compliance M2 P1 dispatch + compliance; G004-m3-full-messenger M3 Full messenger; G005-m4-reporting-kpi M4 Reporting + KPI; G006-m5-registry-economics M5 Registry economics; G007-m6-seams-launch-hardening M6 Seams + launch hardening; G008-rollout Rollout",
+  "activeGoalId": "G001-m0-platform-spine"
+}

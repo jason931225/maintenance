@@ -1,0 +1,23 @@
+# Rust
+backend/target/
+**/*.rs.bk
+
+# Node
+node_modules/
+dist/
+
+# OMC/session state — anywhere in the tree (planning artifacts in .omc/plans, .omc/specs, .omc/ultragoal ARE tracked)
+**/.omc/state/
+**/.omc/logs/
+**/.omc/notepad.md
+
+# OS / editor
+.DS_Store
+*.swp
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+**/.omc/sessions/
+**/.omc/project-memory.json

@@ -1,0 +1,1 @@
+물류장비(지게차) 정비/렌탈 FSM 시스템 — consensus-approved plan .omc/plans/fsm-maintenance-plan.md (Critic APPROVE 2026-06-12, iteration 3). Spec: .omc/specs/deep-interview-fsm-maintenance.md. PENDING USER APPROVAL — do not start execution until explicitly approved.

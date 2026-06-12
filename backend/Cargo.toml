@@ -1,0 +1,33 @@
+[workspace]
+resolver = "3"
+# Member globs are added as their first crate lands (an unmatched glob fails the build):
+#   "crates/<domain>/*"  mnt-<domain>-{domain,application,adapter-postgres,rest,worker}
+#   "crates/platform/*"  mnt-platform-{auth,authz,storage,push,realtime,excel}
+#   "ci/gates/*"         CI gate binaries (layer-boundary, audit-coverage, ...)
+#   "app"                mnt-app composition root
+members = ["crates/kernel/*"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.96"
+license = "LicenseRef-Proprietary"
+publish = false
+
+[workspace.dependencies]
+# Versions verified live against crates.io at add time (project mandate:
+# never from training data). Re-verify on every new `cargo add`.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
+
+mnt-kernel-core = { path = "crates/kernel/core" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
