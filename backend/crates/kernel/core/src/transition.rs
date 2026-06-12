@@ -37,7 +37,10 @@ mod tests {
 
     #[test]
     fn transition_error_maps_to_kernel_invalid_transition() {
-        let err = TransitionError { from: Demo::Assigned, to: Demo::Received };
+        let err = TransitionError {
+            from: Demo::Assigned,
+            to: Demo::Received,
+        };
         let kernel: KernelError = err.into();
         assert_eq!(kernel.kind, ErrorKind::InvalidTransition);
         assert!(kernel.message.contains("Assigned"));

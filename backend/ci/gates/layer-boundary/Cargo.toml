@@ -1,0 +1,23 @@
+[package]
+name = "mnt-gate-layer-boundary"
+version = "0.1.0"
+description = "CI gate: enforces clean-architecture dependency direction and manifest hygiene across the Cargo workspace."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "mnt-gate-layer-boundary"
+path = "src/main.rs"
+
+[lib]
+name = "mnt_gate_layer_boundary"
+path = "src/lib.rs"
+
+[dependencies]
+serde_json = { workspace = true }
+serde = { workspace = true }
+
+[lints]
+workspace = true

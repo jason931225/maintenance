@@ -3,10 +3,10 @@
 //! `LocationPing` ingestion, whose coordinates must remain destructible under
 //! 위치정보법 and therefore never enter the audit store.
 
+use crate::Timestamp;
 use crate::error::KernelError;
 use crate::ids::{AuditEventId, BranchId, UserId};
 use crate::trace::TraceContext;
-use crate::Timestamp;
 
 /// Dot-namespaced action code, e.g. `work_order.approve`, `kpi.exclusion.revoke`.
 ///
@@ -132,14 +132,26 @@ mod tests {
 
     #[test]
     fn valid_actions_accepted() {
-        for ok in ["work_order.approve", "kpi.exclusion.revoke", "consent.withdraw"] {
+        for ok in [
+            "work_order.approve",
+            "kpi.exclusion.revoke",
+            "consent.withdraw",
+        ] {
             assert!(AuditAction::new(ok).is_ok(), "{ok} should be valid");
         }
     }
 
     #[test]
     fn invalid_actions_rejected() {
-        for bad in ["", "approve", "Work_Order.approve", "a..b", ".a.b", "a.b.", "a b.c"] {
+        for bad in [
+            "",
+            "approve",
+            "Work_Order.approve",
+            "a..b",
+            ".a.b",
+            "a.b.",
+            "a b.c",
+        ] {
             assert!(AuditAction::new(bad).is_err(), "{bad:?} should be rejected");
         }
     }

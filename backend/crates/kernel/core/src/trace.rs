@@ -18,12 +18,17 @@ struct TraceContextWire {
 }
 
 fn is_lower_hex(s: &str, len: usize) -> bool {
-    s.len() == len && s.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+    s.len() == len
+        && s.chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
 }
 
 impl TraceContext {
     /// 32-hex trace ID + 16-hex span ID (W3C traceparent field shapes).
-    pub fn new(trace_id: impl Into<String>, span_id: impl Into<String>) -> Result<Self, KernelError> {
+    pub fn new(
+        trace_id: impl Into<String>,
+        span_id: impl Into<String>,
+    ) -> Result<Self, KernelError> {
         let trace_id: String = trace_id.into();
         let span_id: String = span_id.into();
         if !is_lower_hex(&trace_id, 32) {
@@ -68,7 +73,10 @@ impl TryFrom<TraceContextWire> for TraceContext {
 
 impl From<TraceContext> for TraceContextWire {
     fn from(value: TraceContext) -> Self {
-        Self { trace_id: value.trace_id, span_id: value.span_id }
+        Self {
+            trace_id: value.trace_id,
+            span_id: value.span_id,
+        }
     }
 }
 
