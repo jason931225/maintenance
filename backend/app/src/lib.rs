@@ -654,6 +654,18 @@ pub fn build_router(state: AppState) -> Router {
                     state.dispatch_job_queue.clone(),
                     state.push_notifier.clone(),
                 )))
+                .merge(mnt_financial_rest::router(FinancialRestState::new(
+                    financial_store,
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_registry_rest::router(RegistryRestState::new(
+                    registry_store,
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_reporting_rest::router(KpiRestState::new(
+                    kpi_repository,
+                    state.jwt_verifier.clone(),
+                )))
                 .merge(mnt_workorder_rest::router(WorkOrderRestState::new(
                     work_order_store.clone(),
                     state.jwt_verifier.clone(),
