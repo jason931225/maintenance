@@ -1020,6 +1020,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-platform-authz"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "sqlx",
+ "uuid",
+]
+
+[[package]]
 name = "mnt-platform-db"
 version = "0.1.0"
 dependencies = [
