@@ -1,3 +1,4 @@
+import Foundation
 import MaintenanceAPIClient
 import MaintenanceFieldCore
 import SwiftUI
@@ -114,7 +115,7 @@ struct WorkOrderRow: View {
             }
             Text(workOrder.customerName)
                 .font(.subheadline)
-            Text("\(workOrder.managementNo) · \(workOrder.modelName)")
+            Text(localizedString("equipment_format", workOrder.managementNo, workOrder.modelName))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             HStack {
@@ -135,7 +136,10 @@ struct WorkOrderDetailView: View {
                 Form {
                     Section {
                         LabeledContent("request_no", value: workOrder.requestNo)
-                        LabeledContent("equipment", value: "\(workOrder.managementNo) · \(workOrder.modelName)")
+                        LabeledContent(
+                            "equipment",
+                            value: localizedString("equipment_format", workOrder.managementNo, workOrder.modelName)
+                        )
                         LabeledContent("site", value: workOrder.siteName)
                         if let symptom = workOrder.symptom {
                             LabeledContent("symptom", value: symptom)
@@ -211,4 +215,9 @@ struct FieldChip: View {
             .padding(.vertical, 4)
             .background(.thinMaterial, in: Capsule())
     }
+}
+
+private func localizedString(_ key: String, _ arguments: CVarArg...) -> String {
+    let format = NSLocalizedString(key, bundle: .module, comment: "")
+    return String(format: format, locale: Locale.current, arguments: arguments)
 }

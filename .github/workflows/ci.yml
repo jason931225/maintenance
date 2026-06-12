@@ -10,8 +10,10 @@ on:
       - "backend/**"
       - "backend/openapi/**"
       - "clients/**"
+      - "web/**"
       - "android/**"
       - "ios/**"
+      - "docs/i18n.md"
       - "docs/parity-checklist.md"
       - "scripts/**"
       - "package.json"
@@ -24,8 +26,10 @@ on:
       - "backend/**"
       - "backend/openapi/**"
       - "clients/**"
+      - "web/**"
       - "android/**"
       - "ios/**"
+      - "docs/i18n.md"
       - "docs/parity-checklist.md"
       - "scripts/**"
       - "package.json"
@@ -229,6 +233,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Check hardcoded UI strings across clients
+        run: node scripts/check-i18n.mjs
 
       - name: Check parity checklist and localized string keys
         run: |
