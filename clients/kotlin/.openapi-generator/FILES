@@ -53,6 +53,8 @@ src/main/kotlin/com/maintenance/api/client/model/DepreciationMethod.kt
 src/main/kotlin/com/maintenance/api/client/model/DevicePlatform.kt
 src/main/kotlin/com/maintenance/api/client/model/DeviceRegistrationRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DeviceRegistrationResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/DispatchResponseKind.kt
+src/main/kotlin/com/maintenance/api/client/model/DispatchStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/EquipmentAutocompletePage.kt
 src/main/kotlin/com/maintenance/api/client/model/EquipmentLookupResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/EquipmentStatus.kt
@@ -64,6 +66,8 @@ src/main/kotlin/com/maintenance/api/client/model/EvidencePresignRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidencePresignResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidenceSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/FinancialConfigSnapshot.kt
+src/main/kotlin/com/maintenance/api/client/model/ForceAssignP1DispatchRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/IncidentLocation.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiMetric.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiReport.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiRollup.kt
@@ -79,6 +83,7 @@ src/main/kotlin/com/maintenance/api/client/model/MessengerThreadListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/MessengerThreadSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/NamedEntity.kt
 src/main/kotlin/com/maintenance/api/client/model/OutsourceWorkSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/P1DispatchSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyLoginFinishRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyLoginStartRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyLoginStartResponse.kt
@@ -97,10 +102,12 @@ src/main/kotlin/com/maintenance/api/client/model/RefreshTokenRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/RejectPurchaseRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/RejectWorkOrderRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/RentalQuoteSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/RespondP1DispatchRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/RestartPurchaseRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ReviewDailyPlanRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ReviewTargetChangeRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SendMessengerMessageRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/StartP1DispatchRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/StatusHistorySummary.kt
 src/main/kotlin/com/maintenance/api/client/model/SubmitReportRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SubstituteCandidate.kt

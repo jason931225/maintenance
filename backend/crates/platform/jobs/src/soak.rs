@@ -473,6 +473,7 @@ async fn handle_platform_job(
                 worker.stop()?;
             }
         }
+        PlatformJob::DispatchAcceptWindowExpired(_) | PlatformJob::DispatchAlimtalkNoAck(_) => {}
     }
     Ok(())
 }

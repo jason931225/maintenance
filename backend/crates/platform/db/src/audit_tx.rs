@@ -491,3 +491,16 @@ mod tests {
         );
     }
 }
+
+/// Append one audit row inside an already-open transaction.
+///
+/// Used by composite state changes needing one atomic transaction with
+/// multiple audit events (e.g. P1 dispatch auto-assignment updating both
+/// dispatch state and work-order assignment). Delegates to the compile-time
+/// checked insert used by `with_audit`/`with_audits`.
+pub async fn insert_audit_event(
+    tx: &mut Transaction<'_, Postgres>,
+    event: &AuditEvent,
+) -> Result<(), DbError> {
+    insert_audit_event_tx(tx, event).await
+}

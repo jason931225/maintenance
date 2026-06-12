@@ -290,6 +290,26 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/execute`.
     /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/execute/post(executePurchaseRequest)`.
     func executePurchaseRequest(_ input: Operations.ExecutePurchaseRequest.Input) async throws -> Operations.ExecutePurchaseRequest.Output
+    /// Start a P1 emergency dispatch broadcast for a work order
+    ///
+    /// - Remark: HTTP `POST /api/v1/work-orders/{workOrderId}/p1-dispatch`.
+    /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/p1-dispatch/post(startP1Dispatch)`.
+    func startP1Dispatch(_ input: Operations.StartP1Dispatch.Input) async throws -> Operations.StartP1Dispatch.Output
+    /// Fetch P1 dispatch status
+    ///
+    /// - Remark: HTTP `GET /api/v1/p1-dispatches/{dispatchId}`.
+    /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/get(getP1Dispatch)`.
+    func getP1Dispatch(_ input: Operations.GetP1Dispatch.Input) async throws -> Operations.GetP1Dispatch.Output
+    /// Accept or decline a P1 dispatch broadcast
+    ///
+    /// - Remark: HTTP `POST /api/v1/p1-dispatches/{dispatchId}/responses`.
+    /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/responses/post(respondP1Dispatch)`.
+    func respondP1Dispatch(_ input: Operations.RespondP1Dispatch.Input) async throws -> Operations.RespondP1Dispatch.Output
+    /// Manager force-assign a P1 dispatch after accept-window escalation
+    ///
+    /// - Remark: HTTP `POST /api/v1/p1-dispatches/{dispatchId}/force-assign`.
+    /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/force-assign/post(forceAssignP1Dispatch)`.
+    func forceAssignP1Dispatch(_ input: Operations.ForceAssignP1Dispatch.Input) async throws -> Operations.ForceAssignP1Dispatch.Output
 }
 
 /// Convenience overloads for operation inputs.
@@ -1015,6 +1035,64 @@ extension APIProtocol {
         try await executePurchaseRequest(Operations.ExecutePurchaseRequest.Input(
             path: path,
             headers: headers
+        ))
+    }
+    /// Start a P1 emergency dispatch broadcast for a work order
+    ///
+    /// - Remark: HTTP `POST /api/v1/work-orders/{workOrderId}/p1-dispatch`.
+    /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/p1-dispatch/post(startP1Dispatch)`.
+    public func startP1Dispatch(
+        path: Operations.StartP1Dispatch.Input.Path,
+        headers: Operations.StartP1Dispatch.Input.Headers = .init(),
+        body: Operations.StartP1Dispatch.Input.Body
+    ) async throws -> Operations.StartP1Dispatch.Output {
+        try await startP1Dispatch(Operations.StartP1Dispatch.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Fetch P1 dispatch status
+    ///
+    /// - Remark: HTTP `GET /api/v1/p1-dispatches/{dispatchId}`.
+    /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/get(getP1Dispatch)`.
+    public func getP1Dispatch(
+        path: Operations.GetP1Dispatch.Input.Path,
+        headers: Operations.GetP1Dispatch.Input.Headers = .init()
+    ) async throws -> Operations.GetP1Dispatch.Output {
+        try await getP1Dispatch(Operations.GetP1Dispatch.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Accept or decline a P1 dispatch broadcast
+    ///
+    /// - Remark: HTTP `POST /api/v1/p1-dispatches/{dispatchId}/responses`.
+    /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/responses/post(respondP1Dispatch)`.
+    public func respondP1Dispatch(
+        path: Operations.RespondP1Dispatch.Input.Path,
+        headers: Operations.RespondP1Dispatch.Input.Headers = .init(),
+        body: Operations.RespondP1Dispatch.Input.Body
+    ) async throws -> Operations.RespondP1Dispatch.Output {
+        try await respondP1Dispatch(Operations.RespondP1Dispatch.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Manager force-assign a P1 dispatch after accept-window escalation
+    ///
+    /// - Remark: HTTP `POST /api/v1/p1-dispatches/{dispatchId}/force-assign`.
+    /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/force-assign/post(forceAssignP1Dispatch)`.
+    public func forceAssignP1Dispatch(
+        path: Operations.ForceAssignP1Dispatch.Input.Path,
+        headers: Operations.ForceAssignP1Dispatch.Input.Headers = .init(),
+        body: Operations.ForceAssignP1Dispatch.Input.Body
+    ) async throws -> Operations.ForceAssignP1Dispatch.Output {
+        try await forceAssignP1Dispatch(Operations.ForceAssignP1Dispatch.Input(
+            path: path,
+            headers: headers,
+            body: body
         ))
     }
 }
@@ -4387,6 +4465,176 @@ public enum Components {
                 case memo
             }
         }
+        /// - Remark: Generated from `#/components/schemas/DispatchStatus`.
+        @frozen public enum DispatchStatus: String, Codable, Hashable, Sendable, CaseIterable {
+            case broadcasting = "BROADCASTING"
+            case autoAssigned = "AUTO_ASSIGNED"
+            case managerForcePending = "MANAGER_FORCE_PENDING"
+        }
+        /// - Remark: Generated from `#/components/schemas/DispatchResponseKind`.
+        @frozen public enum DispatchResponseKind: String, Codable, Hashable, Sendable, CaseIterable {
+            case accept = "ACCEPT"
+            case decline = "DECLINE"
+        }
+        /// - Remark: Generated from `#/components/schemas/IncidentLocation`.
+        public struct IncidentLocation: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/IncidentLocation/latitude`.
+            public var latitude: Swift.Double
+            /// - Remark: Generated from `#/components/schemas/IncidentLocation/longitude`.
+            public var longitude: Swift.Double
+            /// Creates a new `IncidentLocation`.
+            ///
+            /// - Parameters:
+            ///   - latitude:
+            ///   - longitude:
+            public init(
+                latitude: Swift.Double,
+                longitude: Swift.Double
+            ) {
+                self.latitude = latitude
+                self.longitude = longitude
+            }
+            public enum CodingKeys: String, CodingKey {
+                case latitude
+                case longitude
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/StartP1DispatchRequest`.
+        public struct StartP1DispatchRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/StartP1DispatchRequest/incident_location`.
+            public var incidentLocation: Components.Schemas.IncidentLocation?
+            /// - Remark: Generated from `#/components/schemas/StartP1DispatchRequest/include_region`.
+            public var includeRegion: Swift.Bool?
+            /// Creates a new `StartP1DispatchRequest`.
+            ///
+            /// - Parameters:
+            ///   - incidentLocation:
+            ///   - includeRegion:
+            public init(
+                incidentLocation: Components.Schemas.IncidentLocation? = nil,
+                includeRegion: Swift.Bool? = nil
+            ) {
+                self.incidentLocation = incidentLocation
+                self.includeRegion = includeRegion
+            }
+            public enum CodingKeys: String, CodingKey {
+                case incidentLocation = "incident_location"
+                case includeRegion = "include_region"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RespondP1DispatchRequest`.
+        public struct RespondP1DispatchRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RespondP1DispatchRequest/response`.
+            public var response: Components.Schemas.DispatchResponseKind
+            /// Creates a new `RespondP1DispatchRequest`.
+            ///
+            /// - Parameters:
+            ///   - response:
+            public init(response: Components.Schemas.DispatchResponseKind) {
+                self.response = response
+            }
+            public enum CodingKeys: String, CodingKey {
+                case response
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ForceAssignP1DispatchRequest`.
+        public struct ForceAssignP1DispatchRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ForceAssignP1DispatchRequest/mechanic_id`.
+            public var mechanicId: Components.Schemas.Uuid
+            /// Creates a new `ForceAssignP1DispatchRequest`.
+            ///
+            /// - Parameters:
+            ///   - mechanicId:
+            public init(mechanicId: Components.Schemas.Uuid) {
+                self.mechanicId = mechanicId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case mechanicId = "mechanic_id"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/P1DispatchSummary`.
+        public struct P1DispatchSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/P1DispatchSummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/P1DispatchSummary/work_order_id`.
+            public var workOrderId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/P1DispatchSummary/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/P1DispatchSummary/status`.
+            public var status: Components.Schemas.DispatchStatus
+            /// - Remark: Generated from `#/components/schemas/P1DispatchSummary/incident_location`.
+            public var incidentLocation: Components.Schemas.IncidentLocation?
+            /// - Remark: Generated from `#/components/schemas/P1DispatchSummary/accept_window_started_at`.
+            public var acceptWindowStartedAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/P1DispatchSummary/accept_window_ends_at`.
+            public var acceptWindowEndsAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/P1DispatchSummary/auto_assigned_mechanic_id`.
+            public var autoAssignedMechanicId: Components.Schemas.Uuid?
+            /// - Remark: Generated from `#/components/schemas/P1DispatchSummary/manager_force_pending_at`.
+            public var managerForcePendingAt: Components.Schemas.Timestamp?
+            /// - Remark: Generated from `#/components/schemas/P1DispatchSummary/target_count`.
+            public var targetCount: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/P1DispatchSummary/accepted_count`.
+            public var acceptedCount: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/P1DispatchSummary/declined_count`.
+            public var declinedCount: Swift.Int64
+            /// Creates a new `P1DispatchSummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - workOrderId:
+            ///   - branchId:
+            ///   - status:
+            ///   - incidentLocation:
+            ///   - acceptWindowStartedAt:
+            ///   - acceptWindowEndsAt:
+            ///   - autoAssignedMechanicId:
+            ///   - managerForcePendingAt:
+            ///   - targetCount:
+            ///   - acceptedCount:
+            ///   - declinedCount:
+            public init(
+                id: Components.Schemas.Uuid,
+                workOrderId: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid,
+                status: Components.Schemas.DispatchStatus,
+                incidentLocation: Components.Schemas.IncidentLocation? = nil,
+                acceptWindowStartedAt: Components.Schemas.Timestamp,
+                acceptWindowEndsAt: Components.Schemas.Timestamp,
+                autoAssignedMechanicId: Components.Schemas.Uuid? = nil,
+                managerForcePendingAt: Components.Schemas.Timestamp? = nil,
+                targetCount: Swift.Int64,
+                acceptedCount: Swift.Int64,
+                declinedCount: Swift.Int64
+            ) {
+                self.id = id
+                self.workOrderId = workOrderId
+                self.branchId = branchId
+                self.status = status
+                self.incidentLocation = incidentLocation
+                self.acceptWindowStartedAt = acceptWindowStartedAt
+                self.acceptWindowEndsAt = acceptWindowEndsAt
+                self.autoAssignedMechanicId = autoAssignedMechanicId
+                self.managerForcePendingAt = managerForcePendingAt
+                self.targetCount = targetCount
+                self.acceptedCount = acceptedCount
+                self.declinedCount = declinedCount
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case workOrderId = "work_order_id"
+                case branchId = "branch_id"
+                case status
+                case incidentLocation = "incident_location"
+                case acceptWindowStartedAt = "accept_window_started_at"
+                case acceptWindowEndsAt = "accept_window_ends_at"
+                case autoAssignedMechanicId = "auto_assigned_mechanic_id"
+                case managerForcePendingAt = "manager_force_pending_at"
+                case targetCount = "target_count"
+                case acceptedCount = "accepted_count"
+                case declinedCount = "declined_count"
+            }
+        }
     }
     /// Types generated from the `#/components/parameters` section of the OpenAPI document.
     public enum Parameters {
@@ -4412,6 +4660,8 @@ public enum Components {
         public typealias EquipmentIdV2 = Swift.String
         /// - Remark: Generated from `#/components/parameters/PurchaseRequestId`.
         public typealias PurchaseRequestId = Swift.String
+        /// - Remark: Generated from `#/components/parameters/DispatchId`.
+        public typealias DispatchId = Swift.String
     }
     /// Types generated from the `#/components/requestBodies` section of the OpenAPI document.
     public enum RequestBodies {}
@@ -14203,6 +14453,890 @@ public enum Operations {
             /// State conflict or illegal transition.
             ///
             /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/execute/post(executePurchaseRequest)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Start a P1 emergency dispatch broadcast for a work order
+    ///
+    /// - Remark: HTTP `POST /api/v1/work-orders/{workOrderId}/p1-dispatch`.
+    /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/p1-dispatch/post(startP1Dispatch)`.
+    public enum StartP1Dispatch {
+        public static let id: Swift.String = "startP1Dispatch"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/work-orders/{workOrderId}/p1-dispatch/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/work-orders/{workOrderId}/p1-dispatch/POST/path/workOrderId`.
+                public var workOrderId: Components.Parameters.WorkOrderId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - workOrderId:
+                public init(workOrderId: Components.Parameters.WorkOrderId) {
+                    self.workOrderId = workOrderId
+                }
+            }
+            public var path: Operations.StartP1Dispatch.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/work-orders/{workOrderId}/p1-dispatch/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.StartP1Dispatch.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.StartP1Dispatch.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.StartP1Dispatch.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/work-orders/{workOrderId}/p1-dispatch/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/work-orders/{workOrderId}/p1-dispatch/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.StartP1DispatchRequest)
+            }
+            public var body: Operations.StartP1Dispatch.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.StartP1Dispatch.Input.Path,
+                headers: Operations.StartP1Dispatch.Input.Headers = .init(),
+                body: Operations.StartP1Dispatch.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/work-orders/{workOrderId}/p1-dispatch/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/work-orders/{workOrderId}/p1-dispatch/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.P1DispatchSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.P1DispatchSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.StartP1Dispatch.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.StartP1Dispatch.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Started P1 dispatch.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/p1-dispatch/post(startP1Dispatch)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.StartP1Dispatch.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.StartP1Dispatch.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/p1-dispatch/post(startP1Dispatch)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/p1-dispatch/post(startP1Dispatch)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/p1-dispatch/post(startP1Dispatch)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/p1-dispatch/post(startP1Dispatch)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Fetch P1 dispatch status
+    ///
+    /// - Remark: HTTP `GET /api/v1/p1-dispatches/{dispatchId}`.
+    /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/get(getP1Dispatch)`.
+    public enum GetP1Dispatch {
+        public static let id: Swift.String = "getP1Dispatch"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/p1-dispatches/{dispatchId}/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/p1-dispatches/{dispatchId}/GET/path/dispatchId`.
+                public var dispatchId: Components.Parameters.DispatchId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - dispatchId:
+                public init(dispatchId: Components.Parameters.DispatchId) {
+                    self.dispatchId = dispatchId
+                }
+            }
+            public var path: Operations.GetP1Dispatch.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/p1-dispatches/{dispatchId}/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetP1Dispatch.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetP1Dispatch.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetP1Dispatch.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.GetP1Dispatch.Input.Path,
+                headers: Operations.GetP1Dispatch.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/p1-dispatches/{dispatchId}/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/p1-dispatches/{dispatchId}/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.P1DispatchSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.P1DispatchSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetP1Dispatch.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetP1Dispatch.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// P1 dispatch status.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/get(getP1Dispatch)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetP1Dispatch.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetP1Dispatch.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/get(getP1Dispatch)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/get(getP1Dispatch)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/get(getP1Dispatch)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Accept or decline a P1 dispatch broadcast
+    ///
+    /// - Remark: HTTP `POST /api/v1/p1-dispatches/{dispatchId}/responses`.
+    /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/responses/post(respondP1Dispatch)`.
+    public enum RespondP1Dispatch {
+        public static let id: Swift.String = "respondP1Dispatch"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/p1-dispatches/{dispatchId}/responses/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/p1-dispatches/{dispatchId}/responses/POST/path/dispatchId`.
+                public var dispatchId: Components.Parameters.DispatchId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - dispatchId:
+                public init(dispatchId: Components.Parameters.DispatchId) {
+                    self.dispatchId = dispatchId
+                }
+            }
+            public var path: Operations.RespondP1Dispatch.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/p1-dispatches/{dispatchId}/responses/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RespondP1Dispatch.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RespondP1Dispatch.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.RespondP1Dispatch.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/p1-dispatches/{dispatchId}/responses/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/p1-dispatches/{dispatchId}/responses/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.RespondP1DispatchRequest)
+            }
+            public var body: Operations.RespondP1Dispatch.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.RespondP1Dispatch.Input.Path,
+                headers: Operations.RespondP1Dispatch.Input.Headers = .init(),
+                body: Operations.RespondP1Dispatch.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/p1-dispatches/{dispatchId}/responses/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/p1-dispatches/{dispatchId}/responses/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.P1DispatchSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.P1DispatchSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.RespondP1Dispatch.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.RespondP1Dispatch.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Updated P1 dispatch state.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/responses/post(respondP1Dispatch)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.RespondP1Dispatch.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.RespondP1Dispatch.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/responses/post(respondP1Dispatch)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/responses/post(respondP1Dispatch)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/responses/post(respondP1Dispatch)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/responses/post(respondP1Dispatch)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Manager force-assign a P1 dispatch after accept-window escalation
+    ///
+    /// - Remark: HTTP `POST /api/v1/p1-dispatches/{dispatchId}/force-assign`.
+    /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/force-assign/post(forceAssignP1Dispatch)`.
+    public enum ForceAssignP1Dispatch {
+        public static let id: Swift.String = "forceAssignP1Dispatch"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/p1-dispatches/{dispatchId}/force-assign/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/p1-dispatches/{dispatchId}/force-assign/POST/path/dispatchId`.
+                public var dispatchId: Components.Parameters.DispatchId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - dispatchId:
+                public init(dispatchId: Components.Parameters.DispatchId) {
+                    self.dispatchId = dispatchId
+                }
+            }
+            public var path: Operations.ForceAssignP1Dispatch.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/p1-dispatches/{dispatchId}/force-assign/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ForceAssignP1Dispatch.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ForceAssignP1Dispatch.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ForceAssignP1Dispatch.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/p1-dispatches/{dispatchId}/force-assign/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/p1-dispatches/{dispatchId}/force-assign/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.ForceAssignP1DispatchRequest)
+            }
+            public var body: Operations.ForceAssignP1Dispatch.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.ForceAssignP1Dispatch.Input.Path,
+                headers: Operations.ForceAssignP1Dispatch.Input.Headers = .init(),
+                body: Operations.ForceAssignP1Dispatch.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/p1-dispatches/{dispatchId}/force-assign/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/p1-dispatches/{dispatchId}/force-assign/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.P1DispatchSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.P1DispatchSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ForceAssignP1Dispatch.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ForceAssignP1Dispatch.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Force-assigned P1 dispatch.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/force-assign/post(forceAssignP1Dispatch)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ForceAssignP1Dispatch.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ForceAssignP1Dispatch.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/force-assign/post(forceAssignP1Dispatch)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/force-assign/post(forceAssignP1Dispatch)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/force-assign/post(forceAssignP1Dispatch)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/p1-dispatches/{dispatchId}/force-assign/post(forceAssignP1Dispatch)/responses/409`.
             ///
             /// HTTP response code: `409 conflict`.
             case conflict(Components.Responses.Conflict)

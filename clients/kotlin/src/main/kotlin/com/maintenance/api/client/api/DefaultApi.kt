@@ -47,6 +47,7 @@ import com.maintenance.api.client.model.ErrorBody
 import com.maintenance.api.client.model.EvidenceConfirmResponse
 import com.maintenance.api.client.model.EvidencePresignRequest
 import com.maintenance.api.client.model.EvidencePresignResponse
+import com.maintenance.api.client.model.ForceAssignP1DispatchRequest
 import com.maintenance.api.client.model.KpiReport
 import com.maintenance.api.client.model.MarkMessengerThreadReadRequest
 import com.maintenance.api.client.model.MessengerMessageListResponse
@@ -56,6 +57,7 @@ import com.maintenance.api.client.model.MessengerReadReceiptSummary
 import com.maintenance.api.client.model.MessengerThreadListResponse
 import com.maintenance.api.client.model.MessengerThreadSummary
 import com.maintenance.api.client.model.OutsourceWorkSummary
+import com.maintenance.api.client.model.P1DispatchSummary
 import com.maintenance.api.client.model.PasskeyLoginFinishRequest
 import com.maintenance.api.client.model.PasskeyLoginStartRequest
 import com.maintenance.api.client.model.PasskeyLoginStartResponse
@@ -70,10 +72,12 @@ import com.maintenance.api.client.model.RefreshTokenRequest
 import com.maintenance.api.client.model.RejectPurchaseRequest
 import com.maintenance.api.client.model.RejectWorkOrderRequest
 import com.maintenance.api.client.model.RentalQuoteSummary
+import com.maintenance.api.client.model.RespondP1DispatchRequest
 import com.maintenance.api.client.model.RestartPurchaseRequest
 import com.maintenance.api.client.model.ReviewDailyPlanRequest
 import com.maintenance.api.client.model.ReviewTargetChangeRequest
 import com.maintenance.api.client.model.SendMessengerMessageRequest
+import com.maintenance.api.client.model.StartP1DispatchRequest
 import com.maintenance.api.client.model.SubmitReportRequest
 import com.maintenance.api.client.model.SubstituteCandidatePage
 import com.maintenance.api.client.model.SyncBatchRequest
@@ -1753,6 +1757,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/p1-dispatches/{dispatchId}/force-assign
+     * Manager force-assign a P1 dispatch after accept-window escalation
+     *
+     * @param dispatchId
+     * @param forceAssignP1DispatchRequest
+     * @return P1DispatchSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun forceAssignP1Dispatch(dispatchId: java.util.UUID, forceAssignP1DispatchRequest: ForceAssignP1DispatchRequest) : P1DispatchSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = forceAssignP1DispatchWithHttpInfo(dispatchId = dispatchId, forceAssignP1DispatchRequest = forceAssignP1DispatchRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as P1DispatchSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/p1-dispatches/{dispatchId}/force-assign
+     * Manager force-assign a P1 dispatch after accept-window escalation
+     *
+     * @param dispatchId
+     * @param forceAssignP1DispatchRequest
+     * @return ApiResponse<P1DispatchSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun forceAssignP1DispatchWithHttpInfo(dispatchId: java.util.UUID, forceAssignP1DispatchRequest: ForceAssignP1DispatchRequest) : ApiResponse<P1DispatchSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = forceAssignP1DispatchRequestConfig(dispatchId = dispatchId, forceAssignP1DispatchRequest = forceAssignP1DispatchRequest)
+
+        return@withContext request<ForceAssignP1DispatchRequest, P1DispatchSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation forceAssignP1Dispatch
+     *
+     * @param dispatchId
+     * @param forceAssignP1DispatchRequest
+     * @return RequestConfig
+     */
+    fun forceAssignP1DispatchRequestConfig(dispatchId: java.util.UUID, forceAssignP1DispatchRequest: ForceAssignP1DispatchRequest) : RequestConfig<ForceAssignP1DispatchRequest> {
+        val localVariableBody = forceAssignP1DispatchRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/p1-dispatches/{dispatchId}/force-assign".replace("{"+"dispatchId"+"}", encodeURIComponent(dispatchId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/kpi
      * Fetch branch-scoped KPI rollups for the seven standard metrics
      * Computes KPI metrics from approved work-order reports within the requested approval period. Metrics whose source domains have not merged yet are returned in &#x60;unavailable_metrics&#x60; instead of fabricated values.
@@ -1827,6 +1908,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/kpi",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/p1-dispatches/{dispatchId}
+     * Fetch P1 dispatch status
+     *
+     * @param dispatchId
+     * @return P1DispatchSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getP1Dispatch(dispatchId: java.util.UUID) : P1DispatchSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = getP1DispatchWithHttpInfo(dispatchId = dispatchId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as P1DispatchSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/p1-dispatches/{dispatchId}
+     * Fetch P1 dispatch status
+     *
+     * @param dispatchId
+     * @return ApiResponse<P1DispatchSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getP1DispatchWithHttpInfo(dispatchId: java.util.UUID) : ApiResponse<P1DispatchSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getP1DispatchRequestConfig(dispatchId = dispatchId)
+
+        return@withContext request<Unit, P1DispatchSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getP1Dispatch
+     *
+     * @param dispatchId
+     * @return RequestConfig
+     */
+    fun getP1DispatchRequestConfig(dispatchId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/p1-dispatches/{dispatchId}".replace("{"+"dispatchId"+"}", encodeURIComponent(dispatchId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -3470,6 +3624,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/p1-dispatches/{dispatchId}/responses
+     * Accept or decline a P1 dispatch broadcast
+     *
+     * @param dispatchId
+     * @param respondP1DispatchRequest
+     * @return P1DispatchSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun respondP1Dispatch(dispatchId: java.util.UUID, respondP1DispatchRequest: RespondP1DispatchRequest) : P1DispatchSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = respondP1DispatchWithHttpInfo(dispatchId = dispatchId, respondP1DispatchRequest = respondP1DispatchRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as P1DispatchSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/p1-dispatches/{dispatchId}/responses
+     * Accept or decline a P1 dispatch broadcast
+     *
+     * @param dispatchId
+     * @param respondP1DispatchRequest
+     * @return ApiResponse<P1DispatchSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun respondP1DispatchWithHttpInfo(dispatchId: java.util.UUID, respondP1DispatchRequest: RespondP1DispatchRequest) : ApiResponse<P1DispatchSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = respondP1DispatchRequestConfig(dispatchId = dispatchId, respondP1DispatchRequest = respondP1DispatchRequest)
+
+        return@withContext request<RespondP1DispatchRequest, P1DispatchSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation respondP1Dispatch
+     *
+     * @param dispatchId
+     * @param respondP1DispatchRequest
+     * @return RequestConfig
+     */
+    fun respondP1DispatchRequestConfig(dispatchId: java.util.UUID, respondP1DispatchRequest: RespondP1DispatchRequest) : RequestConfig<RespondP1DispatchRequest> {
+        val localVariableBody = respondP1DispatchRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/p1-dispatches/{dispatchId}/responses".replace("{"+"dispatchId"+"}", encodeURIComponent(dispatchId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/financial/purchase-requests/{purchaseRequestId}/restart
      * Restart a rejected purchase request with a replacement statement evidence record
      *
@@ -3852,6 +4083,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/messenger/threads/{threadId}/messages".replace("{"+"threadId"+"}", encodeURIComponent(threadId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/work-orders/{workOrderId}/p1-dispatch
+     * Start a P1 emergency dispatch broadcast for a work order
+     *
+     * @param workOrderId
+     * @param startP1DispatchRequest
+     * @return P1DispatchSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun startP1Dispatch(workOrderId: java.util.UUID, startP1DispatchRequest: StartP1DispatchRequest) : P1DispatchSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = startP1DispatchWithHttpInfo(workOrderId = workOrderId, startP1DispatchRequest = startP1DispatchRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as P1DispatchSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/work-orders/{workOrderId}/p1-dispatch
+     * Start a P1 emergency dispatch broadcast for a work order
+     *
+     * @param workOrderId
+     * @param startP1DispatchRequest
+     * @return ApiResponse<P1DispatchSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun startP1DispatchWithHttpInfo(workOrderId: java.util.UUID, startP1DispatchRequest: StartP1DispatchRequest) : ApiResponse<P1DispatchSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = startP1DispatchRequestConfig(workOrderId = workOrderId, startP1DispatchRequest = startP1DispatchRequest)
+
+        return@withContext request<StartP1DispatchRequest, P1DispatchSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation startP1Dispatch
+     *
+     * @param workOrderId
+     * @param startP1DispatchRequest
+     * @return RequestConfig
+     */
+    fun startP1DispatchRequestConfig(workOrderId: java.util.UUID, startP1DispatchRequest: StartP1DispatchRequest) : RequestConfig<StartP1DispatchRequest> {
+        val localVariableBody = startP1DispatchRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/work-orders/{workOrderId}/p1-dispatch".replace("{"+"workOrderId"+"}", encodeURIComponent(workOrderId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

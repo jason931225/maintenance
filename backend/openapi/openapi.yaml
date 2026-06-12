@@ -1335,6 +1335,114 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
+  /api/v1/work-orders/{workOrderId}/p1-dispatch:
+    post:
+      operationId: startP1Dispatch
+      summary: Start a P1 emergency dispatch broadcast for a work order
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/WorkOrderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartP1DispatchRequest'
+      responses:
+        '200':
+          description: Started P1 dispatch.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/P1DispatchSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/p1-dispatches/{dispatchId}:
+    get:
+      operationId: getP1Dispatch
+      summary: Fetch P1 dispatch status
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/DispatchId'
+      responses:
+        '200':
+          description: P1 dispatch status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/P1DispatchSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/p1-dispatches/{dispatchId}/responses:
+    post:
+      operationId: respondP1Dispatch
+      summary: Accept or decline a P1 dispatch broadcast
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/DispatchId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RespondP1DispatchRequest'
+      responses:
+        '200':
+          description: Updated P1 dispatch state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/P1DispatchSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/p1-dispatches/{dispatchId}/force-assign:
+    post:
+      operationId: forceAssignP1Dispatch
+      summary: Manager force-assign a P1 dispatch after accept-window escalation
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/DispatchId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForceAssignP1DispatchRequest'
+      responses:
+        '200':
+          description: Force-assigned P1 dispatch.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/P1DispatchSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
 components:
   securitySchemes:
     bearerAuth:
@@ -1408,6 +1516,13 @@ components:
         format: uuid
     PurchaseRequestId:
       name: purchaseRequestId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DispatchId:
+      name: dispatchId
       in: path
       required: true
       schema:
@@ -3229,3 +3344,92 @@ components:
         memo:
           type: string
           minLength: 1
+    DispatchStatus:
+      type: string
+      enum:
+      - BROADCASTING
+      - AUTO_ASSIGNED
+      - MANAGER_FORCE_PENDING
+    DispatchResponseKind:
+      type: string
+      enum:
+      - ACCEPT
+      - DECLINE
+    IncidentLocation:
+      type: object
+      required:
+      - latitude
+      - longitude
+      properties:
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+    StartP1DispatchRequest:
+      type: object
+      properties:
+        incident_location:
+          $ref: '#/components/schemas/IncidentLocation'
+        include_region:
+          type: boolean
+          default: false
+    RespondP1DispatchRequest:
+      type: object
+      required:
+      - response
+      properties:
+        response:
+          $ref: '#/components/schemas/DispatchResponseKind'
+    ForceAssignP1DispatchRequest:
+      type: object
+      required:
+      - mechanic_id
+      properties:
+        mechanic_id:
+          $ref: '#/components/schemas/Uuid'
+    P1DispatchSummary:
+      type: object
+      required:
+      - id
+      - work_order_id
+      - branch_id
+      - status
+      - accept_window_started_at
+      - accept_window_ends_at
+      - target_count
+      - accepted_count
+      - declined_count
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        work_order_id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        status:
+          $ref: '#/components/schemas/DispatchStatus'
+        incident_location:
+          $ref: '#/components/schemas/IncidentLocation'
+        accept_window_started_at:
+          $ref: '#/components/schemas/Timestamp'
+        accept_window_ends_at:
+          $ref: '#/components/schemas/Timestamp'
+        auto_assigned_mechanic_id:
+          $ref: '#/components/schemas/Uuid'
+        manager_force_pending_at:
+          $ref: '#/components/schemas/Timestamp'
+        target_count:
+          type: integer
+          format: int64
+        accepted_count:
+          type: integer
+          format: int64
+        declined_count:
+          type: integer
+          format: int64
