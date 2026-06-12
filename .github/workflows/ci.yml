@@ -2,9 +2,17 @@ name: CI
 
 on:
   push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
     paths:
       - "backend/**"
+      - "backend/openapi/**"
       - "clients/**"
+      - "android/**"
+      - "ios/**"
+      - "docs/parity-checklist.md"
       - "scripts/**"
       - "package.json"
       - "package-lock.json"
@@ -14,7 +22,11 @@ on:
   pull_request:
     paths:
       - "backend/**"
+      - "backend/openapi/**"
       - "clients/**"
+      - "android/**"
+      - "ios/**"
+      - "docs/parity-checklist.md"
       - "scripts/**"
       - "package.json"
       - "package-lock.json"
@@ -209,3 +221,162 @@ jobs:
 
       - name: Swift build
         run: npm run check:swift
+
+  mobile-parity:
+    name: Mobile parity — checklist and strings
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check parity checklist and localized string keys
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const checklistPath = "docs/parity-checklist.md";
+          const androidStringsPath = "android/app/src/main/res/values/strings.xml";
+          const iosStringsPath = "ios/Sources/MaintenanceFieldApp/Resources/ko.lproj/Localizable.strings";
+
+          const iosOnlyStringKeys = {
+            camera_unavailable: "iOS camera capability fallback copy",
+            capture_evidence: "SwiftUI alias for detail_capture_evidence",
+            equipment: "SwiftUI detail label",
+            error_network: "SwiftUI network error copy",
+            request_no: "SwiftUI detail label",
+            result_type: "SwiftUI alias for report_result_type",
+            site: "SwiftUI detail label",
+            submit_report: "SwiftUI alias for detail_submit_report",
+            symptom: "SwiftUI detail label",
+            user_id: "SwiftUI alias for login_user_id_label",
+          };
+
+          const fail = (message) => {
+            console.error(message);
+            process.exitCode = 1;
+          };
+
+          const splitMarkdownRow = (line) =>
+            line
+              .trim()
+              .replace(/^\|/, "")
+              .replace(/\|$/, "")
+              .split("|")
+              .map((cell) => cell.trim());
+
+          const checklist = readFileSync(checklistPath, "utf8");
+          const parityRows = checklist
+            .split(/\r?\n/)
+            .filter((line) => /^\|.+\|$/.test(line.trim()))
+            .map(splitMarkdownRow)
+            .filter((cells) => cells.length >= 4)
+            .filter(([area]) => area !== "Area" && !/^[-: ]+$/.test(area));
+
+          if (parityRows.length === 0) {
+            fail(`${checklistPath} does not contain parity checklist rows.`);
+          }
+
+          for (const [area, androidTarget, iosImplementation, evidence] of parityRows) {
+            const missing = [];
+            if (!androidTarget) missing.push("Android parity target");
+            if (!iosImplementation) missing.push("iOS implementation");
+            if (!evidence) missing.push("evidence");
+            if (missing.length > 0) {
+              fail(`${checklistPath}: row "${area}" is missing ${missing.join(", ")}.`);
+            }
+
+            const rowText = [androidTarget, iosImplementation, evidence].join(" ");
+            if (/\b(TODO|TBD|unchecked|not checked|not verified)\b/i.test(rowText)) {
+              fail(`${checklistPath}: row "${area}" is not checked for both platforms.`);
+            }
+          }
+
+          const androidXml = readFileSync(androidStringsPath, "utf8");
+          const androidKeys = new Set(
+            [...androidXml.matchAll(/<string\s+name="([^"]+)"(?:\s+[^>]*)?>[\s\S]*?<\/string>/g)].map(
+              ([, key]) => key,
+            ),
+          );
+
+          const iosStrings = readFileSync(iosStringsPath, "utf8");
+          const iosKeys = new Set(
+            [...iosStrings.matchAll(/"((?:\\"|[^"])*)"\s*=\s*"((?:\\"|[^"])*)";/g)].map(
+              ([, key]) => key.replace(/\\"/g, '"'),
+            ),
+          );
+
+          const missingFromIos = [...androidKeys].filter((key) => !iosKeys.has(key)).sort();
+          const undeclaredIosOnly = [...iosKeys]
+            .filter((key) => !androidKeys.has(key) && !Object.hasOwn(iosOnlyStringKeys, key))
+            .sort();
+
+          if (missingFromIos.length > 0) {
+            fail(`${iosStringsPath} is missing Android string keys: ${missingFromIos.join(", ")}`);
+          }
+
+          if (undeclaredIosOnly.length > 0) {
+            fail(`${iosStringsPath} has undeclared iOS-only string keys: ${undeclaredIosOnly.join(", ")}`);
+          }
+
+          if (process.exitCode) {
+            process.exit();
+          }
+
+          console.log(`Checked ${parityRows.length} parity rows.`);
+          console.log(`Checked ${androidKeys.size} Android string keys against ${iosKeys.size} iOS keys.`);
+          console.log(`Allowed ${Object.keys(iosOnlyStringKeys).length} declared iOS-only aliases.`);
+          console.log("This gate checks checklist coverage and string-key parity; platform builds cover compile-time parity.");
+          NODE
+
+  android-app:
+    name: Android app — Gradle build
+    runs-on: ubuntu-latest
+    needs: mobile-parity
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.1.0"
+
+      - name: Gradle build
+        working-directory: android
+        run: ./gradlew build
+
+  ios-app:
+    name: iOS app — Swift build and behavior tests
+    runs-on: macos-latest
+    needs: mobile-parity
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Swift toolchain
+        run: swift --version
+
+      - name: Swift build
+        working-directory: ios
+        run: swift build
+
+      - name: Swift package tests
+        working-directory: ios
+        run: swift test
+
+      - name: Behavior runner
+        working-directory: ios
+        run: swift run MaintenanceFieldCoreBehaviorTests
