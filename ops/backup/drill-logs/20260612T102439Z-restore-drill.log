@@ -1,0 +1,29 @@
+restore_drill_backup=ops/backup/artifacts/daily/20260612T102439Z
+scratch_project=mnt-scratch-t09
+ Network mnt-scratch-t09_default Creating
+ Network mnt-scratch-t09_default Created
+ Volume mnt-scratch-t09_seaweedfs-data Creating
+ Volume mnt-scratch-t09_seaweedfs-data Created
+ Volume mnt-scratch-t09_postgres-data Creating
+ Volume mnt-scratch-t09_postgres-data Created
+ Container mnt-scratch-t09-seaweedfs-1 Creating
+ Container mnt-scratch-t09-postgres-1 Creating
+ Container mnt-scratch-t09-seaweedfs-1 Created
+ Container mnt-scratch-t09-postgres-1 Created
+ Container mnt-scratch-t09-postgres-1 Starting
+ Container mnt-scratch-t09-seaweedfs-1 Starting
+ Container mnt-scratch-t09-seaweedfs-1 Started
+ Container mnt-scratch-t09-postgres-1 Started
+postgres_status=healthy
+seaweedfs_status=healthy
+ Container mnt-scratch-t09-seaweedfs-1 Stopping
+ Container mnt-scratch-t09-seaweedfs-1 Stopped
+verify_sqlx_migrations=match
+verify_postgres_row_counts=match
+verify_seaweedfs_manifest=match
+ Container mnt-scratch-t09-seaweedfs-1 Starting
+ Container mnt-scratch-t09-seaweedfs-1 Started
+seaweedfs_status=healthy
+verify_seaweedfs_service=healthy
+restore_drill_complete=ok
+scratch_teardown=complete project=mnt-scratch-t09
