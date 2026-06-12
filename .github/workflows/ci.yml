@@ -4,16 +4,44 @@ on:
   push:
     paths:
       - "backend/**"
+      - "clients/**"
+      - "scripts/**"
+      - "package.json"
+      - "package-lock.json"
+      - "openapitools.json"
+      - "tsconfig.json"
       - ".github/workflows/ci.yml"
   pull_request:
     paths:
       - "backend/**"
+      - "clients/**"
+      - "scripts/**"
+      - "package.json"
+      - "package-lock.json"
+      - "openapitools.json"
+      - "tsconfig.json"
       - ".github/workflows/ci.yml"
 
 jobs:
   backend:
     name: Backend — fmt / clippy / test / gates
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.4
+        env:
+          POSTGRES_DB: mnt_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres -d mnt_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/mnt_ci
     defaults:
       run:
         working-directory: backend
@@ -45,7 +73,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: clippy -D warnings
-        run: cargo clippy --all-targets -- -D warnings
+        run: SQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings
 
       - name: cargo test
         run: cargo test
@@ -61,3 +89,123 @@ jobs:
 
       - name: PII-no-logs gate
         run: cargo run -p mnt-gate-pii-no-logs
+
+  api-clients:
+    name: API clients — TypeScript / Kotlin generation and compile
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install client tooling
+        run: npm ci
+
+      - name: Regenerate TypeScript and Kotlin clients
+        run: npm run gen:api:portable
+
+      - name: Generated client drift gate
+        run: git diff --exit-code -- clients/ts clients/kotlin
+
+      - name: TypeScript compile
+        run: npm run check:ts
+
+      - name: Kotlin compile
+        run: npm run check:kotlin
+
+  api-contract:
+    name: API contract — app OpenAPI and generated TS round-trip
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.4
+        env:
+          POSTGRES_DB: mnt_contract
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres -d mnt_contract"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      CONTRACT_DATABASE_URL: postgres://postgres:postgres@localhost:5432/mnt_contract
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (pinned via rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.96.0"
+
+      - name: Cache Cargo registry + build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            backend/target
+          key: ${{ runner.os }}-cargo-contract-${{ hashFiles('backend/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-contract-
+            ${{ runner.os }}-cargo-
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install client tooling
+        run: npm ci
+
+      - name: OpenAPI app-served drift gate
+        run: npm run check:openapi-app
+
+      - name: Generated TypeScript client round-trip
+        run: npm run test:contract
+
+  swift-client:
+    name: API client — Swift generation and build
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install client tooling
+        run: npm ci
+
+      - name: Verify Swift toolchain
+        run: swift --version
+
+      - name: Regenerate Swift client
+        run: npm run gen:api:swift
+
+      - name: Generated Swift client drift gate
+        run: git diff --exit-code -- clients/swift
+
+      - name: Swift build
+        run: npm run check:swift
