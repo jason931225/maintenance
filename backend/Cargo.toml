@@ -5,7 +5,7 @@ resolver = "3"
 #   "crates/platform/*"  mnt-platform-{auth,authz,storage,push,realtime,excel}
 #   "ci/gates/*"         CI gate binaries (layer-boundary, audit-coverage, ...)
 #   "app"                mnt-app composition root
-members = ["crates/kernel/*"]
+members = ["crates/kernel/*", "crates/platform/*"]
 
 [workspace.package]
 edition = "2024"
