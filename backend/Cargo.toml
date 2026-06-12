@@ -10,6 +10,7 @@ members = [
   "crates/kernel/*",
   "crates/compliance/*",
   "crates/registry/*",
+  "crates/workorder/*",
   "crates/platform/*",
   "ci/gates/*",
 ]
@@ -62,6 +63,7 @@ mnt-compliance-domain = { path = "crates/compliance/domain" }
 mnt-compliance-application = { path = "crates/compliance/application" }
 mnt-registry-domain = { path = "crates/registry/domain" }
 mnt-registry-application = { path = "crates/registry/application" }
+mnt-workorder-domain = { path = "crates/workorder/domain" }
 mnt-platform-db = { path = "crates/platform/db" }
 
 [workspace.lints.rust]
