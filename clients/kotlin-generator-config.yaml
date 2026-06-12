@@ -1,0 +1,14 @@
+additionalProperties:
+  artifactId: maintenance-api-client
+  artifactVersion: 0.1.0
+  dateLibrary: java8
+  enumPropertyNaming: UPPERCASE
+  groupId: com.maintenance
+  hideGenerationTimestamp: true
+  library: jvm-okhttp4
+  packageName: com.maintenance.api.client
+  apiPackage: com.maintenance.api.client.api
+  modelPackage: com.maintenance.api.client.model
+  serializationLibrary: kotlinx_serialization
+  useCoroutines: true
+  supportAndroidApiLevel25AndBelow: false

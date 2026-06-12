@@ -5,12 +5,14 @@ info:
 paths:
   /healthz:
     get:
+      operationId: healthz
       summary: Health check
       responses:
         "200":
           description: Service is alive.
   /readyz:
     get:
+      operationId: readyz
       summary: Readiness check
       responses:
         "200":
@@ -19,6 +21,7 @@ paths:
           description: A required dependency is unavailable.
   /api/work-orders:
     post:
+      operationId: createWorkOrder
       summary: Create a work order from branch-scoped equipment management number
       security:
         - bearerAuth: []
@@ -43,6 +46,7 @@ paths:
           $ref: "#/components/responses/ValidationError"
   /api/work-orders/{workOrderId}:
     get:
+      operationId: getWorkOrder
       summary: Fetch one work order
       security:
         - bearerAuth: []
@@ -59,6 +63,7 @@ paths:
           $ref: "#/components/responses/NotFound"
   /api/work-orders/{workOrderId}/priority:
     patch:
+      operationId: updateWorkOrderPriority
       summary: Update work-order priority
       security:
         - bearerAuth: []
@@ -83,6 +88,7 @@ paths:
                 $ref: "#/components/schemas/WorkOrderSummary"
   /api/work-orders/{workOrderId}/assignments:
     put:
+      operationId: assignWorkOrder
       summary: Assign mechanics and approval-line approvers
       security:
         - bearerAuth: []
@@ -103,6 +109,7 @@ paths:
                 $ref: "#/components/schemas/WorkOrderSummary"
   /api/work-orders/{workOrderId}/start:
     post:
+      operationId: startWorkOrder
       summary: Start assigned work
       security:
         - bearerAuth: []
@@ -117,6 +124,7 @@ paths:
                 $ref: "#/components/schemas/WorkOrderSummary"
   /api/work-orders/{workOrderId}/report:
     post:
+      operationId: submitWorkOrderReport
       summary: Submit a mechanic work report
       security:
         - bearerAuth: []
@@ -137,6 +145,7 @@ paths:
                 $ref: "#/components/schemas/WorkOrderSummary"
   /api/work-orders/{workOrderId}/approve:
     post:
+      operationId: approveWorkOrder
       summary: Approve the next pending non-mechanic approval step
       security:
         - bearerAuth: []
@@ -153,6 +162,7 @@ paths:
           $ref: "#/components/responses/Conflict"
   /api/work-orders/{workOrderId}/target-change-requests:
     post:
+      operationId: requestTargetChange
       summary: Request a target due-date change
       security:
         - bearerAuth: []
@@ -173,6 +183,7 @@ paths:
                 $ref: "#/components/schemas/TargetChangeRequestSummary"
   /api/target-change-requests/{requestId}/review:
     post:
+      operationId: reviewTargetChange
       summary: Review a target due-date change request
       security:
         - bearerAuth: []
@@ -193,6 +204,7 @@ paths:
                 $ref: "#/components/schemas/TargetChangeRequestSummary"
   /api/daily-work-plans:
     post:
+      operationId: createDailyWorkPlan
       summary: Create a daily work plan
       security:
         - bearerAuth: []
@@ -211,6 +223,7 @@ paths:
                 $ref: "#/components/schemas/DailyPlanSummary"
   /api/daily-work-plans/{planId}/request-review:
     post:
+      operationId: requestDailyWorkPlanReview
       summary: Send a daily work plan for review
       security:
         - bearerAuth: []
@@ -225,6 +238,7 @@ paths:
                 $ref: "#/components/schemas/DailyPlanSummary"
   /api/daily-work-plans/{planId}/review:
     post:
+      operationId: reviewDailyWorkPlan
       summary: Review a daily work plan
       security:
         - bearerAuth: []
@@ -245,6 +259,7 @@ paths:
                 $ref: "#/components/schemas/DailyPlanSummary"
   /api/daily-work-plans/{planId}/confirm:
     post:
+      operationId: confirmDailyWorkPlan
       summary: Confirm an approved daily work plan
       security:
         - bearerAuth: []
@@ -259,6 +274,7 @@ paths:
                 $ref: "#/components/schemas/DailyPlanSummary"
   /api/work-orders/{workOrderId}/outsource-works:
     post:
+      operationId: createOutsourceWork
       summary: Create an outsource work request for a work order
       security:
         - bearerAuth: []

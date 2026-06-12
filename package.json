@@ -1,0 +1,34 @@
+{
+  "name": "maintenance-api-clients",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "gen:api:ts": "openapi-typescript backend/openapi/openapi.yaml -o clients/ts/src/schema.d.ts",
+    "gen:api:kotlin": "node scripts/generate-kotlin-client.mjs",
+    "gen:api:swift": "node scripts/generate-swift-client.mjs",
+    "gen:api:portable": "npm run gen:api:ts && npm run gen:api:kotlin",
+    "gen:api": "npm run gen:api:portable && npm run gen:api:swift",
+    "check:ts": "tsc -p tsconfig.json",
+    "check:kotlin": "node scripts/run-kotlin-build.mjs",
+    "check:swift": "swift build --package-path clients/swift",
+    "check:openapi-app": "node scripts/check-openapi-app.mjs",
+    "check:api-drift:portable": "npm run gen:api:portable && git diff --exit-code -- clients/ts clients/kotlin",
+    "check:api-drift:swift": "npm run gen:api:swift && git diff --exit-code -- clients/swift",
+    "test:contract": "tsx scripts/contract-roundtrip.ts"
+  },
+  "dependencies": {
+    "openapi-fetch": "0.17.0",
+    "pg": "8.21.0"
+  },
+  "devDependencies": {
+    "@openapitools/openapi-generator-cli": "2.38.0",
+    "@types/node": "25.9.3",
+    "@types/pg": "8.20.0",
+    "openapi-typescript": "7.13.0",
+    "tsx": "4.22.4",
+    "typescript": "5.9.3"
+  }
+}
