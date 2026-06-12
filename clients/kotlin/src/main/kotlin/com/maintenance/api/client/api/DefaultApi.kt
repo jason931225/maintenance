@@ -1233,6 +1233,82 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/ws
+     * Connect to the realtime WebSocket stream
+     * Upgrades to a WebSocket after bearer-token verification. Server frames are JSON realtime events; reconnecting clients pass last_message_id to resume from the last processed message cursor.
+     * @param lastMessageId  (optional)
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun connectRealtimeWebSocket(lastMessageId: java.util.UUID? = null) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = connectRealtimeWebSocketWithHttpInfo(lastMessageId = lastMessageId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/ws
+     * Connect to the realtime WebSocket stream
+     * Upgrades to a WebSocket after bearer-token verification. Server frames are JSON realtime events; reconnecting clients pass last_message_id to resume from the last processed message cursor.
+     * @param lastMessageId  (optional)
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun connectRealtimeWebSocketWithHttpInfo(lastMessageId: java.util.UUID?) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = connectRealtimeWebSocketRequestConfig(lastMessageId = lastMessageId)
+
+        return@withContext request<Unit, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation connectRealtimeWebSocket
+     *
+     * @param lastMessageId  (optional)
+     * @return RequestConfig
+     */
+    fun connectRealtimeWebSocketRequestConfig(lastMessageId: java.util.UUID?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (lastMessageId != null) {
+                    put("last_message_id", listOf(lastMessageId.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/ws",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/daily-work-plans
      * Create a daily work plan
      *

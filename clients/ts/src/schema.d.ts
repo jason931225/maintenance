@@ -38,6 +38,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ws": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Connect to the realtime WebSocket stream
+         * @description Upgrades to a WebSocket after bearer-token verification. Server frames are JSON realtime events; reconnecting clients pass last_message_id to resume from the last processed message cursor.
+         */
+        get: operations["connectRealtimeWebSocket"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/work-orders": {
         parameters: {
             query?: never;
@@ -1793,6 +1813,34 @@ export interface operations {
                 content?: never;
             };
             /** @description A required dependency is unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    connectRealtimeWebSocket: {
+        parameters: {
+            query?: {
+                last_message_id?: components["schemas"]["Uuid"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description WebSocket upgrade accepted. */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Realtime is unavailable. */
             503: {
                 headers: {
                     [name: string]: unknown;

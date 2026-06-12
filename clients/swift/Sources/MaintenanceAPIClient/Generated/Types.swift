@@ -21,6 +21,14 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /readyz`.
     /// - Remark: Generated from `#/paths//readyz/get(readyz)`.
     func readyz(_ input: Operations.Readyz.Input) async throws -> Operations.Readyz.Output
+    /// Connect to the realtime WebSocket stream
+    ///
+    /// Upgrades to a WebSocket after bearer-token verification. Server frames are JSON realtime events; reconnecting clients pass last_message_id to resume from the last processed message cursor.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/v1/ws`.
+    /// - Remark: Generated from `#/paths//api/v1/ws/get(connectRealtimeWebSocket)`.
+    func connectRealtimeWebSocket(_ input: Operations.ConnectRealtimeWebSocket.Input) async throws -> Operations.ConnectRealtimeWebSocket.Output
     /// Create a work order from branch-scoped equipment management number
     ///
     /// - Remark: HTTP `POST /api/work-orders`.
@@ -307,6 +315,22 @@ extension APIProtocol {
     /// - Remark: Generated from `#/paths//readyz/get(readyz)`.
     public func readyz() async throws -> Operations.Readyz.Output {
         try await readyz(Operations.Readyz.Input())
+    }
+    /// Connect to the realtime WebSocket stream
+    ///
+    /// Upgrades to a WebSocket after bearer-token verification. Server frames are JSON realtime events; reconnecting clients pass last_message_id to resume from the last processed message cursor.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/v1/ws`.
+    /// - Remark: Generated from `#/paths//api/v1/ws/get(connectRealtimeWebSocket)`.
+    public func connectRealtimeWebSocket(
+        query: Operations.ConnectRealtimeWebSocket.Input.Query = .init(),
+        headers: Operations.ConnectRealtimeWebSocket.Input.Headers = .init()
+    ) async throws -> Operations.ConnectRealtimeWebSocket.Output {
+        try await connectRealtimeWebSocket(Operations.ConnectRealtimeWebSocket.Input(
+            query: query,
+            headers: headers
+        ))
     }
     /// Create a work order from branch-scoped equipment management number
     ///
@@ -4701,6 +4725,179 @@ public enum Operations {
             ///
             /// A response with a code that is not documented in the OpenAPI document.
             case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+    }
+    /// Connect to the realtime WebSocket stream
+    ///
+    /// Upgrades to a WebSocket after bearer-token verification. Server frames are JSON realtime events; reconnecting clients pass last_message_id to resume from the last processed message cursor.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/v1/ws`.
+    /// - Remark: Generated from `#/paths//api/v1/ws/get(connectRealtimeWebSocket)`.
+    public enum ConnectRealtimeWebSocket {
+        public static let id: Swift.String = "connectRealtimeWebSocket"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/ws/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/ws/GET/query/last_message_id`.
+                public var lastMessageId: Components.Schemas.Uuid?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - lastMessageId:
+                public init(lastMessageId: Components.Schemas.Uuid? = nil) {
+                    self.lastMessageId = lastMessageId
+                }
+            }
+            public var query: Operations.ConnectRealtimeWebSocket.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/ws/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ConnectRealtimeWebSocket.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ConnectRealtimeWebSocket.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ConnectRealtimeWebSocket.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ConnectRealtimeWebSocket.Input.Query = .init(),
+                headers: Operations.ConnectRealtimeWebSocket.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct SwitchingProtocols: Sendable, Hashable {
+                /// Creates a new `SwitchingProtocols`.
+                public init() {}
+            }
+            /// WebSocket upgrade accepted.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/ws/get(connectRealtimeWebSocket)/responses/101`.
+            ///
+            /// HTTP response code: `101 switchingProtocols`.
+            case switchingProtocols(Operations.ConnectRealtimeWebSocket.Output.SwitchingProtocols)
+            /// WebSocket upgrade accepted.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/ws/get(connectRealtimeWebSocket)/responses/101`.
+            ///
+            /// HTTP response code: `101 switchingProtocols`.
+            public static var switchingProtocols: Self {
+                .switchingProtocols(.init())
+            }
+            /// The associated value of the enum case if `self` is `.switchingProtocols`.
+            ///
+            /// - Throws: An error if `self` is not `.switchingProtocols`.
+            /// - SeeAlso: `.switchingProtocols`.
+            public var switchingProtocols: Operations.ConnectRealtimeWebSocket.Output.SwitchingProtocols {
+                get throws {
+                    switch self {
+                    case let .switchingProtocols(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "switchingProtocols",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/ws/get(connectRealtimeWebSocket)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// Realtime is unavailable.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/ws/get(connectRealtimeWebSocket)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ConnectRealtimeWebSocket.Output.ServiceUnavailable)
+            /// Realtime is unavailable.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/ws/get(connectRealtimeWebSocket)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ConnectRealtimeWebSocket.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
         }
     }
     /// Create a work order from branch-scoped equipment management number
