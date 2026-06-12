@@ -13,6 +13,26 @@ export type KpiRollup = components["schemas"]["KpiRollup"];
 export type KpiRollupScope = components["schemas"]["KpiRollupScope"];
 export type UnavailableMetric = components["schemas"]["UnavailableMetric"];
 export type TokenPairResponse = components["schemas"]["TokenPairResponse"];
+export type MessengerThreadKind =
+  components["schemas"]["MessengerThreadKind"];
+export type MessengerThreadSummary =
+  components["schemas"]["MessengerThreadSummary"];
+export type MessengerThreadListResponse =
+  components["schemas"]["MessengerThreadListResponse"];
+export type MessengerMessageSummary =
+  components["schemas"]["MessengerMessageSummary"];
+export type MessengerMessagePage =
+  components["schemas"]["MessengerMessagePage"];
+export type MessengerMessageListResponse =
+  components["schemas"]["MessengerMessageListResponse"];
+export type MessengerReadReceiptSummary =
+  components["schemas"]["MessengerReadReceiptSummary"];
+export type SendMessengerMessageRequest =
+  components["schemas"]["SendMessengerMessageRequest"];
+export type EvidencePresignRequest =
+  components["schemas"]["EvidencePresignRequest"];
+export type EvidencePresignResponse =
+  components["schemas"]["EvidencePresignResponse"];
 
 export interface EquipmentLookupResult {
   managementNo: string;

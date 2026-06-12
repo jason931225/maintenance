@@ -62,6 +62,12 @@ import com.maintenance.field.R
 import com.maintenance.field.auth.LoginState
 import com.maintenance.field.data.api.ReportDraft
 import com.maintenance.field.data.api.TechnicianWorkOrder
+import com.maintenance.field.data.messenger.MessengerAction
+import com.maintenance.field.data.messenger.MessengerMessage
+import com.maintenance.field.data.messenger.MessengerReducer
+import com.maintenance.field.data.messenger.MessengerSendState
+import com.maintenance.field.data.messenger.MessengerState
+import com.maintenance.field.data.messenger.MessengerThread
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlinx.coroutines.launch
@@ -74,14 +80,38 @@ fun FieldApp(container: AppContainer) {
     val scope = rememberCoroutineScope()
     var authenticated by rememberSaveable { mutableStateOf(container.auth.hasSession()) }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedTab by rememberSaveable { mutableStateOf(0) }
     var showCamera by rememberSaveable { mutableStateOf(false) }
     var busy by rememberSaveable { mutableStateOf(false) }
+    var messengerState by remember { mutableStateOf(MessengerState()) }
+    var messengerSearchQuery by rememberSaveable { mutableStateOf("") }
+    var messengerDraft by rememberSaveable { mutableStateOf("") }
     val selected = orders.firstOrNull { it.id.toString() == selectedId }
+    val messengerReducer = remember { MessengerReducer() }
     val loginFailedMessage = stringResource(R.string.login_failed)
     val offlineQueuedMessage = stringResource(R.string.offline_queued)
     val reportSubmittedMessage = stringResource(R.string.report_submitted)
     val cameraPermissionDeniedMessage = stringResource(R.string.camera_permission_denied)
     val operationFailedMessage = stringResource(R.string.operation_failed)
+    val messengerSendPendingMessage = stringResource(R.string.messenger_send_pending)
+
+    suspend fun loadMessengerMessages(threadId: UUID, beforeMessageId: UUID? = null) {
+        val page = container.messenger.loadMessages(threadId, beforeMessageId)
+        messengerState = messengerReducer.reduce(
+            messengerState,
+            MessengerAction.MessagesPageLoaded(threadId, page),
+        )
+        messengerState.messagesByThread[threadId]?.lastOrNull()?.let {
+            runCatching { container.messenger.markRead(threadId, it.id) }
+        }
+    }
+
+    suspend fun refreshMessenger() {
+        container.messenger.replayPending()
+        val threads = container.messenger.loadThreads()
+        messengerState = messengerReducer.reduce(messengerState, MessengerAction.ThreadsLoaded(threads))
+        messengerState.selectedThreadId?.let { loadMessengerMessages(it) }
+    }
 
     LaunchedEffect(authenticated) {
         if (authenticated) {
@@ -184,31 +214,160 @@ fun FieldApp(container: AppContainer) {
                     },
                 )
             } else {
-                TodayScreen(
-                    orders = orders,
-                    busy = busy,
-                    onRefresh = {
-                        scope.launch {
-                            busy = true
-                            runCatching {
-                                container.offlineQueue.replayPending()
-                                container.evidence.uploadPending()
-                                container.workOrders.refreshToday()
-                            }.onFailure {
-                                snackbarHostState.showSnackbar(operationFailedMessage)
-                            }
-                            busy = false
-                        }
-                    },
-                    onLogout = {
-                        container.auth.clearSession()
-                        authenticated = false
-                        selectedId = null
-                    },
-                    onSelect = { selectedId = it.id.toString() },
-                )
+                Column(modifier = Modifier.fillMaxSize()) {
+                    FieldTabRow(
+                        selectedTab = selectedTab,
+                        onSelect = { selectedTab = it },
+                    )
+                    if (selectedTab == 0) {
+                        TodayScreen(
+                            orders = orders,
+                            busy = busy,
+                            modifier = Modifier.weight(1f),
+                            onRefresh = {
+                                scope.launch {
+                                    busy = true
+                                    runCatching {
+                                        container.offlineQueue.replayPending()
+                                        container.evidence.uploadPending()
+                                        container.messenger.replayPending()
+                                        container.workOrders.refreshToday()
+                                    }.onFailure {
+                                        snackbarHostState.showSnackbar(operationFailedMessage)
+                                    }
+                                    busy = false
+                                }
+                            },
+                            onLogout = {
+                                container.auth.clearSession()
+                                authenticated = false
+                                selectedId = null
+                                messengerState = MessengerState()
+                            },
+                            onSelect = { selectedId = it.id.toString() },
+                        )
+                    } else {
+                        MessengerScreen(
+                            state = messengerState,
+                            busy = busy,
+                            searchQuery = messengerSearchQuery,
+                            draft = messengerDraft,
+                            modifier = Modifier.weight(1f),
+                            onSearchQueryChange = { messengerSearchQuery = it },
+                            onDraftChange = { messengerDraft = it },
+                            onRefresh = {
+                                scope.launch {
+                                    busy = true
+                                    runCatching { refreshMessenger() }
+                                        .onFailure { snackbarHostState.showSnackbar(operationFailedMessage) }
+                                    busy = false
+                                }
+                            },
+                            onSelectThread = { thread ->
+                                scope.launch {
+                                    busy = true
+                                    runCatching {
+                                        messengerState = messengerReducer.reduce(
+                                            messengerState,
+                                            MessengerAction.ThreadSelected(thread.id),
+                                        )
+                                        loadMessengerMessages(thread.id)
+                                    }.onFailure { snackbarHostState.showSnackbar(operationFailedMessage) }
+                                    busy = false
+                                }
+                            },
+                            onLoadOlder = {
+                                val threadId = messengerState.selectedThreadId
+                                if (threadId != null) {
+                                    scope.launch {
+                                        busy = true
+                                        runCatching {
+                                            loadMessengerMessages(
+                                                threadId,
+                                                messengerState.nextCursorByThread[threadId],
+                                            )
+                                        }.onFailure { snackbarHostState.showSnackbar(operationFailedMessage) }
+                                        busy = false
+                                    }
+                                }
+                            },
+                            onSearch = {
+                                val query = messengerSearchQuery.trim()
+                                scope.launch {
+                                    busy = true
+                                    runCatching {
+                                        val messages = if (query.isBlank()) {
+                                            emptyList()
+                                        } else {
+                                            container.messenger.search(query)
+                                        }
+                                        messengerState = messengerReducer.reduce(
+                                            messengerState,
+                                            MessengerAction.SearchResultsLoaded(messages),
+                                        )
+                                    }.onFailure { snackbarHostState.showSnackbar(operationFailedMessage) }
+                                    busy = false
+                                }
+                            },
+                            onSend = {
+                                val threadId = messengerState.selectedThreadId
+                                val body = messengerDraft.trim()
+                                if (threadId != null && body.isNotEmpty()) {
+                                    scope.launch {
+                                        busy = true
+                                        runCatching {
+                                            val result = container.messenger.sendOrQueue(
+                                                threadId = threadId,
+                                                body = body,
+                                                attachmentEvidenceIds = emptyList(),
+                                            )
+                                            messengerDraft = ""
+                                            if (result.state == MessengerSendState.PENDING) {
+                                                snackbarHostState.showSnackbar(messengerSendPendingMessage)
+                                            }
+                                            result.message?.let { message ->
+                                                messengerState = messengerReducer.reduce(
+                                                    messengerState,
+                                                    MessengerAction.MessageSent(message),
+                                                )
+                                                runCatching { container.messenger.markRead(threadId, message.id) }
+                                            }
+                                        }.onFailure {
+                                            snackbarHostState.showSnackbar(messengerSendPendingMessage)
+                                        }
+                                        busy = false
+                                    }
+                                }
+                            },
+                        )
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun FieldTabRow(
+    selectedTab: Int,
+    onSelect: (Int) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        FilterChip(
+            selected = selectedTab == 0,
+            onClick = { onSelect(0) },
+            label = { Text(stringResource(R.string.today_title)) },
+        )
+        FilterChip(
+            selected = selectedTab == 1,
+            onClick = { onSelect(1) },
+            label = { Text(stringResource(R.string.messenger_title)) },
+        )
     }
 }
 
@@ -273,12 +432,13 @@ private fun LoginScreen(
 private fun TodayScreen(
     orders: List<TechnicianWorkOrder>,
     busy: Boolean,
+    modifier: Modifier = Modifier,
     onRefresh: () -> Unit,
     onLogout: () -> Unit,
     onSelect: (TechnicianWorkOrder) -> Unit,
 ) {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize(),
     ) {
         Row(
             modifier = Modifier
@@ -327,6 +487,252 @@ private fun TodayScreen(
             ) {
                 items(orders, key = { it.id }) { order ->
                     WorkOrderRow(order = order, onClick = { onSelect(order) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MessengerScreen(
+    state: MessengerState,
+    busy: Boolean,
+    searchQuery: String,
+    draft: String,
+    modifier: Modifier = Modifier,
+    onSearchQueryChange: (String) -> Unit,
+    onDraftChange: (String) -> Unit,
+    onRefresh: () -> Unit,
+    onSelectThread: (MessengerThread) -> Unit,
+    onLoadOlder: () -> Unit,
+    onSearch: () -> Unit,
+    onSend: () -> Unit,
+) {
+    LaunchedEffect(Unit) {
+        if (state.threads.isEmpty()) {
+            onRefresh()
+        }
+    }
+
+    Column(modifier = modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.messenger_title),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.weight(1f),
+            )
+            OutlinedButton(
+                onClick = onRefresh,
+                enabled = !busy,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
+                Text(stringResource(R.string.refresh))
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = onSearchQueryChange,
+                label = { Text(stringResource(R.string.messenger_search)) },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+            )
+            Button(
+                onClick = onSearch,
+                enabled = !busy,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
+                Text(stringResource(R.string.messenger_search_button))
+            }
+        }
+
+        LazyColumn(
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.weight(1f),
+        ) {
+            if (state.searchResults.isNotEmpty()) {
+                items(state.searchResults, key = { it.id }) { message ->
+                    MessengerMessageRow(message = message)
+                }
+            }
+            item {
+                Text(
+                    text = stringResource(R.string.messenger_threads),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                )
+            }
+            if (state.threads.isEmpty()) {
+                item {
+                    Text(
+                        text = stringResource(R.string.messenger_empty_threads),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            }
+            items(state.threads, key = { it.id }) { thread ->
+                MessengerThreadRow(
+                    thread = thread,
+                    selected = state.selectedThreadId == thread.id,
+                    onClick = { onSelectThread(thread) },
+                )
+            }
+            item {
+                Text(
+                    text = stringResource(R.string.messenger_messages),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                )
+            }
+            val selectedThreadId = state.selectedThreadId
+            val messages = selectedThreadId?.let { state.messagesByThread[it].orEmpty() }.orEmpty()
+            if (selectedThreadId == null) {
+                item {
+                    Text(
+                        text = stringResource(R.string.messenger_select_thread),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            } else {
+                if (state.nextCursorByThread[selectedThreadId] != null) {
+                    item {
+                        OutlinedButton(
+                            onClick = onLoadOlder,
+                            enabled = !busy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(R.string.messenger_load_older))
+                        }
+                    }
+                }
+                if (messages.isEmpty()) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.messenger_empty_messages),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(12.dp),
+                        )
+                    }
+                }
+                items(messages, key = { it.id }) { message ->
+                    MessengerMessageRow(message = message)
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = draft,
+                onValueChange = onDraftChange,
+                label = { Text(stringResource(R.string.messenger_composer)) },
+                minLines = 1,
+                maxLines = 4,
+                modifier = Modifier.weight(1f),
+            )
+            Button(
+                onClick = onSend,
+                enabled = !busy && state.selectedThreadId != null,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
+                Text(stringResource(R.string.messenger_send))
+            }
+        }
+    }
+}
+
+@Composable
+private fun MessengerThreadRow(
+    thread: MessengerThread,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = MaterialTheme.shapes.small,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = thread.displayTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                AssistChip(
+                    onClick = {},
+                    label = { Text(stringResource(thread.kind.labelRes())) },
+                )
+            }
+            Text(
+                text = stringResource(R.string.messenger_member_count_format, thread.memberCount),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (selected) {
+                Text(
+                    text = stringResource(R.string.messenger_selected),
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MessengerMessageRow(message: MessengerMessage) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.small,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = message.body,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = message.sentAt.format(DateTimeFormatter.ISO_LOCAL_TIME),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (message.attachmentEvidenceIds.isNotEmpty()) {
+                    AssistChip(
+                        onClick = {},
+                        label = { Text(stringResource(R.string.messenger_attachment)) },
+                    )
                 }
             }
         }

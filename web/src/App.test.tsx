@@ -64,6 +64,11 @@ const server = setupServer(
     lookupRequests.push(url);
     return HttpResponse.json(equipmentLookup);
   }),
+  http.get("*/api/messenger/threads", () =>
+    HttpResponse.json({
+      items: [],
+    }),
+  ),
   http.post(
     "*/api/v1/work-orders/:workOrderId/reject",
     async ({ request }) => {

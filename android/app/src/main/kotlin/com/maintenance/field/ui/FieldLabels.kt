@@ -1,6 +1,7 @@
 package com.maintenance.field.ui
 
 import androidx.annotation.StringRes
+import com.maintenance.api.client.model.MessengerThreadKind
 import com.maintenance.api.client.model.PriorityLevel
 import com.maintenance.api.client.model.WorkOrderStatus
 import com.maintenance.api.client.model.WorkResultType
@@ -50,4 +51,12 @@ fun WorkResultType.labelRes(): Int = when (this) {
     WorkResultType.INCOMPLETE -> R.string.result_incomplete
     WorkResultType.REVISIT_REQUIRED -> R.string.result_revisit_required
     WorkResultType.UNKNOWN -> R.string.result_unknown
+}
+
+@StringRes
+fun MessengerThreadKind.labelRes(): Int = when (this) {
+    MessengerThreadKind.WORK_ORDER -> R.string.messenger_kind_work_order
+    MessengerThreadKind.TEAM -> R.string.messenger_kind_team
+    MessengerThreadKind.DM -> R.string.messenger_kind_dm
+    MessengerThreadKind.GROUP -> R.string.messenger_kind_group
 }

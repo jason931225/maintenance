@@ -17,6 +17,18 @@ Reference: Android technician app under `android/app/src`, generated Swift clien
 | Evidence capture/upload | CameraX captures JPEG, stages evidence, presign PUT confirm, offline retry | `CameraCaptureView` uses AVFoundation on iOS; `EvidenceRepository` stages JPEG metadata, SHA-256, presigns, PUTs, confirms, and queues pending uploads in `FileEvidenceUploadStore` | `swift build` |
 | Localization/labels | Android Korean strings and field labels | `ko.lproj/Localizable.strings` includes Android keys plus SwiftUI aliases; label helpers mirror priority/status/result/sync mappings | `swift build` |
 
+## Verified in T3.3
+
+| Area | Android parity target | iOS implementation | Evidence |
+| --- | --- | --- | --- |
+| Messenger generated gateway | Android `GeneratedMaintenanceApiGateway` maps generated messenger REST methods for threads, messages, send, read receipt, and search | `GeneratedMaintenanceAPIGateway` conforms to `MessengerGateway` and maps the same generated Swift OpenAPI operations | `./gradlew build`; `swift build`; `swift run MaintenanceFieldCoreBehaviorTests` |
+| Messenger domain reducer | Android `MessengerReducer` dedupes pages/live messages, sorts messages by `sentAt`/ID, updates thread last-message state, and exposes resume cursors | Swift `MessengerReducer` mirrors the same reducer actions, dedupe ordering, last-message tracking, and `resumeCursor()` behavior | `./gradlew testDebugUnitTest --tests com.maintenance.field.data.messenger.MessengerRepositoryTest`; `swift run MaintenanceFieldCoreBehaviorTests` |
+| Messenger offline direct-send queue | Android stores offline-composed messages in `messenger_outbox` Room storage and replays by calling `sendMessage`, not `/sync` | iOS stores offline-composed messages in `FileMessengerOutboxStore` and `MessengerRepository.replayPending()` direct-sends through `MessengerGateway` | `./gradlew build`; `swift run MaintenanceFieldCoreBehaviorTests` |
+| Messenger native realtime clients | Android `MessengerRealtimeClient` builds an OkHttp WebSocket request with `Authorization` and `last_message_id` resume cursor | iOS `MessengerRealtimeClient` builds a `URLSessionWebSocketTask` request with `Authorization` and `last_message_id` resume cursor | `./gradlew testDebugUnitTest --tests com.maintenance.field.data.messenger.MessengerRepositoryTest`; `swift run MaintenanceFieldCoreBehaviorTests` |
+| Messenger mobile UI | Android Compose exposes a Messenger tab with thread list, message pages, older-message cursor loading, FTS search, composer send-or-queue, and read receipts | SwiftUI exposes a Messenger tab with the same thread list, message pages, older-message cursor loading, FTS search, composer send-or-queue, and read receipts | `./gradlew build`; `swift build` |
+| Messenger web UI | Web console uses generated REST client for thread list, message pagination, FTS search, send, read receipts, and WO-bound evidence presign upload | iOS implements equivalent messenger workflows natively through the generated Swift client and repository layer | `npm --workspace web run test`; `npm --workspace web run lint`; `npm --workspace web run build`; `swift build` |
+| Messenger localization | Android messenger UI labels are backed by `strings.xml` and parity keys match iOS where shared | iOS messenger UI labels are backed by `Localizable.strings` with matching shared keys and field-label helpers | `node scripts/check-i18n.mjs`; inline CI parity checklist/string-key gate |
+
 ## Verification
 
 - `cd ios && swift build` passed with Apple Swift 6.3.2 Command Line Tools.

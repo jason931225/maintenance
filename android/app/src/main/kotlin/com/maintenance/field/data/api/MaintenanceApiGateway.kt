@@ -7,19 +7,30 @@ import com.maintenance.api.client.model.DeviceRegistrationResponse
 import com.maintenance.api.client.model.EvidenceConfirmResponse
 import com.maintenance.api.client.model.EvidencePresignRequest
 import com.maintenance.api.client.model.EvidencePresignResponse
+import com.maintenance.api.client.model.MarkMessengerThreadReadRequest
+import com.maintenance.api.client.model.MessengerMessagePage
+import com.maintenance.api.client.model.MessengerMessageSummary
+import com.maintenance.api.client.model.MessengerThreadSummary
 import com.maintenance.api.client.model.PasskeyLoginFinishRequest
 import com.maintenance.api.client.model.PasskeyLoginStartRequest
 import com.maintenance.api.client.model.PasskeyLoginStartResponse
+import com.maintenance.api.client.model.SendMessengerMessageRequest
 import com.maintenance.api.client.model.SubmitReportRequest
 import com.maintenance.api.client.model.SyncBatchRequest
 import com.maintenance.api.client.model.SyncBatchResponse
 import com.maintenance.api.client.model.TokenPairResponse
 import com.maintenance.api.client.model.WorkOrderSummary
+import com.maintenance.field.data.messenger.MessengerGateway
+import com.maintenance.field.data.messenger.MessengerMessage
+import com.maintenance.field.data.messenger.MessengerMessagePage as FieldMessengerMessagePage
+import com.maintenance.field.data.messenger.MessengerThread
+import com.maintenance.field.data.messenger.toMessengerMessage
+import com.maintenance.field.data.messenger.toMessengerThread
 import com.maintenance.field.data.offline.SyncGateway
 import java.util.UUID
 import kotlinx.serialization.json.JsonElement
 
-interface MaintenanceApiGateway : SyncGateway {
+interface MaintenanceApiGateway : SyncGateway, MessengerGateway {
     suspend fun listTodayWorkOrders(): List<TechnicianWorkOrder>
 
     suspend fun getWorkOrder(id: UUID): TechnicianWorkOrder
@@ -83,4 +94,48 @@ class GeneratedMaintenanceApiGateway(
                 appVersion = appVersion,
             ),
         )
+
+    override suspend fun listThreads(limit: Long): List<MessengerThread> =
+        api.listMessengerThreads(limit = limit).items.map(MessengerThreadSummary::toMessengerThread)
+
+    override suspend fun listMessages(
+        threadId: UUID,
+        beforeMessageId: UUID?,
+        limit: Long,
+    ): FieldMessengerMessagePage {
+        val page: MessengerMessagePage = api.listMessengerMessages(
+            threadId = threadId,
+            beforeMessageId = beforeMessageId,
+            limit = limit,
+        )
+        return FieldMessengerMessagePage(
+            items = page.items.map(MessengerMessageSummary::toMessengerMessage),
+            nextCursor = page.nextCursor,
+        )
+    }
+
+    override suspend fun sendMessage(
+        threadId: UUID,
+        body: String,
+        attachmentEvidenceIds: List<UUID>,
+    ): MessengerMessage =
+        api.sendMessengerMessage(
+            threadId = threadId,
+            sendMessengerMessageRequest = SendMessengerMessageRequest(
+                body = body,
+                attachmentEvidenceIds = attachmentEvidenceIds,
+            ),
+        ).toMessengerMessage()
+
+    override suspend fun markRead(threadId: UUID, lastReadMessageId: UUID) {
+        api.markMessengerThreadRead(
+            threadId = threadId,
+            markMessengerThreadReadRequest = MarkMessengerThreadReadRequest(lastReadMessageId),
+        )
+    }
+
+    override suspend fun search(query: String, limit: Long): List<MessengerMessage> =
+        api.searchMessengerMessages(q = query, limit = limit)
+            .items
+            .map(MessengerMessageSummary::toMessengerMessage)
 }

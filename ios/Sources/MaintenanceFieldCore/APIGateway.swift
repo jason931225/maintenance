@@ -16,7 +16,7 @@ public enum MaintenanceGatewayError: Error, Sendable, CustomStringConvertible {
     }
 }
 
-public protocol MaintenanceAPIGateway: SyncGateway {
+public protocol MaintenanceAPIGateway: SyncGateway, MessengerGateway {
     func listTodayWorkOrders() async throws -> [TechnicianWorkOrder]
     func getWorkOrderDetail(id: Components.Schemas.Uuid) async throws -> TechnicianWorkOrder
     func startWorkOrder(id: Components.Schemas.Uuid) async throws
@@ -126,6 +126,67 @@ public struct GeneratedMaintenanceAPIGateway: MaintenanceAPIGateway {
             path: Operations.ConfirmEvidenceUpload.Input.Path(evidenceId: evidenceID)
         )
         return try output.ok.body.json
+    }
+
+    public func listThreads(limit: Int64 = 50) async throws -> [MessengerThread] {
+        let output = try await client.listMessengerThreads(
+            query: Operations.ListMessengerThreads.Input.Query(limit: limit)
+        )
+        return try output.ok.body.json.items.map { $0.toMessengerThread() }
+    }
+
+    public func listMessages(
+        threadID: Components.Schemas.Uuid,
+        beforeMessageID: Components.Schemas.Uuid? = nil,
+        limit: Int64 = 50
+    ) async throws -> MessengerMessagePage {
+        let output = try await client.listMessengerMessages(
+            path: Operations.ListMessengerMessages.Input.Path(threadId: threadID),
+            query: Operations.ListMessengerMessages.Input.Query(
+                beforeMessageId: beforeMessageID,
+                limit: limit
+            )
+        )
+        let page = try output.ok.body.json
+        return MessengerMessagePage(
+            items: page.items.map { $0.toMessengerMessage() },
+            nextCursor: page.nextCursor
+        )
+    }
+
+    public func sendMessage(
+        threadID: Components.Schemas.Uuid,
+        body: String,
+        attachmentEvidenceIDs: [Components.Schemas.Uuid]
+    ) async throws -> MessengerMessage {
+        let output = try await client.sendMessengerMessage(
+            path: Operations.SendMessengerMessage.Input.Path(threadId: threadID),
+            body: .json(
+                Components.Schemas.SendMessengerMessageRequest(
+                    body: body,
+                    attachmentEvidenceIds: attachmentEvidenceIDs
+                )
+            )
+        )
+        return try output.created.body.json.toMessengerMessage()
+    }
+
+    public func markRead(
+        threadID: Components.Schemas.Uuid,
+        lastReadMessageID: Components.Schemas.Uuid
+    ) async throws {
+        let output = try await client.markMessengerThreadRead(
+            path: Operations.MarkMessengerThreadRead.Input.Path(threadId: threadID),
+            body: .json(Components.Schemas.MarkMessengerThreadReadRequest(lastReadMessageId: lastReadMessageID))
+        )
+        _ = try output.ok.body.json
+    }
+
+    public func search(query: String, limit: Int64 = 50) async throws -> [MessengerMessage] {
+        let output = try await client.searchMessengerMessages(
+            query: Operations.SearchMessengerMessages.Input.Query(q: query, limit: limit)
+        )
+        return try output.ok.body.json.items.map { $0.toMessengerMessage() }
     }
 }
 

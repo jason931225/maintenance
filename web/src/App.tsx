@@ -17,6 +17,7 @@ import { WorkOrderList } from "./features/dispatch/WorkOrderList";
 import { ApprovalQueue } from "./features/approvals/ApprovalQueue";
 import { KpiDashboard } from "./features/kpi/KpiDashboard";
 import { WallBoard } from "./features/kpi/WallBoard";
+import { MessengerPanel } from "./features/messenger/MessengerPanel";
 import {
   getDefaultKpiPeriod,
   getWallboardRefreshIntervalMs,
@@ -61,6 +62,7 @@ export function App({ initialSession }: AppProps = {}) {
     () => createConsoleApiClient(session?.access_token),
     [session?.access_token],
   );
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? window.location.origin;
 
   useEffect(() => {
     document.title = ko.app.title;
@@ -283,6 +285,11 @@ export function App({ initialSession }: AppProps = {}) {
             workOrders={workOrders}
             selectedMechanicId={defaultMechanicId}
             onAssignWorkOrder={assignWorkOrder}
+          />
+          <MessengerPanel
+            api={api}
+            accessToken={session?.access_token}
+            apiBaseUrl={apiBaseUrl}
           />
           <ApprovalQueue
             workOrders={approvalWorkOrders}

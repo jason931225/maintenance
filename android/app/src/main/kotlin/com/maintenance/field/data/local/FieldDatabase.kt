@@ -1,6 +1,7 @@
 package com.maintenance.field.data.local
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -10,9 +11,13 @@ import androidx.room.RoomDatabase
         WorkOrderEntity::class,
         MutationEntity::class,
         EvidenceUploadEntity::class,
+        MessengerOutboxEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
+    autoMigrations = [
+        AutoMigration(from = 1, to = 2),
+    ],
 )
 abstract class FieldDatabase : RoomDatabase() {
     abstract fun workOrders(): WorkOrderDao
@@ -20,6 +25,8 @@ abstract class FieldDatabase : RoomDatabase() {
     abstract fun mutations(): MutationDao
 
     abstract fun evidenceUploads(): EvidenceUploadDao
+
+    abstract fun messengerOutbox(): MessengerOutboxDao
 
     companion object {
         fun create(context: Context): FieldDatabase =

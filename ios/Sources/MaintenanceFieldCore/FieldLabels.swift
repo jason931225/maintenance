@@ -56,3 +56,14 @@ public extension SyncState {
         }
     }
 }
+
+public extension Components.Schemas.MessengerThreadKind {
+    var fieldLabelKey: String {
+        switch self {
+        case .workOrder: "messenger_kind_work_order"
+        case .team: "messenger_kind_team"
+        case .dm: "messenger_kind_dm"
+        case .group: "messenger_kind_group"
+        }
+    }
+}

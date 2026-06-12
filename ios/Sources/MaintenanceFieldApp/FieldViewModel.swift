@@ -15,15 +15,21 @@ final class FieldViewModel: ObservableObject {
     @Published var messageKey: String?
     @Published var isLoading = false
     @Published var isCameraPresented = false
+    @Published var messengerState = MessengerState()
+    @Published var messengerDraft = ""
+    @Published var messengerSearchQuery = ""
 
     private let authRepository: PasskeyAuthRepository
     private let workOrderRepository: WorkOrderRepository
     private let evidenceRepository: EvidenceRepository
+    private let messengerRepository: MessengerRepository
+    private let messengerReducer = MessengerReducer()
 
     init(container: FieldAppContainer) {
         self.authRepository = container.authRepository
         self.workOrderRepository = container.workOrderRepository
         self.evidenceRepository = container.evidenceRepository
+        self.messengerRepository = container.messengerRepository
     }
 
     var isAuthenticated: Bool {
@@ -68,6 +74,7 @@ final class FieldViewModel: ObservableObject {
         do {
             _ = try await workOrderRepository.replayPending()
             _ = await evidenceRepository.uploadPending()
+            _ = await messengerRepository.replayPending()
             today = try await workOrderRepository.refreshToday()
             messageKey = nil
         } catch {
@@ -138,6 +145,95 @@ final class FieldViewModel: ObservableObject {
             messageKey = "capture_saved"
         } catch {
             messageKey = "offline_queued"
+        }
+    }
+
+    func refreshMessenger() async {
+        isLoading = true
+        do {
+            _ = await messengerRepository.replayPending()
+            let threads = try await messengerRepository.loadThreads()
+            messengerState = messengerReducer.reduce(messengerState, .threadsLoaded(threads))
+            if let selectedThreadID = messengerState.selectedThreadID {
+                await loadMessages(threadID: selectedThreadID, beforeMessageID: nil)
+            }
+            messageKey = nil
+        } catch {
+            messageKey = "error_network"
+        }
+        isLoading = false
+    }
+
+    func selectMessengerThread(_ thread: MessengerThread) async {
+        messengerState = messengerReducer.reduce(messengerState, .threadSelected(thread.id))
+        await loadMessages(threadID: thread.id, beforeMessageID: nil)
+    }
+
+    func loadOlderMessengerMessages() async {
+        guard let threadID = messengerState.selectedThreadID else { return }
+        let before = messengerState.nextCursorByThread[threadID] ?? nil
+        await loadMessages(threadID: threadID, beforeMessageID: before)
+    }
+
+    func searchMessengerMessages() async {
+        let query = messengerSearchQuery.trimmedForSubmission
+        guard query.isEmpty == false else {
+            messengerState = messengerReducer.reduce(messengerState, .searchResultsLoaded([]))
+            return
+        }
+        do {
+            let messages = try await messengerRepository.search(query: query)
+            messengerState = messengerReducer.reduce(messengerState, .searchResultsLoaded(messages))
+            messageKey = nil
+        } catch {
+            messageKey = "error_network"
+        }
+    }
+
+    func sendMessengerMessage() async {
+        guard let threadID = messengerState.selectedThreadID else { return }
+        let body = messengerDraft.trimmedForSubmission
+        guard body.isEmpty == false else {
+            messageKey = "error_required"
+            return
+        }
+
+        do {
+            let result = try await messengerRepository.sendOrQueue(
+                threadID: threadID,
+                body: body,
+                attachmentEvidenceIDs: []
+            )
+            messengerDraft = ""
+            if let message = result.message {
+                messengerState = messengerReducer.reduce(messengerState, .messageSent(message))
+                try? await messengerRepository.markRead(threadID: threadID, lastReadMessageID: message.id)
+            }
+            messageKey = result.state == .pending ? "messenger_send_pending" : nil
+        } catch {
+            messageKey = "messenger_send_pending"
+        }
+    }
+
+    private func loadMessages(
+        threadID: Components.Schemas.Uuid,
+        beforeMessageID: Components.Schemas.Uuid?
+    ) async {
+        do {
+            let page = try await messengerRepository.loadMessages(
+                threadID: threadID,
+                beforeMessageID: beforeMessageID
+            )
+            messengerState = messengerReducer.reduce(
+                messengerState,
+                .messagesPageLoaded(threadID: threadID, page: page)
+            )
+            if let lastMessageID = messengerState.messagesByThread[threadID]?.last?.id {
+                try? await messengerRepository.markRead(threadID: threadID, lastReadMessageID: lastMessageID)
+            }
+            messageKey = nil
+        } catch {
+            messageKey = "error_network"
         }
     }
 }

@@ -10,6 +10,9 @@ struct MaintenanceFieldCoreBehaviorTests {
         try reportDraftTrimsGeneratedRequestFields()
         try await offlineStartRetriesSameRequestIDAndAcceptsCachedSyncResult()
         try await failedOperationSurfacesQueueResultWithoutDroppingMutation()
+        try messengerMappersAndReducerMirrorAndroidModels()
+        try await offlineComposedMessagesQueueAndReplayDirectly()
+        try messengerRealtimeRequestUsesBearerHeaderAndResumeCursor()
         print("MaintenanceFieldCoreBehaviorTests passed")
     }
 
@@ -184,7 +187,87 @@ struct MaintenanceFieldCoreBehaviorTests {
         try expect(lastError.isEmpty == false, "failed mutation should retain server error")
     }
 
+    private static func messengerMappersAndReducerMirrorAndroidModels() throws {
+        let thread = generatedMessengerThread()
+        let first = generatedMessengerMessage(id: firstMessageID, body: "초기 점검", minute: 10)
+        let second = generatedMessengerMessage(id: secondMessageID, body: "현장 도착", minute: 12)
+        let reducer = MessengerReducer()
+
+        let loaded = reducer.reduce(
+            MessengerState(),
+            action: .messagesPageLoaded(
+                threadID: messengerThreadID,
+                page: MessengerMessagePage(
+                    items: [second.toMessengerMessage(), first.toMessengerMessage()],
+                    nextCursor: firstMessageID
+                )
+            )
+        )
+        let live = reducer.reduce(
+            MessengerState(
+                threads: [thread.toMessengerThread()],
+                messagesByThread: loaded.messagesByThread,
+                nextCursorByThread: loaded.nextCursorByThread,
+                lastMessageIDByThread: loaded.lastMessageIDByThread
+            ),
+            action: .liveMessageReceived(second.toMessengerMessage())
+        )
+
+        try expectEqual(thread.toMessengerThread().displayTitle, "팀 채널")
+        try expectEqual(live.messagesByThread[messengerThreadID]?.map { $0.body }, ["초기 점검", "현장 도착"])
+        try expectEqual(live.lastMessageIDByThread[messengerThreadID], secondMessageID)
+        try expectEqual(live.resumeCursor(), secondMessageID)
+    }
+
+    private static func offlineComposedMessagesQueueAndReplayDirectly() async throws {
+        let store = InMemoryMessengerOutboxStore()
+        let gateway = RecordingMessengerGateway()
+        let repository = MessengerRepository(
+            gateway: gateway,
+            outbox: store,
+            requestIDFactory: FixedMessengerRequestIDFactory("chat-request-1"),
+            clock: FixedClock(date: isoDate("2026-06-12T09:00:00Z"))
+        )
+
+        gateway.errorToThrow = URLError(.notConnectedToInternet)
+        let queued = try await repository.sendOrQueue(
+            threadID: messengerThreadID,
+            body: "오프라인 작성",
+            attachmentEvidenceIDs: []
+        )
+
+        try expectEqual(queued.state, .pending)
+        try expectEqual(queued.requestID, "chat-request-1")
+        try expectEqual(await store.pending().single()?.body, "오프라인 작성")
+        try expect(gateway.syncReplayRequests.isEmpty, "chat sends must not use /sync replay")
+
+        gateway.errorToThrow = nil
+        gateway.nextSentMessage = generatedMessengerMessage(id: secondMessageID, body: "오프라인 작성", minute: 15)
+
+        let summary = try await repository.replayPending()
+
+        try expectEqual(summary, MessengerReplaySummary(attempted: 1, sent: 1, failed: 0))
+        try expectEqual(await store.get("chat-request-1")?.isSynced, true)
+        try expectEqual(gateway.sentBodies, ["오프라인 작성", "오프라인 작성"])
+        try expect(gateway.syncReplayRequests.isEmpty, "chat sends must not use /sync replay")
+    }
+
+    private static func messengerRealtimeRequestUsesBearerHeaderAndResumeCursor() throws {
+        let request = MessengerRealtimeRequestFactory(
+            baseURL: URL(string: "https://api.example.com")!,
+            accessToken: "access-token"
+        ).build(lastMessageID: secondMessageID)
+
+        try expectEqual(request.url.absoluteString, "wss://api.example.com/api/v1/ws?last_message_id=\(secondMessageID)")
+        try expectEqual(request.headers["Authorization"], "Bearer access-token")
+    }
+
     private static let workOrderID = "00000000-0000-0000-0000-000000000101"
+    private static let messengerThreadID = "22222222-2222-4222-8222-222222222222"
+    private static let messengerBranchID = "11111111-1111-4111-8111-111111111111"
+    private static let messengerSenderID = "33333333-3333-4333-8333-333333333333"
+    private static let firstMessageID = "44444444-4444-4444-8444-444444444444"
+    private static let secondMessageID = "55555555-5555-4555-8555-555555555555"
 
     private static func generatedWorkOrder(
         priority: Components.Schemas.PriorityLevel,
@@ -244,6 +327,35 @@ struct MaintenanceFieldCoreBehaviorTests {
         )
     }
 
+    private static func generatedMessengerThread() -> Components.Schemas.MessengerThreadSummary {
+        Components.Schemas.MessengerThreadSummary(
+            id: messengerThreadID,
+            kind: .team,
+            branchId: messengerBranchID,
+            title: "팀 채널",
+            memberCount: 3,
+            createdAt: isoDate("2026-06-12T09:00:00Z"),
+            updatedAt: isoDate("2026-06-12T09:00:00Z")
+        )
+    }
+
+    private static func generatedMessengerMessage(
+        id: Components.Schemas.Uuid,
+        body: String,
+        minute: Int
+    ) -> Components.Schemas.MessengerMessageSummary {
+        Components.Schemas.MessengerMessageSummary(
+            id: id,
+            threadId: messengerThreadID,
+            branchId: messengerBranchID,
+            senderId: messengerSenderID,
+            body: body,
+            attachmentEvidenceIds: [],
+            sentAt: isoDate("2026-06-12T09:\(String(format: "%02d", minute)):00Z"),
+            createdAt: isoDate("2026-06-12T09:\(String(format: "%02d", minute)):00Z")
+        )
+    }
+
     private static func isoDate(_ value: String) -> Date {
         ISO8601DateFormatter().date(from: value)!
     }
@@ -263,6 +375,13 @@ struct MaintenanceFieldCoreBehaviorTests {
         guard actual == expected else {
             throw BehaviorTestFailure("\(file):\(line) expected \(expected), got \(actual)")
         }
+    }
+
+    fileprivate static func expectNotNil<T>(_ value: T?) throws -> T {
+        guard let value else {
+            throw BehaviorTestFailure("expected non-nil value")
+        }
+        return value
     }
 }
 
@@ -285,7 +404,57 @@ private final class RecordingSyncGateway: SyncGateway, @unchecked Sendable {
     }
 }
 
+private final class RecordingMessengerGateway: MessengerGateway, @unchecked Sendable {
+    var nextSentMessage: Components.Schemas.MessengerMessageSummary?
+    var errorToThrow: Error?
+    private(set) var sentBodies: [String] = []
+    private(set) var syncReplayRequests: [String] = []
+
+    func listThreads(limit: Int64) async throws -> [MessengerThread] {
+        []
+    }
+
+    func listMessages(
+        threadID: Components.Schemas.Uuid,
+        beforeMessageID: Components.Schemas.Uuid?,
+        limit: Int64
+    ) async throws -> MessengerMessagePage {
+        MessengerMessagePage(items: [], nextCursor: nil)
+    }
+
+    func sendMessage(
+        threadID: Components.Schemas.Uuid,
+        body: String,
+        attachmentEvidenceIDs: [Components.Schemas.Uuid]
+    ) async throws -> MessengerMessage {
+        sentBodies.append(body)
+        if let errorToThrow {
+            self.errorToThrow = nil
+            throw errorToThrow
+        }
+        return try MaintenanceFieldCoreBehaviorTests.expectNotNil(nextSentMessage).toMessengerMessage()
+    }
+
+    func markRead(threadID: Components.Schemas.Uuid, lastReadMessageID: Components.Schemas.Uuid) async throws {}
+
+    func search(query: String, limit: Int64) async throws -> [MessengerMessage] {
+        []
+    }
+}
+
 private struct FixedRequestIDFactory: RequestIDFactory {
+    let value: String
+
+    init(_ value: String) {
+        self.value = value
+    }
+
+    func nextID() -> String {
+        value
+    }
+}
+
+private struct FixedMessengerRequestIDFactory: MessengerRequestIDFactory {
     let value: String
 
     init(_ value: String) {
