@@ -1,0 +1,6 @@
+target/
+.sqlx/query-*.tmp
+**/.DS_Store
+**/.env
+**/.env.*
+!**/.env.example
