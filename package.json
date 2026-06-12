@@ -2,6 +2,10 @@
   "name": "maintenance-api-clients",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "clients/ts",
+    "web"
+  ],
   "engines": {
     "node": ">=22.0.0"
   },
@@ -17,7 +21,11 @@
     "check:openapi-app": "node scripts/check-openapi-app.mjs",
     "check:api-drift:portable": "npm run gen:api:portable && git diff --exit-code -- clients/ts clients/kotlin",
     "check:api-drift:swift": "npm run gen:api:swift && git diff --exit-code -- clients/swift",
-    "test:contract": "tsx scripts/contract-roundtrip.ts"
+    "test:contract": "tsx scripts/contract-roundtrip.ts",
+    "web:dev": "npm --workspace web run dev",
+    "web:build": "npm --workspace web run build",
+    "web:lint": "npm --workspace web run lint",
+    "web:test": "npm --workspace web run test"
   },
   "dependencies": {
     "openapi-fetch": "0.17.0",
