@@ -4,12 +4,12 @@
 
 ## 0. TL;DR — current state
 
-- **Phase:** G001 / M0 platform spine (ultragoal `.omc/ultragoal/`, 0/8 goals complete)
+- **Phase:** **G002 / M1 registry + WO core slice** (ultragoal 1/8 complete — **G001/M0 DONE & checkpointed 2026-06-12**, main `9883308`)
 - **Plan:** `.omc/plans/fsm-maintenance-plan.md` (consensus-APPROVED 2026-06-12, ralplan iteration 3) — task IDs T0.x–T6.x are stable, ledger references them
 - **Spec:** `.omc/specs/deep-interview-fsm-maintenance.md` (interview-locked user decisions — do not relitigate)
-- **Done (12/13):** T0.1 kernel · T0.2 layer gate · T0.3 schema+with_audit · T0.4 gates (audit-coverage/migration-safety/pii-no-logs) · T0.5 auth (SoftPasskey-proven ceremonies, refresh families) · T0.6 authz (primary-source 4-level matrix) · T0.7 Compose stack (6 services healthy, HTTPS 200, SeaweedFS zero host ports) + mnt-app · T0.9 backup/restore drill · T0.10 Excel spike PASS · T0.11 compliance (withdrawal-destruction proven, coords never audited) · T0.12 provisioning (cold-start passkey bootstrap) · T0.13 DR/PITR (WAL archive + arbitrary timestamp drill + VM-down rehearsal evidence)
-- **In flight:** T0.8 observability + audit-read API. **Next:** M0 wrap after T0.8 → G001 checkpoint → M1
-- **Main:** 49 green test suites / 0 failed; 4/4 gates PASS; 14 workspace crates
+- **M0 (13/13):** kernel · layer gate · schema+with_audit · 3 safety gates · auth (SoftPasskey-proven) · authz (4-level 22-feature matrix) · Compose stack + mnt-app · observability (/api/audit self-auditing, OpenSLO) · backup/restore drill · Excel spike PASS · compliance (destruction proven) · provisioning · DR/PITR (lead-verified arbitrary-timestamp drill; VM-down rehearsal evidence)
+- **M1 in flight:** T1.1 registry + master-list importer (codex worker). **Chain:** T1.2 WO FSM → T1.3 app/REST/OpenAPI → fan-out {T1.4 evidence, T1.5 web, T1.9 client-gen, T1.10 apalis soak} → T1.6 Android → T1.7 iOS → T1.8 parity · T1.11 distribution (NEEDS Apple/Google accounts — user) · T1.12 i18n
+- **Main:** 52 green test suites / 0 failed; 4/4 gates PASS; 14 workspace crates; migrations 0001–0006
 - **Local env:** Rust stable 1.96.0 pinned; Homebrew Postgres 18.4 (latest stable, live-verified); Docker 29.5.2 via colima; Node 24
 
 ## 1. Hard guardrails (persist)
