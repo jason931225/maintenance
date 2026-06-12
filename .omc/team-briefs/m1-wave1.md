@@ -31,3 +31,31 @@ Same Hard Rules as `/Users/jasonlee/Developer/maintenance/.omc/team-briefs/m0-wa
 - Wire routers into mnt-app (mount under /api/v1) — mnt-app stays thin composition.
 - Tests: #[sqlx::test] per use-case asserting state change AND audit row in same tx (reuse with_audit test patterns); authz: MECHANIC cannot approve (403-kind), cross-branch WO invisible; requestNo generation race-safe (two concurrent creates same day → distinct sequential numbers); full intake→assign→start→report→approve E2E test through application layer; interlock: approve-completion with evidence_verified=false → Conflict.
 - Full verification suite per Hard Rules (sqlx prepare --all-targets, fmt, clippy, tests, all 4 gates).
+
+### 4. T1.4 — evidence pipeline + WORM interlock (`backend/crates/platform/storage` + workorder wiring)
+- `mnt-platform-storage`: S3 port (trait) + SeaweedFS adapter (verify current SeaweedFS-compatible Rust S3 client live — aws-sdk-s3 with custom endpoint is the standard path; verify version). Presigned upload URL issuance; bucket layout per WO/stage.
+- EvidenceMedia model + migration **0009**: evidence_media (wo FK, stage REQUEST/BEFORE/DURING/AFTER/REPORT/OUTSOURCE_RESULT, s3_key, content_type, size, uploaded_by, worm_replica_status PENDING/VERIFIED/FAILED, retry_count), unverified-evidence admin queue (view or status index).
+- Replication worker logic: copy object to the replica bucket (second S3 target — config; production = OCI Object Storage with retention lock; tests = second bucket on the local SeaweedFS from ops/compose.yml), verify (HEAD + checksum), flip worm_replica_status; bounded exponential backoff, max-N retries → FAILED + alert log (tracing) + queue visibility. NEVER silent-drop (plan §2.6).
+- Wire the REAL interlock: workorder completion approval consults evidence: WO with any AFTER/REPORT-stage evidence not VERIFIED cannot reach FINAL_COMPLETED (replace/implement the evidence_verified flag semantics from T1.3 with per-media verification — migration may alter work_orders accordingly). Audit events for evidence.upload/evidence.verify.
+- WORM retention test suite (ADR-0005): against the compose SeaweedFS (docker-compose, distinct project name): put with retention/COMPLIANCE semantics as SeaweedFS supports → attempt delete/overwrite → must be denied; document any SeaweedFS-specific caveats found. Plus #[sqlx::test]: interlock blocks completion; FAILED-after-max-retries lands on admin queue; presign flow.
+- Boot compose for integration tests; tear down; distinct project name.
+
+### 5. T1.5 — web console slice (`web/`)
+- React + TypeScript strict, Vite, shadcn/ui + Tailwind v4 (ALL versions verified live via npm registry — user mandate), Pretendard font, Korean-only UI with EXTERNALIZED string resources (i18n-ready per T1.12), KS X ISO 8601 dates, WCAG AA, 48px touch targets.
+- Generated TS client from backend/openapi/openapi.yaml (openapi-typescript or equivalent — verify live; commit generation script `npm run gen:api`); NEVER hand-write API types.
+- Slices: passkey login page (WebAuthn browser ceremonies against mnt-platform-auth endpoints — check backend/openapi for the auth routes; if auth REST routes are missing from the spec, STOP and report the gap in your final message instead of inventing endpoints); 접수 입력 form (호기 input → equipment autocomplete via registry lookup → customer/site autofill, 고장내용, priority hint); WO list + kanban dispatch board (columns by status group, WO cards with priority badges, drag = assignment action via API); approval queue (pending REPORT_SUBMITTED/ADMIN_REVIEW items, approve/reject with memo).
+- Tests: vitest component tests for the form validation + board rendering from fixture API responses (msw for HTTP mocking in tests is acceptable — test doubles are NOT production stubs); npm run build green; eslint strict green; a hardcoded-string lint check (eslint rule or custom script) per T1.12.
+- Do NOT touch .github/workflows (T1.9 owns CI edits this wave; web CI wired at merge).
+
+### 6. T1.9 — OpenAPI tri-client generation + drift gate (`clients/` + ci)
+- From backend/openapi/openapi.yaml generate: TypeScript (the same generator T1.5 uses — coordinate via committed script, output clients/ts), Swift (Apple swift-openapi-generator — verify current version live; output clients/swift as SPM package), Kotlin (openapi-generator kotlin or kotlinx-serialization-based — verify live; output clients/kotlin as Gradle module).
+- All three COMPILE in CI: ts via tsc, swift via swift build (macos runner — add a path-filtered macOS job), kotlin via gradle build (ubuntu).
+- Contract round-trip test: a script that boots mnt-app (cargo run, local PG) and exercises healthz + one authed workorder route via the generated TS client, asserting deserialization.
+- Drift gate: CI job fails if regenerating openapi.yaml from the app (the T1.3 emit mechanism) differs from the committed file, OR if regenerating clients differs from committed clients.
+- You own .github/workflows/ci.yml edits this wave.
+
+### 7. T1.10 — apalis soak harness (`backend/crates/platform/jobs`) — GATES M2
+- Verify apalis + apalis-postgres CURRENT versions live (plan pinned 1.0.0-rc.9 in May 2026 — check for newer/stable NOW; record in ADR-0011 amendment if status changed).
+- `mnt-platform-jobs`: our own JobQueue trait (enqueue, schedule_at, with idempotency key) + apalis-postgres adapter behind it (per ADR-0011). Apalis manages its own schema — keep its migrations separate from our numbered ones (document).
+- Soak test (the M2 entry gate, #[sqlx::test]-based or harness binary): schedule N=50 timers across a window; assert all fire within tolerance (±2s of schedule) under: (a) normal run; (b) worker process restart mid-window (kill + respawn the worker runtime in-test); (c) clock-skew simulation via the kernel Clock port (inject offset — do NOT change system clock); (d) crash-recovery: kill during fire, assert no lost AND no duplicate effect beyond idempotency-key dedup.
+- Produce a soak evidence log committed under docs/evidence/ (timestamped, pass/fail per scenario).
