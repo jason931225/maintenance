@@ -1405,6 +1405,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-compliance-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "mnt-compliance-application",
+ "mnt-compliance-domain",
+ "mnt-kernel-core",
+ "mnt-platform-db",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-compliance-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-compliance-domain",
+ "mnt-kernel-core",
+ "serde_json",
+]
+
+[[package]]
+name = "mnt-compliance-domain"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "time",
+]
+
+[[package]]
 name = "mnt-gate-audit-coverage"
 version = "0.1.0"
 

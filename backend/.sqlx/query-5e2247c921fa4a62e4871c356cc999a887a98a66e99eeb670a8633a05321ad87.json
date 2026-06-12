@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT status\n            FROM location_consents\n            WHERE user_id = $1 AND branch_id = $2\n            FOR SHARE\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "location_consents",
+            "name": "status"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5e2247c921fa4a62e4871c356cc999a887a98a66e99eeb670a8633a05321ad87"
+}
