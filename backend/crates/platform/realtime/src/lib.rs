@@ -1015,31 +1015,6 @@ impl IntoResponse for RealtimeApiError {
     }
 }
 
-#[cfg(test)]
-mod auth_tests {
-    use super::*;
-    use axum::http::HeaderValue;
-
-    #[test]
-    fn bearer_token_accepts_authorization_header() {
-        let mut headers = HeaderMap::new();
-        headers.insert(header::AUTHORIZATION, HeaderValue::from_static("Bearer native-token"));
-
-        assert_eq!(bearer_token(&headers).expect("token"), "native-token");
-    }
-
-    #[test]
-    fn bearer_token_accepts_websocket_subprotocol_pair() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            header::SEC_WEBSOCKET_PROTOCOL,
-            HeaderValue::from_static("bearer, browser-token"),
-        );
-
-        assert_eq!(bearer_token(&headers).expect("token"), "browser-token");
-    }
-}
-
 fn message_select_builder() -> QueryBuilder<Postgres> {
     QueryBuilder::<Postgres>::new(
         r#"
@@ -1088,5 +1063,33 @@ fn push_scope_filter(builder: &mut QueryBuilder<Postgres>, column: &str, scope: 
             builder.push_bind(branch_ids);
             builder.push(")");
         }
+    }
+}
+
+#[cfg(test)]
+mod auth_tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    #[test]
+    fn bearer_token_accepts_authorization_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer native-token"),
+        );
+
+        assert_eq!(bearer_token(&headers).expect("token"), "native-token");
+    }
+
+    #[test]
+    fn bearer_token_accepts_websocket_subprotocol_pair() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::SEC_WEBSOCKET_PROTOCOL,
+            HeaderValue::from_static("bearer, browser-token"),
+        );
+
+        assert_eq!(bearer_token(&headers).expect("token"), "browser-token");
     }
 }
