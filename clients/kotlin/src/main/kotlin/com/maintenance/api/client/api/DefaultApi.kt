@@ -34,11 +34,20 @@ import com.maintenance.api.client.model.CreateWorkOrderRequest
 import com.maintenance.api.client.model.DailyPlanSummary
 import com.maintenance.api.client.model.ErrorBody
 import com.maintenance.api.client.model.OutsourceWorkSummary
+import com.maintenance.api.client.model.PasskeyLoginFinishRequest
+import com.maintenance.api.client.model.PasskeyLoginStartRequest
+import com.maintenance.api.client.model.PasskeyLoginStartResponse
+import com.maintenance.api.client.model.PasskeyRegisterFinishRequest
+import com.maintenance.api.client.model.PasskeyRegisterFinishResponse
+import com.maintenance.api.client.model.PasskeyRegisterStartRequest
+import com.maintenance.api.client.model.PasskeyRegisterStartResponse
+import com.maintenance.api.client.model.RefreshTokenRequest
 import com.maintenance.api.client.model.ReviewDailyPlanRequest
 import com.maintenance.api.client.model.ReviewTargetChangeRequest
 import com.maintenance.api.client.model.SubmitReportRequest
 import com.maintenance.api.client.model.TargetChangeRequest
 import com.maintenance.api.client.model.TargetChangeRequestSummary
+import com.maintenance.api.client.model.TokenPairResponse
 import com.maintenance.api.client.model.UpdateWorkOrderPriorityRequest
 import com.maintenance.api.client.model.WorkOrderSummary
 
@@ -68,6 +77,448 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         val defaultBasePath: String by lazy {
             System.getProperties().getProperty(ApiClient.BASE_URL_KEY, "http://localhost")
         }
+    }
+
+    /**
+     * POST /api/v1/auth/logout
+     * Logout and revoke refresh-token family
+     *
+     * @param body
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun apiV1AuthLogoutPost(body: RefreshTokenRequest) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = apiV1AuthLogoutPostWithHttpInfo(body = body)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/logout
+     * Logout and revoke refresh-token family
+     *
+     * @param body
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun apiV1AuthLogoutPostWithHttpInfo(body: RefreshTokenRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = apiV1AuthLogoutPostRequestConfig(body = body)
+
+        return@withContext request<RefreshTokenRequest, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation apiV1AuthLogoutPost
+     *
+     * @param body
+     * @return RequestConfig
+     */
+    fun apiV1AuthLogoutPostRequestConfig(body: RefreshTokenRequest) : RequestConfig<RefreshTokenRequest> {
+        val localVariableBody = body
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/logout",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/auth/passkey/login/finish
+     * Finish passkey login
+     * Verifies the passkey assertion and issues an ES256 access JWT plus an opaque rotating refresh token.
+     * @param passkeyLoginFinishRequest
+     * @return TokenPairResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun apiV1AuthPasskeyLoginFinishPost(passkeyLoginFinishRequest: PasskeyLoginFinishRequest) : TokenPairResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = apiV1AuthPasskeyLoginFinishPostWithHttpInfo(passkeyLoginFinishRequest = passkeyLoginFinishRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as TokenPairResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/passkey/login/finish
+     * Finish passkey login
+     * Verifies the passkey assertion and issues an ES256 access JWT plus an opaque rotating refresh token.
+     * @param passkeyLoginFinishRequest
+     * @return ApiResponse<TokenPairResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun apiV1AuthPasskeyLoginFinishPostWithHttpInfo(passkeyLoginFinishRequest: PasskeyLoginFinishRequest) : ApiResponse<TokenPairResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = apiV1AuthPasskeyLoginFinishPostRequestConfig(passkeyLoginFinishRequest = passkeyLoginFinishRequest)
+
+        return@withContext request<PasskeyLoginFinishRequest, TokenPairResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation apiV1AuthPasskeyLoginFinishPost
+     *
+     * @param passkeyLoginFinishRequest
+     * @return RequestConfig
+     */
+    fun apiV1AuthPasskeyLoginFinishPostRequestConfig(passkeyLoginFinishRequest: PasskeyLoginFinishRequest) : RequestConfig<PasskeyLoginFinishRequest> {
+        val localVariableBody = passkeyLoginFinishRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/passkey/login/finish",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/auth/passkey/login/start
+     * Start passkey login
+     *
+     * @param passkeyLoginStartRequest
+     * @return PasskeyLoginStartResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun apiV1AuthPasskeyLoginStartPost(passkeyLoginStartRequest: PasskeyLoginStartRequest) : PasskeyLoginStartResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = apiV1AuthPasskeyLoginStartPostWithHttpInfo(passkeyLoginStartRequest = passkeyLoginStartRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PasskeyLoginStartResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/passkey/login/start
+     * Start passkey login
+     *
+     * @param passkeyLoginStartRequest
+     * @return ApiResponse<PasskeyLoginStartResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun apiV1AuthPasskeyLoginStartPostWithHttpInfo(passkeyLoginStartRequest: PasskeyLoginStartRequest) : ApiResponse<PasskeyLoginStartResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = apiV1AuthPasskeyLoginStartPostRequestConfig(passkeyLoginStartRequest = passkeyLoginStartRequest)
+
+        return@withContext request<PasskeyLoginStartRequest, PasskeyLoginStartResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation apiV1AuthPasskeyLoginStartPost
+     *
+     * @param passkeyLoginStartRequest
+     * @return RequestConfig
+     */
+    fun apiV1AuthPasskeyLoginStartPostRequestConfig(passkeyLoginStartRequest: PasskeyLoginStartRequest) : RequestConfig<PasskeyLoginStartRequest> {
+        val localVariableBody = passkeyLoginStartRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/passkey/login/start",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/auth/passkey/register/finish
+     * Finish passkey registration
+     * Finishes a bootstrap-linked registration ceremony or an authenticated add-device ceremony.
+     * @param passkeyRegisterFinishRequest
+     * @return PasskeyRegisterFinishResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun apiV1AuthPasskeyRegisterFinishPost(passkeyRegisterFinishRequest: PasskeyRegisterFinishRequest) : PasskeyRegisterFinishResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = apiV1AuthPasskeyRegisterFinishPostWithHttpInfo(passkeyRegisterFinishRequest = passkeyRegisterFinishRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PasskeyRegisterFinishResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/passkey/register/finish
+     * Finish passkey registration
+     * Finishes a bootstrap-linked registration ceremony or an authenticated add-device ceremony.
+     * @param passkeyRegisterFinishRequest
+     * @return ApiResponse<PasskeyRegisterFinishResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun apiV1AuthPasskeyRegisterFinishPostWithHttpInfo(passkeyRegisterFinishRequest: PasskeyRegisterFinishRequest) : ApiResponse<PasskeyRegisterFinishResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = apiV1AuthPasskeyRegisterFinishPostRequestConfig(passkeyRegisterFinishRequest = passkeyRegisterFinishRequest)
+
+        return@withContext request<PasskeyRegisterFinishRequest, PasskeyRegisterFinishResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation apiV1AuthPasskeyRegisterFinishPost
+     *
+     * @param passkeyRegisterFinishRequest
+     * @return RequestConfig
+     */
+    fun apiV1AuthPasskeyRegisterFinishPostRequestConfig(passkeyRegisterFinishRequest: PasskeyRegisterFinishRequest) : RequestConfig<PasskeyRegisterFinishRequest> {
+        val localVariableBody = passkeyRegisterFinishRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/passkey/register/finish",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/auth/passkey/register/start
+     * Start passkey registration
+     * Starts registration with either a bootstrap credential or an authenticated bearer session adding a device.
+     * @param passkeyRegisterStartRequest
+     * @return PasskeyRegisterStartResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun apiV1AuthPasskeyRegisterStartPost(passkeyRegisterStartRequest: PasskeyRegisterStartRequest) : PasskeyRegisterStartResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = apiV1AuthPasskeyRegisterStartPostWithHttpInfo(passkeyRegisterStartRequest = passkeyRegisterStartRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PasskeyRegisterStartResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/passkey/register/start
+     * Start passkey registration
+     * Starts registration with either a bootstrap credential or an authenticated bearer session adding a device.
+     * @param passkeyRegisterStartRequest
+     * @return ApiResponse<PasskeyRegisterStartResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun apiV1AuthPasskeyRegisterStartPostWithHttpInfo(passkeyRegisterStartRequest: PasskeyRegisterStartRequest) : ApiResponse<PasskeyRegisterStartResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = apiV1AuthPasskeyRegisterStartPostRequestConfig(passkeyRegisterStartRequest = passkeyRegisterStartRequest)
+
+        return@withContext request<PasskeyRegisterStartRequest, PasskeyRegisterStartResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation apiV1AuthPasskeyRegisterStartPost
+     *
+     * @param passkeyRegisterStartRequest
+     * @return RequestConfig
+     */
+    fun apiV1AuthPasskeyRegisterStartPostRequestConfig(passkeyRegisterStartRequest: PasskeyRegisterStartRequest) : RequestConfig<PasskeyRegisterStartRequest> {
+        val localVariableBody = passkeyRegisterStartRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/passkey/register/start",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/auth/token/refresh
+     * Rotate refresh token
+     * Rotates an opaque refresh token; reuse of an old token revokes the whole family and returns 401.
+     * @param refreshTokenRequest
+     * @return TokenPairResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun apiV1AuthTokenRefreshPost(refreshTokenRequest: RefreshTokenRequest) : TokenPairResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = apiV1AuthTokenRefreshPostWithHttpInfo(refreshTokenRequest = refreshTokenRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as TokenPairResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/token/refresh
+     * Rotate refresh token
+     * Rotates an opaque refresh token; reuse of an old token revokes the whole family and returns 401.
+     * @param refreshTokenRequest
+     * @return ApiResponse<TokenPairResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun apiV1AuthTokenRefreshPostWithHttpInfo(refreshTokenRequest: RefreshTokenRequest) : ApiResponse<TokenPairResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = apiV1AuthTokenRefreshPostRequestConfig(refreshTokenRequest = refreshTokenRequest)
+
+        return@withContext request<RefreshTokenRequest, TokenPairResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation apiV1AuthTokenRefreshPost
+     *
+     * @param refreshTokenRequest
+     * @return RequestConfig
+     */
+    fun apiV1AuthTokenRefreshPostRequestConfig(refreshTokenRequest: RefreshTokenRequest) : RequestConfig<RefreshTokenRequest> {
+        val localVariableBody = refreshTokenRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/token/refresh",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
     }
 
     /**

@@ -1,3 +1,9 @@
+# Free-form JSON (e.g. WebAuthn credential payloads) must map to a serializable
+# type: kotlinx.serialization cannot derive a serializer for kotlin.Any.
+typeMappings:
+  AnyType: kotlinx.serialization.json.JsonElement
+importMappings:
+  kotlinx.serialization.json.JsonElement: kotlinx.serialization.json.JsonElement
 additionalProperties:
   artifactId: maintenance-api-client
   artifactVersion: 0.1.0

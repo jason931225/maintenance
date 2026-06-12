@@ -276,6 +276,265 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/passkey/register/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start passkey registration
+         * @description Starts registration with either a bootstrap credential or an authenticated bearer session adding a device.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PasskeyRegisterStartRequest"];
+                };
+            };
+            responses: {
+                /** @description Registration ceremony challenge. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PasskeyRegisterStartResponse"];
+                    };
+                };
+                400: components["responses"]["ValidationError"];
+                401: components["responses"]["Unauthorized"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/passkey/register/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish passkey registration
+         * @description Finishes a bootstrap-linked registration ceremony or an authenticated add-device ceremony.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PasskeyRegisterFinishRequest"];
+                };
+            };
+            responses: {
+                /** @description Passkey registered. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PasskeyRegisterFinishResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/passkey/login/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start passkey login */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PasskeyLoginStartRequest"];
+                };
+            };
+            responses: {
+                /** @description Authentication ceremony challenge. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PasskeyLoginStartResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/passkey/login/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish passkey login
+         * @description Verifies the passkey assertion and issues an ES256 access JWT plus an opaque rotating refresh token.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PasskeyLoginFinishRequest"];
+                };
+            };
+            responses: {
+                /** @description Access and refresh tokens. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TokenPairResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/token/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate refresh token
+         * @description Rotates an opaque refresh token; reuse of an old token revokes the whole family and returns 401.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RefreshTokenRequest"];
+                };
+            };
+            responses: {
+                /** @description New access and refresh tokens. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TokenPairResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Logout and revoke refresh-token family */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["LogoutRequest"];
+                };
+            };
+            responses: {
+                /** @description Refresh-token family revoked. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                401: components["responses"]["Unauthorized"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -343,6 +602,57 @@ export interface components {
             vendor_name: string;
             vendor_contact?: string;
             reason: string;
+        };
+        PasskeyRegisterStartRequest: {
+            /** @description One-time bootstrap credential for zero-credential users. */
+            bootstrap_token?: string;
+            username?: string;
+            display_name?: string;
+        };
+        PasskeyRegisterStartResponse: {
+            ceremony_id: components["schemas"]["Uuid"];
+            challenge: {
+                [key: string]: unknown;
+            };
+            expires_at: components["schemas"]["Timestamp"];
+        };
+        PasskeyRegisterFinishRequest: {
+            ceremony_id: components["schemas"]["Uuid"];
+            credential: {
+                [key: string]: unknown;
+            };
+        };
+        PasskeyRegisterFinishResponse: {
+            passkey_id: components["schemas"]["Uuid"];
+            user_id: components["schemas"]["Uuid"];
+            credential_id: string;
+        };
+        PasskeyLoginStartRequest: {
+            user_id: components["schemas"]["Uuid"];
+        };
+        PasskeyLoginStartResponse: {
+            ceremony_id: components["schemas"]["Uuid"];
+            challenge: {
+                [key: string]: unknown;
+            };
+            expires_at: components["schemas"]["Timestamp"];
+        };
+        PasskeyLoginFinishRequest: {
+            ceremony_id: components["schemas"]["Uuid"];
+            credential: {
+                [key: string]: unknown;
+            };
+        };
+        RefreshTokenRequest: {
+            refresh_token: string;
+        };
+        LogoutRequest: components["schemas"]["RefreshTokenRequest"];
+        TokenPairResponse: {
+            access_token: string;
+            refresh_token: string;
+            /** @enum {string} */
+            token_type: "Bearer";
+            refresh_expires_at: components["schemas"]["Timestamp"];
         };
         WorkOrderSummary: {
             id: components["schemas"]["Uuid"];
