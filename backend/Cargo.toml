@@ -10,6 +10,7 @@ members = [
   "crates/kernel/*",
   "crates/compliance/*",
   "crates/financial/*",
+  "crates/identity/*",
   "crates/registry/*",
   "crates/reporting/*",
   "crates/workorder/*",
@@ -84,6 +85,7 @@ mnt-financial-domain = { path = "crates/financial/domain" }
 mnt-financial-application = { path = "crates/financial/application" }
 mnt-financial-adapter-postgres = { path = "crates/financial/adapter-postgres" }
 mnt-financial-rest = { path = "crates/financial/rest" }
+mnt-identity-application = { path = "crates/identity/application" }
 mnt-registry-domain = { path = "crates/registry/domain" }
 mnt-registry-application = { path = "crates/registry/application" }
 mnt-reporting-domain = { path = "crates/reporting/domain" }
