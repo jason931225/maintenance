@@ -152,6 +152,14 @@ volume_for_mount() {
   printf '%s\n' "${volume}"
 }
 
+host_path() {
+  local path="$1"
+  case "${path}" in
+    /*) printf '%s\n' "${path}" ;;
+    *) printf '%s\n' "${repo_root}/${path}" ;;
+  esac
+}
+
 write_sqlx_migrations() {
   local output="$1"
   local has_table
@@ -186,6 +194,7 @@ if [[ -z "${backup_dir}" || ! -d "${backup_dir}" ]]; then
   echo "no backup directory found under ${backup_root}/daily" >&2
   exit 1
 fi
+backup_dir_host="$(host_path "${backup_dir}")"
 
 require_file "${backup_dir}/postgres.dump"
 require_file "${backup_dir}/sqlx-migrations.tsv"
@@ -220,7 +229,7 @@ docker run --rm \
 
 docker run --rm \
   --volume "${seaweedfs_volume}:/data" \
-  --volume "${repo_root}/${backup_dir}:/backup:ro" \
+  --volume "${backup_dir_host}:/backup:ro" \
   postgres:18.4@sha256:65f70a152846cf504dff86e807007e9aeac98c3aeb7b62541b2c55ab9d264e56 \
   bash -ceu 'tar -C /data -xzf /backup/seaweedfs-data.tar.gz'
 

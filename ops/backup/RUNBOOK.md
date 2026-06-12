@@ -6,12 +6,14 @@ This runbook covers the T0.9 nightly backup and restore drill for the Compose
 production stack in `ops/compose.yml`. It backs up:
 
 - Postgres with `pg_dump -Fc`, plus role/global metadata.
+- Postgres `pg_basebackup` PITR base tarball for T0.13 recovery.
+- The Postgres WAL archive volume snapshot present at backup time.
 - SQLx migration metadata and per-table row counts for restore verification.
 - The SeaweedFS `/data` volume as a tarball plus file checksum manifest.
 
-T0.13 adds continuous WAL archiving and arbitrary timestamp PITR. Until then,
-nightly dumps are operational safety net only; they do not satisfy the accepted
-ADR-0015 RPO target by themselves.
+T0.13 adds continuous WAL archiving and arbitrary timestamp PITR. The nightly
+`pg_dump` remains the logical safety net; ADR-0015 RPO recovery uses the
+`postgres-basebackup.tar.gz` base plus the continuously synced WAL archive.
 
 ## Ownership and Cadence
 
@@ -41,6 +43,11 @@ The backup directory contains:
 
 - `postgres.dump`: custom-format database dump for `pg_restore`.
 - `postgres-globals.sql`: global role metadata from `pg_dumpall`.
+- `postgres-basebackup.tar.gz`: plain-format `pg_basebackup` data directory
+  tarball, created with streamed WAL and a fast checkpoint.
+- `postgres-wal-archive.tar.gz`: point-in-time snapshot of the local WAL
+  archive volume. Production must still sync the live WAL archive off-VM
+  continuously; this tarball is a backup-time checkpoint, not the only WAL copy.
 - `sqlx-migrations.tsv`: SQLx migration versions present at backup time.
 - `postgres-row-counts.tsv`: row counts for public base tables.
 - `seaweedfs-data.tar.gz`: SeaweedFS volume contents.
@@ -49,24 +56,18 @@ The backup directory contains:
 
 ## PITR Base Backup Handoff
 
-For T0.13, `pg_basebackup` is the base for continuous recovery and WAL replay.
-Run it from a host or container that can reach the production Postgres service
-with a replication-capable role:
+`ops/backup/backup.sh` now writes the PITR base into the normal timestamped
+backup directory:
 
 ```sh
-pg_basebackup \
-  --host "${MNT_POSTGRES_HOST}" \
-  --username "${MNT_REPLICATION_USER}" \
-  --pgdata "/var/backups/mnt/pitr/base/$(date -u +%Y%m%dT%H%M%SZ)" \
-  --format tar \
-  --wal-method stream \
-  --checkpoint fast \
-  --progress
+ops/backup/backup.sh --project mnt-prod --backup-root /var/backups/mnt
+ls /var/backups/mnt/daily/<timestamp>/postgres-basebackup.tar.gz
 ```
 
-The WAL archive target, archive credential handling, and arbitrary timestamp
-restore drill belong to T0.13. Do not claim ADR-0015 RPO compliance from the
-nightly `pg_dump` alone.
+The Compose stack archives WAL into the `postgres-wal-archive` volume. Sync
+that archive off the VM at least every five minutes, preserving file names.
+Restore uses a base backup plus all archived WAL files through the target time.
+Do not claim ADR-0015 RPO compliance from the nightly `pg_dump` alone.
 
 ## Restore Drill
 
@@ -99,6 +100,24 @@ Required success markers in the log:
 - `verify_seaweedfs_service=healthy`
 - `restore_drill_complete=ok`
 - `scratch_teardown=complete project=<scratch-project>`
+
+## PITR Drill Handoff
+
+Use the DR script for arbitrary timestamp recovery. It calls this backup script
+to create the base backup, writes controlled before/after rows, restores into a
+separate scratch Compose project, replays WAL to the requested timestamp, and
+verifies the before row exists while the after row does not:
+
+```sh
+ops/dr/pitr-drill.sh \
+  --source-project mnt-prod \
+  --scratch-project mnt-pitr-scratch \
+  --backup-root /var/backups/mnt \
+  --target-timestamp "2026-06-12T12:34:56Z"
+```
+
+Record evidence under `ops/dr/drill-logs/` as described in
+`ops/dr/DR-POLICY.md`.
 
 ## Manual Restore Procedure
 

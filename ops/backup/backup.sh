@@ -7,6 +7,8 @@ Usage: ops/backup/backup.sh [options]
 
 Creates a timestamped backup from a running Compose project:
   - Postgres custom-format pg_dump
+  - Postgres pg_basebackup PITR base tarball
+  - Postgres WAL archive volume snapshot
   - Postgres globals dump
   - SQLx migration metadata and table row counts
   - SeaweedFS /data volume tarball and file manifest
@@ -36,12 +38,6 @@ retention_daily="${RETENTION_DAILY:-14}"
 retention_weekly="${RETENTION_WEEKLY:-8}"
 force_weekly="${FORCE_WEEKLY:-0}"
 compose_files=()
-
-if [[ -n "${COMPOSE_FILE:-}" ]]; then
-  compose_files+=("${COMPOSE_FILE}")
-else
-  compose_files+=("ops/compose.yml")
-fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -76,6 +72,14 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ ${#compose_files[@]} -eq 0 ]]; then
+  if [[ -n "${COMPOSE_FILE:-}" ]]; then
+    compose_files+=("${COMPOSE_FILE}")
+  else
+    compose_files+=("ops/compose.yml")
+  fi
+fi
 
 compose_args=(-p "${compose_project}")
 for compose_file in "${compose_files[@]}"; do
@@ -156,6 +160,14 @@ volume_for_mount() {
   printf '%s\n' "${volume}"
 }
 
+host_path() {
+  local path="$1"
+  case "${path}" in
+    /*) printf '%s\n' "${path}" ;;
+    *) printf '%s\n' "${repo_root}/${path}" ;;
+  esac
+}
+
 prune_backups() {
   local dir="$1"
   local keep="$2"
@@ -177,6 +189,7 @@ require_cmd docker
 
 postgres_cid="$(service_container postgres)"
 seaweedfs_cid="$(service_container seaweedfs)"
+postgres_wal_archive_volume="$(volume_for_mount "${postgres_cid}" /var/lib/postgresql/wal-archive)"
 seaweedfs_volume="$(volume_for_mount "${seaweedfs_cid}" /data)"
 
 backup_dir="${backup_root}/daily/${timestamp}"
@@ -185,6 +198,7 @@ if [[ -e "${backup_dir}" ]]; then
   exit 1
 fi
 mkdir -p "${backup_dir}"
+backup_dir_host="$(host_path "${backup_dir}")"
 
 echo "backup_id=${timestamp}"
 echo "compose_project=${compose_project}"
@@ -194,13 +208,34 @@ postgres_exec 'pg_isready -h 127.0.0.1 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}"
 
 postgres_exec 'PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump -h 127.0.0.1 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -Fc' >"${backup_dir}/postgres.dump"
 postgres_exec 'PGPASSWORD="${POSTGRES_PASSWORD}" pg_dumpall -h 127.0.0.1 -U "${POSTGRES_USER}" --globals-only' >"${backup_dir}/postgres-globals.sql"
+postgres_exec '
+  tmp_dir="$(mktemp -d /tmp/mnt-pitr-base.XXXXXX)"
+  cleanup() { rm -rf "${tmp_dir}"; }
+  trap cleanup EXIT
+  PGPASSWORD="${POSTGRES_PASSWORD}" pg_basebackup \
+    -h 127.0.0.1 \
+    -U "${POSTGRES_USER}" \
+    -D "${tmp_dir}" \
+    --format=plain \
+    --wal-method=stream \
+    --checkpoint=fast
+  tar -C "${tmp_dir}" -czf - .
+' >"${backup_dir}/postgres-basebackup.tar.gz"
 
 write_sqlx_migrations "${backup_dir}/sqlx-migrations.tsv"
 write_row_counts "${backup_dir}/postgres-row-counts.tsv"
 
 docker run --rm \
+  --volume "${postgres_wal_archive_volume}:/wal-archive:ro" \
+  --volume "${backup_dir_host}:/backup" \
+  postgres:18.4@sha256:65f70a152846cf504dff86e807007e9aeac98c3aeb7b62541b2c55ab9d264e56 \
+  bash -ceu '
+    tar -C /wal-archive -czf /backup/postgres-wal-archive.tar.gz .
+  '
+
+docker run --rm \
   --volume "${seaweedfs_volume}:/data:ro" \
-  --volume "${repo_root}/${backup_dir}:/backup" \
+  --volume "${backup_dir_host}:/backup" \
   postgres:18.4@sha256:65f70a152846cf504dff86e807007e9aeac98c3aeb7b62541b2c55ab9d264e56 \
   bash -ceu '
     tar -C /data -czf /backup/seaweedfs-data.tar.gz .
@@ -216,6 +251,7 @@ docker run --rm \
   printf '%s ' "${compose_files[@]}"
   printf '\n'
   echo "postgres_container=${postgres_cid}"
+  echo "postgres_wal_archive_volume=${postgres_wal_archive_volume}"
   echo "seaweedfs_container=${seaweedfs_cid}"
   echo "seaweedfs_volume=${seaweedfs_volume}"
   echo "retention_daily=${retention_daily}"
@@ -226,6 +262,8 @@ docker run --rm \
   for artifact in \
     postgres.dump \
     postgres-globals.sql \
+    postgres-basebackup.tar.gz \
+    postgres-wal-archive.tar.gz \
     sqlx-migrations.tsv \
     postgres-row-counts.tsv \
     seaweedfs-data.tar.gz \
