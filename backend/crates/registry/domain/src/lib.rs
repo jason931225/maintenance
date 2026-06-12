@@ -1,0 +1,322 @@
+//! Registry domain.
+//!
+//! Pure equipment/customer/site entities and value objects only. Excel parsing
+//! and Postgres upserts live in outer crates.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
+use mnt_kernel_core::{BranchId, CustomerId, EquipmentId, KernelError, SiteId};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct EquipmentNo(String);
+
+impl EquipmentNo {
+    pub fn parse(value: impl Into<String>) -> Result<Self, KernelError> {
+        let value = value.into().trim().to_string();
+        let chars: Vec<char> = value.chars().collect();
+        let valid = chars.len() == 10
+            && chars[0..3].iter().all(|c| c.is_ascii_uppercase())
+            && chars[3..5].iter().all(|c| c.is_ascii_alphanumeric())
+            && chars[5] == '-'
+            && chars[6..10].iter().all(|c| c.is_ascii_digit());
+
+        if valid {
+            Ok(Self(value))
+        } else {
+            Err(KernelError::validation(format!(
+                "invalid equipment number {value:?}: expected shape AAANN-NNNN"
+            )))
+        }
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    #[must_use]
+    pub fn manufacturer_code(&self) -> &str {
+        &self.0[0..1]
+    }
+
+    #[must_use]
+    pub fn kind_code(&self) -> &str {
+        &self.0[1..2]
+    }
+
+    #[must_use]
+    pub fn power_code(&self) -> &str {
+        &self.0[2..3]
+    }
+
+    #[must_use]
+    pub fn sequence_code(&self) -> &str {
+        &self.0[7..10]
+    }
+}
+
+impl TryFrom<String> for EquipmentNo {
+    type Error = KernelError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::parse(value)
+    }
+}
+
+impl From<EquipmentNo> for String {
+    fn from(value: EquipmentNo) -> Self {
+        value.0
+    }
+}
+
+impl std::fmt::Display for EquipmentNo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EquipmentStatus {
+    Rented,
+    Spare,
+    Disposed,
+    Replacement,
+    Sold,
+}
+
+impl EquipmentStatus {
+    pub fn parse(value: &str) -> Result<Self, KernelError> {
+        match value.trim() {
+            "임대" => Ok(Self::Rented),
+            "예비" => Ok(Self::Spare),
+            "폐기" => Ok(Self::Disposed),
+            "대체" => Ok(Self::Replacement),
+            "매각" => Ok(Self::Sold),
+            other => Err(KernelError::validation(format!(
+                "unknown equipment status {other:?}"
+            ))),
+        }
+    }
+
+    #[must_use]
+    pub const fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Rented => "임대",
+            Self::Spare => "예비",
+            Self::Disposed => "폐기",
+            Self::Replacement => "대체",
+            Self::Sold => "매각",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct MoneyWon(i64);
+
+impl MoneyWon {
+    #[must_use]
+    pub const fn new(amount: i64) -> Self {
+        Self(amount)
+    }
+
+    #[must_use]
+    pub const fn amount(self) -> i64 {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Ton {
+    text: String,
+    milli_tons: Option<i32>,
+}
+
+impl Ton {
+    #[must_use]
+    pub fn parse(value: &str) -> Self {
+        let text = value.trim().to_string();
+        let milli_tons = text.strip_suffix('T').and_then(|number| {
+            number
+                .parse::<f64>()
+                .ok()
+                .map(|tons| (tons * 1000.0).round() as i32)
+        });
+        Self { text, milli_tons }
+    }
+
+    #[must_use]
+    pub fn as_text(&self) -> &str {
+        &self.text
+    }
+
+    #[must_use]
+    pub const fn milli_tons(&self) -> Option<i32> {
+        self.milli_tons
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Customer {
+    id: CustomerId,
+    branch_id: BranchId,
+    name: String,
+}
+
+impl Customer {
+    pub fn new(
+        id: CustomerId,
+        branch_id: BranchId,
+        name: impl Into<String>,
+    ) -> Result<Self, KernelError> {
+        let name = normalize_required(name.into(), "customer name")?;
+        Ok(Self {
+            id,
+            branch_id,
+            name,
+        })
+    }
+
+    #[must_use]
+    pub const fn id(&self) -> CustomerId {
+        self.id
+    }
+
+    #[must_use]
+    pub const fn branch_id(&self) -> BranchId {
+        self.branch_id
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Site {
+    id: SiteId,
+    branch_id: BranchId,
+    customer_id: CustomerId,
+    name: String,
+}
+
+impl Site {
+    pub fn new(
+        id: SiteId,
+        branch_id: BranchId,
+        customer_id: CustomerId,
+        name: impl Into<String>,
+    ) -> Result<Self, KernelError> {
+        let name = normalize_required(name.into(), "site name")?;
+        Ok(Self {
+            id,
+            branch_id,
+            customer_id,
+            name,
+        })
+    }
+
+    #[must_use]
+    pub const fn id(&self) -> SiteId {
+        self.id
+    }
+
+    #[must_use]
+    pub const fn branch_id(&self) -> BranchId {
+        self.branch_id
+    }
+
+    #[must_use]
+    pub const fn customer_id(&self) -> CustomerId {
+        self.customer_id
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Equipment {
+    id: EquipmentId,
+    branch_id: BranchId,
+    equipment_no: EquipmentNo,
+    management_no: Option<String>,
+    customer_id: CustomerId,
+    site_id: SiteId,
+    status: EquipmentStatus,
+}
+
+impl Equipment {
+    #[allow(clippy::too_many_arguments)]
+    #[must_use]
+    pub fn new(
+        id: EquipmentId,
+        branch_id: BranchId,
+        equipment_no: EquipmentNo,
+        management_no: Option<String>,
+        customer_id: CustomerId,
+        site_id: SiteId,
+        status: EquipmentStatus,
+    ) -> Self {
+        Self {
+            id,
+            branch_id,
+            equipment_no,
+            management_no: management_no.and_then(|value| {
+                let trimmed = value.trim().to_string();
+                (!trimmed.is_empty()).then_some(trimmed)
+            }),
+            customer_id,
+            site_id,
+            status,
+        }
+    }
+
+    #[must_use]
+    pub const fn id(&self) -> EquipmentId {
+        self.id
+    }
+
+    #[must_use]
+    pub const fn branch_id(&self) -> BranchId {
+        self.branch_id
+    }
+
+    #[must_use]
+    pub fn equipment_no(&self) -> &EquipmentNo {
+        &self.equipment_no
+    }
+
+    #[must_use]
+    pub fn management_no(&self) -> Option<&str> {
+        self.management_no.as_deref()
+    }
+
+    #[must_use]
+    pub const fn customer_id(&self) -> CustomerId {
+        self.customer_id
+    }
+
+    #[must_use]
+    pub const fn site_id(&self) -> SiteId {
+        self.site_id
+    }
+
+    #[must_use]
+    pub const fn status(&self) -> EquipmentStatus {
+        self.status
+    }
+}
+
+fn normalize_required(value: String, field: &str) -> Result<String, KernelError> {
+    let trimmed = value.trim().to_string();
+    if trimmed.is_empty() {
+        Err(KernelError::validation(format!("{field} is required")))
+    } else {
+        Ok(trimmed)
+    }
+}
