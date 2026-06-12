@@ -14,8 +14,9 @@ pub use error::AuthError;
 pub use jwt::{AccessClaims, AccessTokenInput, JwtIssuer, JwtSettings};
 pub use refresh::{RefreshToken, RefreshTokenIssue, RefreshTokenStore, RefreshTokenUseError};
 pub use webauthn::{
-    AuthenticationCeremony, AuthenticationOutcome, AuthenticationStart, PasskeyRegistrationStart,
-    PasskeyService, StoredPasskey, WebauthnSettings,
+    AuthenticationCeremony, AuthenticationOutcome, AuthenticationStart,
+    PasskeyRegistrationCredential, PasskeyRegistrationStart, PasskeyService, RegistrationCeremony,
+    StoredPasskey, WebauthnSettings,
 };
 pub use well_known::{
     AndroidAssetLinksConfig, AppleAppSiteAssociationConfig, WELL_KNOWN_AASA_PATH,
