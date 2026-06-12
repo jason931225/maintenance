@@ -1,0 +1,388 @@
+//! Migration-safety gate.
+
+use std::path::{Path, PathBuf};
+use std::{collections::HashSet, fs};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ViolationKind {
+    DropAuditedTable,
+    DropAuditedColumn,
+    GrantAuditEventsMutation,
+    DisableAuditEventsTrigger,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Violation {
+    pub kind: ViolationKind,
+    pub file: PathBuf,
+    pub detail: String,
+}
+
+impl std::fmt::Display for Violation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "[{:?}] {}: {}",
+            self.kind,
+            self.file.display(),
+            self.detail
+        )
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct GateResult {
+    pub violations: Vec<Violation>,
+}
+
+impl GateResult {
+    #[must_use]
+    pub fn passed(&self) -> bool {
+        self.violations.is_empty()
+    }
+}
+
+pub fn check_workspace(workspace_dir: &Path) -> Result<GateResult, String> {
+    let files = collect_migration_files(workspace_dir)?;
+    Ok(check_files(files))
+}
+
+#[must_use]
+pub fn check_migrations_root(root: &Path) -> GateResult {
+    match collect_migration_files(root) {
+        Ok(files) => check_files(files),
+        Err(e) => GateResult {
+            violations: vec![Violation {
+                kind: ViolationKind::DropAuditedTable,
+                file: root.to_path_buf(),
+                detail: e,
+            }],
+        },
+    }
+}
+
+fn check_files(files: Vec<PathBuf>) -> GateResult {
+    let mut audited_tables: HashSet<String> = built_in_audited_tables()
+        .iter()
+        .map(|name| name.to_string())
+        .collect();
+    let mut readable_files = Vec::new();
+    let mut result = GateResult::default();
+
+    for file in files {
+        match fs::read_to_string(&file) {
+            Ok(content) => {
+                discover_audited_tables(&content, &mut audited_tables);
+                readable_files.push((file, content));
+            }
+            Err(e) => result.violations.push(Violation {
+                kind: ViolationKind::DropAuditedTable,
+                file,
+                detail: format!("cannot read migration file: {e}"),
+            }),
+        }
+    }
+
+    for (file, content) in readable_files {
+        check_migration_file(&file, &content, &audited_tables, &mut result);
+    }
+
+    result
+}
+
+fn built_in_audited_tables() -> &'static [&'static str] {
+    &[
+        "audit_events",
+        "regions",
+        "branches",
+        "users",
+        "user_branches",
+    ]
+}
+
+fn discover_audited_tables(content: &str, audited_tables: &mut HashSet<String>) {
+    for line in content.lines() {
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with("--") {
+            continue;
+        }
+        if let Some((_prefix, table)) = trimmed.split_once("mnt-gate: audited-table") {
+            let table = normalize_identifier(table.trim());
+            if !table.is_empty() {
+                audited_tables.insert(table);
+            }
+        }
+    }
+}
+
+fn check_migration_file(
+    file: &Path,
+    content: &str,
+    audited_tables: &HashSet<String>,
+    result: &mut GateResult,
+) {
+    let sanitized = sanitize_sql(content);
+    for statement in sanitized.split(';') {
+        let tokens = tokenize_sql(statement);
+        if tokens.is_empty() {
+            continue;
+        }
+        check_drop_table(file, &tokens, audited_tables, result);
+        check_drop_column(file, &tokens, audited_tables, result);
+        check_audit_events_grants(file, &tokens, result);
+        check_audit_events_trigger(file, &tokens, result);
+    }
+}
+
+fn check_drop_table(
+    file: &Path,
+    tokens: &[String],
+    audited_tables: &HashSet<String>,
+    result: &mut GateResult,
+) {
+    for (index, token) in tokens.iter().enumerate() {
+        if token != "drop" || tokens.get(index + 1).is_none_or(|next| next != "table") {
+            continue;
+        }
+        for candidate in tokens.iter().skip(index + 2) {
+            if ["if", "exists", "cascade", "restrict"].contains(&candidate.as_str()) {
+                continue;
+            }
+            if audited_tables.contains(candidate) {
+                result.violations.push(Violation {
+                    kind: ViolationKind::DropAuditedTable,
+                    file: file.to_path_buf(),
+                    detail: format!("DROP TABLE touches audited table '{candidate}'"),
+                });
+            }
+        }
+    }
+}
+
+fn check_drop_column(
+    file: &Path,
+    tokens: &[String],
+    audited_tables: &HashSet<String>,
+    result: &mut GateResult,
+) {
+    for (index, token) in tokens.iter().enumerate() {
+        if token != "alter" || tokens.get(index + 1).is_none_or(|next| next != "table") {
+            continue;
+        }
+        let Some(table) = table_name_after_alter_table(tokens, index + 2) else {
+            continue;
+        };
+        if audited_tables.contains(table)
+            && tokens
+                .windows(2)
+                .any(|window| window[0].as_str() == "drop" && window[1].as_str() == "column")
+        {
+            result.violations.push(Violation {
+                kind: ViolationKind::DropAuditedColumn,
+                file: file.to_path_buf(),
+                detail: format!("ALTER TABLE DROP COLUMN touches audited table '{table}'"),
+            });
+        }
+    }
+}
+
+fn table_name_after_alter_table(tokens: &[String], start: usize) -> Option<&str> {
+    let mut index = start;
+    if tokens.get(index).is_some_and(|token| token == "if")
+        && tokens.get(index + 1).is_some_and(|token| token == "exists")
+    {
+        index += 2;
+    }
+    tokens.get(index).map(String::as_str)
+}
+
+fn check_audit_events_grants(file: &Path, tokens: &[String], result: &mut GateResult) {
+    if !tokens.iter().any(|token| token == "grant")
+        || !tokens.iter().any(|token| token == "audit_events")
+    {
+        return;
+    }
+
+    let on_index = tokens.iter().position(|token| token == "on");
+    let grants_mutation = tokens
+        .iter()
+        .take(on_index.unwrap_or(tokens.len()))
+        .any(|token| token == "update" || token == "delete");
+
+    if grants_mutation {
+        result.violations.push(Violation {
+            kind: ViolationKind::GrantAuditEventsMutation,
+            file: file.to_path_buf(),
+            detail: "GRANT UPDATE/DELETE on audit_events is forbidden".to_string(),
+        });
+    }
+}
+
+fn check_audit_events_trigger(file: &Path, tokens: &[String], result: &mut GateResult) {
+    let disables_trigger = tokens
+        .windows(2)
+        .any(|window| window[0].as_str() == "disable" && window[1].as_str() == "trigger");
+    if disables_trigger && tokens.iter().any(|token| token == "audit_events") {
+        result.violations.push(Violation {
+            kind: ViolationKind::DisableAuditEventsTrigger,
+            file: file.to_path_buf(),
+            detail: "DISABLE TRIGGER on audit_events is forbidden".to_string(),
+        });
+    }
+}
+
+fn sanitize_sql(content: &str) -> String {
+    let bytes = content.as_bytes();
+    let mut output = String::with_capacity(content.len());
+    let mut index = 0usize;
+    let mut in_line_comment = false;
+    let mut in_block_comment = false;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+
+    while index < bytes.len() {
+        let b = bytes[index];
+        let next = bytes.get(index + 1).copied();
+
+        if in_line_comment {
+            if b == b'\n' {
+                in_line_comment = false;
+                output.push('\n');
+            } else {
+                output.push(' ');
+            }
+            index += 1;
+            continue;
+        }
+        if in_block_comment {
+            if b == b'*' && next == Some(b'/') {
+                in_block_comment = false;
+                output.push_str("  ");
+                index += 2;
+            } else {
+                output.push(if b == b'\n' { '\n' } else { ' ' });
+                index += 1;
+            }
+            continue;
+        }
+        if in_single_quote {
+            if b == b'\'' && next == Some(b'\'') {
+                output.push_str("  ");
+                index += 2;
+            } else if b == b'\'' {
+                in_single_quote = false;
+                output.push(' ');
+                index += 1;
+            } else {
+                output.push(if b == b'\n' { '\n' } else { ' ' });
+                index += 1;
+            }
+            continue;
+        }
+        if in_double_quote {
+            if b == b'"' {
+                in_double_quote = false;
+                output.push(' ');
+            } else {
+                output.push((b as char).to_ascii_lowercase());
+            }
+            index += 1;
+            continue;
+        }
+
+        if b == b'-' && next == Some(b'-') {
+            in_line_comment = true;
+            output.push_str("  ");
+            index += 2;
+        } else if b == b'/' && next == Some(b'*') {
+            in_block_comment = true;
+            output.push_str("  ");
+            index += 2;
+        } else if b == b'\'' {
+            in_single_quote = true;
+            output.push(' ');
+            index += 1;
+        } else if b == b'"' {
+            in_double_quote = true;
+            output.push(' ');
+            index += 1;
+        } else {
+            output.push((b as char).to_ascii_lowercase());
+            index += 1;
+        }
+    }
+
+    output
+}
+
+fn tokenize_sql(statement: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+
+    for ch in statement.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            current.push(ch);
+        } else if !current.is_empty() {
+            tokens.push(normalize_identifier(&current));
+            current.clear();
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(normalize_identifier(&current));
+    }
+
+    tokens
+}
+
+fn normalize_identifier(identifier: &str) -> String {
+    identifier
+        .trim_matches(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
+        .rsplit('.')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase()
+}
+
+fn collect_migration_files(root: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut files = Vec::new();
+    collect_migration_files_inner(root, false, &mut files)?;
+    Ok(files)
+}
+
+fn collect_migration_files_inner(
+    dir: &Path,
+    in_migrations_dir: bool,
+    files: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    if should_skip_dir(dir) {
+        return Ok(());
+    }
+
+    let entries =
+        fs::read_dir(dir).map_err(|e| format!("cannot read directory {}: {e}", dir.display()))?;
+    for entry in entries {
+        let entry =
+            entry.map_err(|e| format!("cannot read directory entry in {}: {e}", dir.display()))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("cannot read file type for {}: {e}", path.display()))?;
+        if file_type.is_dir() {
+            let is_migrations = entry.file_name().to_string_lossy() == "migrations";
+            collect_migration_files_inner(&path, in_migrations_dir || is_migrations, files)?;
+        } else if file_type.is_file()
+            && in_migrations_dir
+            && path.extension().is_some_and(|ext| ext == "sql")
+        {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn should_skip_dir(path: &Path) -> bool {
+    path.components().any(|component| {
+        let part = component.as_os_str().to_string_lossy();
+        part == "target" || part == ".git"
+    })
+}
