@@ -605,6 +605,346 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/v1/financial/rental-quotes/compute:
+    post:
+      operationId: computeRentalQuote
+      summary: Compute a rental quote from explicit financial inputs without persisting it
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ComputeRentalQuoteRequest"
+      responses:
+        "200":
+          description: Computed rental quote.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComputedRentalQuote"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/financial/rental-quotes:
+    post:
+      operationId: createRentalQuote
+      summary: Compute and persist a rental quote for equipment
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRentalQuoteRequest"
+      responses:
+        "201":
+          description: Rental quote persisted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RentalQuoteSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/financial/rental-quotes/{quoteId}:
+    get:
+      operationId: getRentalQuote
+      summary: Fetch a persisted rental quote
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/QuoteId"
+      responses:
+        "200":
+          description: Rental quote summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RentalQuoteSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/financial/equipment/{equipmentId}/cost-ledger:
+    get:
+      operationId: listEquipmentCostLedger
+      summary: List equipment cost ledger entries
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/EquipmentId"
+      responses:
+        "200":
+          description: Equipment cost ledger entries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CostLedgerEntrySummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/financial/equipment/{equipmentId}/cost-ledger/manual:
+    post:
+      operationId: appendManualCostLedgerEntry
+      summary: Append a manual admin equipment cost and recompute residual value
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/EquipmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppendManualCostLedgerRequest"
+      responses:
+        "201":
+          description: Cost ledger entry appended.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostLedgerEntrySummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/financial/purchase-requests:
+    post:
+      operationId: createPurchaseRequest
+      summary: Attach a 거래명세표 evidence record and open a purchase request
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePurchaseRequest"
+      responses:
+        "201":
+          description: Purchase request created in statement-attached state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseRequestSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/financial/purchase-requests/{purchaseRequestId}:
+    get:
+      operationId: getPurchaseRequest
+      summary: Fetch one purchase request
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseRequestId"
+      responses:
+        "200":
+          description: Purchase request summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseRequestSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/financial/purchase-requests/{purchaseRequestId}/submit:
+    post:
+      operationId: submitPurchaseRequest
+      summary: Submit a statement-attached purchase request for admin approval
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseRequestId"
+      responses:
+        "200":
+          description: Submitted purchase request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseRequestSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin:
+    post:
+      operationId: approvePurchaseRequestAdmin
+      summary: Admin approval for a submitted purchase request
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseRequestId"
+      responses:
+        "200":
+          description: Admin-approved purchase request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseRequestSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure:
+    post:
+      operationId: preparePurchaseExpenditure
+      summary: Record expenditure number and route to execution or executive approval
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrepareExpenditureRequest"
+      responses:
+        "200":
+          description: Purchase request routed after expenditure preparation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseRequestSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive:
+    post:
+      operationId: approvePurchaseRequestExecutive
+      summary: Executive final approval for above-threshold purchase requests
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseRequestId"
+      responses:
+        "200":
+          description: Purchase request ready to execute.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseRequestSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/financial/purchase-requests/{purchaseRequestId}/reject:
+    post:
+      operationId: rejectPurchaseRequest
+      summary: Reject a purchase request before execution
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectPurchaseRequest"
+      responses:
+        "200":
+          description: Rejected purchase request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseRequestSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/financial/purchase-requests/{purchaseRequestId}/restart:
+    post:
+      operationId: restartPurchaseRequest
+      summary: Restart a rejected purchase request with a replacement statement evidence record
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RestartPurchaseRequest"
+      responses:
+        "200":
+          description: Restarted purchase request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseRequestSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/financial/purchase-requests/{purchaseRequestId}/execute:
+    post:
+      operationId: executePurchaseRequest
+      summary: Execute an approved purchase request and feed the amount into the equipment cost ledger
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseRequestId"
+      responses:
+        "200":
+          description: Executed purchase request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseRequestSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
   /api/v1/auth/passkey/register/start:
     post:
       summary: Start passkey registration
@@ -760,6 +1100,27 @@ components:
       schema:
         type: string
         format: uuid
+    QuoteId:
+      name: quoteId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EquipmentId:
+      name: equipmentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PurchaseRequestId:
+      name: purchaseRequestId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     XDeviceId:
       name: X-Device-Id
       in: header
@@ -858,6 +1219,347 @@ components:
     TargetChangeDecision:
       type: string
       enum: [APPROVED, REJECTED]
+    DepreciationMethod:
+      type: string
+      enum: [STRAIGHT_LINE, DECLINING_BALANCE]
+    CostLedgerSource:
+      type: string
+      enum: [MANUAL_ADMIN, PURCHASE_EXECUTION]
+    PurchaseStatus:
+      type: string
+      enum:
+        - STATEMENT_ATTACHED
+        - REQUEST_SUBMITTED
+        - ADMIN_APPROVED
+        - EXECUTIVE_PENDING
+        - READY_TO_EXECUTE
+        - EXECUTED
+        - REJECTED
+    FinancialConfigSnapshot:
+      type: object
+      required:
+        - depreciation_method
+        - useful_life_months
+        - residual_rate_bps
+        - declining_balance_rate_bps
+        - management_fee_rate_bps
+        - profit_rate_bps
+        - floor_negative_quote_residual
+        - executive_approval_threshold_won
+      properties:
+        depreciation_method:
+          $ref: "#/components/schemas/DepreciationMethod"
+        useful_life_months:
+          type: integer
+          format: int32
+          minimum: 1
+        residual_rate_bps:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 10000
+        declining_balance_rate_bps:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 10000
+        management_fee_rate_bps:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 10000
+        profit_rate_bps:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 10000
+        floor_negative_quote_residual:
+          type: boolean
+        executive_approval_threshold_won:
+          type: integer
+          format: int64
+          minimum: 0
+    QuoteLine:
+      type: object
+      required: [code, label, amount]
+      properties:
+        code:
+          type: string
+        label:
+          type: string
+        amount:
+          type: integer
+          format: int64
+          minimum: 0
+    ComputedRentalQuote:
+      type: object
+      required:
+        - effective_residual_value
+        - residual_was_floored
+        - lines
+        - monthly_total
+      properties:
+        effective_residual_value:
+          type: integer
+          format: int64
+        residual_was_floored:
+          type: boolean
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuoteLine"
+        monthly_total:
+          type: integer
+          format: int64
+          minimum: 0
+    ComputeRentalQuoteRequest:
+      type: object
+      required:
+        - branch_id
+        - acquisition_value_won
+        - current_residual_value_won
+        - cumulative_repair_cost_won
+        - config
+      properties:
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        acquisition_value_won:
+          type: integer
+          format: int64
+          minimum: 0
+        current_residual_value_won:
+          type: integer
+          format: int64
+        cumulative_repair_cost_won:
+          type: integer
+          format: int64
+          minimum: 0
+        config:
+          $ref: "#/components/schemas/FinancialConfigSnapshot"
+    CreateRentalQuoteRequest:
+      type: object
+      required: [branch_id, equipment_id, config]
+      properties:
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        equipment_id:
+          $ref: "#/components/schemas/Uuid"
+        config:
+          $ref: "#/components/schemas/FinancialConfigSnapshot"
+    RentalQuoteSummary:
+      type: object
+      required:
+        - id
+        - branch_id
+        - equipment_id
+        - acquisition_value
+        - current_residual_value
+        - effective_residual_value
+        - residual_was_floored
+        - cumulative_repair_cost
+        - monthly_total
+        - lines
+        - created_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        equipment_id:
+          $ref: "#/components/schemas/Uuid"
+        acquisition_value:
+          type: integer
+          format: int64
+        current_residual_value:
+          type: integer
+          format: int64
+        effective_residual_value:
+          type: integer
+          format: int64
+        residual_was_floored:
+          type: boolean
+        cumulative_repair_cost:
+          type: integer
+          format: int64
+        monthly_total:
+          type: integer
+          format: int64
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuoteLine"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+    AppendManualCostLedgerRequest:
+      type: object
+      required: [branch_id, amount_won, memo, config]
+      properties:
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        work_order_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        amount_won:
+          type: integer
+          format: int64
+          minimum: 1
+        memo:
+          type: string
+          minLength: 1
+        config:
+          $ref: "#/components/schemas/FinancialConfigSnapshot"
+    CostLedgerEntrySummary:
+      type: object
+      required:
+        - id
+        - branch_id
+        - equipment_id
+        - source
+        - amount_won
+        - memo
+        - residual_before_won
+        - residual_after_won
+        - entry_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        equipment_id:
+          $ref: "#/components/schemas/Uuid"
+        work_order_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        purchase_request_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        source:
+          $ref: "#/components/schemas/CostLedgerSource"
+        amount_won:
+          type: integer
+          format: int64
+        memo:
+          type: string
+        residual_before_won:
+          type: integer
+          format: int64
+        residual_after_won:
+          type: integer
+          format: int64
+        entry_at:
+          $ref: "#/components/schemas/Timestamp"
+    CreatePurchaseRequest:
+      type: object
+      required:
+        - branch_id
+        - equipment_id
+        - statement_evidence_id
+        - vendor_name
+        - amount_won
+        - memo
+        - config
+      properties:
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        equipment_id:
+          $ref: "#/components/schemas/Uuid"
+        work_order_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        statement_evidence_id:
+          $ref: "#/components/schemas/Uuid"
+        vendor_name:
+          type: string
+          minLength: 1
+        amount_won:
+          type: integer
+          format: int64
+          minimum: 1
+        memo:
+          type: string
+          minLength: 1
+        config:
+          $ref: "#/components/schemas/FinancialConfigSnapshot"
+    PurchaseRequestSummary:
+      type: object
+      required:
+        - id
+        - branch_id
+        - equipment_id
+        - statement_evidence_id
+        - vendor_name
+        - amount_won
+        - status
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        equipment_id:
+          $ref: "#/components/schemas/Uuid"
+        work_order_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        statement_evidence_id:
+          $ref: "#/components/schemas/Uuid"
+        vendor_name:
+          type: string
+        amount_won:
+          type: integer
+          format: int64
+        status:
+          $ref: "#/components/schemas/PurchaseStatus"
+        expenditure_no:
+          type:
+            - string
+            - "null"
+        rejection_memo:
+          type:
+            - string
+            - "null"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+    PrepareExpenditureRequest:
+      type: object
+      required: [expenditure_no]
+      properties:
+        expenditure_no:
+          type: string
+          minLength: 1
+    RejectPurchaseRequest:
+      type: object
+      required: [memo]
+      properties:
+        memo:
+          type: string
+          minLength: 1
+    RestartPurchaseRequest:
+      type: object
+      required: [statement_evidence_id, amount_won, memo]
+      properties:
+        statement_evidence_id:
+          $ref: "#/components/schemas/Uuid"
+        amount_won:
+          type: integer
+          format: int64
+          minimum: 1
+        memo:
+          type: string
+          minLength: 1
     CreateWorkOrderRequest:
       type: object
       required: [branch_id, management_no, symptom]

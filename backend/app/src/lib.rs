@@ -17,6 +17,8 @@ use axum::http::{HeaderMap, Request, Response, StatusCode, header};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
+use mnt_financial_adapter_postgres::PgFinancialStore;
+use mnt_financial_rest::FinancialRestState;
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, TraceContext, UserId,
 };
@@ -477,7 +479,12 @@ pub fn build_router(state: AppState) -> Router {
     match &state.database {
         DatabaseDependency::Postgres(pool) => {
             let work_order_store = PgWorkOrderStore::new(pool.clone());
+            let financial_store = PgFinancialStore::new(pool.clone());
             let router = router
+                .merge(mnt_financial_rest::router(FinancialRestState::new(
+                    financial_store,
+                    state.jwt_verifier.clone(),
+                )))
                 .merge(mnt_workorder_rest::router(WorkOrderRestState::new(
                     work_order_store.clone(),
                     state.jwt_verifier.clone(),
