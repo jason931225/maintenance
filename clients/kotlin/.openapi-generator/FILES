@@ -46,6 +46,7 @@ src/main/kotlin/com/maintenance/api/client/model/DeviceRegistrationRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DeviceRegistrationResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/EquipmentAutocompletePage.kt
 src/main/kotlin/com/maintenance/api/client/model/EquipmentLookupResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/EquipmentStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/EquipmentSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/ErrorBody.kt
 src/main/kotlin/com/maintenance/api/client/model/ErrorBodyError.kt
@@ -70,6 +71,9 @@ src/main/kotlin/com/maintenance/api/client/model/ReviewDailyPlanRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ReviewTargetChangeRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/StatusHistorySummary.kt
 src/main/kotlin/com/maintenance/api/client/model/SubmitReportRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/SubstituteCandidate.kt
+src/main/kotlin/com/maintenance/api/client/model/SubstituteCandidatePage.kt
+src/main/kotlin/com/maintenance/api/client/model/SubstituteMatchKind.kt
 src/main/kotlin/com/maintenance/api/client/model/SyncBatchRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SyncBatchResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/SyncError.kt

@@ -9,14 +9,21 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use calamine::{Data, DataType, Range, Reader, open_workbook_auto};
-use mnt_kernel_core::{BranchId, KernelError, TraceContext};
+use mnt_kernel_core::{
+    BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId, KernelError, TraceContext, UserId,
+};
 use mnt_platform_db::{DbError, with_audit};
 use mnt_registry_application::{
     ImportSheet, MasterListEquipment, ParsedMasterList, RegistryImportReport, RegistryRowError,
-    registry_import_audit_event,
+    SubstituteAssignment, SubstituteAssignmentCommand, SubstituteCandidate,
+    SubstituteReturnCommand, SubstituteSearch, registry_import_audit_event,
+    substitute_assign_audit_event, substitute_return_audit_event,
 };
-use mnt_registry_domain::{EquipmentNo, EquipmentStatus, MoneyWon, Ton};
-use sqlx::{PgPool, Postgres, Transaction};
+use mnt_registry_domain::{
+    EquipmentNo, EquipmentStatus, MoneyWon, SubstituteEquipmentProfile, Ton,
+    rank_substitute_candidates,
+};
+use sqlx::{PgPool, Postgres, QueryBuilder, Row, Transaction};
 use time::{Date, OffsetDateTime, macros::format_description};
 
 #[derive(Debug, thiserror::Error)]
@@ -46,6 +53,11 @@ impl PgRegistryStore {
     #[must_use]
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    #[must_use]
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
     }
 
     pub async fn import_master_list(
@@ -148,6 +160,166 @@ impl PgRegistryStore {
         Ok(residual.flatten())
     }
 
+    pub async fn substitute_candidates(
+        &self,
+        search: SubstituteSearch,
+    ) -> Result<Vec<SubstituteCandidate>, PgRegistryError> {
+        let down = fetch_substitute_profile(self.pool(), search.equipment_id)
+            .await?
+            .ok_or_else(|| KernelError::not_found("equipment was not found"))?;
+        if !search.branch_scope.allows(down.branch_id) {
+            return Err(KernelError::not_found("equipment is outside branch scope").into());
+        }
+
+        let rows = fetch_candidate_rows(self.pool(), &down, &search).await?;
+        let mut views_by_id = rows
+            .iter()
+            .map(|row| (row.profile.id, row.view.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let ranked = rank_substitute_candidates(&down, rows.into_iter().map(|row| row.profile));
+
+        Ok(ranked
+            .into_iter()
+            .filter_map(|ranked| {
+                views_by_id.remove(&ranked.equipment.id).map(|mut view| {
+                    view.match_kind = ranked.kind;
+                    view.ton_delta_milli = ranked.ton_delta_milli;
+                    view
+                })
+            })
+            .collect())
+    }
+
+    pub async fn assign_substitute(
+        &self,
+        command: SubstituteAssignmentCommand,
+    ) -> Result<SubstituteAssignment, PgRegistryError> {
+        let assignment_location =
+            normalize_required_text(&command.assignment_location, "assignment_location")?;
+        let substitution_id = EquipmentSubstitutionId::new();
+        let source = fetch_substitute_profile(self.pool(), command.source_equipment_id)
+            .await?
+            .ok_or_else(|| KernelError::not_found("source equipment was not found"))?;
+        let candidate = fetch_substitute_profile(self.pool(), command.substitute_equipment_id)
+            .await?
+            .ok_or_else(|| KernelError::not_found("substitute equipment was not found"))?;
+        validate_substitute_pair(&source, &candidate)?;
+
+        let event = substitute_assign_audit_event(&command, source.branch_id, substitution_id)?;
+        let actor = command.actor;
+        let source_id = command.source_equipment_id;
+        let substitute_id = command.substitute_equipment_id;
+        let assigned_to = command.assigned_to;
+        let assigned_at = command.assigned_at;
+        let branch_id = source.branch_id;
+
+        with_audit::<_, SubstituteAssignment, PgRegistryError>(&self.pool, event, move |tx| {
+            Box::pin(async move {
+                let source = fetch_substitute_profile_for_update(tx, source_id)
+                    .await?
+                    .ok_or_else(|| KernelError::not_found("source equipment was not found"))?;
+                let candidate = fetch_substitute_profile_for_update(tx, substitute_id)
+                    .await?
+                    .ok_or_else(|| KernelError::not_found("substitute equipment was not found"))?;
+                validate_substitute_pair(&source, &candidate)?;
+                ensure_no_active_substitution(tx, source_id, substitute_id).await?;
+
+                sqlx::query(
+                    r#"
+                    INSERT INTO equipment_substitutions (
+                        id, branch_id, source_equipment_id, substitute_equipment_id,
+                        assigned_by, assigned_to, assignment_location, assigned_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    "#,
+                )
+                .bind(*substitution_id.as_uuid())
+                .bind(*branch_id.as_uuid())
+                .bind(*source_id.as_uuid())
+                .bind(*substitute_id.as_uuid())
+                .bind(*actor.as_uuid())
+                .bind(assigned_to.map(|user_id| *user_id.as_uuid()))
+                .bind(assignment_location.as_str())
+                .bind(assigned_at)
+                .execute(tx.as_mut())
+                .await?;
+
+                Ok(SubstituteAssignment {
+                    id: substitution_id,
+                    branch_id,
+                    source_equipment_id: source_id,
+                    substitute_equipment_id: substitute_id,
+                    assigned_by: actor,
+                    assigned_to,
+                    assignment_location,
+                    assigned_at,
+                    returned_by: None,
+                    returned_at: None,
+                    return_note: None,
+                })
+            })
+        })
+        .await
+    }
+
+    pub async fn return_substitute(
+        &self,
+        command: SubstituteReturnCommand,
+    ) -> Result<SubstituteAssignment, PgRegistryError> {
+        let before = fetch_substitution(self.pool(), command.substitution_id)
+            .await?
+            .ok_or_else(|| KernelError::not_found("substitution assignment was not found"))?;
+        if before.returned_at.is_some() {
+            return Err(
+                KernelError::conflict("substitution assignment was already returned").into(),
+            );
+        }
+        let event = substitute_return_audit_event(&command, &before)?;
+        let actor = command.actor;
+        let substitution_id = command.substitution_id;
+        let returned_at = command.returned_at;
+        let return_note = command
+            .return_note
+            .as_ref()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+
+        with_audit::<_, SubstituteAssignment, PgRegistryError>(&self.pool, event, move |tx| {
+            Box::pin(async move {
+                let result = sqlx::query(
+                    r#"
+                    UPDATE equipment_substitutions
+                    SET returned_by = $2,
+                        returned_at = $3,
+                        return_note = $4,
+                        updated_at = now()
+                    WHERE id = $1
+                      AND returned_at IS NULL
+                    "#,
+                )
+                .bind(*substitution_id.as_uuid())
+                .bind(*actor.as_uuid())
+                .bind(returned_at)
+                .bind(return_note.as_deref())
+                .execute(tx.as_mut())
+                .await?;
+                if result.rows_affected() == 0 {
+                    return Err(KernelError::conflict(
+                        "substitution assignment was already returned",
+                    )
+                    .into());
+                }
+                fetch_substitution_tx(tx, substitution_id)
+                    .await?
+                    .ok_or_else(|| {
+                        KernelError::internal("updated substitution assignment was not found")
+                            .into()
+                    })
+            })
+        })
+        .await
+    }
+
     async fn ensure_default_hq_branch(&self) -> Result<BranchId, PgRegistryError> {
         let mut tx = self.pool.begin().await?;
         let region_id: uuid::Uuid = sqlx::query_scalar(
@@ -183,6 +355,269 @@ enum UpsertOutcome {
     Added,
     Updated,
     Unchanged,
+}
+
+#[derive(Debug, Clone)]
+struct CandidateRow {
+    profile: SubstituteEquipmentProfile,
+    view: SubstituteCandidate,
+}
+
+async fn fetch_substitute_profile(
+    pool: &PgPool,
+    equipment_id: EquipmentId,
+) -> Result<Option<SubstituteEquipmentProfile>, PgRegistryError> {
+    let row = sqlx::query(
+        r#"
+        SELECT id, branch_id, equipment_no, status, specification, ton_text, ton_milli
+        FROM registry_equipment
+        WHERE id = $1
+        "#,
+    )
+    .bind(*equipment_id.as_uuid())
+    .fetch_optional(pool)
+    .await?;
+    row.map(|row| substitute_profile_from_row(&row)).transpose()
+}
+
+async fn fetch_substitute_profile_for_update(
+    tx: &mut Transaction<'_, Postgres>,
+    equipment_id: EquipmentId,
+) -> Result<Option<SubstituteEquipmentProfile>, PgRegistryError> {
+    let row = sqlx::query(
+        r#"
+        SELECT id, branch_id, equipment_no, status, specification, ton_text, ton_milli
+        FROM registry_equipment
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(*equipment_id.as_uuid())
+    .fetch_optional(tx.as_mut())
+    .await?;
+    row.map(|row| substitute_profile_from_row(&row)).transpose()
+}
+
+async fn fetch_candidate_rows(
+    pool: &PgPool,
+    down: &SubstituteEquipmentProfile,
+    search: &SubstituteSearch,
+) -> Result<Vec<CandidateRow>, PgRegistryError> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            e.id, e.branch_id, e.equipment_no, e.management_no, e.model, e.status,
+            e.specification, e.ton_text, e.ton_milli, e.power_code, e.power_label,
+            e.placement_location, c.name AS customer_name, s.name AS site_name
+        FROM registry_equipment e
+        JOIN registry_customers c ON c.id = e.customer_id
+        JOIN registry_sites s ON s.id = e.site_id
+        WHERE e.status = '예비'
+          AND e.id <>
+        "#,
+    );
+    builder.push_bind(*down.id.as_uuid());
+    builder.push(
+        r#"
+          AND NOT EXISTS (
+              SELECT 1
+              FROM equipment_substitutions active
+              WHERE active.substitute_equipment_id = e.id
+                AND active.returned_at IS NULL
+          )
+        "#,
+    );
+    push_candidate_branch_filter(&mut builder, down, search)?;
+    builder.push(" ORDER BY e.equipment_no ASC");
+
+    let rows = builder.build().fetch_all(pool).await?;
+    rows.iter().map(candidate_row_from_row).collect()
+}
+
+fn push_candidate_branch_filter(
+    builder: &mut QueryBuilder<Postgres>,
+    down: &SubstituteEquipmentProfile,
+    search: &SubstituteSearch,
+) -> Result<(), PgRegistryError> {
+    if !search.include_all_branches {
+        builder.push(" AND e.branch_id = ");
+        builder.push_bind(*down.branch_id.as_uuid());
+        return Ok(());
+    }
+
+    match &search.branch_scope {
+        BranchScope::All => Ok(()),
+        BranchScope::Branches(branches) if branches.is_empty() => {
+            builder.push(" AND FALSE");
+            Ok(())
+        }
+        BranchScope::Branches(branches) => {
+            let branch_ids = branches
+                .iter()
+                .map(|branch_id| *branch_id.as_uuid())
+                .collect::<Vec<_>>();
+            builder.push(" AND e.branch_id = ANY(");
+            builder.push_bind(branch_ids);
+            builder.push(")");
+            Ok(())
+        }
+    }
+}
+
+fn substitute_profile_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<SubstituteEquipmentProfile, PgRegistryError> {
+    let equipment_no: String = row.try_get("equipment_no")?;
+    let status: String = row.try_get("status")?;
+    let ton_text: String = row.try_get("ton_text")?;
+    Ok(SubstituteEquipmentProfile {
+        id: EquipmentId::from_uuid(row.try_get("id")?),
+        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+        equipment_no: EquipmentNo::parse(equipment_no)?,
+        status: EquipmentStatus::parse(&status)?,
+        specification: row.try_get("specification")?,
+        ton: Ton::parse(&ton_text),
+    })
+}
+
+fn candidate_row_from_row(row: &sqlx::postgres::PgRow) -> Result<CandidateRow, PgRegistryError> {
+    let profile = substitute_profile_from_row(row)?;
+    Ok(CandidateRow {
+        view: SubstituteCandidate {
+            equipment_id: profile.id,
+            branch_id: profile.branch_id,
+            equipment_no: profile.equipment_no.clone(),
+            management_no: row.try_get("management_no")?,
+            model: row.try_get("model")?,
+            status: profile.status,
+            specification: profile.specification.clone(),
+            ton: profile.ton.clone(),
+            power_code: row.try_get("power_code")?,
+            power_label: row.try_get("power_label")?,
+            customer_name: row.try_get("customer_name")?,
+            site_name: row.try_get("site_name")?,
+            placement_location: row.try_get("placement_location")?,
+            match_kind: mnt_registry_domain::SubstituteMatchKind::ExactTon,
+            ton_delta_milli: None,
+        },
+        profile,
+    })
+}
+
+fn validate_substitute_pair(
+    source: &SubstituteEquipmentProfile,
+    candidate: &SubstituteEquipmentProfile,
+) -> Result<(), PgRegistryError> {
+    if source.branch_id != candidate.branch_id {
+        return Err(KernelError::validation(
+            "substitute equipment must be in the same branch as the source equipment",
+        )
+        .into());
+    }
+    if rank_substitute_candidates(source, [candidate.clone()]).is_empty() {
+        return Err(KernelError::validation(
+            "substitute equipment is not compatible with the source equipment",
+        )
+        .into());
+    }
+    Ok(())
+}
+
+async fn ensure_no_active_substitution(
+    tx: &mut Transaction<'_, Postgres>,
+    source_id: EquipmentId,
+    substitute_id: EquipmentId,
+) -> Result<(), PgRegistryError> {
+    let active_count: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)
+        FROM equipment_substitutions
+        WHERE returned_at IS NULL
+          AND (
+              source_equipment_id = $1
+              OR substitute_equipment_id = $2
+          )
+        "#,
+    )
+    .bind(*source_id.as_uuid())
+    .bind(*substitute_id.as_uuid())
+    .fetch_one(tx.as_mut())
+    .await?;
+    if active_count > 0 {
+        return Err(KernelError::conflict("equipment already has an active substitution").into());
+    }
+    Ok(())
+}
+
+async fn fetch_substitution(
+    pool: &PgPool,
+    substitution_id: EquipmentSubstitutionId,
+) -> Result<Option<SubstituteAssignment>, PgRegistryError> {
+    let row = sqlx::query(
+        r#"
+        SELECT id, branch_id, source_equipment_id, substitute_equipment_id,
+               assigned_by, assigned_to, assignment_location, assigned_at,
+               returned_by, returned_at, return_note
+        FROM equipment_substitutions
+        WHERE id = $1
+        "#,
+    )
+    .bind(*substitution_id.as_uuid())
+    .fetch_optional(pool)
+    .await?;
+    row.map(|row| substitution_from_row(&row)).transpose()
+}
+
+async fn fetch_substitution_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    substitution_id: EquipmentSubstitutionId,
+) -> Result<Option<SubstituteAssignment>, PgRegistryError> {
+    let row = sqlx::query(
+        r#"
+        SELECT id, branch_id, source_equipment_id, substitute_equipment_id,
+               assigned_by, assigned_to, assignment_location, assigned_at,
+               returned_by, returned_at, return_note
+        FROM equipment_substitutions
+        WHERE id = $1
+        "#,
+    )
+    .bind(*substitution_id.as_uuid())
+    .fetch_optional(tx.as_mut())
+    .await?;
+    row.map(|row| substitution_from_row(&row)).transpose()
+}
+
+fn substitution_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<SubstituteAssignment, PgRegistryError> {
+    Ok(SubstituteAssignment {
+        id: EquipmentSubstitutionId::from_uuid(row.try_get("id")?),
+        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+        source_equipment_id: EquipmentId::from_uuid(row.try_get("source_equipment_id")?),
+        substitute_equipment_id: EquipmentId::from_uuid(row.try_get("substitute_equipment_id")?),
+        assigned_by: UserId::from_uuid(row.try_get("assigned_by")?),
+        assigned_to: row
+            .try_get::<Option<uuid::Uuid>, _>("assigned_to")?
+            .map(UserId::from_uuid),
+        assignment_location: row.try_get("assignment_location")?,
+        assigned_at: row.try_get("assigned_at")?,
+        returned_by: row
+            .try_get::<Option<uuid::Uuid>, _>("returned_by")?
+            .map(UserId::from_uuid),
+        returned_at: row.try_get("returned_at")?,
+        return_note: row.try_get("return_note")?,
+    })
+}
+
+fn normalize_required_text(value: &str, field: &str) -> Result<String, KernelError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        Err(KernelError::validation(format!(
+            "{field} must not be empty"
+        )))
+    } else {
+        Ok(trimmed.to_owned())
+    }
 }
 
 async fn upsert_equipment(

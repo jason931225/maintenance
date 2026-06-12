@@ -2,6 +2,7 @@ use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode};
 use mnt_app::{AppConfig, AppRole, AppState, DatabaseDependency, build_router};
 use mnt_platform_auth_rest::AUTH_ROUTE_PATHS;
+use mnt_registry_rest::REGISTRY_ROUTE_PATHS;
 use mnt_workorder_rest::MOBILE_ROUTE_PATHS;
 use tower::ServiceExt;
 
@@ -28,6 +29,9 @@ async fn openapi_yaml_covers_mounted_auth_routes() -> Result<(), Box<dyn std::er
         assert!(yaml.contains(path), "OpenAPI YAML is missing {path}");
     }
     for path in MOBILE_ROUTE_PATHS {
+        assert!(yaml.contains(path), "OpenAPI YAML is missing {path}");
+    }
+    for path in REGISTRY_ROUTE_PATHS {
         assert!(yaml.contains(path), "OpenAPI YAML is missing {path}");
     }
     Ok(())

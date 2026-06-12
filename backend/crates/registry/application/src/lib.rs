@@ -5,9 +5,10 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, KernelError, Timestamp, TraceContext, UserId,
+    AuditAction, AuditEvent, BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId,
+    KernelError, Timestamp, TraceContext, UserId,
 };
-use mnt_registry_domain::{EquipmentNo, EquipmentStatus, MoneyWon, Ton};
+use mnt_registry_domain::{EquipmentNo, EquipmentStatus, MoneyWon, SubstituteMatchKind, Ton};
 use time::Date;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -102,6 +103,67 @@ pub struct RegistryImportReport {
     pub errors: Vec<RegistryRowError>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SubstituteSearch {
+    pub equipment_id: EquipmentId,
+    pub branch_scope: BranchScope,
+    pub include_all_branches: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SubstituteCandidate {
+    pub equipment_id: EquipmentId,
+    pub branch_id: BranchId,
+    pub equipment_no: EquipmentNo,
+    pub management_no: Option<String>,
+    pub model: Option<String>,
+    pub status: EquipmentStatus,
+    pub specification: String,
+    pub ton: Ton,
+    pub power_code: String,
+    pub power_label: Option<String>,
+    pub customer_name: String,
+    pub site_name: String,
+    pub placement_location: Option<String>,
+    pub match_kind: SubstituteMatchKind,
+    pub ton_delta_milli: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SubstituteAssignmentCommand {
+    pub actor: UserId,
+    pub source_equipment_id: EquipmentId,
+    pub substitute_equipment_id: EquipmentId,
+    pub assigned_to: Option<UserId>,
+    pub assignment_location: String,
+    pub trace: TraceContext,
+    pub assigned_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SubstituteReturnCommand {
+    pub actor: UserId,
+    pub substitution_id: EquipmentSubstitutionId,
+    pub trace: TraceContext,
+    pub returned_at: Timestamp,
+    pub return_note: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SubstituteAssignment {
+    pub id: EquipmentSubstitutionId,
+    pub branch_id: BranchId,
+    pub source_equipment_id: EquipmentId,
+    pub substitute_equipment_id: EquipmentId,
+    pub assigned_by: UserId,
+    pub assigned_to: Option<UserId>,
+    pub assignment_location: String,
+    pub assigned_at: Timestamp,
+    pub returned_by: Option<UserId>,
+    pub returned_at: Option<Timestamp>,
+    pub return_note: Option<String>,
+}
+
 pub fn registry_import_audit_event(
     actor: Option<UserId>,
     branch_id: BranchId,
@@ -127,4 +189,62 @@ pub fn registry_import_audit_event(
     )
     .with_branch(branch_id)
     .with_snapshots(None, Some(after)))
+}
+
+pub fn substitute_assign_audit_event(
+    command: &SubstituteAssignmentCommand,
+    branch_id: BranchId,
+    substitution_id: EquipmentSubstitutionId,
+) -> Result<AuditEvent, KernelError> {
+    let after = serde_json::json!({
+        "id": substitution_id,
+        "source_equipment_id": command.source_equipment_id,
+        "substitute_equipment_id": command.substitute_equipment_id,
+        "assigned_to": command.assigned_to,
+        "assignment_location": command.assignment_location,
+        "assigned_at": command.assigned_at,
+    });
+
+    Ok(AuditEvent::new(
+        Some(command.actor),
+        AuditAction::new("equipment.substitute.assign")?,
+        "equipment_substitution",
+        substitution_id.to_string(),
+        command.trace.clone(),
+        command.assigned_at,
+    )
+    .with_branch(branch_id)
+    .with_snapshots(None, Some(after)))
+}
+
+pub fn substitute_return_audit_event(
+    command: &SubstituteReturnCommand,
+    before: &SubstituteAssignment,
+) -> Result<AuditEvent, KernelError> {
+    let before_snap = serde_json::json!({
+        "id": before.id,
+        "source_equipment_id": before.source_equipment_id,
+        "substitute_equipment_id": before.substitute_equipment_id,
+        "assigned_to": before.assigned_to,
+        "assignment_location": before.assignment_location,
+        "assigned_at": before.assigned_at,
+        "returned_at": before.returned_at,
+    });
+    let after = serde_json::json!({
+        "id": before.id,
+        "returned_by": command.actor,
+        "returned_at": command.returned_at,
+        "return_note": command.return_note,
+    });
+
+    Ok(AuditEvent::new(
+        Some(command.actor),
+        AuditAction::new("equipment.substitute.return")?,
+        "equipment_substitution",
+        before.id.to_string(),
+        command.trace.clone(),
+        command.returned_at,
+    )
+    .with_branch(before.branch_id)
+    .with_snapshots(Some(before_snap), Some(after)))
 }

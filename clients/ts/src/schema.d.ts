@@ -364,6 +364,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/equipment/{id}/substitutes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List compatible spare equipment candidates for a down unit
+         * @description Same branch by default. SUPER_ADMIN may set all_branches=true to search across branches.
+         */
+        get: operations["listEquipmentSubstitutes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sync": {
         parameters: {
             query?: never;
@@ -708,6 +728,10 @@ export interface components {
         /** @enum {string} */
         WorkResultType: "COMPLETED" | "TEMPORARY_ACTION" | "INCOMPLETE" | "REVISIT_REQUIRED" | "UNKNOWN";
         /** @enum {string} */
+        EquipmentStatus: "rented" | "spare" | "disposed" | "replacement" | "sold";
+        /** @enum {string} */
+        SubstituteMatchKind: "exact_ton" | "nearest_above" | "unknown_ton_exact_text";
+        /** @enum {string} */
         AssignmentRole: "PRIMARY" | "SECONDARY";
         /** @enum {string} */
         AttachmentStage: "REQUEST" | "BEFORE" | "DURING" | "AFTER" | "REPORT" | "OUTSOURCE_RESULT";
@@ -801,6 +825,30 @@ export interface components {
             items: components["schemas"]["EquipmentLookupResponse"][];
             /** Format: int64 */
             limit: number;
+        };
+        SubstituteCandidate: {
+            equipment_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            equipment_no: string;
+            management_no: string | null;
+            model: string | null;
+            status: components["schemas"]["EquipmentStatus"];
+            specification: string;
+            ton_text: string;
+            /** Format: int32 */
+            ton_milli: number | null;
+            power_code: string;
+            power_label: string | null;
+            customer_name: string;
+            site_name: string;
+            placement_location: string | null;
+            match_kind: components["schemas"]["SubstituteMatchKind"];
+            /** Format: int32 */
+            ton_delta_milli: number | null;
+        };
+        SubstituteCandidatePage: {
+            items: components["schemas"]["SubstituteCandidate"][];
+            total: number;
         };
         AssignmentSummary: {
             id: components["schemas"]["Uuid"];
@@ -1120,6 +1168,7 @@ export interface components {
         PlanId: string;
         RequestId: string;
         EvidenceId: string;
+        EquipmentId: string;
         /** @description Client-stable device identifier. The server stores only a SHA-256 hash. */
         XDeviceId: string;
     };
@@ -1660,6 +1709,42 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listEquipmentSubstitutes: {
+        parameters: {
+            query?: {
+                /** @description SUPER_ADMIN-only flag to include candidates outside the down unit's branch. */
+                all_branches?: boolean;
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["EquipmentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Compatible spare equipment candidates ranked by exact ton then nearest-above capacity. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubstituteCandidatePage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     replayOfflineSyncBatch: {
