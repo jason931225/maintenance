@@ -1,15 +1,15 @@
 import { Send } from "lucide-react";
 
-import type { WorkOrderSummary } from "../../api/types";
+import type { WorkOrderListItem } from "../../api/types";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { ko } from "../../i18n/ko";
 
-type WorkOrderStatus = WorkOrderSummary["status"];
+type WorkOrderStatus = WorkOrderListItem["status"];
 
 interface DispatchBoardProps {
-  workOrders: WorkOrderSummary[];
+  workOrders: WorkOrderListItem[];
   selectedMechanicId: string;
   onAssignWorkOrder: (workOrderId: string, mechanicId: string) => Promise<void>;
 }
@@ -100,6 +100,10 @@ export function DispatchBoard({
                     <p className="mt-2 text-sm text-slate-600">
                       {ko.status[workOrder.status]}
                     </p>
+                    <p className="mt-1 text-sm text-slate-700">
+                      {workOrder.equipment.model ?? ko.common.unknown} /{" "}
+                      {workOrder.customer.name}
+                    </p>
                     {workOrder.status === "RECEIVED" || workOrder.status === "UNASSIGNED" ? (
                       <Button
                         className="mt-3 w-full"
@@ -126,7 +130,7 @@ export function DispatchBoard({
   );
 }
 
-function priorityClass(priority: WorkOrderSummary["priority"]) {
+function priorityClass(priority: WorkOrderListItem["priority"]) {
   switch (priority) {
     case "P1":
       return "border-red-300 bg-red-50 text-red-800";

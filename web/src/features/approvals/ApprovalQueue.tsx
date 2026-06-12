@@ -1,7 +1,7 @@
 import { Check, X } from "lucide-react";
 import { useState } from "react";
 
-import type { WorkOrderSummary } from "../../api/types";
+import type { WorkOrderListItem } from "../../api/types";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
@@ -9,12 +9,18 @@ import { Textarea } from "../../components/ui/textarea";
 import { ko } from "../../i18n/ko";
 
 interface ApprovalQueueProps {
-  workOrders: WorkOrderSummary[];
+  workOrders: WorkOrderListItem[];
   onApprove: (workOrderId: string) => Promise<void>;
+  onReject: (workOrderId: string, memo: string) => Promise<void>;
 }
 
-export function ApprovalQueue({ workOrders, onApprove }: ApprovalQueueProps) {
+export function ApprovalQueue({
+  workOrders,
+  onApprove,
+  onReject,
+}: ApprovalQueueProps) {
   const [memo, setMemo] = useState("");
+  const [memoError, setMemoError] = useState<string | undefined>();
   const pending = workOrders.filter(
     (workOrder) =>
       workOrder.status === "REPORT_SUBMITTED" ||
@@ -33,8 +39,13 @@ export function ApprovalQueue({ workOrders, onApprove }: ApprovalQueueProps) {
           value={memo}
           onChange={(event) => {
             setMemo(event.currentTarget.value);
+            setMemoError(undefined);
           }}
+          aria-invalid={Boolean(memoError)}
         />
+        {memoError ? (
+          <p className="text-sm font-medium text-red-700">{memoError}</p>
+        ) : null}
       </div>
       {pending.length === 0 ? (
         <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
@@ -53,8 +64,7 @@ export function ApprovalQueue({ workOrders, onApprove }: ApprovalQueueProps) {
                 <Badge>{ko.status[workOrder.status]}</Badge>
                 <Badge>{workOrder.priority}</Badge>
                 <Badge>
-                  {ko.common.evidenceVerified}:{" "}
-                  {workOrder.evidence_verified ? ko.common.yes : ko.common.no}
+                  {workOrder.equipment.model ?? ko.common.unknown}
                 </Badge>
               </div>
             </div>
@@ -71,8 +81,15 @@ export function ApprovalQueue({ workOrders, onApprove }: ApprovalQueueProps) {
               <Button
                 type="button"
                 variant="secondary"
-                disabled
-                title={ko.approvals.rejectUnavailable}
+                aria-label={`${workOrder.request_no} ${ko.approvals.reject}`}
+                onClick={() => {
+                  const trimmedMemo = memo.trim();
+                  if (!trimmedMemo) {
+                    setMemoError(ko.approvals.requiredRejectMemo);
+                    return;
+                  }
+                  void onReject(workOrder.id, trimmedMemo);
+                }}
               >
                 <X aria-hidden="true" size={18} />
                 {ko.approvals.reject}

@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import type {
   CreateWorkOrderRequest,
+  EquipmentLookupResponse,
   EquipmentLookupState,
   WorkOrderSummary,
 } from "../../api/types";
@@ -16,6 +17,8 @@ import { ko } from "../../i18n/ko";
 interface IntakeFormProps {
   branchId: string;
   equipmentLookupState: EquipmentLookupState;
+  equipmentSuggestions?: EquipmentLookupResponse[];
+  onManagementNoChange?: (managementNo: string) => void;
   onCreateWorkOrder: (
     request: CreateWorkOrderRequest,
   ) => Promise<WorkOrderSummary>;
@@ -30,6 +33,8 @@ interface Errors {
 export function IntakeForm({
   branchId,
   equipmentLookupState,
+  equipmentSuggestions = [],
+  onManagementNoChange,
   onCreateWorkOrder,
   onCreated,
 }: IntakeFormProps) {
@@ -96,10 +101,24 @@ export function IntakeForm({
             value={managementNo}
             placeholder={ko.intake.managementNoPlaceholder}
             onChange={(event) => {
-              setManagementNo(event.currentTarget.value);
+              const nextManagementNo = event.currentTarget.value;
+              setManagementNo(nextManagementNo);
+              onManagementNoChange?.(nextManagementNo);
             }}
+            list="equipment-suggestions"
             aria-invalid={Boolean(errors.managementNo)}
           />
+          {equipmentSuggestions.length > 0 ? (
+            <datalist id="equipment-suggestions">
+              {equipmentSuggestions.map((equipment) => (
+                <option
+                  key={equipment.id}
+                  value={equipment.management_no ?? equipment.equipment_no}
+                  label={`${equipment.model ?? ko.common.unknown} / ${equipment.customer.name}`}
+                />
+              ))}
+            </datalist>
+          ) : null}
           {errors.managementNo ? (
             <p className="text-sm font-medium text-red-700">{errors.managementNo}</p>
           ) : null}
@@ -167,10 +186,31 @@ export function IntakeForm({
 }
 
 function EquipmentLookupPanel({ state }: { state: EquipmentLookupState }) {
-  if (state.status !== "ready") {
+  if (state.status === "idle") {
     return (
       <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-700">
-        {ko.intake.lookupUnavailable}
+        {ko.intake.lookupPrompt}
+      </div>
+    );
+  }
+
+  if (state.status === "loading") {
+    return (
+      <div
+        className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-700"
+        role="status"
+      >
+        {ko.intake.lookupLoading}
+      </div>
+    );
+  }
+
+  if (state.status === "notFound" || state.status === "error") {
+    return (
+      <div className="rounded-md border border-dashed border-red-300 bg-red-50 p-3 text-sm font-medium text-red-800">
+        {state.status === "notFound"
+          ? ko.intake.lookupNotFound
+          : ko.intake.lookupFailed}
       </div>
     );
   }

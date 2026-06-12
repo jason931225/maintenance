@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { DispatchBoard } from "./DispatchBoard";
-import { primaryMechanicId, workOrders } from "../../test/fixtures";
+import { primaryMechanicId, workOrderListItems } from "../../test/fixtures";
 
 describe("DispatchBoard", () => {
   it("groups work orders by dispatch status and assigns a dropped card through the callback", async () => {
@@ -12,7 +12,7 @@ describe("DispatchBoard", () => {
 
     render(
       <DispatchBoard
-        workOrders={workOrders}
+        workOrders={workOrderListItems}
         selectedMechanicId={primaryMechanicId}
         onAssignWorkOrder={assign}
       />,
@@ -25,6 +25,9 @@ describe("DispatchBoard", () => {
 
     await user.click(screen.getByRole("button", { name: "20260612-001 배정" }));
 
-    expect(assign).toHaveBeenCalledWith(workOrders[0].id, primaryMechanicId);
+    expect(assign).toHaveBeenCalledWith(
+      workOrderListItems[0].id,
+      primaryMechanicId,
+    );
   });
 });

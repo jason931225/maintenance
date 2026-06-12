@@ -3,8 +3,8 @@ export const ko = {
     title: "정비 콘솔",
     sessionReady: "패스키 세션 연결됨",
     sessionMissing: "패스키 로그인이 필요합니다.",
-    apiContractGap:
-      "현재 OpenAPI 계약에는 작업지시 목록 조회, 장비 자동완성, 반려 API가 없습니다. 생성·배정·승인은 계약에 있는 경로만 사용합니다.",
+    readSurfaceReady:
+      "작업지시 목록, 승인 대기, 장비 조회는 OpenAPI 생성 클라이언트로 조회합니다.",
   },
   auth: {
     title: "패스키 로그인",
@@ -29,7 +29,10 @@ export const ko = {
     requiredManagementNo: "호기를 입력하세요.",
     requiredSymptom: "고장내용을 입력하세요.",
     created: "접수가 저장되었습니다.",
-    lookupUnavailable: "장비 조회 API 계약 없음",
+    lookupPrompt: "호기를 입력하면 장비와 고객 정보를 조회합니다.",
+    lookupLoading: "장비 조회 중",
+    lookupNotFound: "일치하는 장비가 없습니다.",
+    lookupFailed: "장비 조회에 실패했습니다.",
     lookupReady: "장비 확인됨",
     customer: "고객사",
     site: "사업장",
@@ -40,6 +43,9 @@ export const ko = {
   },
   dispatch: {
     title: "배차 보드",
+    listTitle: "작업지시 목록",
+    targetDueAt: "목표 완료",
+    equipment: "장비",
     selectedMechanic: "배정 정비사",
     assign: "배정",
     empty: "표시할 접수건이 없습니다.",
@@ -54,10 +60,10 @@ export const ko = {
   },
   approvals: {
     title: "승인 대기",
-    memo: "승인 메모",
+    memo: "검토 메모",
     approve: "승인",
     reject: "반려",
-    rejectUnavailable: "반려 API 계약 없음",
+    requiredRejectMemo: "반려 메모를 입력하세요.",
     empty: "승인 대기 건이 없습니다.",
   },
   common: {
@@ -67,7 +73,10 @@ export const ko = {
     evidenceVerified: "증빙 확인",
     yes: "예",
     no: "아니오",
-    contractUnavailable: "계약 미연결",
+    loading: "불러오는 중",
+    loadFailed: "데이터를 불러오지 못했습니다.",
+    notSet: "미지정",
+    unknown: "미상",
   },
   status: {
     RECEIVED: "접수",

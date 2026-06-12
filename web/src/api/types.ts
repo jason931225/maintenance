@@ -1,8 +1,12 @@
 import type { components } from "@maintenance/api-client-ts";
 
 export type WorkOrderSummary = components["schemas"]["WorkOrderSummary"];
+export type WorkOrderListItem = components["schemas"]["WorkOrderListItem"];
+export type WorkOrderListPage = components["schemas"]["WorkOrderListPage"];
 export type CreateWorkOrderRequest =
   components["schemas"]["CreateWorkOrderRequest"];
+export type EquipmentLookupResponse =
+  components["schemas"]["EquipmentLookupResponse"];
 export type TokenPairResponse = components["schemas"]["TokenPairResponse"];
 
 export interface EquipmentLookupResult {
@@ -13,6 +17,8 @@ export interface EquipmentLookupResult {
 }
 
 export type EquipmentLookupState =
-  | { status: "unavailable" }
+  | { status: "idle" }
   | { status: "loading" }
-  | { status: "ready"; equipment: EquipmentLookupResult };
+  | { status: "ready"; equipment: EquipmentLookupResult }
+  | { status: "notFound" }
+  | { status: "error" };
