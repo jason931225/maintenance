@@ -66,3 +66,12 @@ Same Hard Rules as `/Users/jasonlee/Developer/maintenance/.omc/team-briefs/m0-wa
 - Re-emit + commit backend/openapi/openapi.yaml including these routes and the security scheme wiring; the drift test from T1.3 must stay green.
 - Tests: HTTP-level E2E with webauthn-authenticator-rs SoftPasskey — bootstrap credential → register passkey over HTTP → login over HTTP → call an authed workorder route with the issued JWT → refresh rotation over HTTP → reuse of old refresh token → 401 + family revoked (assert DB). Audit events for auth.login/auth.refresh/auth.logout (auth.register via bootstrap consumption already audited in T0.12 — verify, don't duplicate).
 - Migration: only if strictly needed (ceremony state may already have tables from T0.5 — REUSE).
+
+### 9. T1.3c — mobile-facing REST surface (sync + evidence + devices) — pre-empts T1.6 guard-stops
+- Contract check found NO /sync, NO evidence presign/confirm, NO device-registration routes. Native apps need all three. Same pattern as T1.3b: expose EXISTING application capabilities; invent nothing new at domain level.
+- Routes (axum+utoipa, mounted in mnt-app under /api/v1, JWT+authz+branch-scoped):
+  - POST /api/v1/sync — batch offline-operation replay per the prior project's proven design (spec Technical Context): ops = WORK_ORDER_START | WORK_ORDER_REPORT, body carries client-generated request_id + sync_id + created_at; X-Device-Id header (hash server-side); dedup via UNIQUE(device_hash, request_id) — migration **0010** (offline_sync_requests); duplicate replay returns the CACHED result (idempotent); partial failures reported per-op, never abort the batch.
+  - POST /api/v1/evidence/presign — issue presigned upload ticket via mnt-platform-storage for a WO+stage (authz: assignee or admin; audit evidence.presign); POST /api/v1/evidence/{id}/confirm — client confirms upload completion → triggers replication worker path (already built in T1.4).
+  - POST /api/v1/devices — register device (platform ios|android, push_token nullable until M2, app_version); upsert keyed (user, device_hash); audit device.register.
+- Re-emit + commit openapi.yaml; regenerate tri-clients (npm run gen:api — Docker needed for kotlin, present); ALL drift + compile checks green (check:ts/kotlin/swift, check:openapi-app, api-drift gates).
+- Tests: #[sqlx::test] sync dedup (same request_id twice → one effect + cached response), per-op partial failure, device upsert idempotent; evidence presign→confirm flow audited; HTTP-level test exercising /sync with a JWT.
