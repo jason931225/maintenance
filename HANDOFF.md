@@ -33,12 +33,12 @@
 | `.omc/plans` `.omc/specs` `.omc/ultragoal` | Tracked planning/ledger artifacts |
 | web/, ios/, android/ | To be created in M1 (React+shadcn; SwiftUI; Kotlin Compose) |
 
-## 3. Known external blockers (user/business actions — checkpoint as ledger blockers when reached)
+## 3. External blockers status (updated 2026-06-12 by user)
 
-- [ ] OCI Compute VM provisioning + credentials (T0.7 deploy target)
-- [ ] Apple Developer Program + Play Console accounts, signing keys (T1.11)
-- [ ] KCC LBS 사업 신고 filing (T2.3 — launch-blocking legal)
-- [ ] Kakao Alimtalk template submission via aggregator (T2.6 — multi-day lead)
+- [x] Apple Developer Program — **DONE** (T1.11 unblocked; signing keys/profiles to be set up in-task)
+- [x] Play Console account — **DONE** (T1.11 unblocked)
+- [~] OCI Compute VM — **ready to provision**; when the deploy step arrives, provide SSH/OCI access (ops/README.md documents the steps)
+- [~] KCC LBS 사업 신고 + Kakao Alimtalk 템플릿 — user confirms will be handled (M2 tasks proceed; T2.3/T2.6 record filing evidence when available)
 - [ ] 경리/손화나 validation of rental-quote formula vs real 예비차량 data (M5)
 
 ## 4. Next up (dependency order)
