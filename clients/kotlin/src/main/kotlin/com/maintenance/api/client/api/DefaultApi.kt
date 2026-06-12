@@ -86,6 +86,8 @@ import com.maintenance.api.client.model.TargetChangeRequest
 import com.maintenance.api.client.model.TargetChangeRequestSummary
 import com.maintenance.api.client.model.TokenPairResponse
 import com.maintenance.api.client.model.UpdateWorkOrderPriorityRequest
+import com.maintenance.api.client.model.WorkDiaryDraft
+import com.maintenance.api.client.model.WorkDiaryUpdateRequest
 import com.maintenance.api.client.model.WorkOrderDetail
 import com.maintenance.api.client.model.WorkOrderListPage
 import com.maintenance.api.client.model.WorkOrderStatus
@@ -1237,6 +1239,82 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/reporting/work-diary/confirm
+     * Confirm a work-diary draft before export
+     *
+     * @param date Report date in YYYY-MM-DD format.
+     * @return WorkDiaryDraft
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun confirmWorkDiaryDraft(date: java.time.LocalDate) : WorkDiaryDraft = withContext(Dispatchers.IO) {
+        val localVarResponse = confirmWorkDiaryDraftWithHttpInfo(date = date)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkDiaryDraft
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/reporting/work-diary/confirm
+     * Confirm a work-diary draft before export
+     *
+     * @param date Report date in YYYY-MM-DD format.
+     * @return ApiResponse<WorkDiaryDraft?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun confirmWorkDiaryDraftWithHttpInfo(date: java.time.LocalDate) : ApiResponse<WorkDiaryDraft?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = confirmWorkDiaryDraftRequestConfig(date = date)
+
+        return@withContext request<Unit, WorkDiaryDraft>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation confirmWorkDiaryDraft
+     *
+     * @param date Report date in YYYY-MM-DD format.
+     * @return RequestConfig
+     */
+    fun confirmWorkDiaryDraftRequestConfig(date: java.time.LocalDate) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("date", listOf(parseDateToQueryString<java.time.LocalDate>(date)))
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/reporting/work-diary/confirm",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/ws
      * Connect to the realtime WebSocket stream
      * Upgrades to a WebSocket after bearer-token verification. Server frames are JSON realtime events; reconnecting clients pass last_message_id to resume from the last processed message cursor.
@@ -1910,6 +1988,82 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/exports/daily-status
+     * Export the daily work-progress status workbook
+     * Fills the real 일일업무진행현황 Excel template from live work-order and daily-plan data for the requested date. Inspection rows are omitted with source notes until the inspection schedule source tables merge.
+     * @param date Report date in YYYY-MM-DD format.
+     * @return java.io.File
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getDailyStatusExport(date: java.time.LocalDate) : java.io.File = withContext(Dispatchers.IO) {
+        val localVarResponse = getDailyStatusExportWithHttpInfo(date = date)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as java.io.File
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/exports/daily-status
+     * Export the daily work-progress status workbook
+     * Fills the real 일일업무진행현황 Excel template from live work-order and daily-plan data for the requested date. Inspection rows are omitted with source notes until the inspection schedule source tables merge.
+     * @param date Report date in YYYY-MM-DD format.
+     * @return ApiResponse<java.io.File?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getDailyStatusExportWithHttpInfo(date: java.time.LocalDate) : ApiResponse<java.io.File?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getDailyStatusExportRequestConfig(date = date)
+
+        return@withContext request<Unit, java.io.File>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getDailyStatusExport
+     *
+     * @param date Report date in YYYY-MM-DD format.
+     * @return RequestConfig
+     */
+    fun getDailyStatusExportRequestConfig(date: java.time.LocalDate) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("date", listOf(parseDateToQueryString<java.time.LocalDate>(date)))
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/exports/daily-status",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/kpi
      * Fetch branch-scoped KPI rollups for the seven standard metrics
      * Computes KPI metrics from approved work-order reports within the requested approval period. Metrics whose source domains have not merged yet are returned in &#x60;unavailable_metrics&#x60; instead of fabricated values.
@@ -2203,6 +2357,158 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/financial/rental-quotes/{quoteId}".replace("{"+"quoteId"+"}", encodeURIComponent(quoteId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/reporting/work-diary
+     * Get or generate the editable work-diary draft for a date
+     *
+     * @param date Report date in YYYY-MM-DD format.
+     * @return WorkDiaryDraft
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getWorkDiaryDraft(date: java.time.LocalDate) : WorkDiaryDraft = withContext(Dispatchers.IO) {
+        val localVarResponse = getWorkDiaryDraftWithHttpInfo(date = date)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkDiaryDraft
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/reporting/work-diary
+     * Get or generate the editable work-diary draft for a date
+     *
+     * @param date Report date in YYYY-MM-DD format.
+     * @return ApiResponse<WorkDiaryDraft?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getWorkDiaryDraftWithHttpInfo(date: java.time.LocalDate) : ApiResponse<WorkDiaryDraft?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getWorkDiaryDraftRequestConfig(date = date)
+
+        return@withContext request<Unit, WorkDiaryDraft>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getWorkDiaryDraft
+     *
+     * @param date Report date in YYYY-MM-DD format.
+     * @return RequestConfig
+     */
+    fun getWorkDiaryDraftRequestConfig(date: java.time.LocalDate) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("date", listOf(parseDateToQueryString<java.time.LocalDate>(date)))
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/reporting/work-diary",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/exports/work-diary
+     * Export the confirmed or generated work-diary workbook
+     * Exports the 업무일지 workbook for the requested date, preserving the template&#39;s additional sheets and using an existing draft when one has been edited or confirmed.
+     * @param date Report date in YYYY-MM-DD format.
+     * @return java.io.File
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getWorkDiaryExport(date: java.time.LocalDate) : java.io.File = withContext(Dispatchers.IO) {
+        val localVarResponse = getWorkDiaryExportWithHttpInfo(date = date)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as java.io.File
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/exports/work-diary
+     * Export the confirmed or generated work-diary workbook
+     * Exports the 업무일지 workbook for the requested date, preserving the template&#39;s additional sheets and using an existing draft when one has been edited or confirmed.
+     * @param date Report date in YYYY-MM-DD format.
+     * @return ApiResponse<java.io.File?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getWorkDiaryExportWithHttpInfo(date: java.time.LocalDate) : ApiResponse<java.io.File?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getWorkDiaryExportRequestConfig(date = date)
+
+        return@withContext request<Unit, java.io.File>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getWorkDiaryExport
+     *
+     * @param date Report date in YYYY-MM-DD format.
+     * @return RequestConfig
+     */
+    fun getWorkDiaryExportRequestConfig(date: java.time.LocalDate) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("date", listOf(parseDateToQueryString<java.time.LocalDate>(date)))
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/exports/work-diary",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -4459,6 +4765,86 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/work-orders/{workOrderId}/report".replace("{"+"workOrderId"+"}", encodeURIComponent(workOrderId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PUT /api/v1/reporting/work-diary
+     * Update an editable work-diary draft body
+     *
+     * @param date Report date in YYYY-MM-DD format.
+     * @param workDiaryUpdateRequest
+     * @return WorkDiaryDraft
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun updateWorkDiaryDraft(date: java.time.LocalDate, workDiaryUpdateRequest: WorkDiaryUpdateRequest) : WorkDiaryDraft = withContext(Dispatchers.IO) {
+        val localVarResponse = updateWorkDiaryDraftWithHttpInfo(date = date, workDiaryUpdateRequest = workDiaryUpdateRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkDiaryDraft
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PUT /api/v1/reporting/work-diary
+     * Update an editable work-diary draft body
+     *
+     * @param date Report date in YYYY-MM-DD format.
+     * @param workDiaryUpdateRequest
+     * @return ApiResponse<WorkDiaryDraft?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun updateWorkDiaryDraftWithHttpInfo(date: java.time.LocalDate, workDiaryUpdateRequest: WorkDiaryUpdateRequest) : ApiResponse<WorkDiaryDraft?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = updateWorkDiaryDraftRequestConfig(date = date, workDiaryUpdateRequest = workDiaryUpdateRequest)
+
+        return@withContext request<WorkDiaryUpdateRequest, WorkDiaryDraft>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation updateWorkDiaryDraft
+     *
+     * @param date Report date in YYYY-MM-DD format.
+     * @param workDiaryUpdateRequest
+     * @return RequestConfig
+     */
+    fun updateWorkDiaryDraftRequestConfig(date: java.time.LocalDate, workDiaryUpdateRequest: WorkDiaryUpdateRequest) : RequestConfig<WorkDiaryUpdateRequest> {
+        val localVariableBody = workDiaryUpdateRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("date", listOf(parseDateToQueryString<java.time.LocalDate>(date)))
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PUT,
+            path = "/api/v1/reporting/work-diary",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

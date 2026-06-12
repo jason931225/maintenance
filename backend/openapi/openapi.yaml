@@ -23,10 +23,10 @@ paths:
     get:
       operationId: connectRealtimeWebSocket
       summary: Connect to the realtime WebSocket stream
-      description: >
-        Upgrades to a WebSocket after bearer-token verification. Server frames
-        are JSON realtime events; reconnecting clients pass last_message_id to
-        resume from the last processed message cursor.
+      description: 'Upgrades to a WebSocket after bearer-token verification. Server frames are JSON realtime
+        events; reconnecting clients pass last_message_id to resume from the last processed message cursor.
+
+        '
       security:
       - bearerAuth: []
       parameters:
@@ -1466,6 +1466,159 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+  /api/v1/exports/daily-status:
+    get:
+      operationId: getDailyStatusExport
+      summary: Export the daily work-progress status workbook
+      description: Fills the real 일일업무진행현황 Excel template from live work-order and daily-plan data for
+        the requested date. Inspection rows are omitted with source notes until the inspection schedule
+        source tables merge.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/ReportDate'
+      responses:
+        '200':
+          description: Daily status workbook.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+              description: Attachment filename for the generated workbook.
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/exports/work-diary:
+    get:
+      operationId: getWorkDiaryExport
+      summary: Export the confirmed or generated work-diary workbook
+      description: Exports the 업무일지 workbook for the requested date, preserving the template's additional
+        sheets and using an existing draft when one has been edited or confirmed.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/ReportDate'
+      responses:
+        '200':
+          description: Work diary workbook.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+              description: Attachment filename for the generated workbook.
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/reporting/work-diary:
+    get:
+      operationId: getWorkDiaryDraft
+      summary: Get or generate the editable work-diary draft for a date
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/ReportDate'
+      responses:
+        '200':
+          description: Work diary draft.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkDiaryDraft'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    put:
+      operationId: updateWorkDiaryDraft
+      summary: Update an editable work-diary draft body
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/ReportDate'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkDiaryUpdateRequest'
+      responses:
+        '200':
+          description: Updated work diary draft.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkDiaryDraft'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/reporting/work-diary/confirm:
+    post:
+      operationId: confirmWorkDiaryDraft
+      summary: Confirm a work-diary draft before export
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/ReportDate'
+      responses:
+        '200':
+          description: Confirmed work diary draft.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkDiaryDraft'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
 components:
   securitySchemes:
     bearerAuth:
@@ -1551,6 +1704,13 @@ components:
       schema:
         type: string
         format: uuid
+    ReportDate:
+      name: date
+      in: query
+      required: true
+      schema:
+        $ref: '#/components/schemas/Date'
+      description: Report date in YYYY-MM-DD format.
   responses:
     Unauthorized:
       description: Missing or invalid bearer token.
@@ -3456,3 +3616,89 @@ components:
         declined_count:
           type: integer
           format: int64
+    ExportSourceNote:
+      type: object
+      required:
+      - source_domain
+      - reason
+      properties:
+        source_domain:
+          type: string
+        reason:
+          type: string
+    WorkDiaryStatus:
+      type: string
+      enum:
+      - DRAFT
+      - CONFIRMED
+    WorkDiaryActionEntry:
+      type: object
+      required:
+      - site_name
+      - management_no
+      - diagnosis
+      - action_taken
+      properties:
+        site_name:
+          type: string
+        management_no:
+          type: string
+        diagnosis:
+          type: string
+        action_taken:
+          type: string
+    WorkDiaryBody:
+      type: object
+      required:
+      - previous_results
+      - today_plans
+      - urgent_actions
+      - source_notes
+      properties:
+        previous_results:
+          type: string
+        today_plans:
+          type: string
+        urgent_actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkDiaryActionEntry'
+        source_notes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExportSourceNote'
+    WorkDiaryDraft:
+      type: object
+      required:
+      - id
+      - date
+      - status
+      - body
+      - confirmed_by
+      - confirmed_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        date:
+          $ref: '#/components/schemas/Date'
+        status:
+          $ref: '#/components/schemas/WorkDiaryStatus'
+        body:
+          $ref: '#/components/schemas/WorkDiaryBody'
+        confirmed_by:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        confirmed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+    WorkDiaryUpdateRequest:
+      type: object
+      required:
+      - body
+      properties:
+        body:
+          $ref: '#/components/schemas/WorkDiaryBody'

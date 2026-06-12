@@ -271,3 +271,100 @@ fn average_i64(total: i128, count: u32) -> Option<i64> {
 fn rate_bps(numerator: u32, denominator: u32) -> Option<u32> {
     numerator.saturating_mul(10_000).checked_div(denominator)
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExportSourceNote {
+    pub source_domain: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DailyStatusReport {
+    pub date: time::Date,
+    pub results: Vec<DailyStatusRow>,
+    pub plans: Vec<DailyStatusRow>,
+    pub pending_backlog: Vec<DailyStatusRow>,
+    pub periodic_inspections: Vec<PeriodicInspectionRow>,
+    pub source_notes: Vec<ExportSourceNote>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DailyStatusRow {
+    pub request_date: Option<time::Date>,
+    pub site_name: String,
+    pub management_no: Option<String>,
+    pub model: Option<String>,
+    pub vin: Option<String>,
+    pub symptom: String,
+    pub mechanic_name: Option<String>,
+    pub scheduled_date: Option<time::Date>,
+    pub completed_date: Option<time::Date>,
+    pub result_note: Option<String>,
+    pub priority: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PeriodicInspectionRow {
+    pub site_name: String,
+    pub vehicle_no: Option<String>,
+    pub management_no: Option<String>,
+    pub model: Option<String>,
+    pub serial_no: Option<String>,
+    pub issue: String,
+    pub inspection_period: Option<String>,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkDiaryBody {
+    pub previous_results: String,
+    pub today_plans: String,
+    pub urgent_actions: Vec<WorkDiaryActionEntry>,
+    pub source_notes: Vec<ExportSourceNote>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkDiaryActionEntry {
+    pub site_name: String,
+    pub management_no: String,
+    pub diagnosis: String,
+    pub action_taken: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum WorkDiaryStatus {
+    Draft,
+    Confirmed,
+}
+
+impl WorkDiaryStatus {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Draft => "DRAFT",
+            Self::Confirmed => "CONFIRMED",
+        }
+    }
+
+    pub fn from_db_str(value: &str) -> Result<Self, mnt_kernel_core::KernelError> {
+        match value {
+            "DRAFT" => Ok(Self::Draft),
+            "CONFIRMED" => Ok(Self::Confirmed),
+            other => Err(mnt_kernel_core::KernelError::validation(format!(
+                "unknown work diary status {other:?}"
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkDiaryDraft {
+    pub id: uuid::Uuid,
+    pub date: time::Date,
+    pub status: WorkDiaryStatus,
+    pub body: WorkDiaryBody,
+    pub confirmed_by: Option<UserId>,
+    pub confirmed_at: Option<Timestamp>,
+}

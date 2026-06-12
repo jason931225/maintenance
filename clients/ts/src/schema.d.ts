@@ -1127,6 +1127,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/exports/daily-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export the daily work-progress status workbook
+         * @description Fills the real 일일업무진행현황 Excel template from live work-order and daily-plan data for the requested date. Inspection rows are omitted with source notes until the inspection schedule source tables merge.
+         */
+        get: operations["getDailyStatusExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/exports/work-diary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export the confirmed or generated work-diary workbook
+         * @description Exports the 업무일지 workbook for the requested date, preserving the template's additional sheets and using an existing draft when one has been edited or confirmed.
+         */
+        get: operations["getWorkDiaryExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reporting/work-diary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get or generate the editable work-diary draft for a date */
+        get: operations["getWorkDiaryDraft"];
+        /** Update an editable work-diary draft body */
+        put: operations["updateWorkDiaryDraft"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reporting/work-diary/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm a work-diary draft before export */
+        post: operations["confirmWorkDiaryDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1817,6 +1892,37 @@ export interface components {
             /** Format: int64 */
             declined_count: number;
         };
+        ExportSourceNote: {
+            source_domain: string;
+            reason: string;
+        };
+        /** @enum {string} */
+        WorkDiaryStatus: "DRAFT" | "CONFIRMED";
+        WorkDiaryActionEntry: {
+            site_name: string;
+            management_no: string;
+            diagnosis: string;
+            action_taken: string;
+        };
+        WorkDiaryBody: {
+            previous_results: string;
+            today_plans: string;
+            urgent_actions: components["schemas"]["WorkDiaryActionEntry"][];
+            source_notes: components["schemas"]["ExportSourceNote"][];
+        };
+        WorkDiaryDraft: {
+            id: components["schemas"]["Uuid"];
+            date: components["schemas"]["Date"];
+            status: components["schemas"]["WorkDiaryStatus"];
+            body: components["schemas"]["WorkDiaryBody"];
+            /** Format: uuid */
+            confirmed_by: string | null;
+            /** Format: date-time */
+            confirmed_at: string | null;
+        };
+        WorkDiaryUpdateRequest: {
+            body: components["schemas"]["WorkDiaryBody"];
+        };
     };
     responses: {
         /** @description Missing or invalid bearer token. */
@@ -1878,6 +1984,8 @@ export interface components {
         EquipmentIdV2: string;
         PurchaseRequestId: string;
         DispatchId: string;
+        /** @description Report date in YYYY-MM-DD format. */
+        ReportDate: components["schemas"]["Date"];
     };
     requestBodies: never;
     headers: never;
@@ -3312,6 +3420,169 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    getDailyStatusExport: {
+        parameters: {
+            query: {
+                /** @description Report date in YYYY-MM-DD format. */
+                date: components["parameters"]["ReportDate"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Daily status workbook. */
+            200: {
+                headers: {
+                    /** @description Attachment filename for the generated workbook. */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getWorkDiaryExport: {
+        parameters: {
+            query: {
+                /** @description Report date in YYYY-MM-DD format. */
+                date: components["parameters"]["ReportDate"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Work diary workbook. */
+            200: {
+                headers: {
+                    /** @description Attachment filename for the generated workbook. */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getWorkDiaryDraft: {
+        parameters: {
+            query: {
+                /** @description Report date in YYYY-MM-DD format. */
+                date: components["parameters"]["ReportDate"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Work diary draft. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkDiaryDraft"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    updateWorkDiaryDraft: {
+        parameters: {
+            query: {
+                /** @description Report date in YYYY-MM-DD format. */
+                date: components["parameters"]["ReportDate"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkDiaryUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated work diary draft. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkDiaryDraft"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    confirmWorkDiaryDraft: {
+        parameters: {
+            query: {
+                /** @description Report date in YYYY-MM-DD format. */
+                date: components["parameters"]["ReportDate"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Confirmed work diary draft. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkDiaryDraft"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
         };
     };
 }

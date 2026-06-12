@@ -1,0 +1,547 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use std::io::Cursor;
+
+use mnt_kernel_core::{BranchId, BranchScope, TraceContext, UserId};
+use mnt_platform_excel::umya_spreadsheet::{self, Workbook, Worksheet};
+use mnt_reporting_adapter_postgres::PgReportingRepository;
+use mnt_reporting_application::{
+    ReportingExportPort, ReportingExportQuery, WorkDiaryActionEntry, WorkDiaryBody,
+    WorkDiaryConfirmCommand, WorkDiaryDraftPort, WorkDiaryQuery, WorkDiaryUpdateCommand,
+};
+use sqlx::PgPool;
+use time::{Date, Duration, OffsetDateTime, Time, macros::datetime};
+
+const EXPORT_DATE: Date = time::macros::date!(2026 - 06 - 12);
+const EXPORT_START: OffsetDateTime = datetime!(2026-06-12 00:00 UTC);
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn daily_status_export_maps_live_work_orders_to_template_sections(pool: PgPool) {
+    let seeded = seed_export_dataset(&pool).await;
+    let repo = PgReportingRepository::new(pool.clone());
+
+    let export = repo
+        .export_daily_status(export_query(seeded.actor, seeded.branch))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        export.file_name, "daily-status-2026-06-12.xlsx",
+        "download filename should be deterministic"
+    );
+    let book = load_workbook(&export.bytes);
+    let ws = sheet(&book, "6월05일");
+
+    assert_eq!(cell_value(ws, 4, 4), "완료현장");
+    assert_eq!(cell_value(ws, 5, 4), "#900");
+    assert_eq!(cell_value(ws, 8, 4), "충전불가");
+    assert_eq!(cell_value(ws, 9, 4), "정비완료");
+    assert_eq!(cell_value(ws, 11, 4), "2026-06-12");
+    assert_eq!(cell_value(ws, 12, 4), "충전기 교체 완료");
+    assert_eq!(cell_value(ws, 13, 4), "Priority#1");
+
+    assert_eq!(cell_value(ws, 4, 26), "계획현장");
+    assert_eq!(cell_value(ws, 5, 26), "#901");
+    assert_eq!(cell_value(ws, 8, 26), "유압 누유");
+    assert_eq!(cell_value(ws, 9, 26), "정비계획");
+    assert_eq!(cell_value(ws, 10, 26), "2026-06-12");
+    assert_eq!(cell_value(ws, 13, 26), "Priority#2");
+
+    assert_eq!(cell_value(ws, 4, 46), "미결현장-01");
+    assert_eq!(cell_value(ws, 5, 46), "#1001");
+    assert_eq!(cell_value(ws, 13, 46), "ASSIGNED");
+    assert_eq!(cell_value(ws, 4, 78), "미결현장-33");
+    assert_eq!(cell_value(ws, 5, 78), "#1033");
+    assert_eq!(
+        cell_value(ws, 4, 79),
+        "계획현장",
+        "planned-but-open work orders remain in the unbounded backlog"
+    );
+    assert_eq!(
+        cell_value(ws, 2, 81),
+        "4. 정기검사",
+        "34 open rows should force section 4 below the original template range"
+    );
+
+    let export_log_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM excel_export_logs WHERE export_kind = 'daily_status'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(export_log_count, 1);
+    let audit_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_events WHERE action = 'export.daily_status'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(audit_count, 1);
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn work_diary_draft_can_be_generated_edited_confirmed_and_exported(pool: PgPool) {
+    let seeded = seed_export_dataset(&pool).await;
+    let repo = PgReportingRepository::new(pool.clone());
+
+    let generated = repo
+        .get_or_generate_work_diary(work_diary_query(seeded.actor, seeded.branch))
+        .await
+        .unwrap();
+    assert_eq!(generated.status.as_str(), "DRAFT");
+    assert!(generated.body.previous_results.contains("완료현장"));
+    assert!(generated.body.today_plans.contains("익일예정"));
+    assert_eq!(
+        generated.body.urgent_actions.first().unwrap().diagnosis,
+        "배터리 전압 저하"
+    );
+
+    let edited_body = WorkDiaryBody {
+        previous_results: "편집된 전일실적".to_owned(),
+        today_plans: "편집된 금일예정".to_owned(),
+        urgent_actions: vec![WorkDiaryActionEntry {
+            site_name: "편집현장".to_owned(),
+            management_no: "#999".to_owned(),
+            diagnosis: "편집 점검".to_owned(),
+            action_taken: "편집 조치".to_owned(),
+        }],
+        source_notes: generated.body.source_notes.clone(),
+    };
+
+    let edited = repo
+        .update_work_diary(WorkDiaryUpdateCommand {
+            actor: seeded.actor,
+            date: EXPORT_DATE,
+            branch_scope: BranchScope::single(seeded.branch),
+            body: edited_body,
+            trace: TraceContext::generate(),
+            occurred_at: EXPORT_START + Duration::hours(18),
+        })
+        .await
+        .unwrap();
+    assert_eq!(edited.body.previous_results, "편집된 전일실적");
+
+    let confirmed = repo
+        .confirm_work_diary(WorkDiaryConfirmCommand {
+            actor: seeded.actor,
+            date: EXPORT_DATE,
+            branch_scope: BranchScope::single(seeded.branch),
+            trace: TraceContext::generate(),
+            occurred_at: EXPORT_START + Duration::hours(19),
+        })
+        .await
+        .unwrap();
+    assert_eq!(confirmed.status.as_str(), "CONFIRMED");
+
+    let export = repo
+        .export_work_diary(export_query(seeded.actor, seeded.branch))
+        .await
+        .unwrap();
+    assert_eq!(export.file_name, "work-diary-2026-06-12.xlsx");
+    let book = load_workbook(&export.bytes);
+    let ws = sheet(&book, "06월 12일");
+    assert!(cell_value(ws, 2, 3).contains("2026. 06. 12"));
+    assert_eq!(cell_value(ws, 2, 10), "편집된 전일실적");
+    assert_eq!(cell_value(ws, 6, 10), "편집된 금일예정");
+    assert!(cell_value(ws, 2, 15).contains("▶ 편집현장 #999"));
+    assert!(cell_value(ws, 2, 15).contains("1) 점검 : 편집 점검"));
+    assert!(cell_value(ws, 2, 15).contains("2) 조치 : 편집 조치"));
+    assert!(
+        book.sheet_by_name("2026.05월(계획)").is_ok(),
+        "monthly plan calendar sheet must pass through untouched"
+    );
+
+    let actions: Vec<String> =
+        sqlx::query_scalar("SELECT action FROM audit_events ORDER BY occurred_at, action")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert!(actions.contains(&"work_diary.generate".to_owned()));
+    assert!(actions.contains(&"work_diary.update".to_owned()));
+    assert!(actions.contains(&"work_diary.confirm".to_owned()));
+    assert!(actions.contains(&"export.work_diary".to_owned()));
+}
+
+fn export_query(actor: UserId, branch: BranchId) -> ReportingExportQuery {
+    ReportingExportQuery {
+        actor,
+        date: EXPORT_DATE,
+        branch_scope: BranchScope::single(branch),
+        trace: TraceContext::generate(),
+        occurred_at: EXPORT_START + Duration::hours(17),
+    }
+}
+
+fn work_diary_query(actor: UserId, branch: BranchId) -> WorkDiaryQuery {
+    WorkDiaryQuery {
+        actor,
+        date: EXPORT_DATE,
+        branch_scope: BranchScope::single(branch),
+        trace: TraceContext::generate(),
+        occurred_at: EXPORT_START + Duration::hours(16),
+    }
+}
+
+fn load_workbook(bytes: &[u8]) -> Workbook {
+    umya_spreadsheet::reader::xlsx::read_reader(Cursor::new(bytes), true)
+        .expect("exported workbook should be readable")
+}
+
+fn sheet<'a>(book: &'a Workbook, name: &str) -> &'a Worksheet {
+    book.sheet_by_name(name)
+        .unwrap_or_else(|err| panic!("sheet {name} should exist: {err}"))
+}
+
+fn cell_value(ws: &Worksheet, col: u32, row: u32) -> String {
+    ws.cell((col, row))
+        .map(|cell| cell.value().to_string())
+        .unwrap_or_default()
+}
+
+struct SeededExportDataset {
+    branch: BranchId,
+    actor: UserId,
+}
+
+async fn seed_export_dataset(pool: &PgPool) -> SeededExportDataset {
+    let branch = seed_branch(pool, "수도권", "서울").await;
+    let actor = seed_user(pool, "관리자", "ADMIN", branch).await;
+    let completed_tech = seed_user(pool, "정비완료", "MECHANIC", branch).await;
+    let planned_tech = seed_user(pool, "정비계획", "MECHANIC", branch).await;
+
+    let completed_equipment = seed_equipment(pool, branch, "900", "완료현장", "CMPAA-0900").await;
+    let planned_equipment = seed_equipment(pool, branch, "901", "계획현장", "PLNAA-0901").await;
+    let completed_work_order = seed_work_order(
+        pool,
+        WorkOrderSeed {
+            branch,
+            equipment: completed_equipment,
+            requested_by: actor,
+            request_no: "20260612-001",
+            status: "FINAL_COMPLETED",
+            priority: "P1",
+            symptom: "충전불가",
+            diagnosis: Some("배터리 전압 저하"),
+            action_taken: Some("충전기 교체 완료"),
+            report_submitted_by: Some(completed_tech),
+            report_submitted_at: Some(EXPORT_START + Duration::hours(14)),
+            target_due_at: Some(EXPORT_START + Duration::hours(15)),
+            created_at: EXPORT_START + Duration::hours(8),
+            approved_at: Some(EXPORT_START + Duration::hours(16)),
+        },
+    )
+    .await;
+    seed_assignment(
+        pool,
+        completed_work_order,
+        completed_tech,
+        EXPORT_START + Duration::hours(9),
+    )
+    .await;
+    seed_approval(
+        pool,
+        completed_work_order,
+        actor,
+        EXPORT_START + Duration::hours(16),
+    )
+    .await;
+
+    let planned_work_order = seed_work_order(
+        pool,
+        WorkOrderSeed {
+            branch,
+            equipment: planned_equipment,
+            requested_by: actor,
+            request_no: "20260612-002",
+            status: "ASSIGNED",
+            priority: "P2",
+            symptom: "유압 누유",
+            diagnosis: None,
+            action_taken: None,
+            report_submitted_by: None,
+            report_submitted_at: None,
+            target_due_at: Some(EXPORT_START + Duration::hours(10)),
+            created_at: EXPORT_START + Duration::hours(7),
+            approved_at: None,
+        },
+    )
+    .await;
+    seed_assignment(
+        pool,
+        planned_work_order,
+        planned_tech,
+        EXPORT_START + Duration::hours(8),
+    )
+    .await;
+    seed_daily_plan(
+        pool,
+        branch,
+        planned_tech,
+        EXPORT_DATE,
+        planned_work_order,
+        "계획현장 유압 누유 점검",
+    )
+    .await;
+
+    seed_daily_plan(
+        pool,
+        branch,
+        planned_tech,
+        EXPORT_DATE.next_day().unwrap(),
+        planned_work_order,
+        "익일예정 예방점검",
+    )
+    .await;
+
+    for index in 1..=33 {
+        let management_no = format!("{}", 1000 + index);
+        let site_name = format!("미결현장-{index:02}");
+        let equipment_no = format!("PND{index:02}-{index:04}");
+        let equipment =
+            seed_equipment(pool, branch, &management_no, &site_name, &equipment_no).await;
+        let work_order = seed_work_order(
+            pool,
+            WorkOrderSeed {
+                branch,
+                equipment,
+                requested_by: actor,
+                request_no: Box::leak(format!("20260611-{index:03}").into_boxed_str()),
+                status: "ASSIGNED",
+                priority: "P3",
+                symptom: Box::leak(format!("미결 증상 {index:02}").into_boxed_str()),
+                diagnosis: None,
+                action_taken: None,
+                report_submitted_by: None,
+                report_submitted_at: None,
+                target_due_at: Some(EXPORT_START + Duration::days(1)),
+                created_at: EXPORT_START - Duration::days(1) + Duration::minutes(index),
+                approved_at: None,
+            },
+        )
+        .await;
+        seed_assignment(
+            pool,
+            work_order,
+            planned_tech,
+            EXPORT_START + Duration::minutes(index),
+        )
+        .await;
+    }
+
+    SeededExportDataset { branch, actor }
+}
+
+async fn seed_branch(pool: &PgPool, region_name: &str, branch_name: &str) -> BranchId {
+    let region_id: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+            .bind(format!("{region_name}-{}", uuid::Uuid::new_v4()))
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    let branch_id: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
+            .bind(region_id)
+            .bind(format!("{branch_name}-{}", uuid::Uuid::new_v4()))
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    BranchId::from_uuid(branch_id)
+}
+
+async fn seed_user(pool: &PgPool, name: &str, role: &str, branch: BranchId) -> UserId {
+    let id = UserId::new();
+    sqlx::query("INSERT INTO users (id, display_name, roles) VALUES ($1, $2, $3)")
+        .bind(*id.as_uuid())
+        .bind(name)
+        .bind(Vec::from([role]))
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+        .bind(*id.as_uuid())
+        .bind(*branch.as_uuid())
+        .execute(pool)
+        .await
+        .unwrap();
+    id
+}
+
+async fn seed_equipment(
+    pool: &PgPool,
+    branch: BranchId,
+    management_no: &str,
+    site_name: &str,
+    equipment_no: &str,
+) -> uuid::Uuid {
+    let customer_id: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO registry_customers (branch_id, name) VALUES ($1, $2) RETURNING id",
+    )
+    .bind(*branch.as_uuid())
+    .bind(format!("고객-{site_name}"))
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let site_id: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO registry_sites (branch_id, customer_id, name) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(*branch.as_uuid())
+    .bind(customer_id)
+    .bind(site_name)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    sqlx::query_scalar(
+        r#"
+        INSERT INTO registry_equipment (
+            branch_id, customer_id, site_id, equipment_no, management_no, model, vin,
+            manufacturer_code, kind_code, power_code, status, specification, ton_text,
+            source_sheet, source_row, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, 'GTS30D', $6,
+                'GLD', 'FBR', 'BATTERY', '임대', '입식', '3톤', 'exports', 1, now())
+        RETURNING id
+        "#,
+    )
+    .bind(*branch.as_uuid())
+    .bind(customer_id)
+    .bind(site_id)
+    .bind(equipment_no)
+    .bind(management_no)
+    .bind(format!("VIN-{management_no}"))
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+struct WorkOrderSeed<'a> {
+    branch: BranchId,
+    equipment: uuid::Uuid,
+    requested_by: UserId,
+    request_no: &'a str,
+    status: &'a str,
+    priority: &'a str,
+    symptom: &'a str,
+    diagnosis: Option<&'a str>,
+    action_taken: Option<&'a str>,
+    report_submitted_by: Option<UserId>,
+    report_submitted_at: Option<OffsetDateTime>,
+    target_due_at: Option<OffsetDateTime>,
+    created_at: OffsetDateTime,
+    approved_at: Option<OffsetDateTime>,
+}
+
+async fn seed_work_order(pool: &PgPool, seed: WorkOrderSeed<'_>) -> uuid::Uuid {
+    let (customer_id, site_id): (uuid::Uuid, uuid::Uuid) =
+        sqlx::query_as("SELECT customer_id, site_id FROM registry_equipment WHERE id = $1")
+            .bind(seed.equipment)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    sqlx::query_scalar(
+        r#"
+        INSERT INTO work_orders (
+            request_no, branch_id, equipment_id, customer_id, site_id, requested_by,
+            status, priority, symptom, target_due_at, result_type, diagnosis, action_taken,
+            report_submitted_by, report_submitted_at, created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6,
+                $7, $8, $9, $10, 'COMPLETED', $11, $12,
+                $13, $14, $15, $16)
+        RETURNING id
+        "#,
+    )
+    .bind(seed.request_no)
+    .bind(*seed.branch.as_uuid())
+    .bind(seed.equipment)
+    .bind(customer_id)
+    .bind(site_id)
+    .bind(*seed.requested_by.as_uuid())
+    .bind(seed.status)
+    .bind(seed.priority)
+    .bind(seed.symptom)
+    .bind(seed.target_due_at)
+    .bind(seed.diagnosis)
+    .bind(seed.action_taken)
+    .bind(seed.report_submitted_by.map(|id| *id.as_uuid()))
+    .bind(seed.report_submitted_at)
+    .bind(seed.created_at)
+    .bind(seed.approved_at.unwrap_or(seed.created_at))
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn seed_assignment(
+    pool: &PgPool,
+    work_order_id: uuid::Uuid,
+    tech: UserId,
+    assigned_at: OffsetDateTime,
+) {
+    sqlx::query(
+        "INSERT INTO work_order_assignments (work_order_id, mechanic_id, role, assigned_at) VALUES ($1, $2, 'PRIMARY', $3)",
+    )
+    .bind(work_order_id)
+    .bind(*tech.as_uuid())
+    .bind(assigned_at)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn seed_approval(
+    pool: &PgPool,
+    work_order_id: uuid::Uuid,
+    approver: UserId,
+    approved_at: OffsetDateTime,
+) {
+    sqlx::query(
+        r#"
+        INSERT INTO work_order_approval_steps (
+            work_order_id, step_order, role, approver_id, status,
+            requested_at, approved_at, approved_by_id
+        )
+        VALUES ($1, 3, 'EXECUTIVE', $2, 'APPROVED', $3, $3, $2)
+        "#,
+    )
+    .bind(work_order_id)
+    .bind(*approver.as_uuid())
+    .bind(approved_at)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn seed_daily_plan(
+    pool: &PgPool,
+    branch: BranchId,
+    mechanic: UserId,
+    date: Date,
+    work_order_id: uuid::Uuid,
+    description: &str,
+) {
+    let plan_id: uuid::Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO daily_work_plans (
+            branch_id, mechanic_id, plan_date, status, requested_at, reviewed_at, confirmed_at
+        )
+        VALUES ($1, $2, $3, 'FINAL_CONFIRMED', $4, $4, $4)
+        RETURNING id
+        "#,
+    )
+    .bind(*branch.as_uuid())
+    .bind(*mechanic.as_uuid())
+    .bind(date)
+    .bind(date.with_time(Time::MIDNIGHT).assume_utc())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO daily_work_plan_items (plan_id, work_order_id, description, sort_order) VALUES ($1, $2, $3, 1)",
+    )
+    .bind(plan_id)
+    .bind(work_order_id)
+    .bind(description)
+    .execute(pool)
+    .await
+    .unwrap();
+}
