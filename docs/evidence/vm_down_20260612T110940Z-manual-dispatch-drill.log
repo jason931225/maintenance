@@ -1,0 +1,19 @@
+vm_down_drill_started_at=2026-06-12T11:09:40Z
+drill_id=vm_down_20260612T110940Z
+simulation_env=compose_project:mnt-t013-manual
+simulated_condition=production_vm_down_in_flight_p1
+CREATE TABLE
+INSERT 0 1
+p1_simulation_insert=ok drill_id=vm_down_20260612T110940Z priority=P1 received_at=2026-06-12 11:09:40+00
+manual_dispatch_sheet=recorded role_scope=affected_branch priority=P1
+incident_commander_role=관리자
+dispatch_coordinator_role=접수자
+technician_pool_role=정비사
+first_contact_attempt_at=2026-06-12T11:09:43Z channel=phone role=접수자->정비사
+manual_assignment_acceptance_at=2026-06-12T11:09:45Z assigned_by_role=관리자 accepted_by_role=정비사
+time_to_first_contact_seconds=3
+alimtalk_step=paper_rehearsed operator_role=접수자 template=approved_P1_escalation no_personal_data_in_repo=true
+customer_update_step=paper_rehearsed role=접수자 channel=phone
+recovery_reconciliation=enter_P1_assignment_and_manual_times_after_readyz_then_verify_audit_note
+vm_down_drill_complete=ok
+vm_down_drill_finished_at=2026-06-12T11:09:45Z

@@ -7,8 +7,8 @@
 - **Phase:** G001 / M0 platform spine (ultragoal `.omc/ultragoal/`, 0/8 goals complete)
 - **Plan:** `.omc/plans/fsm-maintenance-plan.md` (consensus-APPROVED 2026-06-12, ralplan iteration 3) — task IDs T0.x–T6.x are stable, ledger references them
 - **Spec:** `.omc/specs/deep-interview-fsm-maintenance.md` (interview-locked user decisions — do not relitigate)
-- **Done (10/13):** T0.1 kernel · T0.2 layer gate · T0.3 schema+with_audit · T0.4 gates (audit-coverage/migration-safety/pii-no-logs) · T0.5 auth (SoftPasskey-proven ceremonies, refresh families) · T0.6 authz (primary-source 4-level matrix) · T0.7 Compose stack (6 services healthy, HTTPS 200, SeaweedFS zero host ports) + mnt-app · T0.10 Excel spike PASS · T0.11 compliance (withdrawal-destruction proven, coords never audited) · T0.12 provisioning (cold-start passkey bootstrap)
-- **In flight:** T0.8 observability + audit-read API, T0.9 backup/restore drill. **Next:** T0.13 DR/PITR (after T0.9) → M0 wrap → G001 checkpoint → M1
+- **Done (12/13):** T0.1 kernel · T0.2 layer gate · T0.3 schema+with_audit · T0.4 gates (audit-coverage/migration-safety/pii-no-logs) · T0.5 auth (SoftPasskey-proven ceremonies, refresh families) · T0.6 authz (primary-source 4-level matrix) · T0.7 Compose stack (6 services healthy, HTTPS 200, SeaweedFS zero host ports) + mnt-app · T0.9 backup/restore drill · T0.10 Excel spike PASS · T0.11 compliance (withdrawal-destruction proven, coords never audited) · T0.12 provisioning (cold-start passkey bootstrap) · T0.13 DR/PITR (WAL archive + arbitrary timestamp drill + VM-down rehearsal evidence)
+- **In flight:** T0.8 observability + audit-read API. **Next:** M0 wrap after T0.8 → G001 checkpoint → M1
 - **Main:** 49 green test suites / 0 failed; 4/4 gates PASS; 14 workspace crates
 - **Local env:** Rust stable 1.96.0 pinned; Homebrew Postgres 18.4 (latest stable, live-verified); Docker 29.5.2 via colima; Node 24
 
@@ -43,4 +43,4 @@
 
 ## 4. Next up (dependency order)
 
-T0.4 (CI gates: audit-coverage w/ carve-out reconciliation, migration-safety, pii-no-logs) → T0.5 (passkeys/JWT) → T0.6 (authz) → T0.11 (compliance core) → T0.12 (provisioning) → T0.7–T0.9, T0.13 (Compose/obs/backup/DR — needs Docker) → M0 wrap → G002/M1.
+T0.8 (observability + audit-read API) → M0 wrap → G002/M1.

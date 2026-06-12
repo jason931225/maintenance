@@ -1,0 +1,54 @@
+drill_started_at=2026-06-12T11:15:39Z
+drill_command=ops/dr/pitr-drill.sh --source-project mnt-t013-source --scratch-project mnt-t013-pitr --backup-root ops/backup/artifacts --target-timestamp 2026-06-12T11:17:39Z
+pitr_drill_id=pitr_20260612T111539Z_pitr
+source_project=mnt-t013-source
+scratch_project=mnt-t013-pitr
+target_timestamp=2026-06-12T11:17:39Z
+recovery_target_time=2026-06-12 11:17:39+00
+postgres_status=healthy
+seaweedfs_status=healthy
+backup_id=20260612T111539Z-pitr
+compose_project=mnt-t013-source
+backup_dir=ops/backup/artifacts/daily/20260612T111539Z-pitr
+127.0.0.1:5432 - accepting connections
+backup_complete=ops/backup/artifacts/daily/20260612T111539Z-pitr
+CREATE TABLE
+before_row_created_at=2026-06-12T11:15:42.136Z
+INSERT 0 1
+after_row_created_at=2026-06-12T11:17:40.449Z
+INSERT 0 1
+archived_wal=000000010000000000000004
+source_wal_archive_volume=mnt-t013-source_postgres-wal-archive
+ Network mnt-t013-pitr_default Creating
+ Network mnt-t013-pitr_default Created
+ Volume mnt-t013-pitr_postgres-data Creating
+ Volume mnt-t013-pitr_postgres-data Created
+ Volume mnt-t013-pitr_postgres-wal-archive Creating
+ Volume mnt-t013-pitr_postgres-wal-archive Created
+ Container mnt-t013-pitr-postgres-1 Creating
+ Container mnt-t013-pitr-postgres-1 Created
+ Container mnt-t013-pitr-postgres-1 Starting
+ Container mnt-t013-pitr-postgres-1 Started
+postgres_status=healthy
+scratch_pgdata=/var/lib/postgresql/18/docker
+ Container mnt-t013-pitr-postgres-1 Stopping
+ Container mnt-t013-pitr-postgres-1 Stopped
+ Container mnt-t013-pitr-postgres-1 Starting
+ Container mnt-t013-pitr-postgres-1 Started
+postgres_status=healthy
+scratch_recovery=promoted
+verify_before_row=exists count=1
+verify_after_row=absent count=0
+pitr_drill_complete=ok
+ Container mnt-t013-pitr-postgres-1 Stopping
+ Container mnt-t013-pitr-postgres-1 Stopped
+ Container mnt-t013-pitr-postgres-1 Removing
+ Container mnt-t013-pitr-postgres-1 Removed
+ Volume mnt-t013-pitr_postgres-data Removing
+ Volume mnt-t013-pitr_postgres-wal-archive Removing
+ Network mnt-t013-pitr_default Removing
+ Volume mnt-t013-pitr_postgres-data Removed
+ Volume mnt-t013-pitr_postgres-wal-archive Removed
+ Network mnt-t013-pitr_default Removed
+scratch_teardown=complete project=mnt-t013-pitr
+drill_finished_at=2026-06-12T11:17:54Z
