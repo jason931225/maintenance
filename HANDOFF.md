@@ -9,7 +9,7 @@
 - **Spec:** `.omc/specs/deep-interview-fsm-maintenance.md` (interview-locked user decisions — do not relitigate)
 - **Done:** T0.1 (workspace + `mnt-kernel-core`, commit `7dd0ce7`; 20/20 tests, clippy clean)
 - **In flight:** T0.10 (Excel spike), T0.2 (layer gate), T0.3 (schema + `with_audit`) — parallel worktree agents
-- **Local env:** Rust stable 1.96.0 pinned; Homebrew Postgres 16; Docker via colima (installing); Node 24
+- **Local env:** Rust stable 1.96.0 pinned; Homebrew Postgres 18.4 (latest stable, live-verified); Docker 29.5.2 via colima; Node 24
 
 ## 1. Hard guardrails (persist)
 
