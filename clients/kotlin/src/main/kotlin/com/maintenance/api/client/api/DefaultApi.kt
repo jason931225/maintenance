@@ -32,7 +32,12 @@ import com.maintenance.api.client.model.CreateDailyPlanRequest
 import com.maintenance.api.client.model.CreateOutsourceWorkRequest
 import com.maintenance.api.client.model.CreateWorkOrderRequest
 import com.maintenance.api.client.model.DailyPlanSummary
+import com.maintenance.api.client.model.DeviceRegistrationRequest
+import com.maintenance.api.client.model.DeviceRegistrationResponse
 import com.maintenance.api.client.model.ErrorBody
+import com.maintenance.api.client.model.EvidenceConfirmResponse
+import com.maintenance.api.client.model.EvidencePresignRequest
+import com.maintenance.api.client.model.EvidencePresignResponse
 import com.maintenance.api.client.model.OutsourceWorkSummary
 import com.maintenance.api.client.model.PasskeyLoginFinishRequest
 import com.maintenance.api.client.model.PasskeyLoginStartRequest
@@ -45,6 +50,8 @@ import com.maintenance.api.client.model.RefreshTokenRequest
 import com.maintenance.api.client.model.ReviewDailyPlanRequest
 import com.maintenance.api.client.model.ReviewTargetChangeRequest
 import com.maintenance.api.client.model.SubmitReportRequest
+import com.maintenance.api.client.model.SyncBatchRequest
+import com.maintenance.api.client.model.SyncBatchResponse
 import com.maintenance.api.client.model.TargetChangeRequest
 import com.maintenance.api.client.model.TargetChangeRequestSummary
 import com.maintenance.api.client.model.TokenPairResponse
@@ -745,6 +752,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/evidence/{evidenceId}/confirm
+     * Confirm direct evidence upload completion and trigger replica verification
+     *
+     * @param evidenceId
+     * @return EvidenceConfirmResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun confirmEvidenceUpload(evidenceId: java.util.UUID) : EvidenceConfirmResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = confirmEvidenceUploadWithHttpInfo(evidenceId = evidenceId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EvidenceConfirmResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/evidence/{evidenceId}/confirm
+     * Confirm direct evidence upload completion and trigger replica verification
+     *
+     * @param evidenceId
+     * @return ApiResponse<EvidenceConfirmResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun confirmEvidenceUploadWithHttpInfo(evidenceId: java.util.UUID) : ApiResponse<EvidenceConfirmResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = confirmEvidenceUploadRequestConfig(evidenceId = evidenceId)
+
+        return@withContext request<Unit, EvidenceConfirmResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation confirmEvidenceUpload
+     *
+     * @param evidenceId
+     * @return RequestConfig
+     */
+    fun confirmEvidenceUploadRequestConfig(evidenceId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/evidence/{evidenceId}/confirm".replace("{"+"evidenceId"+"}", encodeURIComponent(evidenceId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/daily-work-plans
      * Create a daily work plan
      *
@@ -1110,6 +1190,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/evidence/presign
+     * Issue a presigned upload ticket for work-order evidence
+     *
+     * @param evidencePresignRequest
+     * @return EvidencePresignResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun presignEvidenceUpload(evidencePresignRequest: EvidencePresignRequest) : EvidencePresignResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = presignEvidenceUploadWithHttpInfo(evidencePresignRequest = evidencePresignRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EvidencePresignResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/evidence/presign
+     * Issue a presigned upload ticket for work-order evidence
+     *
+     * @param evidencePresignRequest
+     * @return ApiResponse<EvidencePresignResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun presignEvidenceUploadWithHttpInfo(evidencePresignRequest: EvidencePresignRequest) : ApiResponse<EvidencePresignResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = presignEvidenceUploadRequestConfig(evidencePresignRequest = evidencePresignRequest)
+
+        return@withContext request<EvidencePresignRequest, EvidencePresignResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation presignEvidenceUpload
+     *
+     * @param evidencePresignRequest
+     * @return RequestConfig
+     */
+    fun presignEvidenceUploadRequestConfig(evidencePresignRequest: EvidencePresignRequest) : RequestConfig<EvidencePresignRequest> {
+        val localVariableBody = evidencePresignRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/evidence/presign",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /readyz
      * Readiness check
      *
@@ -1172,6 +1326,162 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/devices
+     * Register or refresh a mobile device binding
+     *
+     * @param xDeviceId Client-stable device identifier. The server stores only a SHA-256 hash.
+     * @param deviceRegistrationRequest
+     * @return DeviceRegistrationResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun registerMobileDevice(xDeviceId: kotlin.String, deviceRegistrationRequest: DeviceRegistrationRequest) : DeviceRegistrationResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = registerMobileDeviceWithHttpInfo(xDeviceId = xDeviceId, deviceRegistrationRequest = deviceRegistrationRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as DeviceRegistrationResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/devices
+     * Register or refresh a mobile device binding
+     *
+     * @param xDeviceId Client-stable device identifier. The server stores only a SHA-256 hash.
+     * @param deviceRegistrationRequest
+     * @return ApiResponse<DeviceRegistrationResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun registerMobileDeviceWithHttpInfo(xDeviceId: kotlin.String, deviceRegistrationRequest: DeviceRegistrationRequest) : ApiResponse<DeviceRegistrationResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = registerMobileDeviceRequestConfig(xDeviceId = xDeviceId, deviceRegistrationRequest = deviceRegistrationRequest)
+
+        return@withContext request<DeviceRegistrationRequest, DeviceRegistrationResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation registerMobileDevice
+     *
+     * @param xDeviceId Client-stable device identifier. The server stores only a SHA-256 hash.
+     * @param deviceRegistrationRequest
+     * @return RequestConfig
+     */
+    fun registerMobileDeviceRequestConfig(xDeviceId: kotlin.String, deviceRegistrationRequest: DeviceRegistrationRequest) : RequestConfig<DeviceRegistrationRequest> {
+        val localVariableBody = deviceRegistrationRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        xDeviceId.apply { localVariableHeaders["X-Device-Id"] = this.toString() }
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/devices",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/sync
+     * Replay an idempotent mobile offline-operation batch
+     *
+     * @param xDeviceId Client-stable device identifier. The server stores only a SHA-256 hash.
+     * @param syncBatchRequest
+     * @return SyncBatchResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun replayOfflineSyncBatch(xDeviceId: kotlin.String, syncBatchRequest: SyncBatchRequest) : SyncBatchResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = replayOfflineSyncBatchWithHttpInfo(xDeviceId = xDeviceId, syncBatchRequest = syncBatchRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SyncBatchResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/sync
+     * Replay an idempotent mobile offline-operation batch
+     *
+     * @param xDeviceId Client-stable device identifier. The server stores only a SHA-256 hash.
+     * @param syncBatchRequest
+     * @return ApiResponse<SyncBatchResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun replayOfflineSyncBatchWithHttpInfo(xDeviceId: kotlin.String, syncBatchRequest: SyncBatchRequest) : ApiResponse<SyncBatchResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = replayOfflineSyncBatchRequestConfig(xDeviceId = xDeviceId, syncBatchRequest = syncBatchRequest)
+
+        return@withContext request<SyncBatchRequest, SyncBatchResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation replayOfflineSyncBatch
+     *
+     * @param xDeviceId Client-stable device identifier. The server stores only a SHA-256 hash.
+     * @param syncBatchRequest
+     * @return RequestConfig
+     */
+    fun replayOfflineSyncBatchRequestConfig(xDeviceId: kotlin.String, syncBatchRequest: SyncBatchRequest) : RequestConfig<SyncBatchRequest> {
+        val localVariableBody = syncBatchRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        xDeviceId.apply { localVariableHeaders["X-Device-Id"] = this.toString() }
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/sync",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
             body = localVariableBody
         )
     }

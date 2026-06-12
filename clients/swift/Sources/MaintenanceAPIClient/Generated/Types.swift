@@ -91,6 +91,26 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/work-orders/{workOrderId}/outsource-works`.
     /// - Remark: Generated from `#/paths//api/work-orders/{workOrderId}/outsource-works/post(createOutsourceWork)`.
     func createOutsourceWork(_ input: Operations.CreateOutsourceWork.Input) async throws -> Operations.CreateOutsourceWork.Output
+    /// Replay an idempotent mobile offline-operation batch
+    ///
+    /// - Remark: HTTP `POST /api/v1/sync`.
+    /// - Remark: Generated from `#/paths//api/v1/sync/post(replayOfflineSyncBatch)`.
+    func replayOfflineSyncBatch(_ input: Operations.ReplayOfflineSyncBatch.Input) async throws -> Operations.ReplayOfflineSyncBatch.Output
+    /// Issue a presigned upload ticket for work-order evidence
+    ///
+    /// - Remark: HTTP `POST /api/v1/evidence/presign`.
+    /// - Remark: Generated from `#/paths//api/v1/evidence/presign/post(presignEvidenceUpload)`.
+    func presignEvidenceUpload(_ input: Operations.PresignEvidenceUpload.Input) async throws -> Operations.PresignEvidenceUpload.Output
+    /// Confirm direct evidence upload completion and trigger replica verification
+    ///
+    /// - Remark: HTTP `POST /api/v1/evidence/{evidenceId}/confirm`.
+    /// - Remark: Generated from `#/paths//api/v1/evidence/{evidenceId}/confirm/post(confirmEvidenceUpload)`.
+    func confirmEvidenceUpload(_ input: Operations.ConfirmEvidenceUpload.Input) async throws -> Operations.ConfirmEvidenceUpload.Output
+    /// Register or refresh a mobile device binding
+    ///
+    /// - Remark: HTTP `POST /api/v1/devices`.
+    /// - Remark: Generated from `#/paths//api/v1/devices/post(registerMobileDevice)`.
+    func registerMobileDevice(_ input: Operations.RegisterMobileDevice.Input) async throws -> Operations.RegisterMobileDevice.Output
     /// Start passkey registration
     ///
     /// Starts registration with either a bootstrap credential or an authenticated bearer session adding a device.
@@ -343,6 +363,58 @@ extension APIProtocol {
             body: body
         ))
     }
+    /// Replay an idempotent mobile offline-operation batch
+    ///
+    /// - Remark: HTTP `POST /api/v1/sync`.
+    /// - Remark: Generated from `#/paths//api/v1/sync/post(replayOfflineSyncBatch)`.
+    public func replayOfflineSyncBatch(
+        headers: Operations.ReplayOfflineSyncBatch.Input.Headers,
+        body: Operations.ReplayOfflineSyncBatch.Input.Body
+    ) async throws -> Operations.ReplayOfflineSyncBatch.Output {
+        try await replayOfflineSyncBatch(Operations.ReplayOfflineSyncBatch.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Issue a presigned upload ticket for work-order evidence
+    ///
+    /// - Remark: HTTP `POST /api/v1/evidence/presign`.
+    /// - Remark: Generated from `#/paths//api/v1/evidence/presign/post(presignEvidenceUpload)`.
+    public func presignEvidenceUpload(
+        headers: Operations.PresignEvidenceUpload.Input.Headers = .init(),
+        body: Operations.PresignEvidenceUpload.Input.Body
+    ) async throws -> Operations.PresignEvidenceUpload.Output {
+        try await presignEvidenceUpload(Operations.PresignEvidenceUpload.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Confirm direct evidence upload completion and trigger replica verification
+    ///
+    /// - Remark: HTTP `POST /api/v1/evidence/{evidenceId}/confirm`.
+    /// - Remark: Generated from `#/paths//api/v1/evidence/{evidenceId}/confirm/post(confirmEvidenceUpload)`.
+    public func confirmEvidenceUpload(
+        path: Operations.ConfirmEvidenceUpload.Input.Path,
+        headers: Operations.ConfirmEvidenceUpload.Input.Headers = .init()
+    ) async throws -> Operations.ConfirmEvidenceUpload.Output {
+        try await confirmEvidenceUpload(Operations.ConfirmEvidenceUpload.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Register or refresh a mobile device binding
+    ///
+    /// - Remark: HTTP `POST /api/v1/devices`.
+    /// - Remark: Generated from `#/paths//api/v1/devices/post(registerMobileDevice)`.
+    public func registerMobileDevice(
+        headers: Operations.RegisterMobileDevice.Input.Headers,
+        body: Operations.RegisterMobileDevice.Input.Body
+    ) async throws -> Operations.RegisterMobileDevice.Output {
+        try await registerMobileDevice(Operations.RegisterMobileDevice.Input(
+            headers: headers,
+            body: body
+        ))
+    }
     /// Start passkey registration
     ///
     /// Starts registration with either a bootstrap credential or an authenticated bearer session adding a device.
@@ -483,6 +555,36 @@ public enum Components {
         @frozen public enum AssignmentRole: String, Codable, Hashable, Sendable, CaseIterable {
             case primary = "PRIMARY"
             case secondary = "SECONDARY"
+        }
+        /// - Remark: Generated from `#/components/schemas/AttachmentStage`.
+        @frozen public enum AttachmentStage: String, Codable, Hashable, Sendable, CaseIterable {
+            case request = "REQUEST"
+            case before = "BEFORE"
+            case during = "DURING"
+            case after = "AFTER"
+            case report = "REPORT"
+            case outsourceResult = "OUTSOURCE_RESULT"
+        }
+        /// - Remark: Generated from `#/components/schemas/SyncOperationKind`.
+        @frozen public enum SyncOperationKind: String, Codable, Hashable, Sendable, CaseIterable {
+            case workOrderStart = "WORK_ORDER_START"
+            case workOrderReport = "WORK_ORDER_REPORT"
+        }
+        /// - Remark: Generated from `#/components/schemas/SyncOperationStatus`.
+        @frozen public enum SyncOperationStatus: String, Codable, Hashable, Sendable, CaseIterable {
+            case applied = "APPLIED"
+            case failed = "FAILED"
+        }
+        /// - Remark: Generated from `#/components/schemas/DevicePlatform`.
+        @frozen public enum DevicePlatform: String, Codable, Hashable, Sendable, CaseIterable {
+            case ios = "ios"
+            case android = "android"
+        }
+        /// - Remark: Generated from `#/components/schemas/WormReplicaStatus`.
+        @frozen public enum WormReplicaStatus: String, Codable, Hashable, Sendable, CaseIterable {
+            case pending = "PENDING"
+            case verified = "VERIFIED"
+            case failed = "FAILED"
         }
         /// - Remark: Generated from `#/components/schemas/DailyPlanStatus`.
         @frozen public enum DailyPlanStatus: String, Codable, Hashable, Sendable, CaseIterable {
@@ -777,6 +879,492 @@ public enum Components {
                 case vendorName = "vendor_name"
                 case vendorContact = "vendor_contact"
                 case reason
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SyncBatchRequest`.
+        public struct SyncBatchRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SyncBatchRequest/sync_id`.
+            public var syncId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SyncBatchRequest/operations`.
+            public var operations: [Components.Schemas.SyncOperationRequest]
+            /// Creates a new `SyncBatchRequest`.
+            ///
+            /// - Parameters:
+            ///   - syncId:
+            ///   - operations:
+            public init(
+                syncId: Swift.String,
+                operations: [Components.Schemas.SyncOperationRequest]
+            ) {
+                self.syncId = syncId
+                self.operations = operations
+            }
+            public enum CodingKeys: String, CodingKey {
+                case syncId = "sync_id"
+                case operations
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SyncOperationRequest`.
+        public struct SyncOperationRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SyncOperationRequest/request_id`.
+            public var requestId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SyncOperationRequest/operation`.
+            public var operation: Components.Schemas.SyncOperationKind
+            /// - Remark: Generated from `#/components/schemas/SyncOperationRequest/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/SyncOperationRequest/payload`.
+            @frozen public enum PayloadPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/SyncOperationRequest/payload/case1`.
+                case SyncWorkOrderStartPayload(Components.Schemas.SyncWorkOrderStartPayload)
+                /// - Remark: Generated from `#/components/schemas/SyncOperationRequest/payload/case2`.
+                case SyncWorkOrderReportPayload(Components.Schemas.SyncWorkOrderReportPayload)
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self = .SyncWorkOrderStartPayload(try .init(from: decoder))
+                        return
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self = .SyncWorkOrderReportPayload(try .init(from: decoder))
+                        return
+                    } catch {
+                        errors.append(error)
+                    }
+                    throw Swift.DecodingError.failedToDecodeOneOfSchema(
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    switch self {
+                    case let .SyncWorkOrderStartPayload(value):
+                        try value.encode(to: encoder)
+                    case let .SyncWorkOrderReportPayload(value):
+                        try value.encode(to: encoder)
+                    }
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/SyncOperationRequest/payload`.
+            public var payload: Components.Schemas.SyncOperationRequest.PayloadPayload
+            /// Creates a new `SyncOperationRequest`.
+            ///
+            /// - Parameters:
+            ///   - requestId:
+            ///   - operation:
+            ///   - createdAt:
+            ///   - payload:
+            public init(
+                requestId: Swift.String,
+                operation: Components.Schemas.SyncOperationKind,
+                createdAt: Components.Schemas.Timestamp,
+                payload: Components.Schemas.SyncOperationRequest.PayloadPayload
+            ) {
+                self.requestId = requestId
+                self.operation = operation
+                self.createdAt = createdAt
+                self.payload = payload
+            }
+            public enum CodingKeys: String, CodingKey {
+                case requestId = "request_id"
+                case operation
+                case createdAt = "created_at"
+                case payload
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SyncWorkOrderStartPayload`.
+        public struct SyncWorkOrderStartPayload: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SyncWorkOrderStartPayload/work_order_id`.
+            public var workOrderId: Components.Schemas.Uuid
+            /// Creates a new `SyncWorkOrderStartPayload`.
+            ///
+            /// - Parameters:
+            ///   - workOrderId:
+            public init(workOrderId: Components.Schemas.Uuid) {
+                self.workOrderId = workOrderId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case workOrderId = "work_order_id"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SyncWorkOrderReportPayload`.
+        public struct SyncWorkOrderReportPayload: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SyncWorkOrderReportPayload/work_order_id`.
+            public var workOrderId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/SyncWorkOrderReportPayload/result_type`.
+            public var resultType: Components.Schemas.WorkResultType
+            /// - Remark: Generated from `#/components/schemas/SyncWorkOrderReportPayload/diagnosis`.
+            public var diagnosis: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SyncWorkOrderReportPayload/action_taken`.
+            public var actionTaken: Swift.String
+            /// Creates a new `SyncWorkOrderReportPayload`.
+            ///
+            /// - Parameters:
+            ///   - workOrderId:
+            ///   - resultType:
+            ///   - diagnosis:
+            ///   - actionTaken:
+            public init(
+                workOrderId: Components.Schemas.Uuid,
+                resultType: Components.Schemas.WorkResultType,
+                diagnosis: Swift.String,
+                actionTaken: Swift.String
+            ) {
+                self.workOrderId = workOrderId
+                self.resultType = resultType
+                self.diagnosis = diagnosis
+                self.actionTaken = actionTaken
+            }
+            public enum CodingKeys: String, CodingKey {
+                case workOrderId = "work_order_id"
+                case resultType = "result_type"
+                case diagnosis
+                case actionTaken = "action_taken"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SyncBatchResponse`.
+        public struct SyncBatchResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SyncBatchResponse/sync_id`.
+            public var syncId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SyncBatchResponse/results`.
+            public var results: [Components.Schemas.SyncOperationResult]
+            /// Creates a new `SyncBatchResponse`.
+            ///
+            /// - Parameters:
+            ///   - syncId:
+            ///   - results:
+            public init(
+                syncId: Swift.String,
+                results: [Components.Schemas.SyncOperationResult]
+            ) {
+                self.syncId = syncId
+                self.results = results
+            }
+            public enum CodingKeys: String, CodingKey {
+                case syncId = "sync_id"
+                case results
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SyncOperationResult`.
+        public struct SyncOperationResult: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SyncOperationResult/request_id`.
+            public var requestId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SyncOperationResult/operation`.
+            public var operation: Components.Schemas.SyncOperationKind
+            /// - Remark: Generated from `#/components/schemas/SyncOperationResult/status`.
+            public var status: Components.Schemas.SyncOperationStatus
+            /// - Remark: Generated from `#/components/schemas/SyncOperationResult/http_status`.
+            public var httpStatus: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/SyncOperationResult/result`.
+            public var result: Components.Schemas.WorkOrderSummary?
+            /// - Remark: Generated from `#/components/schemas/SyncOperationResult/error`.
+            public var error: Components.Schemas.SyncError?
+            /// - Remark: Generated from `#/components/schemas/SyncOperationResult/replayed`.
+            public var replayed: Swift.Bool
+            /// Creates a new `SyncOperationResult`.
+            ///
+            /// - Parameters:
+            ///   - requestId:
+            ///   - operation:
+            ///   - status:
+            ///   - httpStatus:
+            ///   - result:
+            ///   - error:
+            ///   - replayed:
+            public init(
+                requestId: Swift.String,
+                operation: Components.Schemas.SyncOperationKind,
+                status: Components.Schemas.SyncOperationStatus,
+                httpStatus: Swift.Int32,
+                result: Components.Schemas.WorkOrderSummary? = nil,
+                error: Components.Schemas.SyncError? = nil,
+                replayed: Swift.Bool
+            ) {
+                self.requestId = requestId
+                self.operation = operation
+                self.status = status
+                self.httpStatus = httpStatus
+                self.result = result
+                self.error = error
+                self.replayed = replayed
+            }
+            public enum CodingKeys: String, CodingKey {
+                case requestId = "request_id"
+                case operation
+                case status
+                case httpStatus = "http_status"
+                case result
+                case error
+                case replayed
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SyncError`.
+        public struct SyncError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SyncError/code`.
+            public var code: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SyncError/message`.
+            public var message: Swift.String
+            /// Creates a new `SyncError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            public init(
+                code: Swift.String,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EvidencePresignRequest`.
+        public struct EvidencePresignRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EvidencePresignRequest/work_order_id`.
+            public var workOrderId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EvidencePresignRequest/stage`.
+            public var stage: Components.Schemas.AttachmentStage
+            /// - Remark: Generated from `#/components/schemas/EvidencePresignRequest/content_type`.
+            public var contentType: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EvidencePresignRequest/size_bytes`.
+            public var sizeBytes: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/EvidencePresignRequest/checksum_sha256`.
+            public var checksumSha256: Swift.String?
+            /// Creates a new `EvidencePresignRequest`.
+            ///
+            /// - Parameters:
+            ///   - workOrderId:
+            ///   - stage:
+            ///   - contentType:
+            ///   - sizeBytes:
+            ///   - checksumSha256:
+            public init(
+                workOrderId: Components.Schemas.Uuid,
+                stage: Components.Schemas.AttachmentStage,
+                contentType: Swift.String,
+                sizeBytes: Swift.Int64,
+                checksumSha256: Swift.String? = nil
+            ) {
+                self.workOrderId = workOrderId
+                self.stage = stage
+                self.contentType = contentType
+                self.sizeBytes = sizeBytes
+                self.checksumSha256 = checksumSha256
+            }
+            public enum CodingKeys: String, CodingKey {
+                case workOrderId = "work_order_id"
+                case stage
+                case contentType = "content_type"
+                case sizeBytes = "size_bytes"
+                case checksumSha256 = "checksum_sha256"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PresignedUpload`.
+        public struct PresignedUpload: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PresignedUpload/method`.
+            @frozen public enum MethodPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case put = "PUT"
+            }
+            /// - Remark: Generated from `#/components/schemas/PresignedUpload/method`.
+            public var method: Components.Schemas.PresignedUpload.MethodPayload
+            /// - Remark: Generated from `#/components/schemas/PresignedUpload/url`.
+            public var url: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PresignedUpload/headers`.
+            public var headers: [OpenAPIRuntime.OpenAPIArrayContainer]
+            /// - Remark: Generated from `#/components/schemas/PresignedUpload/expires_in_secs`.
+            public var expiresInSecs: Swift.Int64
+            /// Creates a new `PresignedUpload`.
+            ///
+            /// - Parameters:
+            ///   - method:
+            ///   - url:
+            ///   - headers:
+            ///   - expiresInSecs:
+            public init(
+                method: Components.Schemas.PresignedUpload.MethodPayload,
+                url: Swift.String,
+                headers: [OpenAPIRuntime.OpenAPIArrayContainer],
+                expiresInSecs: Swift.Int64
+            ) {
+                self.method = method
+                self.url = url
+                self.headers = headers
+                self.expiresInSecs = expiresInSecs
+            }
+            public enum CodingKeys: String, CodingKey {
+                case method
+                case url
+                case headers
+                case expiresInSecs = "expires_in_secs"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EvidencePresignResponse`.
+        public struct EvidencePresignResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EvidencePresignResponse/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EvidencePresignResponse/work_order_id`.
+            public var workOrderId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EvidencePresignResponse/stage`.
+            public var stage: Components.Schemas.AttachmentStage
+            /// - Remark: Generated from `#/components/schemas/EvidencePresignResponse/upload`.
+            public var upload: Components.Schemas.PresignedUpload
+            /// Creates a new `EvidencePresignResponse`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - workOrderId:
+            ///   - stage:
+            ///   - upload:
+            public init(
+                id: Components.Schemas.Uuid,
+                workOrderId: Components.Schemas.Uuid,
+                stage: Components.Schemas.AttachmentStage,
+                upload: Components.Schemas.PresignedUpload
+            ) {
+                self.id = id
+                self.workOrderId = workOrderId
+                self.stage = stage
+                self.upload = upload
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case workOrderId = "work_order_id"
+                case stage
+                case upload
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EvidenceConfirmResponse`.
+        public struct EvidenceConfirmResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EvidenceConfirmResponse/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EvidenceConfirmResponse/work_order_id`.
+            public var workOrderId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EvidenceConfirmResponse/stage`.
+            public var stage: Components.Schemas.AttachmentStage
+            /// - Remark: Generated from `#/components/schemas/EvidenceConfirmResponse/worm_replica_status`.
+            public var wormReplicaStatus: Components.Schemas.WormReplicaStatus
+            /// - Remark: Generated from `#/components/schemas/EvidenceConfirmResponse/retry_count`.
+            public var retryCount: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/EvidenceConfirmResponse/verified_at`.
+            public var verifiedAt: Components.Schemas.Timestamp?
+            /// Creates a new `EvidenceConfirmResponse`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - workOrderId:
+            ///   - stage:
+            ///   - wormReplicaStatus:
+            ///   - retryCount:
+            ///   - verifiedAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                workOrderId: Components.Schemas.Uuid,
+                stage: Components.Schemas.AttachmentStage,
+                wormReplicaStatus: Components.Schemas.WormReplicaStatus,
+                retryCount: Swift.Int32,
+                verifiedAt: Components.Schemas.Timestamp? = nil
+            ) {
+                self.id = id
+                self.workOrderId = workOrderId
+                self.stage = stage
+                self.wormReplicaStatus = wormReplicaStatus
+                self.retryCount = retryCount
+                self.verifiedAt = verifiedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case workOrderId = "work_order_id"
+                case stage
+                case wormReplicaStatus = "worm_replica_status"
+                case retryCount = "retry_count"
+                case verifiedAt = "verified_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DeviceRegistrationRequest`.
+        public struct DeviceRegistrationRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DeviceRegistrationRequest/platform`.
+            public var platform: Components.Schemas.DevicePlatform
+            /// - Remark: Generated from `#/components/schemas/DeviceRegistrationRequest/push_token`.
+            public var pushToken: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DeviceRegistrationRequest/app_version`.
+            public var appVersion: Swift.String
+            /// Creates a new `DeviceRegistrationRequest`.
+            ///
+            /// - Parameters:
+            ///   - platform:
+            ///   - pushToken:
+            ///   - appVersion:
+            public init(
+                platform: Components.Schemas.DevicePlatform,
+                pushToken: Swift.String? = nil,
+                appVersion: Swift.String
+            ) {
+                self.platform = platform
+                self.pushToken = pushToken
+                self.appVersion = appVersion
+            }
+            public enum CodingKeys: String, CodingKey {
+                case platform
+                case pushToken = "push_token"
+                case appVersion = "app_version"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DeviceRegistrationResponse`.
+        public struct DeviceRegistrationResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DeviceRegistrationResponse/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/DeviceRegistrationResponse/user_id`.
+            public var userId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/DeviceRegistrationResponse/device_hash`.
+            public var deviceHash: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DeviceRegistrationResponse/platform`.
+            public var platform: Components.Schemas.DevicePlatform
+            /// - Remark: Generated from `#/components/schemas/DeviceRegistrationResponse/push_token`.
+            public var pushToken: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DeviceRegistrationResponse/app_version`.
+            public var appVersion: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DeviceRegistrationResponse/last_registered_at`.
+            public var lastRegisteredAt: Components.Schemas.Timestamp
+            /// Creates a new `DeviceRegistrationResponse`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - userId:
+            ///   - deviceHash:
+            ///   - platform:
+            ///   - pushToken:
+            ///   - appVersion:
+            ///   - lastRegisteredAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                userId: Components.Schemas.Uuid,
+                deviceHash: Swift.String,
+                platform: Components.Schemas.DevicePlatform,
+                pushToken: Swift.String? = nil,
+                appVersion: Swift.String,
+                lastRegisteredAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.userId = userId
+                self.deviceHash = deviceHash
+                self.platform = platform
+                self.pushToken = pushToken
+                self.appVersion = appVersion
+                self.lastRegisteredAt = lastRegisteredAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case userId = "user_id"
+                case deviceHash = "device_hash"
+                case platform
+                case pushToken = "push_token"
+                case appVersion = "app_version"
+                case lastRegisteredAt = "last_registered_at"
             }
         }
         /// - Remark: Generated from `#/components/schemas/PasskeyRegisterStartRequest`.
@@ -1342,6 +1930,12 @@ public enum Components {
         public typealias PlanId = Swift.String
         /// - Remark: Generated from `#/components/parameters/RequestId`.
         public typealias RequestId = Swift.String
+        /// - Remark: Generated from `#/components/parameters/EvidenceId`.
+        public typealias EvidenceId = Swift.String
+        /// Client-stable device identifier. The server stores only a SHA-256 hash.
+        ///
+        /// - Remark: Generated from `#/components/parameters/XDeviceId`.
+        public typealias XDeviceId = Swift.String
     }
     /// Types generated from the `#/components/requestBodies` section of the OpenAPI document.
     public enum RequestBodies {}
@@ -3568,6 +4162,898 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Replay an idempotent mobile offline-operation batch
+    ///
+    /// - Remark: HTTP `POST /api/v1/sync`.
+    /// - Remark: Generated from `#/paths//api/v1/sync/post(replayOfflineSyncBatch)`.
+    public enum ReplayOfflineSyncBatch {
+        public static let id: Swift.String = "replayOfflineSyncBatch"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/sync/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                /// Client-stable device identifier. The server stores only a SHA-256 hash.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/sync/POST/header/X-Device-Id`.
+                public var xDeviceId: Components.Parameters.XDeviceId
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ReplayOfflineSyncBatch.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - xDeviceId: Client-stable device identifier. The server stores only a SHA-256 hash.
+                ///   - accept:
+                public init(
+                    xDeviceId: Components.Parameters.XDeviceId,
+                    accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ReplayOfflineSyncBatch.AcceptableContentType>] = .defaultValues()
+                ) {
+                    self.xDeviceId = xDeviceId
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ReplayOfflineSyncBatch.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/sync/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/sync/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.SyncBatchRequest)
+            }
+            public var body: Operations.ReplayOfflineSyncBatch.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.ReplayOfflineSyncBatch.Input.Headers,
+                body: Operations.ReplayOfflineSyncBatch.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/sync/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/sync/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.SyncBatchResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.SyncBatchResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ReplayOfflineSyncBatch.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ReplayOfflineSyncBatch.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Per-operation replay results. Individual failures do not abort the batch.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sync/post(replayOfflineSyncBatch)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ReplayOfflineSyncBatch.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ReplayOfflineSyncBatch.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sync/post(replayOfflineSyncBatch)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sync/post(replayOfflineSyncBatch)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/sync/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/sync/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ReplayOfflineSyncBatch.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ReplayOfflineSyncBatch.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sync/post(replayOfflineSyncBatch)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ReplayOfflineSyncBatch.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ReplayOfflineSyncBatch.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Issue a presigned upload ticket for work-order evidence
+    ///
+    /// - Remark: HTTP `POST /api/v1/evidence/presign`.
+    /// - Remark: Generated from `#/paths//api/v1/evidence/presign/post(presignEvidenceUpload)`.
+    public enum PresignEvidenceUpload {
+        public static let id: Swift.String = "presignEvidenceUpload"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/evidence/presign/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PresignEvidenceUpload.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PresignEvidenceUpload.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.PresignEvidenceUpload.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/evidence/presign/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/evidence/presign/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.EvidencePresignRequest)
+            }
+            public var body: Operations.PresignEvidenceUpload.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.PresignEvidenceUpload.Input.Headers = .init(),
+                body: Operations.PresignEvidenceUpload.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/evidence/presign/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/evidence/presign/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.EvidencePresignResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.EvidencePresignResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PresignEvidenceUpload.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PresignEvidenceUpload.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Presigned evidence upload ticket.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/presign/post(presignEvidenceUpload)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.PresignEvidenceUpload.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.PresignEvidenceUpload.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/presign/post(presignEvidenceUpload)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/presign/post(presignEvidenceUpload)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/presign/post(presignEvidenceUpload)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/evidence/presign/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/evidence/presign/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PresignEvidenceUpload.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PresignEvidenceUpload.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// Evidence storage is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/presign/post(presignEvidenceUpload)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.PresignEvidenceUpload.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.PresignEvidenceUpload.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Confirm direct evidence upload completion and trigger replica verification
+    ///
+    /// - Remark: HTTP `POST /api/v1/evidence/{evidenceId}/confirm`.
+    /// - Remark: Generated from `#/paths//api/v1/evidence/{evidenceId}/confirm/post(confirmEvidenceUpload)`.
+    public enum ConfirmEvidenceUpload {
+        public static let id: Swift.String = "confirmEvidenceUpload"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/evidence/{evidenceId}/confirm/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/evidence/{evidenceId}/confirm/POST/path/evidenceId`.
+                public var evidenceId: Components.Parameters.EvidenceId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - evidenceId:
+                public init(evidenceId: Components.Parameters.EvidenceId) {
+                    self.evidenceId = evidenceId
+                }
+            }
+            public var path: Operations.ConfirmEvidenceUpload.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/evidence/{evidenceId}/confirm/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ConfirmEvidenceUpload.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ConfirmEvidenceUpload.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ConfirmEvidenceUpload.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.ConfirmEvidenceUpload.Input.Path,
+                headers: Operations.ConfirmEvidenceUpload.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/evidence/{evidenceId}/confirm/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/evidence/{evidenceId}/confirm/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.EvidenceConfirmResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.EvidenceConfirmResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ConfirmEvidenceUpload.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ConfirmEvidenceUpload.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Evidence confirmation and replica status.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/{evidenceId}/confirm/post(confirmEvidenceUpload)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ConfirmEvidenceUpload.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ConfirmEvidenceUpload.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/{evidenceId}/confirm/post(confirmEvidenceUpload)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/{evidenceId}/confirm/post(confirmEvidenceUpload)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/{evidenceId}/confirm/post(confirmEvidenceUpload)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/evidence/{evidenceId}/confirm/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/evidence/{evidenceId}/confirm/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ConfirmEvidenceUpload.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ConfirmEvidenceUpload.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// Evidence storage is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/{evidenceId}/confirm/post(confirmEvidenceUpload)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ConfirmEvidenceUpload.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ConfirmEvidenceUpload.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Register or refresh a mobile device binding
+    ///
+    /// - Remark: HTTP `POST /api/v1/devices`.
+    /// - Remark: Generated from `#/paths//api/v1/devices/post(registerMobileDevice)`.
+    public enum RegisterMobileDevice {
+        public static let id: Swift.String = "registerMobileDevice"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/devices/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                /// Client-stable device identifier. The server stores only a SHA-256 hash.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/devices/POST/header/X-Device-Id`.
+                public var xDeviceId: Components.Parameters.XDeviceId
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RegisterMobileDevice.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - xDeviceId: Client-stable device identifier. The server stores only a SHA-256 hash.
+                ///   - accept:
+                public init(
+                    xDeviceId: Components.Parameters.XDeviceId,
+                    accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RegisterMobileDevice.AcceptableContentType>] = .defaultValues()
+                ) {
+                    self.xDeviceId = xDeviceId
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.RegisterMobileDevice.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/devices/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/devices/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.DeviceRegistrationRequest)
+            }
+            public var body: Operations.RegisterMobileDevice.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.RegisterMobileDevice.Input.Headers,
+                body: Operations.RegisterMobileDevice.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/devices/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/devices/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.DeviceRegistrationResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.DeviceRegistrationResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.RegisterMobileDevice.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.RegisterMobileDevice.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Registered device binding.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/devices/post(registerMobileDevice)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.RegisterMobileDevice.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.RegisterMobileDevice.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/devices/post(registerMobileDevice)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/devices/post(registerMobileDevice)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
                             response: self
                         )
                     }

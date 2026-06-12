@@ -617,6 +617,8 @@ pub struct EvidenceMedia {
     pub next_retry_at: Timestamp,
     pub last_error: Option<String>,
     pub verified_at: Option<Timestamp>,
+    pub upload_confirmed_at: Option<Timestamp>,
+    pub confirmed_by: Option<UserId>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
 }
@@ -749,6 +751,52 @@ where
         })
         .await?;
         Ok(EvidenceUploadTicket { media, upload })
+    }
+
+    pub async fn evidence_media(
+        &self,
+        media_id: EvidenceId,
+    ) -> Result<EvidenceMedia, StorageError> {
+        evidence_media_by_id(&self.pool, media_id).await
+    }
+
+    pub async fn confirm_upload(
+        &self,
+        media_id: EvidenceId,
+        actor: UserId,
+        trace: TraceContext,
+        occurred_at: Timestamp,
+    ) -> Result<EvidenceMedia, StorageError> {
+        let media = evidence_media_by_id(&self.pool, media_id).await?;
+        let branch_id = branch_for_work_order(&self.pool, media.work_order_id).await?;
+        let event = evidence_audit_event(
+            "evidence.confirm",
+            Some(actor),
+            branch_id,
+            media_id,
+            trace,
+            occurred_at,
+        )?;
+        with_audit::<_, EvidenceMedia, StorageError>(&self.pool, event, |tx| {
+            Box::pin(async move {
+                sqlx::query(
+                    r#"
+                    UPDATE evidence_media
+                    SET upload_confirmed_at = COALESCE(upload_confirmed_at, $2),
+                        confirmed_by = COALESCE(confirmed_by, $3),
+                        updated_at = $2
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(*media_id.as_uuid())
+                .bind(occurred_at)
+                .bind(*actor.as_uuid())
+                .execute(tx.as_mut())
+                .await?;
+                evidence_media_by_id_tx(tx, media_id).await
+            })
+        })
+        .await
     }
 
     pub async fn replicate_once(
@@ -1072,7 +1120,8 @@ async fn evidence_media_by_id(
         r#"
         SELECT id, work_order_id, stage, s3_key, content_type, size_bytes,
                checksum_sha256, uploaded_by, worm_replica_status, retry_count,
-               next_retry_at, last_error, verified_at, created_at, updated_at
+               next_retry_at, last_error, verified_at, upload_confirmed_at,
+               confirmed_by, created_at, updated_at
         FROM evidence_media
         WHERE id = $1
         "#,
@@ -1092,7 +1141,8 @@ async fn evidence_media_by_id_tx(
         r#"
         SELECT id, work_order_id, stage, s3_key, content_type, size_bytes,
                checksum_sha256, uploaded_by, worm_replica_status, retry_count,
-               next_retry_at, last_error, verified_at, created_at, updated_at
+               next_retry_at, last_error, verified_at, upload_confirmed_at,
+               confirmed_by, created_at, updated_at
         FROM evidence_media
         WHERE id = $1
         "#,
@@ -1121,6 +1171,10 @@ fn evidence_media_from_row(row: &sqlx::postgres::PgRow) -> Result<EvidenceMedia,
         next_retry_at: row.try_get("next_retry_at")?,
         last_error: row.try_get("last_error")?,
         verified_at: row.try_get("verified_at")?,
+        upload_confirmed_at: row.try_get("upload_confirmed_at")?,
+        confirmed_by: row
+            .try_get::<Option<uuid::Uuid>, _>("confirmed_by")?
+            .map(UserId::from_uuid),
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
