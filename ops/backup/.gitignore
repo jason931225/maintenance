@@ -1,0 +1,5 @@
+artifacts/
+scratch/
+*.dump
+*.tar.gz
+*.sha256
