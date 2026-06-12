@@ -5,21 +5,37 @@ use std::collections::BTreeSet;
 use std::str::FromStr;
 
 use axum::extract::{Query, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
-use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, KernelError, RegionId, UserId};
+use mnt_kernel_core::{
+    BranchId, BranchScope, ErrorKind, KernelError, RegionId, TraceContext, UserId,
+};
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
 use mnt_reporting_adapter_postgres::PgKpiRepository;
-use mnt_reporting_application::{KpiQuery, KpiQueryError, KpiQueryPort, KpiScope, Period};
+use mnt_reporting_application::{
+    KpiQuery, KpiQueryError, KpiQueryPort, KpiScope, Period, ReportingExportError,
+    ReportingExportPort, ReportingExportQuery, WorkDiaryBody, WorkDiaryConfirmCommand,
+    WorkDiaryDraft, WorkDiaryDraftPort, WorkDiaryQuery, WorkDiaryUpdateCommand,
+};
 use serde::{Deserialize, Serialize};
 use time::macros::format_description;
 use time::{Date, Time};
 
 pub const KPI_PATH: &str = "/api/v1/kpi";
-pub const KPI_ROUTE_PATHS: &[&str] = &[KPI_PATH];
+pub const DAILY_STATUS_EXPORT_PATH: &str = "/api/v1/exports/daily-status";
+pub const WORK_DIARY_EXPORT_PATH: &str = "/api/v1/exports/work-diary";
+pub const WORK_DIARY_PATH: &str = "/api/v1/reporting/work-diary";
+pub const WORK_DIARY_CONFIRM_PATH: &str = "/api/v1/reporting/work-diary/confirm";
+pub const KPI_ROUTE_PATHS: &[&str] = &[
+    KPI_PATH,
+    DAILY_STATUS_EXPORT_PATH,
+    WORK_DIARY_EXPORT_PATH,
+    WORK_DIARY_PATH,
+    WORK_DIARY_CONFIRM_PATH,
+];
 
 #[derive(Debug, Clone)]
 pub struct KpiRestState {
@@ -40,6 +56,10 @@ impl KpiRestState {
 pub fn router(state: KpiRestState) -> Router {
     Router::new()
         .route(KPI_PATH, get(get_kpis))
+        .route(DAILY_STATUS_EXPORT_PATH, get(get_daily_status_export))
+        .route(WORK_DIARY_EXPORT_PATH, get(get_work_diary_export))
+        .route(WORK_DIARY_PATH, get(get_work_diary).put(update_work_diary))
+        .route(WORK_DIARY_CONFIRM_PATH, post(confirm_work_diary))
         .with_state(state)
 }
 
@@ -47,6 +67,16 @@ pub fn router(state: KpiRestState) -> Router {
 struct KpiRequestQuery {
     period: String,
     scope: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DateRequestQuery {
+    date: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct WorkDiaryUpdateRequest {
+    body: WorkDiaryBody,
 }
 
 #[derive(Debug, Serialize)]
@@ -115,6 +145,15 @@ impl RestError {
         }
     }
 
+    fn from_export(error: ReportingExportError) -> Self {
+        match error {
+            ReportingExportError::Kernel(error) => Self::from_kernel(error),
+            ReportingExportError::Database(message) | ReportingExportError::Workbook(message) => {
+                Self::internal(message)
+            }
+        }
+    }
+
     fn code(&self) -> &'static str {
         match self.kind {
             ErrorKind::Validation => "validation",
@@ -170,6 +209,143 @@ async fn get_kpis(
     Ok(Json(report))
 }
 
+async fn get_daily_status_export(
+    State(state): State<KpiRestState>,
+    headers: HeaderMap,
+    Query(params): Query<DateRequestQuery>,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    let date = parse_date(&params.date)?;
+    authorize_reporting_feature(&principal, Feature::ExcelDownload)?;
+    let workbook = state
+        .repository
+        .export_daily_status(export_query(&principal, date))
+        .await
+        .map_err(RestError::from_export)?;
+    workbook_response(workbook.file_name, workbook.content_type, workbook.bytes)
+}
+
+async fn get_work_diary_export(
+    State(state): State<KpiRestState>,
+    headers: HeaderMap,
+    Query(params): Query<DateRequestQuery>,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    let date = parse_date(&params.date)?;
+    authorize_reporting_feature(&principal, Feature::ExcelDownload)?;
+    let workbook = state
+        .repository
+        .export_work_diary(export_query(&principal, date))
+        .await
+        .map_err(RestError::from_export)?;
+    workbook_response(workbook.file_name, workbook.content_type, workbook.bytes)
+}
+
+async fn get_work_diary(
+    State(state): State<KpiRestState>,
+    headers: HeaderMap,
+    Query(params): Query<DateRequestQuery>,
+) -> Result<Json<WorkDiaryDraft>, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    let date = parse_date(&params.date)?;
+    authorize_reporting_feature(&principal, Feature::DailyPlanReview)?;
+    let draft = state
+        .repository
+        .get_or_generate_work_diary(WorkDiaryQuery {
+            actor: principal.user_id,
+            date,
+            branch_scope: principal.branch_scope,
+            trace: TraceContext::generate(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_export)?;
+    Ok(Json(draft))
+}
+
+async fn update_work_diary(
+    State(state): State<KpiRestState>,
+    headers: HeaderMap,
+    Query(params): Query<DateRequestQuery>,
+    Json(body): Json<WorkDiaryUpdateRequest>,
+) -> Result<Json<WorkDiaryDraft>, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    let date = parse_date(&params.date)?;
+    authorize_reporting_feature(&principal, Feature::DailyPlanReview)?;
+    let draft = state
+        .repository
+        .update_work_diary(WorkDiaryUpdateCommand {
+            actor: principal.user_id,
+            date,
+            branch_scope: principal.branch_scope,
+            body: body.body,
+            trace: TraceContext::generate(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_export)?;
+    Ok(Json(draft))
+}
+
+async fn confirm_work_diary(
+    State(state): State<KpiRestState>,
+    headers: HeaderMap,
+    Query(params): Query<DateRequestQuery>,
+) -> Result<Json<WorkDiaryDraft>, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    let date = parse_date(&params.date)?;
+    authorize_reporting_feature(&principal, Feature::DailyPlanReview)?;
+    let draft = state
+        .repository
+        .confirm_work_diary(WorkDiaryConfirmCommand {
+            actor: principal.user_id,
+            date,
+            branch_scope: principal.branch_scope,
+            trace: TraceContext::generate(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_export)?;
+    Ok(Json(draft))
+}
+
+fn export_query(principal: &Principal, date: Date) -> ReportingExportQuery {
+    ReportingExportQuery {
+        actor: principal.user_id,
+        date,
+        branch_scope: principal.branch_scope.clone(),
+        trace: TraceContext::generate(),
+        occurred_at: time::OffsetDateTime::now_utc(),
+    }
+}
+
+fn workbook_response(
+    file_name: String,
+    content_type: &'static str,
+    bytes: Vec<u8>,
+) -> Result<Response, RestError> {
+    let mut response = bytes.into_response();
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    let disposition = format!("attachment; filename=\"{file_name}\"");
+    let value = HeaderValue::from_str(&disposition)
+        .map_err(|_| RestError::internal("export filename could not be encoded as a header"))?;
+    response
+        .headers_mut()
+        .insert(header::CONTENT_DISPOSITION, value);
+    Ok(response)
+}
+
+fn authorize_reporting_feature(principal: &Principal, feature: Feature) -> Result<(), RestError> {
+    authorize(
+        principal,
+        Action::new(feature),
+        representative_branch(&principal.branch_scope)?,
+    )
+    .map_err(RestError::from_kernel)
+}
+
 fn parse_period(raw: &str) -> Result<Period, RestError> {
     let (start_raw, end_raw) = raw
         .split_once("..")
@@ -189,6 +365,11 @@ fn parse_period(raw: &str) -> Result<Period, RestError> {
         ));
     }
     Ok(period)
+}
+
+fn parse_date(raw: &str) -> Result<Date, RestError> {
+    let format = format_description!("[year]-[month]-[day]");
+    Date::parse(raw, &format).map_err(|_| RestError::bad_request("date must use YYYY-MM-DD"))
 }
 
 fn parse_scope(raw: Option<&str>) -> Result<KpiScope, RestError> {

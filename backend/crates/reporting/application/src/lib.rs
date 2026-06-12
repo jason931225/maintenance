@@ -3,10 +3,13 @@
 
 use std::future::Future;
 
-use mnt_kernel_core::{BranchScope, KernelError};
+use mnt_kernel_core::{BranchScope, KernelError, Timestamp, TraceContext, UserId};
 pub use mnt_reporting_domain::{
-    KpiMetric, KpiReport, KpiRollup, KpiRollupScope, KpiScope, Period, UnavailableMetric,
+    DailyStatusReport, DailyStatusRow, ExportSourceNote, KpiMetric, KpiReport, KpiRollup,
+    KpiRollupScope, KpiScope, Period, PeriodicInspectionRow, UnavailableMetric,
+    WorkDiaryActionEntry, WorkDiaryBody, WorkDiaryDraft, WorkDiaryStatus,
 };
+use time::Date;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KpiQuery {
@@ -29,4 +32,89 @@ pub trait KpiQueryPort {
         &self,
         query: KpiQuery,
     ) -> impl Future<Output = Result<KpiReport, KpiQueryError>> + Send + '_;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReportingExportQuery {
+    pub actor: UserId,
+    pub date: Date,
+    pub branch_scope: BranchScope,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkDiaryQuery {
+    pub actor: UserId,
+    pub date: Date,
+    pub branch_scope: BranchScope,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkDiaryUpdateCommand {
+    pub actor: UserId,
+    pub date: Date,
+    pub branch_scope: BranchScope,
+    pub body: WorkDiaryBody,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkDiaryConfirmCommand {
+    pub actor: UserId,
+    pub date: Date,
+    pub branch_scope: BranchScope,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExportedWorkbook {
+    pub file_name: String,
+    pub content_type: &'static str,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ReportingExportError {
+    #[error(transparent)]
+    Kernel(#[from] KernelError),
+
+    #[error("database error: {0}")]
+    Database(String),
+
+    #[error("workbook error: {0}")]
+    Workbook(String),
+}
+
+pub trait ReportingExportPort {
+    fn export_daily_status(
+        &self,
+        query: ReportingExportQuery,
+    ) -> impl Future<Output = Result<ExportedWorkbook, ReportingExportError>> + Send + '_;
+
+    fn export_work_diary(
+        &self,
+        query: ReportingExportQuery,
+    ) -> impl Future<Output = Result<ExportedWorkbook, ReportingExportError>> + Send + '_;
+}
+
+pub trait WorkDiaryDraftPort {
+    fn get_or_generate_work_diary(
+        &self,
+        query: WorkDiaryQuery,
+    ) -> impl Future<Output = Result<WorkDiaryDraft, ReportingExportError>> + Send + '_;
+
+    fn update_work_diary(
+        &self,
+        command: WorkDiaryUpdateCommand,
+    ) -> impl Future<Output = Result<WorkDiaryDraft, ReportingExportError>> + Send + '_;
+
+    fn confirm_work_diary(
+        &self,
+        command: WorkDiaryConfirmCommand,
+    ) -> impl Future<Output = Result<WorkDiaryDraft, ReportingExportError>> + Send + '_;
 }

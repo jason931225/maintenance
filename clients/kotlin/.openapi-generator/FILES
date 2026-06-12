@@ -63,6 +63,7 @@ src/main/kotlin/com/maintenance/api/client/model/EvidenceConfirmResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidencePresignRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidencePresignResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidenceSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/ExportSourceNote.kt
 src/main/kotlin/com/maintenance/api/client/model/FinancialConfigSnapshot.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiMetric.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiReport.kt
@@ -122,6 +123,11 @@ src/main/kotlin/com/maintenance/api/client/model/TargetChangeRequestSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/TokenPairResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/UnavailableMetric.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateWorkOrderPriorityRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/WorkDiaryActionEntry.kt
+src/main/kotlin/com/maintenance/api/client/model/WorkDiaryBody.kt
+src/main/kotlin/com/maintenance/api/client/model/WorkDiaryDraft.kt
+src/main/kotlin/com/maintenance/api/client/model/WorkDiaryStatus.kt
+src/main/kotlin/com/maintenance/api/client/model/WorkDiaryUpdateRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkOrderDetail.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkOrderListItem.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkOrderListPage.kt

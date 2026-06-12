@@ -98,6 +98,35 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/kpi`.
     /// - Remark: Generated from `#/paths//api/v1/kpi/get(getKpiReport)`.
     func getKpiReport(_ input: Operations.GetKpiReport.Input) async throws -> Operations.GetKpiReport.Output
+    /// Export the daily work-progress status workbook
+    ///
+    /// Fills the real 일일업무진행현황 Excel template from live work-order and daily-plan data for the requested date. Inspection rows are omitted with source notes until the inspection schedule source tables merge.
+    ///
+    /// - Remark: HTTP `GET /api/v1/exports/daily-status`.
+    /// - Remark: Generated from `#/paths//api/v1/exports/daily-status/get(getDailyStatusExport)`.
+    func getDailyStatusExport(_ input: Operations.GetDailyStatusExport.Input) async throws -> Operations.GetDailyStatusExport.Output
+    /// Export the confirmed or generated work-diary workbook
+    ///
+    /// Exports the 업무일지 workbook for the requested date, preserving the template's additional sheets and using an existing draft when one has been edited or confirmed.
+    ///
+    /// - Remark: HTTP `GET /api/v1/exports/work-diary`.
+    /// - Remark: Generated from `#/paths//api/v1/exports/work-diary/get(getWorkDiaryExport)`.
+    func getWorkDiaryExport(_ input: Operations.GetWorkDiaryExport.Input) async throws -> Operations.GetWorkDiaryExport.Output
+    /// Get or generate the editable work-diary draft for a date
+    ///
+    /// - Remark: HTTP `GET /api/v1/reporting/work-diary`.
+    /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/get(getWorkDiaryDraft)`.
+    func getWorkDiaryDraft(_ input: Operations.GetWorkDiaryDraft.Input) async throws -> Operations.GetWorkDiaryDraft.Output
+    /// Update an editable work-diary draft body
+    ///
+    /// - Remark: HTTP `PUT /api/v1/reporting/work-diary`.
+    /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/put(updateWorkDiaryDraft)`.
+    func updateWorkDiaryDraft(_ input: Operations.UpdateWorkDiaryDraft.Input) async throws -> Operations.UpdateWorkDiaryDraft.Output
+    /// Confirm a work-diary draft before export
+    ///
+    /// - Remark: HTTP `POST /api/v1/reporting/work-diary/confirm`.
+    /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/confirm/post(confirmWorkDiaryDraft)`.
+    func confirmWorkDiaryDraft(_ input: Operations.ConfirmWorkDiaryDraft.Input) async throws -> Operations.ConfirmWorkDiaryDraft.Output
     /// List branch-scoped work orders
     ///
     /// Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values.
@@ -515,6 +544,77 @@ extension APIProtocol {
         headers: Operations.GetKpiReport.Input.Headers = .init()
     ) async throws -> Operations.GetKpiReport.Output {
         try await getKpiReport(Operations.GetKpiReport.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Export the daily work-progress status workbook
+    ///
+    /// Fills the real 일일업무진행현황 Excel template from live work-order and daily-plan data for the requested date. Inspection rows are omitted with source notes until the inspection schedule source tables merge.
+    ///
+    /// - Remark: HTTP `GET /api/v1/exports/daily-status`.
+    /// - Remark: Generated from `#/paths//api/v1/exports/daily-status/get(getDailyStatusExport)`.
+    public func getDailyStatusExport(
+        query: Operations.GetDailyStatusExport.Input.Query,
+        headers: Operations.GetDailyStatusExport.Input.Headers = .init()
+    ) async throws -> Operations.GetDailyStatusExport.Output {
+        try await getDailyStatusExport(Operations.GetDailyStatusExport.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Export the confirmed or generated work-diary workbook
+    ///
+    /// Exports the 업무일지 workbook for the requested date, preserving the template's additional sheets and using an existing draft when one has been edited or confirmed.
+    ///
+    /// - Remark: HTTP `GET /api/v1/exports/work-diary`.
+    /// - Remark: Generated from `#/paths//api/v1/exports/work-diary/get(getWorkDiaryExport)`.
+    public func getWorkDiaryExport(
+        query: Operations.GetWorkDiaryExport.Input.Query,
+        headers: Operations.GetWorkDiaryExport.Input.Headers = .init()
+    ) async throws -> Operations.GetWorkDiaryExport.Output {
+        try await getWorkDiaryExport(Operations.GetWorkDiaryExport.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Get or generate the editable work-diary draft for a date
+    ///
+    /// - Remark: HTTP `GET /api/v1/reporting/work-diary`.
+    /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/get(getWorkDiaryDraft)`.
+    public func getWorkDiaryDraft(
+        query: Operations.GetWorkDiaryDraft.Input.Query,
+        headers: Operations.GetWorkDiaryDraft.Input.Headers = .init()
+    ) async throws -> Operations.GetWorkDiaryDraft.Output {
+        try await getWorkDiaryDraft(Operations.GetWorkDiaryDraft.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Update an editable work-diary draft body
+    ///
+    /// - Remark: HTTP `PUT /api/v1/reporting/work-diary`.
+    /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/put(updateWorkDiaryDraft)`.
+    public func updateWorkDiaryDraft(
+        query: Operations.UpdateWorkDiaryDraft.Input.Query,
+        headers: Operations.UpdateWorkDiaryDraft.Input.Headers = .init(),
+        body: Operations.UpdateWorkDiaryDraft.Input.Body
+    ) async throws -> Operations.UpdateWorkDiaryDraft.Output {
+        try await updateWorkDiaryDraft(Operations.UpdateWorkDiaryDraft.Input(
+            query: query,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Confirm a work-diary draft before export
+    ///
+    /// - Remark: HTTP `POST /api/v1/reporting/work-diary/confirm`.
+    /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/confirm/post(confirmWorkDiaryDraft)`.
+    public func confirmWorkDiaryDraft(
+        query: Operations.ConfirmWorkDiaryDraft.Input.Query,
+        headers: Operations.ConfirmWorkDiaryDraft.Input.Headers = .init()
+    ) async throws -> Operations.ConfirmWorkDiaryDraft.Output {
+        try await confirmWorkDiaryDraft(Operations.ConfirmWorkDiaryDraft.Input(
             query: query,
             headers: headers
         ))
@@ -1363,6 +1463,166 @@ public enum Components {
                 case metric
                 case sourceDomain = "source_domain"
                 case reason
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ExportSourceNote`.
+        public struct ExportSourceNote: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ExportSourceNote/source_domain`.
+            public var sourceDomain: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ExportSourceNote/reason`.
+            public var reason: Swift.String
+            /// Creates a new `ExportSourceNote`.
+            ///
+            /// - Parameters:
+            ///   - sourceDomain:
+            ///   - reason:
+            public init(
+                sourceDomain: Swift.String,
+                reason: Swift.String
+            ) {
+                self.sourceDomain = sourceDomain
+                self.reason = reason
+            }
+            public enum CodingKeys: String, CodingKey {
+                case sourceDomain = "source_domain"
+                case reason
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkDiaryStatus`.
+        @frozen public enum WorkDiaryStatus: String, Codable, Hashable, Sendable, CaseIterable {
+            case draft = "DRAFT"
+            case confirmed = "CONFIRMED"
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkDiaryActionEntry`.
+        public struct WorkDiaryActionEntry: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkDiaryActionEntry/site_name`.
+            public var siteName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkDiaryActionEntry/management_no`.
+            public var managementNo: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkDiaryActionEntry/diagnosis`.
+            public var diagnosis: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkDiaryActionEntry/action_taken`.
+            public var actionTaken: Swift.String
+            /// Creates a new `WorkDiaryActionEntry`.
+            ///
+            /// - Parameters:
+            ///   - siteName:
+            ///   - managementNo:
+            ///   - diagnosis:
+            ///   - actionTaken:
+            public init(
+                siteName: Swift.String,
+                managementNo: Swift.String,
+                diagnosis: Swift.String,
+                actionTaken: Swift.String
+            ) {
+                self.siteName = siteName
+                self.managementNo = managementNo
+                self.diagnosis = diagnosis
+                self.actionTaken = actionTaken
+            }
+            public enum CodingKeys: String, CodingKey {
+                case siteName = "site_name"
+                case managementNo = "management_no"
+                case diagnosis
+                case actionTaken = "action_taken"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkDiaryBody`.
+        public struct WorkDiaryBody: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkDiaryBody/previous_results`.
+            public var previousResults: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkDiaryBody/today_plans`.
+            public var todayPlans: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkDiaryBody/urgent_actions`.
+            public var urgentActions: [Components.Schemas.WorkDiaryActionEntry]
+            /// - Remark: Generated from `#/components/schemas/WorkDiaryBody/source_notes`.
+            public var sourceNotes: [Components.Schemas.ExportSourceNote]
+            /// Creates a new `WorkDiaryBody`.
+            ///
+            /// - Parameters:
+            ///   - previousResults:
+            ///   - todayPlans:
+            ///   - urgentActions:
+            ///   - sourceNotes:
+            public init(
+                previousResults: Swift.String,
+                todayPlans: Swift.String,
+                urgentActions: [Components.Schemas.WorkDiaryActionEntry],
+                sourceNotes: [Components.Schemas.ExportSourceNote]
+            ) {
+                self.previousResults = previousResults
+                self.todayPlans = todayPlans
+                self.urgentActions = urgentActions
+                self.sourceNotes = sourceNotes
+            }
+            public enum CodingKeys: String, CodingKey {
+                case previousResults = "previous_results"
+                case todayPlans = "today_plans"
+                case urgentActions = "urgent_actions"
+                case sourceNotes = "source_notes"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkDiaryDraft`.
+        public struct WorkDiaryDraft: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkDiaryDraft/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/WorkDiaryDraft/date`.
+            public var date: Components.Schemas.Date
+            /// - Remark: Generated from `#/components/schemas/WorkDiaryDraft/status`.
+            public var status: Components.Schemas.WorkDiaryStatus
+            /// - Remark: Generated from `#/components/schemas/WorkDiaryDraft/body`.
+            public var body: Components.Schemas.WorkDiaryBody
+            /// - Remark: Generated from `#/components/schemas/WorkDiaryDraft/confirmed_by`.
+            public var confirmedBy: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/WorkDiaryDraft/confirmed_at`.
+            public var confirmedAt: Foundation.Date?
+            /// Creates a new `WorkDiaryDraft`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - date:
+            ///   - status:
+            ///   - body:
+            ///   - confirmedBy:
+            ///   - confirmedAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                date: Components.Schemas.Date,
+                status: Components.Schemas.WorkDiaryStatus,
+                body: Components.Schemas.WorkDiaryBody,
+                confirmedBy: Swift.String? = nil,
+                confirmedAt: Foundation.Date? = nil
+            ) {
+                self.id = id
+                self.date = date
+                self.status = status
+                self.body = body
+                self.confirmedBy = confirmedBy
+                self.confirmedAt = confirmedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case date
+                case status
+                case body
+                case confirmedBy = "confirmed_by"
+                case confirmedAt = "confirmed_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkDiaryUpdateRequest`.
+        public struct WorkDiaryUpdateRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkDiaryUpdateRequest/body`.
+            public var body: Components.Schemas.WorkDiaryBody
+            /// Creates a new `WorkDiaryUpdateRequest`.
+            ///
+            /// - Parameters:
+            ///   - body:
+            public init(body: Components.Schemas.WorkDiaryBody) {
+                self.body = body
+            }
+            public enum CodingKeys: String, CodingKey {
+                case body
             }
         }
         /// - Remark: Generated from `#/components/schemas/CreateWorkOrderRequest`.
@@ -4412,6 +4672,10 @@ public enum Components {
         public typealias EquipmentIdV2 = Swift.String
         /// - Remark: Generated from `#/components/parameters/PurchaseRequestId`.
         public typealias PurchaseRequestId = Swift.String
+        /// Report date in YYYY-MM-DD format.
+        ///
+        /// - Remark: Generated from `#/components/parameters/ReportDate`.
+        public typealias ReportDate = Components.Schemas.Date
     }
     /// Types generated from the `#/components/requestBodies` section of the OpenAPI document.
     public enum RequestBodies {}
@@ -6920,6 +7184,1331 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Export the daily work-progress status workbook
+    ///
+    /// Fills the real 일일업무진행현황 Excel template from live work-order and daily-plan data for the requested date. Inspection rows are omitted with source notes until the inspection schedule source tables merge.
+    ///
+    /// - Remark: HTTP `GET /api/v1/exports/daily-status`.
+    /// - Remark: Generated from `#/paths//api/v1/exports/daily-status/get(getDailyStatusExport)`.
+    public enum GetDailyStatusExport {
+        public static let id: Swift.String = "getDailyStatusExport"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/exports/daily-status/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// Report date in YYYY-MM-DD format.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/exports/daily-status/GET/query/date`.
+                public var date: Components.Parameters.ReportDate
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - date: Report date in YYYY-MM-DD format.
+                public init(date: Components.Parameters.ReportDate) {
+                    self.date = date
+                }
+            }
+            public var query: Operations.GetDailyStatusExport.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/exports/daily-status/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetDailyStatusExport.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetDailyStatusExport.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetDailyStatusExport.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.GetDailyStatusExport.Input.Query,
+                headers: Operations.GetDailyStatusExport.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/exports/daily-status/GET/responses/200/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// Attachment filename for the generated workbook.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/exports/daily-status/GET/responses/200/headers/Content-Disposition`.
+                    public var contentDisposition: Swift.String?
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - contentDisposition: Attachment filename for the generated workbook.
+                    public init(contentDisposition: Swift.String? = nil) {
+                        self.contentDisposition = contentDisposition
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.GetDailyStatusExport.Output.Ok.Headers
+                /// - Remark: Generated from `#/paths/api/v1/exports/daily-status/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/exports/daily-status/GET/responses/200/content/application\/vnd.openxmlformats-officedocument.spreadsheetml.sheet`.
+                    case applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet(OpenAPIRuntime.HTTPBody)
+                    /// The associated value of the enum case if `self` is `.applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet`.
+                    ///
+                    /// - Throws: An error if `self` is not `.applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet`.
+                    /// - SeeAlso: `.applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet`.
+                    public var applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet: OpenAPIRuntime.HTTPBody {
+                        get throws {
+                            switch self {
+                            case let .applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetDailyStatusExport.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - headers: Received HTTP response headers
+                ///   - body: Received HTTP response body
+                public init(
+                    headers: Operations.GetDailyStatusExport.Output.Ok.Headers = .init(),
+                    body: Operations.GetDailyStatusExport.Output.Ok.Body
+                ) {
+                    self.headers = headers
+                    self.body = body
+                }
+            }
+            /// Daily status workbook.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/exports/daily-status/get(getDailyStatusExport)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetDailyStatusExport.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetDailyStatusExport.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/exports/daily-status/get(getDailyStatusExport)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/exports/daily-status/get(getDailyStatusExport)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/exports/daily-status/get(getDailyStatusExport)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/exports/daily-status/get(getDailyStatusExport)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/exports/daily-status/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/exports/daily-status/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetDailyStatusExport.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetDailyStatusExport.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/exports/daily-status/get(getDailyStatusExport)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetDailyStatusExport.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.GetDailyStatusExport.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+                    self = .applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet:
+                    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet,
+                    .json
+                ]
+            }
+        }
+    }
+    /// Export the confirmed or generated work-diary workbook
+    ///
+    /// Exports the 업무일지 workbook for the requested date, preserving the template's additional sheets and using an existing draft when one has been edited or confirmed.
+    ///
+    /// - Remark: HTTP `GET /api/v1/exports/work-diary`.
+    /// - Remark: Generated from `#/paths//api/v1/exports/work-diary/get(getWorkDiaryExport)`.
+    public enum GetWorkDiaryExport {
+        public static let id: Swift.String = "getWorkDiaryExport"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/exports/work-diary/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// Report date in YYYY-MM-DD format.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/exports/work-diary/GET/query/date`.
+                public var date: Components.Parameters.ReportDate
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - date: Report date in YYYY-MM-DD format.
+                public init(date: Components.Parameters.ReportDate) {
+                    self.date = date
+                }
+            }
+            public var query: Operations.GetWorkDiaryExport.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/exports/work-diary/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetWorkDiaryExport.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetWorkDiaryExport.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetWorkDiaryExport.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.GetWorkDiaryExport.Input.Query,
+                headers: Operations.GetWorkDiaryExport.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/exports/work-diary/GET/responses/200/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// Attachment filename for the generated workbook.
+                    ///
+                    /// - Remark: Generated from `#/paths/api/v1/exports/work-diary/GET/responses/200/headers/Content-Disposition`.
+                    public var contentDisposition: Swift.String?
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - contentDisposition: Attachment filename for the generated workbook.
+                    public init(contentDisposition: Swift.String? = nil) {
+                        self.contentDisposition = contentDisposition
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.GetWorkDiaryExport.Output.Ok.Headers
+                /// - Remark: Generated from `#/paths/api/v1/exports/work-diary/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/exports/work-diary/GET/responses/200/content/application\/vnd.openxmlformats-officedocument.spreadsheetml.sheet`.
+                    case applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet(OpenAPIRuntime.HTTPBody)
+                    /// The associated value of the enum case if `self` is `.applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet`.
+                    ///
+                    /// - Throws: An error if `self` is not `.applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet`.
+                    /// - SeeAlso: `.applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet`.
+                    public var applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet: OpenAPIRuntime.HTTPBody {
+                        get throws {
+                            switch self {
+                            case let .applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetWorkDiaryExport.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - headers: Received HTTP response headers
+                ///   - body: Received HTTP response body
+                public init(
+                    headers: Operations.GetWorkDiaryExport.Output.Ok.Headers = .init(),
+                    body: Operations.GetWorkDiaryExport.Output.Ok.Body
+                ) {
+                    self.headers = headers
+                    self.body = body
+                }
+            }
+            /// Work diary workbook.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/exports/work-diary/get(getWorkDiaryExport)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetWorkDiaryExport.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetWorkDiaryExport.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/exports/work-diary/get(getWorkDiaryExport)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/exports/work-diary/get(getWorkDiaryExport)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/exports/work-diary/get(getWorkDiaryExport)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/exports/work-diary/get(getWorkDiaryExport)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/exports/work-diary/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/exports/work-diary/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetWorkDiaryExport.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetWorkDiaryExport.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/exports/work-diary/get(getWorkDiaryExport)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetWorkDiaryExport.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.GetWorkDiaryExport.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+                    self = .applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet:
+                    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .applicationVnd_openxmlformatsOfficedocument_spreadsheetml_sheet,
+                    .json
+                ]
+            }
+        }
+    }
+    /// Get or generate the editable work-diary draft for a date
+    ///
+    /// - Remark: HTTP `GET /api/v1/reporting/work-diary`.
+    /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/get(getWorkDiaryDraft)`.
+    public enum GetWorkDiaryDraft {
+        public static let id: Swift.String = "getWorkDiaryDraft"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/reporting/work-diary/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// Report date in YYYY-MM-DD format.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/reporting/work-diary/GET/query/date`.
+                public var date: Components.Parameters.ReportDate
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - date: Report date in YYYY-MM-DD format.
+                public init(date: Components.Parameters.ReportDate) {
+                    self.date = date
+                }
+            }
+            public var query: Operations.GetWorkDiaryDraft.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/reporting/work-diary/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetWorkDiaryDraft.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetWorkDiaryDraft.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetWorkDiaryDraft.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.GetWorkDiaryDraft.Input.Query,
+                headers: Operations.GetWorkDiaryDraft.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/reporting/work-diary/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/reporting/work-diary/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkDiaryDraft)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkDiaryDraft {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetWorkDiaryDraft.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetWorkDiaryDraft.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Work diary draft.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/get(getWorkDiaryDraft)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetWorkDiaryDraft.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetWorkDiaryDraft.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/get(getWorkDiaryDraft)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/get(getWorkDiaryDraft)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/get(getWorkDiaryDraft)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/get(getWorkDiaryDraft)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Update an editable work-diary draft body
+    ///
+    /// - Remark: HTTP `PUT /api/v1/reporting/work-diary`.
+    /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/put(updateWorkDiaryDraft)`.
+    public enum UpdateWorkDiaryDraft {
+        public static let id: Swift.String = "updateWorkDiaryDraft"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/reporting/work-diary/PUT/query`.
+            public struct Query: Sendable, Hashable {
+                /// Report date in YYYY-MM-DD format.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/reporting/work-diary/PUT/query/date`.
+                public var date: Components.Parameters.ReportDate
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - date: Report date in YYYY-MM-DD format.
+                public init(date: Components.Parameters.ReportDate) {
+                    self.date = date
+                }
+            }
+            public var query: Operations.UpdateWorkDiaryDraft.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/reporting/work-diary/PUT/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdateWorkDiaryDraft.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdateWorkDiaryDraft.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.UpdateWorkDiaryDraft.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/reporting/work-diary/PUT/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/reporting/work-diary/PUT/requestBody/content/application\/json`.
+                case json(Components.Schemas.WorkDiaryUpdateRequest)
+            }
+            public var body: Operations.UpdateWorkDiaryDraft.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            ///   - body:
+            public init(
+                query: Operations.UpdateWorkDiaryDraft.Input.Query,
+                headers: Operations.UpdateWorkDiaryDraft.Input.Headers = .init(),
+                body: Operations.UpdateWorkDiaryDraft.Input.Body
+            ) {
+                self.query = query
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/reporting/work-diary/PUT/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/reporting/work-diary/PUT/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkDiaryDraft)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkDiaryDraft {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.UpdateWorkDiaryDraft.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.UpdateWorkDiaryDraft.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Updated work diary draft.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/put(updateWorkDiaryDraft)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.UpdateWorkDiaryDraft.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.UpdateWorkDiaryDraft.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/put(updateWorkDiaryDraft)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/put(updateWorkDiaryDraft)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/put(updateWorkDiaryDraft)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/put(updateWorkDiaryDraft)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/put(updateWorkDiaryDraft)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Confirm a work-diary draft before export
+    ///
+    /// - Remark: HTTP `POST /api/v1/reporting/work-diary/confirm`.
+    /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/confirm/post(confirmWorkDiaryDraft)`.
+    public enum ConfirmWorkDiaryDraft {
+        public static let id: Swift.String = "confirmWorkDiaryDraft"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/reporting/work-diary/confirm/POST/query`.
+            public struct Query: Sendable, Hashable {
+                /// Report date in YYYY-MM-DD format.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/reporting/work-diary/confirm/POST/query/date`.
+                public var date: Components.Parameters.ReportDate
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - date: Report date in YYYY-MM-DD format.
+                public init(date: Components.Parameters.ReportDate) {
+                    self.date = date
+                }
+            }
+            public var query: Operations.ConfirmWorkDiaryDraft.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/reporting/work-diary/confirm/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ConfirmWorkDiaryDraft.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ConfirmWorkDiaryDraft.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ConfirmWorkDiaryDraft.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ConfirmWorkDiaryDraft.Input.Query,
+                headers: Operations.ConfirmWorkDiaryDraft.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/reporting/work-diary/confirm/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/reporting/work-diary/confirm/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.WorkDiaryDraft)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.WorkDiaryDraft {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ConfirmWorkDiaryDraft.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ConfirmWorkDiaryDraft.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Confirmed work diary draft.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/confirm/post(confirmWorkDiaryDraft)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ConfirmWorkDiaryDraft.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ConfirmWorkDiaryDraft.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/confirm/post(confirmWorkDiaryDraft)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/confirm/post(confirmWorkDiaryDraft)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/confirm/post(confirmWorkDiaryDraft)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/confirm/post(confirmWorkDiaryDraft)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/confirm/post(confirmWorkDiaryDraft)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
                             response: self
                         )
                     }
