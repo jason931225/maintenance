@@ -64,6 +64,7 @@ struct TodayListView: View {
 
     var body: some View {
         List {
+            LocationConsentSection(viewModel: viewModel)
             if viewModel.today.isEmpty {
                 Text("empty_today")
             }
@@ -134,6 +135,8 @@ struct WorkOrderDetailView: View {
         NavigationStack {
             if let workOrder = viewModel.selectedWorkOrder {
                 Form {
+                    LocationConsentSection(viewModel: viewModel)
+
                     Section {
                         LabeledContent("request_no", value: workOrder.requestNo)
                         LabeledContent(
@@ -205,6 +208,60 @@ struct WorkOrderDetailView: View {
     }
 }
 
+struct LocationConsentSection: View {
+    @ObservedObject var viewModel: FieldViewModel
+
+    private var state: Components.Schemas.LocationConsentState {
+        viewModel.locationConsent?.state ?? .noRecord
+    }
+
+    var body: some View {
+        Section {
+            LabeledContent(
+                "location_consent_state",
+                value: localizedString(locationConsentStateKey(state))
+            )
+            LabeledContent(
+                "location_consent_collection",
+                value: localizedString(viewModel.locationConsent?.mayCollect == true ? "yes" : "no")
+            )
+            Button {
+                Task { await viewModel.grantLocationConsent() }
+            } label: {
+                Label {
+                    Text(LocalizedStringKey(state == .withdrawn ? "location_consent_regain" : "location_consent_grant"))
+                } icon: {
+                    Image(systemName: "checkmark.shield")
+                }
+            }
+            .disabled(viewModel.isLoading || state == .granted)
+
+            Button {
+                Task { await viewModel.suspendLocationConsent() }
+            } label: {
+                Label("location_consent_suspend", systemImage: "location.slash")
+            }
+            .disabled(viewModel.isLoading || state != .granted)
+
+            Button {
+                Task { await viewModel.resumeLocationConsent() }
+            } label: {
+                Label("location_consent_resume", systemImage: "location")
+            }
+            .disabled(viewModel.isLoading || state != .suspended)
+
+            Button(role: .destructive) {
+                Task { await viewModel.withdrawLocationConsent() }
+            } label: {
+                Label("location_consent_withdraw", systemImage: "trash")
+            }
+            .disabled(viewModel.isLoading || (state != .granted && state != .suspended))
+        } header: {
+            Text("location_consent_title")
+        }
+    }
+}
+
 struct FieldChip: View {
     let key: String
 
@@ -220,4 +277,17 @@ struct FieldChip: View {
 private func localizedString(_ key: String, _ arguments: CVarArg...) -> String {
     let format = NSLocalizedString(key, bundle: .module, comment: "")
     return String(format: format, locale: Locale.current, arguments: arguments)
+}
+
+private func locationConsentStateKey(_ state: Components.Schemas.LocationConsentState) -> String {
+    switch state {
+    case .noRecord:
+        return "location_consent_state_no_record"
+    case .granted:
+        return "location_consent_state_granted"
+    case .suspended:
+        return "location_consent_state_suspended"
+    case .withdrawn:
+        return "location_consent_state_withdrawn"
+    }
 }

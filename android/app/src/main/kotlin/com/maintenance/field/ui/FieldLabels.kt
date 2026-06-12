@@ -1,6 +1,7 @@
 package com.maintenance.field.ui
 
 import androidx.annotation.StringRes
+import com.maintenance.api.client.model.LocationConsentState
 import com.maintenance.api.client.model.PriorityLevel
 import com.maintenance.api.client.model.WorkOrderStatus
 import com.maintenance.api.client.model.WorkResultType
@@ -41,6 +42,14 @@ fun SyncState.labelRes(): Int = when (this) {
     SyncState.SYNCED -> R.string.sync_synced
     SyncState.PENDING -> R.string.sync_pending
     SyncState.FAILED -> R.string.sync_failed
+}
+
+@StringRes
+fun LocationConsentState.labelRes(): Int = when (this) {
+    LocationConsentState.NO_RECORD -> R.string.location_consent_state_no_record
+    LocationConsentState.GRANTED -> R.string.location_consent_state_granted
+    LocationConsentState.SUSPENDED -> R.string.location_consent_state_suspended
+    LocationConsentState.WITHDRAWN -> R.string.location_consent_state_withdrawn
 }
 
 @StringRes

@@ -6,6 +6,7 @@ import MaintenanceFieldCore
 struct MaintenanceFieldCoreBehaviorTests {
     static func main() async throws {
         try loginStateMachineMirrorsAndroidRegistrationFlow()
+        try locationConsentStateMachineMirrorsAndroidGpsGate()
         try workOrderMappersMirrorAndroidModels()
         try reportDraftTrimsGeneratedRequestFields()
         try await offlineStartRetriesSameRequestIDAndAcceptsCachedSyncResult()
@@ -66,6 +67,22 @@ struct MaintenanceFieldCoreBehaviorTests {
             LoginEvent.failed(messageKey: "login_failed")
         )
         try expectEqual(failed, .signedOut(messageKey: "login_failed"))
+    }
+
+    private static func locationConsentStateMachineMirrorsAndroidGpsGate() throws {
+        let machine = LocationConsentStateMachine()
+        let active = GPSCollectionState(consentState: .granted, onDuty: true)
+
+        let suspended = machine.reduce(active, event: .suspended)
+        try expectEqual(suspended.consentState, .suspended)
+        try expectEqual(suspended.mayCollect, false)
+
+        let offDuty = GPSCollectionState(consentState: .granted, onDuty: false)
+        try expectEqual(offDuty.mayCollect, false)
+        try expectEqual(machine.reduce(offDuty, event: .onDutyChanged(true)).mayCollect, true)
+
+        try expectEqual(machine.reduce(active, event: .withdrawn).consentState, .withdrawn)
+        try expectEqual(machine.reduce(suspended, event: .withdrawn).consentState, .withdrawn)
     }
 
     private static func workOrderMappersMirrorAndroidModels() throws {

@@ -472,6 +472,145 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/location-consent/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the authenticated user's location consent status */
+        get: operations["getLocationConsentStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/location-consent/grant": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Grant GPS location collection consent */
+        post: operations["grantLocationConsent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/location-consent/suspend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Suspend GPS collection with the always-visible off switch */
+        post: operations["suspendLocationConsent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/location-consent/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume GPS collection after an off-switch suspension */
+        post: operations["resumeLocationConsent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/location-consent/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Withdraw location consent and destroy destructible location data */
+        post: operations["withdrawLocationConsent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/location-pings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ingest an on-duty GPS ping when consent is granted
+         * @description Coordinates are destructible and never written to audit_events.
+         */
+        post: operations["recordLocationPing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/location-consents/ledger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the consent lifecycle ledger */
+        get: operations["listLocationConsentLedger"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/location-consents/ledger.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export the consent lifecycle ledger as CSV */
+        get: operations["exportLocationConsentLedgerCsv"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/passkey/register/start": {
         parameters: {
             query?: never;
@@ -1537,6 +1676,62 @@ export interface components {
             app_version: string;
             last_registered_at: components["schemas"]["Timestamp"];
         };
+        /** @enum {string} */
+        LocationConsentState: "NO_RECORD" | "GRANTED" | "SUSPENDED" | "WITHDRAWN";
+        LocationConsentStatus: {
+            consent_id: components["schemas"]["Uuid"];
+            user_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            state: components["schemas"]["LocationConsentState"];
+            may_collect: boolean;
+            /** Format: date-time */
+            granted_at?: string | null;
+            /** Format: date-time */
+            suspended_at?: string | null;
+            /** Format: date-time */
+            resumed_at?: string | null;
+            /** Format: date-time */
+            withdrawn_at?: string | null;
+            /** Format: date-time */
+            updated_at?: string | null;
+        };
+        LocationConsentTransitionRequest: {
+            branch_id?: components["schemas"]["Uuid"];
+        };
+        LocationPingRequest: {
+            branch_id?: components["schemas"]["Uuid"];
+            /** Format: double */
+            latitude: number;
+            /** Format: double */
+            longitude: number;
+            /** Format: double */
+            accuracy_m?: number | null;
+            recorded_at: components["schemas"]["Timestamp"];
+            on_duty: boolean;
+        };
+        LocationConsentLedgerEntry: {
+            id: components["schemas"]["Uuid"];
+            consent_id: components["schemas"]["Uuid"];
+            user_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            /** Format: uuid */
+            actor?: string | null;
+            /** @enum {string} */
+            action: "consent.grant" | "consent.suspend" | "consent.resume" | "consent.withdraw";
+            from_status: components["schemas"]["LocationConsentState"];
+            to_status: components["schemas"]["LocationConsentState"];
+            occurred_at: components["schemas"]["Timestamp"];
+            created_at: components["schemas"]["Timestamp"];
+        };
+        LocationConsentLedgerPage: {
+            items: components["schemas"]["LocationConsentLedgerEntry"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
         PasskeyRegisterStartRequest: {
             /** @description One-time bootstrap credential for zero-credential users. */
             bootstrap_token?: string;
@@ -1885,6 +2080,9 @@ export interface components {
             accept_window_ends_at: components["schemas"]["Timestamp"];
             auto_assigned_mechanic_id?: components["schemas"]["Uuid"];
             manager_force_pending_at?: components["schemas"]["Timestamp"];
+            manual_call_required: boolean;
+            manual_call_required_at?: components["schemas"]["Timestamp"];
+            manual_call_cleared_at?: components["schemas"]["Timestamp"];
             /** Format: int64 */
             target_count: number;
             /** Format: int64 */
@@ -2729,6 +2927,224 @@ export interface operations {
             };
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    getLocationConsentStatus: {
+        parameters: {
+            query?: {
+                branch_id?: components["schemas"]["Uuid"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current location consent status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationConsentStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    grantLocationConsent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocationConsentTransitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated location consent status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationConsentStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    suspendLocationConsent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocationConsentTransitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated location consent status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationConsentStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    resumeLocationConsent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocationConsentTransitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated location consent status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationConsentStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    withdrawLocationConsent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocationConsentTransitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated location consent status after destructive withdrawal. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationConsentStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    recordLocationPing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocationPingRequest"];
+            };
+        };
+        responses: {
+            /** @description Location ping accepted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listLocationConsentLedger: {
+        parameters: {
+            query?: {
+                user_id?: components["schemas"]["Uuid"];
+                branch_id?: components["schemas"]["Uuid"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paged consent lifecycle ledger. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationConsentLedgerPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    exportLocationConsentLedgerCsv: {
+        parameters: {
+            query?: {
+                user_id?: components["schemas"]["Uuid"];
+                branch_id?: components["schemas"]["Uuid"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV consent lifecycle ledger export. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listMessengerThreads: {

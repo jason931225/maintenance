@@ -5,6 +5,7 @@ struct FieldAppContainer {
     let authRepository: PasskeyAuthRepository
     let workOrderRepository: WorkOrderRepository
     let evidenceRepository: EvidenceRepository
+    let locationConsentRepository: LocationConsentRepository
 
     static func live() -> FieldAppContainer {
         let tokenProvider = CurrentTokenProvider()
@@ -54,7 +55,8 @@ struct FieldAppContainer {
                 appVersion: MaintenanceFieldCoreVersion.value
             ),
             workOrderRepository: workOrders,
-            evidenceRepository: evidence
+            evidenceRepository: evidence,
+            locationConsentRepository: LocationConsentRepository(gateway: gateway)
         )
     }
 }

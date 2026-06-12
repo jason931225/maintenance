@@ -15,15 +15,18 @@ final class FieldViewModel: ObservableObject {
     @Published var messageKey: String?
     @Published var isLoading = false
     @Published var isCameraPresented = false
+    @Published var locationConsent: Components.Schemas.LocationConsentStatus?
 
     private let authRepository: PasskeyAuthRepository
     private let workOrderRepository: WorkOrderRepository
     private let evidenceRepository: EvidenceRepository
+    private let locationConsentRepository: LocationConsentRepository
 
     init(container: FieldAppContainer) {
         self.authRepository = container.authRepository
         self.workOrderRepository = container.workOrderRepository
         self.evidenceRepository = container.evidenceRepository
+        self.locationConsentRepository = container.locationConsentRepository
     }
 
     var isAuthenticated: Bool {
@@ -35,6 +38,8 @@ final class FieldViewModel: ObservableObject {
             loginState = await authRepository.restore()
             if isAuthenticated {
                 await refreshToday()
+            } else {
+                locationConsent = nil
             }
         }
     }
@@ -61,6 +66,7 @@ final class FieldViewModel: ObservableObject {
         loginState = await authRepository.logout()
         today = []
         selectedWorkOrder = nil
+        locationConsent = nil
     }
 
     func refreshToday() async {
@@ -69,12 +75,29 @@ final class FieldViewModel: ObservableObject {
             _ = try await workOrderRepository.replayPending()
             _ = await evidenceRepository.uploadPending()
             today = try await workOrderRepository.refreshToday()
+            locationConsent = try await locationConsentRepository.status()
             messageKey = nil
         } catch {
             today = await workOrderRepository.cachedToday()
             messageKey = "error_network"
         }
         isLoading = false
+    }
+
+    func grantLocationConsent() async {
+        await updateLocationConsent { try await locationConsentRepository.grant() }
+    }
+
+    func suspendLocationConsent() async {
+        await updateLocationConsent { try await locationConsentRepository.suspend() }
+    }
+
+    func resumeLocationConsent() async {
+        await updateLocationConsent { try await locationConsentRepository.resume() }
+    }
+
+    func withdrawLocationConsent() async {
+        await updateLocationConsent { try await locationConsentRepository.withdraw() }
     }
 
     func select(_ workOrder: TechnicianWorkOrder) {
@@ -139,5 +162,18 @@ final class FieldViewModel: ObservableObject {
         } catch {
             messageKey = "offline_queued"
         }
+    }
+
+    private func updateLocationConsent(
+        _ operation: () async throws -> Components.Schemas.LocationConsentStatus
+    ) async {
+        isLoading = true
+        do {
+            locationConsent = try await operation()
+            messageKey = nil
+        } catch {
+            messageKey = "location_consent_failed"
+        }
+        isLoading = false
     }
 }

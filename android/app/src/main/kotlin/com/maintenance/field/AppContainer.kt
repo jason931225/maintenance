@@ -6,6 +6,7 @@ import com.maintenance.field.auth.CredentialManagerPasskeyClient
 import com.maintenance.field.auth.PasskeyAuthRepository
 import com.maintenance.field.data.api.GeneratedMaintenanceApiGateway
 import com.maintenance.field.data.evidence.EvidenceRepository
+import com.maintenance.field.data.location.LocationConsentRepository
 import com.maintenance.field.data.local.FieldDatabase
 import com.maintenance.field.data.local.RoomMutationQueueStore
 import com.maintenance.field.data.local.RoomWorkOrderStore
@@ -41,6 +42,7 @@ class AppContainer(context: Context) {
         uploads = database.evidenceUploads(),
         httpClient = httpClient,
     )
+    val locationConsent = LocationConsentRepository(apiGateway)
     val auth = PasskeyAuthRepository(
         api = apiGateway,
         credentialClient = CredentialManagerPasskeyClient(),

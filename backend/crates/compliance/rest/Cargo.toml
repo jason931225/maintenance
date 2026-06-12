@@ -1,0 +1,22 @@
+[package]
+name = "mnt-compliance-rest"
+version = "0.1.0"
+description = "REST API for compliance consent controls."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum = { workspace = true }
+mnt-compliance-adapter-postgres = { workspace = true }
+mnt-compliance-application = { workspace = true }
+mnt-compliance-domain = { workspace = true }
+mnt-kernel-core = { workspace = true }
+mnt-platform-auth = { workspace = true }
+mnt-platform-authz = { workspace = true }
+serde = { workspace = true }
+time = { workspace = true }
+
+[lints]
+workspace = true

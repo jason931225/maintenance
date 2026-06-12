@@ -58,4 +58,18 @@
     <string name="result_incomplete">미완료</string>
     <string name="result_revisit_required">재방문 필요</string>
     <string name="result_unknown">미정</string>
+    <string name="yes">예</string>
+    <string name="no">아니오</string>
+    <string name="location_consent_title">GPS 위치 동의</string>
+    <string name="location_consent_collection_format">수집 가능: %1$s</string>
+    <string name="location_consent_grant">동의</string>
+    <string name="location_consent_regain">다시 동의</string>
+    <string name="location_consent_suspend">GPS 끄기</string>
+    <string name="location_consent_resume">GPS 켜기</string>
+    <string name="location_consent_withdraw">동의 철회</string>
+    <string name="location_consent_failed">위치 동의 처리에 실패했습니다.</string>
+    <string name="location_consent_state_no_record">미동의</string>
+    <string name="location_consent_state_granted">동의됨</string>
+    <string name="location_consent_state_suspended">GPS 꺼짐</string>
+    <string name="location_consent_state_withdrawn">철회됨</string>
 </resources>

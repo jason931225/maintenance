@@ -8,6 +8,7 @@ use mnt_compliance_domain::{LocationConsent, LocationConsentState};
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, KernelError, Timestamp, TraceContext, Transition, UserId,
 };
+use serde::{Deserialize, Serialize};
 
 /// Consent transition requested by an outer adapter/use case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,4 +80,37 @@ pub fn consent_audit_event(
     )
     .with_branch(command.branch_id)
     .with_snapshots(Some(before_json), Some(after_json)))
+}
+
+/// Filters for reading the audited consent lifecycle ledger.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocationConsentLedgerQuery {
+    pub user_id: Option<UserId>,
+    pub branch_id: Option<BranchId>,
+    pub limit: i64,
+    pub offset: i64,
+}
+
+/// One audited consent lifecycle transition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocationConsentLedgerEntry {
+    pub id: String,
+    pub consent_id: String,
+    pub user_id: UserId,
+    pub branch_id: BranchId,
+    pub actor: Option<UserId>,
+    pub action: String,
+    pub from_status: LocationConsentState,
+    pub to_status: LocationConsentState,
+    pub occurred_at: Timestamp,
+    pub created_at: Timestamp,
+}
+
+/// Paged consent lifecycle ledger.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocationConsentLedgerPage {
+    pub items: Vec<LocationConsentLedgerEntry>,
+    pub limit: i64,
+    pub offset: i64,
+    pub total: i64,
 }

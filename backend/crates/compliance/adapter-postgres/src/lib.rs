@@ -6,14 +6,17 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_compliance_application::{
-    ConsentTransitionCommand, ConsentTransitionKind, consent_audit_event,
+    ConsentTransitionCommand, ConsentTransitionKind, LocationConsentLedgerEntry,
+    LocationConsentLedgerPage, LocationConsentLedgerQuery, consent_audit_event,
 };
 use mnt_compliance_domain::{
     LocationConsent, LocationConsentState, LocationPing, PersistedLocationConsent,
 };
-use mnt_kernel_core::{BranchId, ConsentId, KernelError, Timestamp, UserId};
+use mnt_kernel_core::{
+    BranchId, BranchScope, ConsentId, ErrorKind, KernelError, Timestamp, UserId,
+};
 use mnt_platform_db::{DbError, with_audit};
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PgComplianceError {
@@ -27,6 +30,17 @@ pub enum PgComplianceError {
 impl From<sqlx::Error> for PgComplianceError {
     fn from(value: sqlx::Error) -> Self {
         Self::Db(DbError::Sqlx(value))
+    }
+}
+
+impl PgComplianceError {
+    #[must_use]
+    pub const fn kind(&self) -> ErrorKind {
+        match self {
+            Self::Domain(error) => error.kind,
+            Self::Db(DbError::Sqlx(sqlx::Error::RowNotFound)) => ErrorKind::NotFound,
+            Self::Db(DbError::Sqlx(_)) | Self::Db(DbError::Serialize(_)) => ErrorKind::Internal,
+        }
     }
 }
 
@@ -199,6 +213,14 @@ impl PgComplianceStore {
         .await
     }
 
+    pub async fn current_consent(
+        &self,
+        user_id: UserId,
+        branch_id: BranchId,
+    ) -> Result<LocationConsent, PgComplianceError> {
+        self.current_or_unrecorded(user_id, branch_id).await
+    }
+
     pub async fn record_location_ping(&self, ping: LocationPing) -> Result<(), PgComplianceError> {
         if !ping.on_duty() {
             return Err(KernelError::forbidden(
@@ -311,6 +333,78 @@ impl PgComplianceStore {
         })
     }
 
+    pub async fn list_location_consent_ledger(
+        &self,
+        branch_scope: &BranchScope,
+        query: LocationConsentLedgerQuery,
+    ) -> Result<LocationConsentLedgerPage, PgComplianceError> {
+        let total = self
+            .count_location_consent_ledger(branch_scope, &query)
+            .await?;
+        let mut builder = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT id, consent_id, user_id, branch_id, actor, action,
+                   from_status, to_status, occurred_at, created_at
+            FROM location_consent_ledger l
+            WHERE
+            "#,
+        );
+        push_location_consent_ledger_filters(&mut builder, branch_scope, &query);
+        builder.push(" ORDER BY l.occurred_at DESC, l.id DESC LIMIT ");
+        builder.push_bind(query.limit);
+        builder.push(" OFFSET ");
+        builder.push_bind(query.offset);
+
+        let rows = builder.build().fetch_all(&self.pool).await?;
+        let mut items = Vec::with_capacity(rows.len());
+        for row in rows {
+            let id: uuid::Uuid = row.try_get("id")?;
+            let consent_id: uuid::Uuid = row.try_get("consent_id")?;
+            let user_id: uuid::Uuid = row.try_get("user_id")?;
+            let branch_id: uuid::Uuid = row.try_get("branch_id")?;
+            let actor: Option<uuid::Uuid> = row.try_get("actor")?;
+            let from_status: String = row.try_get("from_status")?;
+            let to_status: String = row.try_get("to_status")?;
+
+            items.push(LocationConsentLedgerEntry {
+                id: id.to_string(),
+                consent_id: consent_id.to_string(),
+                user_id: UserId::from_uuid(user_id),
+                branch_id: BranchId::from_uuid(branch_id),
+                actor: actor.map(UserId::from_uuid),
+                action: row.try_get("action")?,
+                from_status: LocationConsentState::from_db_str(&from_status)?,
+                to_status: LocationConsentState::from_db_str(&to_status)?,
+                occurred_at: row.try_get("occurred_at")?,
+                created_at: row.try_get("created_at")?,
+            });
+        }
+
+        Ok(LocationConsentLedgerPage {
+            items,
+            limit: query.limit,
+            offset: query.offset,
+            total,
+        })
+    }
+
+    async fn count_location_consent_ledger(
+        &self,
+        branch_scope: &BranchScope,
+        query: &LocationConsentLedgerQuery,
+    ) -> Result<i64, PgComplianceError> {
+        let mut builder = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT COUNT(*)
+            FROM location_consent_ledger l
+            WHERE
+            "#,
+        );
+        push_location_consent_ledger_filters(&mut builder, branch_scope, query);
+        let total: i64 = builder.build_query_scalar().fetch_one(&self.pool).await?;
+        Ok(total)
+    }
+
     async fn current_or_unrecorded(
         &self,
         user_id: UserId,
@@ -350,5 +444,39 @@ impl PgComplianceStore {
             withdrawn_at: row.withdrawn_at,
             updated_at: row.updated_at,
         }))
+    }
+}
+
+fn push_location_consent_ledger_filters(
+    builder: &mut QueryBuilder<Postgres>,
+    branch_scope: &BranchScope,
+    query: &LocationConsentLedgerQuery,
+) {
+    push_branch_scope_filter(builder, branch_scope);
+    if let Some(branch_id) = query.branch_id {
+        builder.push(" AND l.branch_id = ");
+        builder.push_bind(*branch_id.as_uuid());
+    }
+    if let Some(user_id) = query.user_id {
+        builder.push(" AND l.user_id = ");
+        builder.push_bind(*user_id.as_uuid());
+    }
+}
+
+fn push_branch_scope_filter(builder: &mut QueryBuilder<Postgres>, branch_scope: &BranchScope) {
+    match branch_scope {
+        BranchScope::All => {
+            builder.push(" TRUE ");
+        }
+        BranchScope::Branches(branches) if branches.is_empty() => {
+            builder.push(" FALSE ");
+        }
+        BranchScope::Branches(branches) => {
+            let branch_ids: Vec<uuid::Uuid> =
+                branches.iter().map(|branch| *branch.as_uuid()).collect();
+            builder.push(" l.branch_id = ANY(");
+            builder.push_bind(branch_ids);
+            builder.push(") ");
+        }
     }
 }

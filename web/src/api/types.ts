@@ -13,6 +13,12 @@ export type KpiRollup = components["schemas"]["KpiRollup"];
 export type KpiRollupScope = components["schemas"]["KpiRollupScope"];
 export type UnavailableMetric = components["schemas"]["UnavailableMetric"];
 export type TokenPairResponse = components["schemas"]["TokenPairResponse"];
+export type LocationConsentLedgerPage =
+  components["schemas"]["LocationConsentLedgerPage"];
+export type LocationConsentState =
+  components["schemas"]["LocationConsentState"];
+export type LocationConsentStatus =
+  components["schemas"]["LocationConsentStatus"];
 
 export interface EquipmentLookupResult {
   managementNo: string;

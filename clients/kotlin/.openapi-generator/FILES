@@ -74,6 +74,12 @@ src/main/kotlin/com/maintenance/api/client/model/KpiReport.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiRollup.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiRollupScope.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiScope.kt
+src/main/kotlin/com/maintenance/api/client/model/LocationConsentLedgerEntry.kt
+src/main/kotlin/com/maintenance/api/client/model/LocationConsentLedgerPage.kt
+src/main/kotlin/com/maintenance/api/client/model/LocationConsentState.kt
+src/main/kotlin/com/maintenance/api/client/model/LocationConsentStatus.kt
+src/main/kotlin/com/maintenance/api/client/model/LocationConsentTransitionRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/LocationPingRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/MarkMessengerThreadReadRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/MessengerMessageListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/MessengerMessagePage.kt

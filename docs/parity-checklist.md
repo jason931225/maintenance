@@ -17,6 +17,15 @@ Reference: Android technician app under `android/app/src`, generated Swift clien
 | Evidence capture/upload | CameraX captures JPEG, stages evidence, presign PUT confirm, offline retry | `CameraCaptureView` uses AVFoundation on iOS; `EvidenceRepository` stages JPEG metadata, SHA-256, presigns, PUTs, confirms, and queues pending uploads in `FileEvidenceUploadStore` | `swift build` |
 | Localization/labels | Android Korean strings and field labels | `ko.lproj/Localizable.strings` includes Android keys plus SwiftUI aliases; label helpers mirror priority/status/result/sync mappings | `swift build` |
 
+## Verified in T2.2
+
+| Area | Android parity target | iOS implementation | Evidence |
+| --- | --- | --- | --- |
+| Location consent API | Generated client exposes status, grant, suspend, resume, withdraw, ping ingestion, and ledger export routes | `GeneratedMaintenanceAPIGateway` calls the same generated Swift operations for status, consent transitions, and ping ingestion | `npm run check:api-drift:portable`; `npm run check:api-drift:swift`; `npm run check:kotlin`; `npm run check:swift` |
+| Always-visible GPS off switch | Authenticated work list, work-order detail, and evidence camera surfaces show direct GPS suspend/resume/withdraw controls, not settings-only controls | `LocationConsentSection` appears at the top of `TodayListView` and `WorkOrderDetailView` with GPS off, GPS on, withdrawal, and grant buttons | `JAVA_HOME=/Applications/Android Studio.app/Contents/jbr/Contents/Home ANDROID_HOME=/Users/jasonlee/Library/Android/sdk ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug`; `swift build --package-path ios` |
+| Local collection gate | `GpsCollectionState.mayCollect` requires granted consent and on-duty state before ping upload | `GPSCollectionState.mayCollect` mirrors the same rule with `.granted && onDuty` | Android `LocationConsentStateMachineTest`; `swift run --package-path ios MaintenanceFieldCoreBehaviorTests` |
+| Withdrawal behavior | Client state machine makes withdrawal a non-collecting terminal eligibility state until fresh consent | iOS behavior runner verifies granted/suspended -> withdrawn and `mayCollect == false`; backend route test verifies withdrawal deletes `location_pings` and `location_collection_logs` | `DATABASE_URL=postgres://jasonlee@localhost/mnt_dev cargo test`; `swift run --package-path ios MaintenanceFieldCoreBehaviorTests` |
+
 ## Verification
 
 - `cd ios && swift build` passed with Apple Swift 6.3.2 Command Line Tools.
