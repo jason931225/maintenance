@@ -67,3 +67,10 @@ Read FIRST: your task's row in `/Users/jasonlee/Developer/maintenance/.omc/plans
 - Restore drill: script that restores the latest backup into a SCRATCH compose project (separate project name/volumes), verifies row counts/migration version match, and tears down. RUN IT against the real stack and record the drill output to ops/backup/drill-logs/ (timestamped).
 - Runbook ops/backup/RUNBOOK.md: step-by-step restore (who/when/commands/verification), failure modes.
 - No cargo changes expected; if any, full verification suite applies.
+
+### 9. T0.13 — DR hardening: WAL/PITR + VM-down runbook (ops/dr/ + docs/evidence/)
+- Postgres continuous WAL archiving in the compose stack (archive_command to a mounted archive volume; pg_basebackup base via ops/backup/backup.sh's documented path) enabling point-in-time recovery. Document explicit targets: **RPO ≤ 5min, RTO ≤ 1h** (ops/dr/DR-POLICY.md), per ADR-0015.
+- PITR restore drill script (ops/dr/pitr-drill.sh): boots scratch project, restores base backup + replays WAL to an ARBITRARY user-supplied timestamp, verifies a row written before that timestamp exists and one written after does NOT. RUN IT for real; commit timestamped drill log to ops/dr/drill-logs/.
+- VM-down emergency-dispatch fallback runbook (ops/dr/VM-DOWN-RUNBOOK.md): in-flight P1 behavior — manual 유선 dispatch + Alimtalk while system down, recovery sequence, communication tree placeholders filled with role names (관리자/접수자 roles, not personal data).
+- Rehearse the runbook: simulate an in-flight P1 (insert a P1-shaped row via psql in the scratch env or document the simulation), execute the manual-dispatch steps on paper, record a **timestamped drill log under docs/evidence/** capturing manual-dispatch time-to-first-contact (per Architect r2 #2).
+- Use distinct compose project names; tear down all docker resources afterward.
