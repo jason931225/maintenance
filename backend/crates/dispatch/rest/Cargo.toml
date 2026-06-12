@@ -1,0 +1,28 @@
+[package]
+name = "mnt-dispatch-rest"
+version = "0.1.0"
+description = "REST API for P1 emergency dispatch."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum = { workspace = true }
+mnt-dispatch-adapter-postgres = { workspace = true }
+mnt-dispatch-application = { workspace = true }
+mnt-dispatch-domain = { workspace = true }
+mnt-kernel-core = { workspace = true }
+mnt-platform-auth = { path = "../../platform/auth" }
+mnt-platform-authz = { path = "../../platform/authz" }
+mnt-platform-jobs = { workspace = true }
+mnt-platform-push = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+
+[lints]
+workspace = true

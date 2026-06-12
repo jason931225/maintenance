@@ -23,7 +23,13 @@ mnt-platform-auth = { path = "../crates/platform/auth" }
 mnt-platform-auth-rest = { workspace = true }
 mnt-platform-authz = { path = "../crates/platform/authz" }
 mnt-platform-db = { workspace = true }
+mnt-platform-jobs = { workspace = true }
+mnt-platform-push = { workspace = true }
 mnt-platform-storage = { workspace = true }
+mnt-dispatch-adapter-postgres = { workspace = true }
+mnt-dispatch-domain = { workspace = true }
+mnt-dispatch-rest = { workspace = true }
+mnt-dispatch-worker = { workspace = true }
 mnt-workorder-adapter-postgres = { workspace = true }
 mnt-workorder-rest = { workspace = true }
 opentelemetry = { workspace = true }

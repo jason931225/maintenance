@@ -1813,12 +1813,18 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "http",
+ "mnt-dispatch-adapter-postgres",
+ "mnt-dispatch-domain",
+ "mnt-dispatch-rest",
+ "mnt-dispatch-worker",
  "mnt-kernel-core",
  "mnt-platform-auth",
  "mnt-platform-auth-rest",
  "mnt-platform-authz",
  "mnt-platform-db",
+ "mnt-platform-jobs",
  "mnt-platform-provisioning",
+ "mnt-platform-push",
  "mnt-platform-storage",
  "mnt-workorder-adapter-postgres",
  "mnt-workorder-rest",
@@ -1875,6 +1881,82 @@ dependencies = [
  "mnt-kernel-core",
  "serde",
  "time",
+]
+
+[[package]]
+name = "mnt-dispatch-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "mnt-dispatch-application",
+ "mnt-dispatch-domain",
+ "mnt-kernel-core",
+ "mnt-platform-db",
+ "mnt-workorder-application",
+ "mnt-workorder-domain",
+ "serde_json",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-dispatch-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-dispatch-domain",
+ "mnt-kernel-core",
+ "serde",
+ "serde_json",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-dispatch-domain"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "thiserror 2.0.18",
+ "time",
+]
+
+[[package]]
+name = "mnt-dispatch-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "mnt-dispatch-adapter-postgres",
+ "mnt-dispatch-application",
+ "mnt-dispatch-domain",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-jobs",
+ "mnt-platform-push",
+ "serde",
+ "serde_json",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-dispatch-worker"
+version = "0.1.0"
+dependencies = [
+ "mnt-dispatch-adapter-postgres",
+ "mnt-dispatch-application",
+ "mnt-dispatch-domain",
+ "mnt-kernel-core",
+ "mnt-platform-jobs",
+ "mnt-platform-push",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "uuid",
 ]
 
 [[package]]
@@ -2014,6 +2096,22 @@ dependencies = [
  "url",
  "uuid",
  "webauthn-authenticator-rs",
+]
+
+[[package]]
+name = "mnt-platform-push"
+version = "0.1.0"
+dependencies = [
+ "hmac 0.13.0",
+ "jsonwebtoken",
+ "mnt-kernel-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "thiserror 2.0.18",
+ "time",
+ "uuid",
 ]
 
 [[package]]

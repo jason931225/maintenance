@@ -330,6 +330,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/work-orders/{workOrderId}/p1-dispatch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start a P1 emergency dispatch broadcast for a work order */
+        post: operations["startP1Dispatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/p1-dispatches/{dispatchId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fetch P1 dispatch status */
+        get: operations["getP1Dispatch"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/p1-dispatches/{dispatchId}/responses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept or decline a P1 dispatch broadcast */
+        post: operations["respondP1Dispatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/p1-dispatches/{dispatchId}/force-assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Manager force-assign a P1 dispatch after accept-window escalation */
+        post: operations["forceAssignP1Dispatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/equipment/lookup": {
         parameters: {
             query?: never;
@@ -703,6 +771,44 @@ export interface components {
         Date: string;
         /** @enum {string} */
         PriorityLevel: "P1" | "P2" | "P3" | "OUTSOURCE" | "UNSET";
+        /** @enum {string} */
+        DispatchStatus: "BROADCASTING" | "AUTO_ASSIGNED" | "MANAGER_FORCE_PENDING";
+        /** @enum {string} */
+        DispatchResponseKind: "ACCEPT" | "DECLINE";
+        IncidentLocation: {
+            /** Format: double */
+            latitude: number;
+            /** Format: double */
+            longitude: number;
+        };
+        StartP1DispatchRequest: {
+            incident_location?: components["schemas"]["IncidentLocation"];
+            /** @default false */
+            include_region: boolean;
+        };
+        RespondP1DispatchRequest: {
+            response: components["schemas"]["DispatchResponseKind"];
+        };
+        ForceAssignP1DispatchRequest: {
+            mechanic_id: components["schemas"]["Uuid"];
+        };
+        P1DispatchSummary: {
+            id: components["schemas"]["Uuid"];
+            work_order_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            status: components["schemas"]["DispatchStatus"];
+            incident_location?: components["schemas"]["IncidentLocation"];
+            accept_window_started_at: components["schemas"]["Timestamp"];
+            accept_window_ends_at: components["schemas"]["Timestamp"];
+            auto_assigned_mechanic_id?: components["schemas"]["Uuid"];
+            manager_force_pending_at?: components["schemas"]["Timestamp"];
+            /** Format: int64 */
+            target_count: number;
+            /** Format: int64 */
+            accepted_count: number;
+            /** Format: int64 */
+            declined_count: number;
+        };
         /** @enum {string} */
         WorkOrderStatus: "RECEIVED" | "UNASSIGNED" | "ASSIGNED" | "IN_PROGRESS" | "REPORT_SUBMITTED" | "ADMIN_REVIEW" | "FINAL_COMPLETED" | "REJECTED" | "ON_HOLD" | "DELAYED" | "TEMPORARY_ACTION" | "PART_WAITING" | "EQUIPMENT_IN_USE" | "REVISIT_REQUIRED" | "ARCHIVED" | "CANCELLED";
         /** @enum {string} */
@@ -1117,6 +1223,7 @@ export interface components {
     };
     parameters: {
         WorkOrderId: string;
+        DispatchId: string;
         PlanId: string;
         RequestId: string;
         EvidenceId: string;
@@ -1603,6 +1710,121 @@ export interface operations {
                 };
             };
             400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    startP1Dispatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workOrderId: components["parameters"]["WorkOrderId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartP1DispatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Started P1 dispatch. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["P1DispatchSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getP1Dispatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dispatchId: components["parameters"]["DispatchId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description P1 dispatch status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["P1DispatchSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    respondP1Dispatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dispatchId: components["parameters"]["DispatchId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RespondP1DispatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated P1 dispatch state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["P1DispatchSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    forceAssignP1Dispatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dispatchId: components["parameters"]["DispatchId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForceAssignP1DispatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Force-assigned P1 dispatch. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["P1DispatchSummary"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];

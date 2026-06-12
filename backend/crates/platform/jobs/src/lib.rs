@@ -5,13 +5,13 @@
 //! remain in `mnt-platform-db`.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-use std::{future::Future, pin::Pin, time::Duration as StdDuration};
+use std::{future::Future, pin::Pin, sync::Arc, time::Duration as StdDuration};
 
-use apalis::prelude::TaskSink;
+use apalis::prelude::{BoxDynError, Data, TaskSink, WorkerBuilder, WorkerContext};
 use apalis_postgres::{Config, PgPool as ApalisPgPool, PostgresStorage};
 use apalis_sql::ext::TaskBuilderExt as _;
 use apalis_sqlx::{Connection as _, Executor as _, Row as _};
-use mnt_kernel_core::{Clock, Timestamp};
+use mnt_kernel_core::{Clock, P1DispatchId, Timestamp};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -51,12 +51,20 @@ impl JobId {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PlatformJob {
     EscalationTimer(EscalationTimerJob),
+    DispatchAcceptWindowExpired(DispatchTimerJob),
+    DispatchAlimtalkNoAck(DispatchTimerJob),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EscalationTimerJob {
     pub scenario_id: String,
     pub timer_id: String,
+    pub scheduled_for: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DispatchTimerJob {
+    pub dispatch_id: P1DispatchId,
     pub scheduled_for: Timestamp,
 }
 
@@ -82,6 +90,38 @@ impl JobRequest {
             idempotency_key: IdempotencyKey::new(idempotency_key)?,
         })
     }
+
+    pub fn dispatch_accept_window_expired(
+        dispatch_id: P1DispatchId,
+        scheduled_for: Timestamp,
+    ) -> Result<Self, JobQueueError> {
+        Ok(Self {
+            job: PlatformJob::DispatchAcceptWindowExpired(DispatchTimerJob {
+                dispatch_id,
+                scheduled_for,
+            }),
+            idempotency_key: IdempotencyKey::new(format!(
+                "p1-dispatch:{}:accept-window",
+                dispatch_id
+            ))?,
+        })
+    }
+
+    pub fn dispatch_alimtalk_no_ack(
+        dispatch_id: P1DispatchId,
+        scheduled_for: Timestamp,
+    ) -> Result<Self, JobQueueError> {
+        Ok(Self {
+            job: PlatformJob::DispatchAlimtalkNoAck(DispatchTimerJob {
+                dispatch_id,
+                scheduled_for,
+            }),
+            idempotency_key: IdempotencyKey::new(format!(
+                "p1-dispatch:{}:alimtalk-no-ack",
+                dispatch_id
+            ))?,
+        })
+    }
 }
 
 pub trait JobQueue: Send + Sync {
@@ -92,6 +132,10 @@ pub trait JobQueue: Send + Sync {
         request: JobRequest,
         scheduled_at: Timestamp,
     ) -> BoxFuture<'a, Result<JobId, JobQueueError>>;
+}
+
+pub trait PlatformJobHandler: Send + Sync + 'static {
+    fn handle<'a>(&'a self, job: PlatformJob) -> BoxFuture<'a, Result<(), JobQueueError>>;
 }
 
 #[derive(Debug, Error)]
@@ -188,7 +232,9 @@ async fn run_apalis_migrations(
     (&mut **conn)
         .execute(
             r#"
-            CREATE TABLE IF NOT EXISTS platform_jobs_apalis_migrations (
+            CREATE SCHEMA IF NOT EXISTS apalis;
+
+            CREATE TABLE IF NOT EXISTS apalis.platform_jobs_apalis_migrations (
                 version BIGINT PRIMARY KEY,
                 description TEXT NOT NULL,
                 installed_on TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -202,6 +248,11 @@ async fn run_apalis_migrations(
         .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
 
     let migrations = PostgresStorage::migrations();
+    copy_legacy_apalis_migration_ledger(conn).await?;
+    if adopt_existing_apalis_schema_if_needed(conn, migrations.iter()).await? {
+        return Ok(());
+    }
+
     for migration in migrations.iter() {
         if migration.migration_type.is_down_migration() {
             continue;
@@ -210,7 +261,7 @@ async fn run_apalis_migrations(
         let applied = apalis_sqlx::query(
             r#"
             SELECT checksum, success
-            FROM platform_jobs_apalis_migrations
+            FROM apalis.platform_jobs_apalis_migrations
             WHERE version = $1
             "#,
         )
@@ -242,10 +293,7 @@ async fn run_apalis_migrations(
         }
 
         let started = std::time::Instant::now();
-        let sql = migration.sql.replace(
-            "CREATE SCHEMA apalis;",
-            "CREATE SCHEMA IF NOT EXISTS apalis;",
-        );
+        let sql = normalized_apalis_migration_sql(migration);
         let mut transaction = conn
             .begin()
             .await
@@ -261,7 +309,7 @@ async fn run_apalis_migrations(
             })?;
         apalis_sqlx::query(
             r#"
-            INSERT INTO platform_jobs_apalis_migrations (
+            INSERT INTO apalis.platform_jobs_apalis_migrations (
                 version,
                 description,
                 success,
@@ -287,6 +335,191 @@ async fn run_apalis_migrations(
     }
 
     Ok(())
+}
+
+async fn copy_legacy_apalis_migration_ledger(
+    conn: &mut apalis_sqlx::pool::PoolConnection<apalis_sqlx::Postgres>,
+) -> Result<(), JobQueueError> {
+    (&mut **conn)
+        .execute(
+            r#"
+            DO $$
+            BEGIN
+                IF to_regclass('public.platform_jobs_apalis_migrations') IS NOT NULL THEN
+                    EXECUTE '
+                        INSERT INTO apalis.platform_jobs_apalis_migrations (
+                            version,
+                            description,
+                            installed_on,
+                            success,
+                            checksum,
+                            execution_time
+                        )
+                        SELECT
+                            version,
+                            description,
+                            installed_on,
+                            success,
+                            checksum,
+                            execution_time
+                        FROM public.platform_jobs_apalis_migrations
+                        ON CONFLICT (version) DO NOTHING
+                    ';
+                END IF;
+            END
+            $$;
+            "#,
+        )
+        .await
+        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+    Ok(())
+}
+
+async fn adopt_existing_apalis_schema_if_needed<'a>(
+    conn: &mut apalis_sqlx::pool::PoolConnection<apalis_sqlx::Postgres>,
+    migrations: impl Iterator<Item = &'a apalis_sqlx::migrate::Migration>,
+) -> Result<bool, JobQueueError> {
+    let applied_count = apalis_sqlx::query(
+        r#"
+        SELECT COUNT(*) AS count
+        FROM apalis.platform_jobs_apalis_migrations
+        WHERE success = TRUE
+        "#,
+    )
+    .fetch_one(&mut **conn)
+    .await
+    .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?
+    .try_get::<i64, _>("count")
+    .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+
+    if applied_count > 0 || !existing_apalis_schema_is_current(conn).await? {
+        return Ok(false);
+    }
+
+    let mut transaction = conn
+        .begin()
+        .await
+        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+    for migration in migrations {
+        if migration.migration_type.is_down_migration() {
+            continue;
+        }
+        apalis_sqlx::query(
+            r#"
+            INSERT INTO apalis.platform_jobs_apalis_migrations (
+                version,
+                description,
+                success,
+                checksum,
+                execution_time
+            )
+            VALUES ($1, $2, TRUE, $3, 0)
+            ON CONFLICT (version) DO NOTHING
+            "#,
+        )
+        .bind(migration.version)
+        .bind(migration.description.as_ref())
+        .bind(migration.checksum.as_ref())
+        .execute(&mut *transaction)
+        .await
+        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+    }
+    transaction.commit().await.map_err(|err| {
+        JobQueueError::ApalisPostgres(format!("failed to adopt apalis migrations: {err}"))
+    })?;
+    Ok(true)
+}
+
+async fn existing_apalis_schema_is_current(
+    conn: &mut apalis_sqlx::pool::PoolConnection<apalis_sqlx::Postgres>,
+) -> Result<bool, JobQueueError> {
+    let row = apalis_sqlx::query(
+        r#"
+        SELECT
+            to_regclass('apalis.jobs') IS NOT NULL AS has_jobs,
+            to_regclass('apalis.workers') IS NOT NULL AS has_workers,
+            to_regclass('apalis.idx_jobs_idempotency_key') IS NOT NULL AS has_idempotency_index,
+            (
+                SELECT COUNT(*)
+                FROM information_schema.columns
+                WHERE table_schema = 'apalis'
+                    AND table_name = 'jobs'
+                    AND (
+                        (column_name = 'job' AND data_type = 'bytea')
+                        OR (column_name = 'id' AND data_type = 'text')
+                        OR (column_name = 'job_type' AND data_type = 'text')
+                        OR (column_name = 'status' AND data_type = 'text')
+                        OR (column_name = 'attempts' AND data_type = 'integer')
+                        OR (column_name = 'max_attempts' AND data_type = 'integer')
+                        OR (column_name = 'run_at' AND data_type = 'timestamp with time zone')
+                        OR (column_name = 'last_result' AND data_type = 'jsonb')
+                        OR (column_name = 'lock_at' AND data_type = 'timestamp with time zone')
+                        OR (column_name = 'lock_by' AND data_type = 'text')
+                        OR (column_name = 'done_at' AND data_type = 'timestamp with time zone')
+                        OR (column_name = 'priority' AND data_type = 'integer')
+                        OR (column_name = 'metadata' AND data_type = 'jsonb')
+                        OR (column_name = 'idempotency_key' AND data_type = 'text')
+                    )
+            ) AS current_job_columns,
+            (
+                SELECT COUNT(*)
+                FROM information_schema.columns
+                WHERE table_schema = 'apalis'
+                    AND table_name = 'workers'
+                    AND (
+                        (column_name = 'id' AND data_type = 'text')
+                        OR (column_name = 'worker_type' AND data_type = 'text')
+                        OR (column_name = 'storage_name' AND data_type = 'text')
+                        OR (column_name = 'layers' AND data_type = 'text')
+                        OR (column_name = 'last_seen' AND data_type = 'timestamp with time zone')
+                        OR (column_name = 'started_at' AND data_type = 'timestamp with time zone')
+                    )
+            ) AS current_worker_columns
+        "#,
+    )
+    .fetch_one(&mut **conn)
+    .await
+    .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+
+    let has_jobs = row
+        .try_get::<bool, _>("has_jobs")
+        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+    let has_workers = row
+        .try_get::<bool, _>("has_workers")
+        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+    let has_idempotency_index = row
+        .try_get::<bool, _>("has_idempotency_index")
+        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+    let current_job_columns = row
+        .try_get::<i64, _>("current_job_columns")
+        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+    let current_worker_columns = row
+        .try_get::<i64, _>("current_worker_columns")
+        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+
+    Ok(has_jobs
+        && has_workers
+        && has_idempotency_index
+        && current_job_columns == 14
+        && current_worker_columns == 6)
+}
+
+fn normalized_apalis_migration_sql(migration: &apalis_sqlx::migrate::Migration) -> String {
+    let mut sql = migration.sql.replace(
+        "CREATE SCHEMA apalis;",
+        "CREATE SCHEMA IF NOT EXISTS apalis;",
+    );
+    if migration.version == 20_220_530_084_123 {
+        sql = sql.replace(
+            "CREATE FUNCTION apalis.notify_new_jobs() returns trigger",
+            "CREATE OR REPLACE FUNCTION apalis.notify_new_jobs() returns trigger",
+        );
+        sql = sql.replace(
+            "CREATE TRIGGER notify_workers after insert on apalis.jobs",
+            "DROP TRIGGER IF EXISTS notify_workers ON apalis.jobs;\n\n        CREATE TRIGGER notify_workers after insert on apalis.jobs",
+        );
+    }
+    sql
 }
 
 impl JobQueue for ApalisPostgresJobQueue {
@@ -322,6 +555,47 @@ impl JobQueue for ApalisPostgresJobQueue {
             }
         })
     }
+}
+
+pub async fn run_apalis_worker_until_shutdown<H, F>(
+    database_url: &str,
+    queue_name: &str,
+    worker_name: impl Into<String>,
+    handler: H,
+    shutdown: F,
+) -> Result<(), JobQueueError>
+where
+    H: PlatformJobHandler,
+    F: Future<Output = ()> + Send,
+{
+    let pool = ApalisPgPool::connect(database_url)
+        .await
+        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+    setup_apalis_schema(&pool).await?;
+    let backend = PostgresStorage::<PlatformJob>::new_with_config(&pool, &Config::new(queue_name));
+    let worker = WorkerBuilder::new(worker_name.into())
+        .backend(backend)
+        .data(Arc::new(handler))
+        .build(handle_queued_platform_job::<H>);
+
+    tokio::select! {
+        result = worker.run() => result.map_err(|err| JobQueueError::Worker(err.to_string())),
+        () = shutdown => Ok(()),
+    }
+}
+
+async fn handle_queued_platform_job<H>(
+    job: PlatformJob,
+    handler: Data<Arc<H>>,
+    _worker: WorkerContext,
+) -> Result<(), BoxDynError>
+where
+    H: PlatformJobHandler,
+{
+    handler
+        .handle(job)
+        .await
+        .map_err(|err| Box::new(err) as BoxDynError)
 }
 
 pub fn schedule_after(clock: &dyn Clock, delay: StdDuration) -> Result<Timestamp, JobQueueError> {

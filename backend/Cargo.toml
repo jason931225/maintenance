@@ -49,6 +49,8 @@ sha2 = "0.11.0"
 hex = "0.4.3"
 url = "2.5.8"
 bytes = "1.11.1"
+# Version verified live against crates.io 2026-06-12: jsonwebtoken 10.4.0.
+jsonwebtoken = { version = "10.4.0", default-features = false, features = ["rust_crypto", "use_pem"] }
 # apalis 1.0.0-rc.9, apalis-postgres 1.0.0-rc.8, apalis-sql 1.0.0-rc.9.
 # No stable apalis 1.0.0 release was available at verification time.
 apalis = { version = "=1.0.0-rc.9" }
@@ -81,9 +83,16 @@ mnt-workorder-domain = { path = "crates/workorder/domain" }
 mnt-workorder-application = { path = "crates/workorder/application" }
 mnt-workorder-adapter-postgres = { path = "crates/workorder/adapter-postgres" }
 mnt-workorder-rest = { path = "crates/workorder/rest" }
+mnt-dispatch-domain = { path = "crates/dispatch/domain" }
+mnt-dispatch-application = { path = "crates/dispatch/application" }
+mnt-dispatch-adapter-postgres = { path = "crates/dispatch/adapter-postgres" }
+mnt-dispatch-rest = { path = "crates/dispatch/rest" }
+mnt-dispatch-worker = { path = "crates/dispatch/worker" }
 mnt-platform-db = { path = "crates/platform/db" }
 mnt-platform-auth-rest = { path = "crates/platform/auth-rest" }
 mnt-platform-storage = { path = "crates/platform/storage" }
+mnt-platform-jobs = { path = "crates/platform/jobs" }
+mnt-platform-push = { path = "crates/platform/push" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -9,6 +9,7 @@ use std::env;
 use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::Body;
@@ -17,6 +18,10 @@ use axum::http::{HeaderMap, Request, Response, StatusCode, header};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
+use mnt_dispatch_adapter_postgres::PgDispatchStore;
+use mnt_dispatch_domain::DispatchTimerConfig;
+use mnt_dispatch_rest::DispatchRestState;
+use mnt_dispatch_worker::DispatchWorker;
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, TraceContext, UserId,
 };
@@ -24,6 +29,11 @@ use mnt_platform_auth::{AccessClaims, JwtSettings, JwtVerifier};
 use mnt_platform_auth_rest::{AuthRestConfig, AuthRestState};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
 use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_jobs::{ApalisPostgresJobQueue, JobQueue, run_apalis_worker_until_shutdown};
+use mnt_platform_push::{
+    FcmConfig, FcmHttpV1Client, ProviderPushNotifier, PushNotifier, SolapiAlimtalkClient,
+    SolapiConfig,
+};
 use mnt_platform_storage::{EvidenceService, S3StorageConfig, SeaweedS3Storage, StorageError};
 use mnt_workorder_adapter_postgres::PgWorkOrderStore;
 use mnt_workorder_rest::{MobileRestState, WorkOrderRestState};
@@ -50,6 +60,13 @@ const DEFAULT_JWT_AUDIENCE: &str = "mnt-api";
 const DEFAULT_WEBAUTHN_RP_NAME: &str = "MNT Maintenance";
 const DEFAULT_AUTH_CEREMONY_TTL_SECS: u64 = 300;
 const DEFAULT_REFRESH_TOKEN_TTL_SECS: u64 = 60 * 60 * 24 * 30;
+const DEFAULT_DISPATCH_ACCEPT_WINDOW_SECS: u64 = 5 * 60;
+const DEFAULT_DISPATCH_FORCE_ASSIGN_ALERT_SECS: u64 = 10 * 60;
+const DEFAULT_DISPATCH_ALIMTALK_NO_ACK_SECS: u64 = 2 * 60;
+const DEFAULT_DISPATCH_GPS_FRESHNESS_SECS: u64 = 15 * 60;
+const DEFAULT_FCM_TOKEN_URI: &str = "https://oauth2.googleapis.com/token";
+const DEFAULT_FCM_SCOPE: &str = "https://www.googleapis.com/auth/firebase.messaging";
+const DEFAULT_SOLAPI_BASE_URL: &str = "https://api.solapi.com";
 const DEFAULT_AUDIT_LIMIT: i64 = 50;
 const MAX_AUDIT_LIMIT: i64 = 200;
 const OPENAPI_YAML: &str = include_str!("../../openapi/openapi.yaml");
@@ -94,6 +111,10 @@ pub struct AppConfig {
     pub jwt: Option<JwtVerifierConfig>,
     pub auth_rest: Option<AuthRestConfig>,
     pub storage: Option<S3StorageConfig>,
+    pub dispatch_timers: DispatchTimerConfig,
+    pub dispatch_jobs_enabled: bool,
+    pub fcm: Option<FcmConfig>,
+    pub solapi: Option<SolapiConfig>,
     pub shutdown_timeout: Duration,
 }
 
@@ -171,6 +192,15 @@ impl AppConfig {
         });
         let auth_rest = auth_rest_config_from_vars(&vars, jwt.as_ref())?;
         let storage = storage_config_from_vars(&vars)?;
+        let dispatch_timers = dispatch_timer_config_from_vars(&vars)?;
+        let dispatch_jobs_enabled = match vars.get("MNT_DISPATCH_JOBS_ENABLED") {
+            Some(raw) => raw.parse::<bool>().map_err(|err| {
+                AppError::Config(format!("invalid MNT_DISPATCH_JOBS_ENABLED: {err}"))
+            })?,
+            None => true,
+        };
+        let fcm = fcm_config_from_vars(&vars)?;
+        let solapi = solapi_config_from_vars(&vars)?;
         let shutdown_timeout = match vars.get("MNT_SHUTDOWN_TIMEOUT_SECS") {
             Some(raw) => raw.parse::<u64>().map(Duration::from_secs).map_err(|err| {
                 AppError::Config(format!("invalid MNT_SHUTDOWN_TIMEOUT_SECS: {err}"))
@@ -187,6 +217,10 @@ impl AppConfig {
             jwt,
             auth_rest,
             storage,
+            dispatch_timers,
+            dispatch_jobs_enabled,
+            fcm,
+            solapi,
             shutdown_timeout,
         })
     }
@@ -265,6 +299,99 @@ fn storage_config_from_vars(
     }))
 }
 
+fn dispatch_timer_config_from_vars(
+    vars: &HashMap<String, String>,
+) -> Result<DispatchTimerConfig, AppError> {
+    Ok(DispatchTimerConfig {
+        accept_window: parse_time_duration_secs(
+            vars.get("MNT_DISPATCH_ACCEPT_WINDOW_SECS"),
+            DEFAULT_DISPATCH_ACCEPT_WINDOW_SECS,
+            "MNT_DISPATCH_ACCEPT_WINDOW_SECS",
+        )?,
+        force_assign_alert_after: parse_time_duration_secs(
+            vars.get("MNT_DISPATCH_FORCE_ASSIGN_ALERT_SECS"),
+            DEFAULT_DISPATCH_FORCE_ASSIGN_ALERT_SECS,
+            "MNT_DISPATCH_FORCE_ASSIGN_ALERT_SECS",
+        )?,
+        alimtalk_no_ack_after: parse_time_duration_secs(
+            vars.get("MNT_DISPATCH_ALIMTALK_NO_ACK_SECS"),
+            DEFAULT_DISPATCH_ALIMTALK_NO_ACK_SECS,
+            "MNT_DISPATCH_ALIMTALK_NO_ACK_SECS",
+        )?,
+        gps_ping_freshness: parse_time_duration_secs(
+            vars.get("MNT_DISPATCH_GPS_FRESHNESS_SECS"),
+            DEFAULT_DISPATCH_GPS_FRESHNESS_SECS,
+            "MNT_DISPATCH_GPS_FRESHNESS_SECS",
+        )?,
+    })
+}
+
+fn fcm_config_from_vars(vars: &HashMap<String, String>) -> Result<Option<FcmConfig>, AppError> {
+    let project_id = non_empty(vars.get("MNT_FCM_PROJECT_ID"));
+    let client_email = non_empty(vars.get("MNT_FCM_CLIENT_EMAIL"));
+    let private_key_pem = non_empty(vars.get("MNT_FCM_PRIVATE_KEY_PEM"));
+    let configured = project_id.is_some() || client_email.is_some() || private_key_pem.is_some();
+    if !configured {
+        return Ok(None);
+    }
+    let config = FcmConfig {
+        project_id: project_id.ok_or_else(|| {
+            AppError::Config("MNT_FCM_PROJECT_ID is required when FCM is configured".to_owned())
+        })?,
+        client_email: client_email.ok_or_else(|| {
+            AppError::Config("MNT_FCM_CLIENT_EMAIL is required when FCM is configured".to_owned())
+        })?,
+        private_key_pem: private_key_pem.ok_or_else(|| {
+            AppError::Config(
+                "MNT_FCM_PRIVATE_KEY_PEM is required when FCM is configured".to_owned(),
+            )
+        })?,
+        token_uri: non_empty(vars.get("MNT_FCM_TOKEN_URI"))
+            .unwrap_or_else(|| DEFAULT_FCM_TOKEN_URI.to_owned()),
+        scope: non_empty(vars.get("MNT_FCM_SCOPE")).unwrap_or_else(|| DEFAULT_FCM_SCOPE.to_owned()),
+    };
+    config
+        .validate()
+        .map_err(|err| AppError::Config(err.to_string()))?;
+    Ok(Some(config))
+}
+
+fn solapi_config_from_vars(
+    vars: &HashMap<String, String>,
+) -> Result<Option<SolapiConfig>, AppError> {
+    let api_key = non_empty(vars.get("MNT_SOLAPI_API_KEY"));
+    let api_secret = non_empty(vars.get("MNT_SOLAPI_API_SECRET"));
+    let from = non_empty(vars.get("MNT_SOLAPI_FROM"));
+    let pf_id = non_empty(vars.get("MNT_SOLAPI_PF_ID"));
+    let template_id = non_empty(vars.get("MNT_SOLAPI_TEMPLATE_ID"));
+    let configured = api_key.is_some()
+        || api_secret.is_some()
+        || from.is_some()
+        || pf_id.is_some()
+        || template_id.is_some();
+    if !configured {
+        return Ok(None);
+    }
+    let required = |value: Option<String>, name: &'static str| {
+        value.ok_or_else(|| {
+            AppError::Config(format!("{name} is required when Solapi is configured"))
+        })
+    };
+    let config = SolapiConfig {
+        base_url: non_empty(vars.get("MNT_SOLAPI_BASE_URL"))
+            .unwrap_or_else(|| DEFAULT_SOLAPI_BASE_URL.to_owned()),
+        api_key: required(api_key, "MNT_SOLAPI_API_KEY")?,
+        api_secret: required(api_secret, "MNT_SOLAPI_API_SECRET")?,
+        from: required(from, "MNT_SOLAPI_FROM")?,
+        pf_id: required(pf_id, "MNT_SOLAPI_PF_ID")?,
+        template_id: required(template_id, "MNT_SOLAPI_TEMPLATE_ID")?,
+    };
+    config
+        .validate()
+        .map_err(|err| AppError::Config(err.to_string()))?;
+    Ok(Some(config))
+}
+
 fn parse_time_duration_secs(
     raw: Option<&String>,
     default_secs: u64,
@@ -297,13 +424,15 @@ pub enum DatabaseDependency {
     Postgres(PgPool),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AppState {
     config: AppConfig,
     database: DatabaseDependency,
     jwt_verifier: Option<JwtVerifier>,
     auth_rest: Option<AuthRestState>,
     evidence_storage: Option<EvidenceService<SeaweedS3Storage>>,
+    dispatch_job_queue: Option<Arc<dyn JobQueue>>,
+    push_notifier: Option<Arc<dyn PushNotifier>>,
 }
 
 impl AppState {
@@ -330,6 +459,8 @@ impl AppState {
             jwt_verifier,
             auth_rest,
             evidence_storage: None,
+            dispatch_job_queue: None,
+            push_notifier: None,
         })
     }
 
@@ -360,6 +491,30 @@ impl AppState {
                 storage_config.primary_bucket.clone(),
                 storage_config.replica_bucket.clone(),
             ));
+        }
+        if let (DatabaseDependency::Postgres(_), Some(database_url)) =
+            (&state.database, config.database_url.as_deref())
+            && config.dispatch_jobs_enabled
+        {
+            let queue = ApalisPostgresJobQueue::connect(database_url, "mnt.dispatch")
+                .await
+                .map_err(|err| AppError::Config(format!("invalid dispatch job queue: {err}")))?;
+            state.dispatch_job_queue = Some(Arc::new(queue));
+        }
+        let fcm = config
+            .fcm
+            .clone()
+            .map(FcmHttpV1Client::new)
+            .transpose()
+            .map_err(|err| AppError::Config(format!("invalid FCM config: {err}")))?;
+        let solapi = config
+            .solapi
+            .clone()
+            .map(SolapiAlimtalkClient::new)
+            .transpose()
+            .map_err(|err| AppError::Config(format!("invalid Solapi config: {err}")))?;
+        if fcm.is_some() || solapi.is_some() {
+            state.push_notifier = Some(Arc::new(ProviderPushNotifier::new(fcm, solapi)));
         }
         Ok(state)
     }
@@ -477,7 +632,15 @@ pub fn build_router(state: AppState) -> Router {
     match &state.database {
         DatabaseDependency::Postgres(pool) => {
             let work_order_store = PgWorkOrderStore::new(pool.clone());
+            let dispatch_store = PgDispatchStore::new(pool.clone());
             let router = router
+                .merge(mnt_dispatch_rest::router(DispatchRestState::new(
+                    dispatch_store,
+                    state.jwt_verifier.clone(),
+                    state.config.dispatch_timers,
+                    state.dispatch_job_queue.clone(),
+                    state.push_notifier.clone(),
+                )))
                 .merge(mnt_workorder_rest::router(WorkOrderRestState::new(
                     work_order_store.clone(),
                     state.jwt_verifier.clone(),
@@ -863,6 +1026,7 @@ impl ApiError {
             | AppError::Io(_)
             | AppError::Storage(_)
             | AppError::Telemetry(_)
+            | AppError::Worker(_)
             | AppError::Internal(_) => Self::internal("internal server error"),
         }
     }
@@ -941,6 +1105,13 @@ impl TelemetryGuard {
 }
 
 pub async fn serve(config: AppConfig, state: AppState) -> Result<(), AppError> {
+    match config.role {
+        AppRole::Api => serve_api(config, state).await,
+        AppRole::Worker => run_dispatch_worker(config, state).await,
+    }
+}
+
+async fn serve_api(config: AppConfig, state: AppState) -> Result<(), AppError> {
     let listener = tokio::net::TcpListener::bind(config.http_addr)
         .await
         .map_err(AppError::Io)?;
@@ -955,6 +1126,37 @@ pub async fn serve(config: AppConfig, state: AppState) -> Result<(), AppError> {
         .with_graceful_shutdown(shutdown_signal(config.shutdown_timeout))
         .await
         .map_err(AppError::Io)
+}
+
+async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), AppError> {
+    let database_url = config
+        .database_url
+        .as_deref()
+        .ok_or_else(|| AppError::Config("worker role requires DATABASE_URL".to_owned()))?;
+    let pool = match &state.database {
+        DatabaseDependency::Postgres(pool) => pool.clone(),
+        DatabaseDependency::NotConfigured => {
+            return Err(AppError::Config(
+                "worker role requires a configured database".to_owned(),
+            ));
+        }
+    };
+    tracing::info!(
+        service = %config.service_name,
+        role = %config.role,
+        queue = "mnt.dispatch",
+        "starting mnt-app worker"
+    );
+    let worker = DispatchWorker::new(PgDispatchStore::new(pool), state.push_notifier.clone());
+    run_apalis_worker_until_shutdown(
+        database_url,
+        "mnt.dispatch",
+        format!("{}-dispatch-worker", config.service_name),
+        worker,
+        shutdown_signal(config.shutdown_timeout),
+    )
+    .await
+    .map_err(|err| AppError::Worker(err.to_string()))
 }
 
 async fn shutdown_signal(timeout: Duration) {
@@ -987,7 +1189,7 @@ async fn shutdown_signal(timeout: Duration) {
 
     tracing::info!(
         timeout_secs = timeout.as_secs(),
-        "shutdown signal received; draining in-flight requests"
+        "shutdown signal received; draining in-flight work"
     );
 }
 
@@ -1005,6 +1207,8 @@ pub enum AppError {
     Storage(#[from] StorageError),
     #[error("telemetry error: {0}")]
     Telemetry(String),
+    #[error("worker error: {0}")]
+    Worker(String),
 }
 
 impl From<DbError> for AppError {
