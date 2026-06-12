@@ -17,13 +17,15 @@ const ROLES: [Role; 5] = [
     Role::SuperAdmin,
 ];
 
-fn expected_matrix() -> [(Feature, [PermissionLevel; 5]); 22] {
+fn expected_matrix() -> [(Feature, [PermissionLevel; 5]); 30] {
     use Feature::{
         AiAssist, AssigneeManage, AuditLogRead, CompletionReview, DailyPlanRequest,
-        DailyPlanReview, ElevatedRoleGrant, EvidenceAttach, ExcelDownload, KpiExclusionManage,
-        KpiRead, Login, MasterListImport, PriorityManage, SubordinateUserCreate, TargetManage,
-        UserManage, WorkOrderCreate, WorkOrderEditIntake, WorkOrderReadAll, WorkOrderStart,
-        WorkReportSubmit,
+        DailyPlanReview, ElevatedRoleGrant, EquipmentCostLedgerRead, EquipmentCostLedgerWrite,
+        EvidenceAttach, ExcelDownload, KpiExclusionManage, KpiRead, Login, MasterListImport,
+        PriorityManage, PurchaseExecute, PurchaseFinalApprove, PurchaseRequestApprove,
+        PurchaseRequestCreate, PurchaseRequestRead, RentalQuoteManage, SubordinateUserCreate,
+        TargetManage, UserManage, WorkOrderCreate, WorkOrderEditIntake, WorkOrderReadAll,
+        WorkOrderStart, WorkReportSubmit,
     };
     use PermissionLevel::{Allow as A, Deny as D, Limited as L, RequestOnly as R};
 
@@ -47,6 +49,14 @@ fn expected_matrix() -> [(Feature, [PermissionLevel; 5]); 22] {
         (SubordinateUserCreate, [D, D, L, D, A]),
         (ElevatedRoleGrant, [D, D, D, D, A]),
         (MasterListImport, [D, D, A, D, A]),
+        (RentalQuoteManage, [A, D, A, A, A]),
+        (EquipmentCostLedgerRead, [D, D, A, A, A]),
+        (EquipmentCostLedgerWrite, [D, D, A, D, A]),
+        (PurchaseRequestCreate, [A, R, A, D, A]),
+        (PurchaseRequestRead, [A, L, A, A, A]),
+        (PurchaseRequestApprove, [D, D, A, D, A]),
+        (PurchaseFinalApprove, [D, D, D, A, A]),
+        (PurchaseExecute, [A, D, A, D, A]),
         (AuditLogRead, [D, D, A, D, A]),
         (ExcelDownload, [A, A, A, A, A]),
         // The inherited PERMISSIONS.md has 21 explicit table rows; its branch
@@ -76,7 +86,7 @@ fn role_enum_uses_canonical_database_codes() {
 #[test]
 fn permission_matrix_is_exhaustive_and_matches_inherited_table() {
     let matrix = expected_matrix();
-    assert_eq!(Feature::ALL.len(), 22);
+    assert_eq!(Feature::ALL.len(), 30);
     assert_eq!(matrix.len(), Feature::ALL.len());
 
     for feature in Feature::ALL {

@@ -801,6 +801,244 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/financial/rental-quotes/compute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Compute a rental quote from explicit financial inputs without persisting it */
+        post: operations["computeRentalQuote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/financial/rental-quotes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Compute and persist a rental quote for equipment */
+        post: operations["createRentalQuote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/financial/rental-quotes/{quoteId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fetch a persisted rental quote */
+        get: operations["getRentalQuote"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/financial/equipment/{equipmentId}/cost-ledger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List equipment cost ledger entries */
+        get: operations["listEquipmentCostLedger"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/financial/equipment/{equipmentId}/cost-ledger/manual": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append a manual admin equipment cost and recompute residual value */
+        post: operations["appendManualCostLedgerEntry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/financial/purchase-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Attach a 거래명세표 evidence record and open a purchase request */
+        post: operations["createPurchaseRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/financial/purchase-requests/{purchaseRequestId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fetch one purchase request */
+        get: operations["getPurchaseRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/financial/purchase-requests/{purchaseRequestId}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit a statement-attached purchase request for admin approval */
+        post: operations["submitPurchaseRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admin approval for a submitted purchase request */
+        post: operations["approvePurchaseRequestAdmin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record expenditure number and route to execution or executive approval */
+        post: operations["preparePurchaseExpenditure"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Executive final approval for above-threshold purchase requests */
+        post: operations["approvePurchaseRequestExecutive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/financial/purchase-requests/{purchaseRequestId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject a purchase request before execution */
+        post: operations["rejectPurchaseRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/financial/purchase-requests/{purchaseRequestId}/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restart a rejected purchase request with a replacement statement evidence record */
+        post: operations["restartPurchaseRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/financial/purchase-requests/{purchaseRequestId}/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Execute an approved purchase request and feed the amount into the equipment cost ledger */
+        post: operations["executePurchaseRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1317,6 +1555,142 @@ export interface components {
             items: components["schemas"]["SubstituteCandidate"][];
             total: number;
         };
+        /** @enum {string} */
+        DepreciationMethod: "STRAIGHT_LINE" | "DECLINING_BALANCE";
+        /** @enum {string} */
+        CostLedgerSource: "MANUAL_ADMIN" | "PURCHASE_EXECUTION";
+        /** @enum {string} */
+        PurchaseStatus: "STATEMENT_ATTACHED" | "REQUEST_SUBMITTED" | "ADMIN_APPROVED" | "EXECUTIVE_PENDING" | "READY_TO_EXECUTE" | "EXECUTED" | "REJECTED";
+        FinancialConfigSnapshot: {
+            depreciation_method: components["schemas"]["DepreciationMethod"];
+            /** Format: int32 */
+            useful_life_months: number;
+            /** Format: int32 */
+            residual_rate_bps: number;
+            /** Format: int32 */
+            declining_balance_rate_bps: number;
+            /** Format: int32 */
+            management_fee_rate_bps: number;
+            /** Format: int32 */
+            profit_rate_bps: number;
+            floor_negative_quote_residual: boolean;
+            /** Format: int64 */
+            executive_approval_threshold_won: number;
+        };
+        QuoteLine: {
+            code: string;
+            label: string;
+            /** Format: int64 */
+            amount: number;
+        };
+        ComputedRentalQuote: {
+            /** Format: int64 */
+            effective_residual_value: number;
+            residual_was_floored: boolean;
+            lines: components["schemas"]["QuoteLine"][];
+            /** Format: int64 */
+            monthly_total: number;
+        };
+        ComputeRentalQuoteRequest: {
+            branch_id: components["schemas"]["Uuid"];
+            /** Format: int64 */
+            acquisition_value_won: number;
+            /** Format: int64 */
+            current_residual_value_won: number;
+            /** Format: int64 */
+            cumulative_repair_cost_won: number;
+            config: components["schemas"]["FinancialConfigSnapshot"];
+        };
+        CreateRentalQuoteRequest: {
+            branch_id: components["schemas"]["Uuid"];
+            equipment_id: components["schemas"]["Uuid"];
+            config: components["schemas"]["FinancialConfigSnapshot"];
+        };
+        RentalQuoteSummary: {
+            id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            equipment_id: components["schemas"]["Uuid"];
+            /** Format: int64 */
+            acquisition_value: number;
+            /** Format: int64 */
+            current_residual_value: number;
+            /** Format: int64 */
+            effective_residual_value: number;
+            residual_was_floored: boolean;
+            /** Format: int64 */
+            cumulative_repair_cost: number;
+            /** Format: int64 */
+            monthly_total: number;
+            lines: components["schemas"]["QuoteLine"][];
+            created_at: components["schemas"]["Timestamp"];
+        };
+        AppendManualCostLedgerRequest: {
+            branch_id: components["schemas"]["Uuid"];
+            /** Format: uuid */
+            work_order_id?: string | null;
+            /** Format: int64 */
+            amount_won: number;
+            memo: string;
+            config: components["schemas"]["FinancialConfigSnapshot"];
+        };
+        CostLedgerEntrySummary: {
+            id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            equipment_id: components["schemas"]["Uuid"];
+            /** Format: uuid */
+            work_order_id?: string | null;
+            /** Format: uuid */
+            purchase_request_id?: string | null;
+            source: components["schemas"]["CostLedgerSource"];
+            /** Format: int64 */
+            amount_won: number;
+            memo: string;
+            /** Format: int64 */
+            residual_before_won: number;
+            /** Format: int64 */
+            residual_after_won: number;
+            entry_at: components["schemas"]["Timestamp"];
+        };
+        CreatePurchaseRequest: {
+            branch_id: components["schemas"]["Uuid"];
+            equipment_id: components["schemas"]["Uuid"];
+            /** Format: uuid */
+            work_order_id?: string | null;
+            statement_evidence_id: components["schemas"]["Uuid"];
+            vendor_name: string;
+            /** Format: int64 */
+            amount_won: number;
+            memo: string;
+            config: components["schemas"]["FinancialConfigSnapshot"];
+        };
+        PurchaseRequestSummary: {
+            id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            equipment_id: components["schemas"]["Uuid"];
+            /** Format: uuid */
+            work_order_id?: string | null;
+            statement_evidence_id: components["schemas"]["Uuid"];
+            vendor_name: string;
+            /** Format: int64 */
+            amount_won: number;
+            status: components["schemas"]["PurchaseStatus"];
+            expenditure_no?: string | null;
+            rejection_memo?: string | null;
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        PrepareExpenditureRequest: {
+            expenditure_no: string;
+        };
+        RejectPurchaseRequest: {
+            memo: string;
+        };
+        RestartPurchaseRequest: {
+            statement_evidence_id: components["schemas"]["Uuid"];
+            /** Format: int64 */
+            amount_won: number;
+            memo: string;
+        };
     };
     responses: {
         /** @description Missing or invalid bearer token. */
@@ -1374,6 +1748,9 @@ export interface components {
         XDeviceId: string;
         ThreadId: string;
         EquipmentId: string;
+        QuoteId: string;
+        EquipmentIdV2: string;
+        PurchaseRequestId: string;
     };
     requestBodies: never;
     headers: never;
@@ -2289,6 +2666,382 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    computeRentalQuote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComputeRentalQuoteRequest"];
+            };
+        };
+        responses: {
+            /** @description Computed rental quote. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComputedRentalQuote"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    createRentalQuote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRentalQuoteRequest"];
+            };
+        };
+        responses: {
+            /** @description Rental quote persisted. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RentalQuoteSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getRentalQuote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                quoteId: components["parameters"]["QuoteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rental quote summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RentalQuoteSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listEquipmentCostLedger: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                equipmentId: components["parameters"]["EquipmentIdV2"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Equipment cost ledger entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostLedgerEntrySummary"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    appendManualCostLedgerEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                equipmentId: components["parameters"]["EquipmentIdV2"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppendManualCostLedgerRequest"];
+            };
+        };
+        responses: {
+            /** @description Cost ledger entry appended. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostLedgerEntrySummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    createPurchaseRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePurchaseRequest"];
+            };
+        };
+        responses: {
+            /** @description Purchase request created in statement-attached state. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseRequestSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getPurchaseRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                purchaseRequestId: components["parameters"]["PurchaseRequestId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Purchase request summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseRequestSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    submitPurchaseRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                purchaseRequestId: components["parameters"]["PurchaseRequestId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Submitted purchase request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseRequestSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    approvePurchaseRequestAdmin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                purchaseRequestId: components["parameters"]["PurchaseRequestId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Admin-approved purchase request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseRequestSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    preparePurchaseExpenditure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                purchaseRequestId: components["parameters"]["PurchaseRequestId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrepareExpenditureRequest"];
+            };
+        };
+        responses: {
+            /** @description Purchase request routed after expenditure preparation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseRequestSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    approvePurchaseRequestExecutive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                purchaseRequestId: components["parameters"]["PurchaseRequestId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Purchase request ready to execute. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseRequestSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    rejectPurchaseRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                purchaseRequestId: components["parameters"]["PurchaseRequestId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectPurchaseRequest"];
+            };
+        };
+        responses: {
+            /** @description Rejected purchase request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseRequestSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    restartPurchaseRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                purchaseRequestId: components["parameters"]["PurchaseRequestId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestartPurchaseRequest"];
+            };
+        };
+        responses: {
+            /** @description Restarted purchase request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseRequestSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    executePurchaseRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                purchaseRequestId: components["parameters"]["PurchaseRequestId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Executed purchase request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseRequestSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
         };
     };
 }

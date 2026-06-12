@@ -220,6 +220,76 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/equipment/{id}/substitutes`.
     /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/substitutes/get(listEquipmentSubstitutes)`.
     func listEquipmentSubstitutes(_ input: Operations.ListEquipmentSubstitutes.Input) async throws -> Operations.ListEquipmentSubstitutes.Output
+    /// Compute a rental quote from explicit financial inputs without persisting it
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/rental-quotes/compute`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/compute/post(computeRentalQuote)`.
+    func computeRentalQuote(_ input: Operations.ComputeRentalQuote.Input) async throws -> Operations.ComputeRentalQuote.Output
+    /// Compute and persist a rental quote for equipment
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/rental-quotes`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/post(createRentalQuote)`.
+    func createRentalQuote(_ input: Operations.CreateRentalQuote.Input) async throws -> Operations.CreateRentalQuote.Output
+    /// Fetch a persisted rental quote
+    ///
+    /// - Remark: HTTP `GET /api/v1/financial/rental-quotes/{quoteId}`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/{quoteId}/get(getRentalQuote)`.
+    func getRentalQuote(_ input: Operations.GetRentalQuote.Input) async throws -> Operations.GetRentalQuote.Output
+    /// List equipment cost ledger entries
+    ///
+    /// - Remark: HTTP `GET /api/v1/financial/equipment/{equipmentId}/cost-ledger`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/cost-ledger/get(listEquipmentCostLedger)`.
+    func listEquipmentCostLedger(_ input: Operations.ListEquipmentCostLedger.Input) async throws -> Operations.ListEquipmentCostLedger.Output
+    /// Append a manual admin equipment cost and recompute residual value
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/equipment/{equipmentId}/cost-ledger/manual`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/cost-ledger/manual/post(appendManualCostLedgerEntry)`.
+    func appendManualCostLedgerEntry(_ input: Operations.AppendManualCostLedgerEntry.Input) async throws -> Operations.AppendManualCostLedgerEntry.Output
+    /// Attach a 거래명세표 evidence record and open a purchase request
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/post(createPurchaseRequest)`.
+    func createPurchaseRequest(_ input: Operations.CreatePurchaseRequest.Input) async throws -> Operations.CreatePurchaseRequest.Output
+    /// Fetch one purchase request
+    ///
+    /// - Remark: HTTP `GET /api/v1/financial/purchase-requests/{purchaseRequestId}`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/get(getPurchaseRequest)`.
+    func getPurchaseRequest(_ input: Operations.GetPurchaseRequest.Input) async throws -> Operations.GetPurchaseRequest.Output
+    /// Submit a statement-attached purchase request for admin approval
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/submit`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/submit/post(submitPurchaseRequest)`.
+    func submitPurchaseRequest(_ input: Operations.SubmitPurchaseRequest.Input) async throws -> Operations.SubmitPurchaseRequest.Output
+    /// Admin approval for a submitted purchase request
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin/post(approvePurchaseRequestAdmin)`.
+    func approvePurchaseRequestAdmin(_ input: Operations.ApprovePurchaseRequestAdmin.Input) async throws -> Operations.ApprovePurchaseRequestAdmin.Output
+    /// Record expenditure number and route to execution or executive approval
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure/post(preparePurchaseExpenditure)`.
+    func preparePurchaseExpenditure(_ input: Operations.PreparePurchaseExpenditure.Input) async throws -> Operations.PreparePurchaseExpenditure.Output
+    /// Executive final approval for above-threshold purchase requests
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive/post(approvePurchaseRequestExecutive)`.
+    func approvePurchaseRequestExecutive(_ input: Operations.ApprovePurchaseRequestExecutive.Input) async throws -> Operations.ApprovePurchaseRequestExecutive.Output
+    /// Reject a purchase request before execution
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/reject`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/reject/post(rejectPurchaseRequest)`.
+    func rejectPurchaseRequest(_ input: Operations.RejectPurchaseRequest.Input) async throws -> Operations.RejectPurchaseRequest.Output
+    /// Restart a rejected purchase request with a replacement statement evidence record
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/restart`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/restart/post(restartPurchaseRequest)`.
+    func restartPurchaseRequest(_ input: Operations.RestartPurchaseRequest.Input) async throws -> Operations.RestartPurchaseRequest.Output
+    /// Execute an approved purchase request and feed the amount into the equipment cost ledger
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/execute`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/execute/post(executePurchaseRequest)`.
+    func executePurchaseRequest(_ input: Operations.ExecutePurchaseRequest.Input) async throws -> Operations.ExecutePurchaseRequest.Output
 }
 
 /// Convenience overloads for operation inputs.
@@ -754,6 +824,196 @@ extension APIProtocol {
         try await listEquipmentSubstitutes(Operations.ListEquipmentSubstitutes.Input(
             path: path,
             query: query,
+            headers: headers
+        ))
+    }
+    /// Compute a rental quote from explicit financial inputs without persisting it
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/rental-quotes/compute`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/compute/post(computeRentalQuote)`.
+    public func computeRentalQuote(
+        headers: Operations.ComputeRentalQuote.Input.Headers = .init(),
+        body: Operations.ComputeRentalQuote.Input.Body
+    ) async throws -> Operations.ComputeRentalQuote.Output {
+        try await computeRentalQuote(Operations.ComputeRentalQuote.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Compute and persist a rental quote for equipment
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/rental-quotes`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/post(createRentalQuote)`.
+    public func createRentalQuote(
+        headers: Operations.CreateRentalQuote.Input.Headers = .init(),
+        body: Operations.CreateRentalQuote.Input.Body
+    ) async throws -> Operations.CreateRentalQuote.Output {
+        try await createRentalQuote(Operations.CreateRentalQuote.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Fetch a persisted rental quote
+    ///
+    /// - Remark: HTTP `GET /api/v1/financial/rental-quotes/{quoteId}`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/{quoteId}/get(getRentalQuote)`.
+    public func getRentalQuote(
+        path: Operations.GetRentalQuote.Input.Path,
+        headers: Operations.GetRentalQuote.Input.Headers = .init()
+    ) async throws -> Operations.GetRentalQuote.Output {
+        try await getRentalQuote(Operations.GetRentalQuote.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// List equipment cost ledger entries
+    ///
+    /// - Remark: HTTP `GET /api/v1/financial/equipment/{equipmentId}/cost-ledger`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/cost-ledger/get(listEquipmentCostLedger)`.
+    public func listEquipmentCostLedger(
+        path: Operations.ListEquipmentCostLedger.Input.Path,
+        headers: Operations.ListEquipmentCostLedger.Input.Headers = .init()
+    ) async throws -> Operations.ListEquipmentCostLedger.Output {
+        try await listEquipmentCostLedger(Operations.ListEquipmentCostLedger.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Append a manual admin equipment cost and recompute residual value
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/equipment/{equipmentId}/cost-ledger/manual`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/cost-ledger/manual/post(appendManualCostLedgerEntry)`.
+    public func appendManualCostLedgerEntry(
+        path: Operations.AppendManualCostLedgerEntry.Input.Path,
+        headers: Operations.AppendManualCostLedgerEntry.Input.Headers = .init(),
+        body: Operations.AppendManualCostLedgerEntry.Input.Body
+    ) async throws -> Operations.AppendManualCostLedgerEntry.Output {
+        try await appendManualCostLedgerEntry(Operations.AppendManualCostLedgerEntry.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Attach a 거래명세표 evidence record and open a purchase request
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/post(createPurchaseRequest)`.
+    public func createPurchaseRequest(
+        headers: Operations.CreatePurchaseRequest.Input.Headers = .init(),
+        body: Operations.CreatePurchaseRequest.Input.Body
+    ) async throws -> Operations.CreatePurchaseRequest.Output {
+        try await createPurchaseRequest(Operations.CreatePurchaseRequest.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Fetch one purchase request
+    ///
+    /// - Remark: HTTP `GET /api/v1/financial/purchase-requests/{purchaseRequestId}`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/get(getPurchaseRequest)`.
+    public func getPurchaseRequest(
+        path: Operations.GetPurchaseRequest.Input.Path,
+        headers: Operations.GetPurchaseRequest.Input.Headers = .init()
+    ) async throws -> Operations.GetPurchaseRequest.Output {
+        try await getPurchaseRequest(Operations.GetPurchaseRequest.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Submit a statement-attached purchase request for admin approval
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/submit`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/submit/post(submitPurchaseRequest)`.
+    public func submitPurchaseRequest(
+        path: Operations.SubmitPurchaseRequest.Input.Path,
+        headers: Operations.SubmitPurchaseRequest.Input.Headers = .init()
+    ) async throws -> Operations.SubmitPurchaseRequest.Output {
+        try await submitPurchaseRequest(Operations.SubmitPurchaseRequest.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Admin approval for a submitted purchase request
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin/post(approvePurchaseRequestAdmin)`.
+    public func approvePurchaseRequestAdmin(
+        path: Operations.ApprovePurchaseRequestAdmin.Input.Path,
+        headers: Operations.ApprovePurchaseRequestAdmin.Input.Headers = .init()
+    ) async throws -> Operations.ApprovePurchaseRequestAdmin.Output {
+        try await approvePurchaseRequestAdmin(Operations.ApprovePurchaseRequestAdmin.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Record expenditure number and route to execution or executive approval
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure/post(preparePurchaseExpenditure)`.
+    public func preparePurchaseExpenditure(
+        path: Operations.PreparePurchaseExpenditure.Input.Path,
+        headers: Operations.PreparePurchaseExpenditure.Input.Headers = .init(),
+        body: Operations.PreparePurchaseExpenditure.Input.Body
+    ) async throws -> Operations.PreparePurchaseExpenditure.Output {
+        try await preparePurchaseExpenditure(Operations.PreparePurchaseExpenditure.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Executive final approval for above-threshold purchase requests
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive/post(approvePurchaseRequestExecutive)`.
+    public func approvePurchaseRequestExecutive(
+        path: Operations.ApprovePurchaseRequestExecutive.Input.Path,
+        headers: Operations.ApprovePurchaseRequestExecutive.Input.Headers = .init()
+    ) async throws -> Operations.ApprovePurchaseRequestExecutive.Output {
+        try await approvePurchaseRequestExecutive(Operations.ApprovePurchaseRequestExecutive.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Reject a purchase request before execution
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/reject`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/reject/post(rejectPurchaseRequest)`.
+    public func rejectPurchaseRequest(
+        path: Operations.RejectPurchaseRequest.Input.Path,
+        headers: Operations.RejectPurchaseRequest.Input.Headers = .init(),
+        body: Operations.RejectPurchaseRequest.Input.Body
+    ) async throws -> Operations.RejectPurchaseRequest.Output {
+        try await rejectPurchaseRequest(Operations.RejectPurchaseRequest.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Restart a rejected purchase request with a replacement statement evidence record
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/restart`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/restart/post(restartPurchaseRequest)`.
+    public func restartPurchaseRequest(
+        path: Operations.RestartPurchaseRequest.Input.Path,
+        headers: Operations.RestartPurchaseRequest.Input.Headers = .init(),
+        body: Operations.RestartPurchaseRequest.Input.Body
+    ) async throws -> Operations.RestartPurchaseRequest.Output {
+        try await restartPurchaseRequest(Operations.RestartPurchaseRequest.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Execute an approved purchase request and feed the amount into the equipment cost ledger
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/execute`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/execute/post(executePurchaseRequest)`.
+    public func executePurchaseRequest(
+        path: Operations.ExecutePurchaseRequest.Input.Path,
+        headers: Operations.ExecutePurchaseRequest.Input.Headers = .init()
+    ) async throws -> Operations.ExecutePurchaseRequest.Output {
+        try await executePurchaseRequest(Operations.ExecutePurchaseRequest.Input(
+            path: path,
             headers: headers
         ))
     }
@@ -3518,6 +3778,615 @@ public enum Components {
                 case total
             }
         }
+        /// - Remark: Generated from `#/components/schemas/DepreciationMethod`.
+        @frozen public enum DepreciationMethod: String, Codable, Hashable, Sendable, CaseIterable {
+            case straightLine = "STRAIGHT_LINE"
+            case decliningBalance = "DECLINING_BALANCE"
+        }
+        /// - Remark: Generated from `#/components/schemas/CostLedgerSource`.
+        @frozen public enum CostLedgerSource: String, Codable, Hashable, Sendable, CaseIterable {
+            case manualAdmin = "MANUAL_ADMIN"
+            case purchaseExecution = "PURCHASE_EXECUTION"
+        }
+        /// - Remark: Generated from `#/components/schemas/PurchaseStatus`.
+        @frozen public enum PurchaseStatus: String, Codable, Hashable, Sendable, CaseIterable {
+            case statementAttached = "STATEMENT_ATTACHED"
+            case requestSubmitted = "REQUEST_SUBMITTED"
+            case adminApproved = "ADMIN_APPROVED"
+            case executivePending = "EXECUTIVE_PENDING"
+            case readyToExecute = "READY_TO_EXECUTE"
+            case executed = "EXECUTED"
+            case rejected = "REJECTED"
+        }
+        /// - Remark: Generated from `#/components/schemas/FinancialConfigSnapshot`.
+        public struct FinancialConfigSnapshot: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/FinancialConfigSnapshot/depreciation_method`.
+            public var depreciationMethod: Components.Schemas.DepreciationMethod
+            /// - Remark: Generated from `#/components/schemas/FinancialConfigSnapshot/useful_life_months`.
+            public var usefulLifeMonths: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/FinancialConfigSnapshot/residual_rate_bps`.
+            public var residualRateBps: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/FinancialConfigSnapshot/declining_balance_rate_bps`.
+            public var decliningBalanceRateBps: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/FinancialConfigSnapshot/management_fee_rate_bps`.
+            public var managementFeeRateBps: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/FinancialConfigSnapshot/profit_rate_bps`.
+            public var profitRateBps: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/FinancialConfigSnapshot/floor_negative_quote_residual`.
+            public var floorNegativeQuoteResidual: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/FinancialConfigSnapshot/executive_approval_threshold_won`.
+            public var executiveApprovalThresholdWon: Swift.Int64
+            /// Creates a new `FinancialConfigSnapshot`.
+            ///
+            /// - Parameters:
+            ///   - depreciationMethod:
+            ///   - usefulLifeMonths:
+            ///   - residualRateBps:
+            ///   - decliningBalanceRateBps:
+            ///   - managementFeeRateBps:
+            ///   - profitRateBps:
+            ///   - floorNegativeQuoteResidual:
+            ///   - executiveApprovalThresholdWon:
+            public init(
+                depreciationMethod: Components.Schemas.DepreciationMethod,
+                usefulLifeMonths: Swift.Int32,
+                residualRateBps: Swift.Int32,
+                decliningBalanceRateBps: Swift.Int32,
+                managementFeeRateBps: Swift.Int32,
+                profitRateBps: Swift.Int32,
+                floorNegativeQuoteResidual: Swift.Bool,
+                executiveApprovalThresholdWon: Swift.Int64
+            ) {
+                self.depreciationMethod = depreciationMethod
+                self.usefulLifeMonths = usefulLifeMonths
+                self.residualRateBps = residualRateBps
+                self.decliningBalanceRateBps = decliningBalanceRateBps
+                self.managementFeeRateBps = managementFeeRateBps
+                self.profitRateBps = profitRateBps
+                self.floorNegativeQuoteResidual = floorNegativeQuoteResidual
+                self.executiveApprovalThresholdWon = executiveApprovalThresholdWon
+            }
+            public enum CodingKeys: String, CodingKey {
+                case depreciationMethod = "depreciation_method"
+                case usefulLifeMonths = "useful_life_months"
+                case residualRateBps = "residual_rate_bps"
+                case decliningBalanceRateBps = "declining_balance_rate_bps"
+                case managementFeeRateBps = "management_fee_rate_bps"
+                case profitRateBps = "profit_rate_bps"
+                case floorNegativeQuoteResidual = "floor_negative_quote_residual"
+                case executiveApprovalThresholdWon = "executive_approval_threshold_won"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/QuoteLine`.
+        public struct QuoteLine: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/QuoteLine/code`.
+            public var code: Swift.String
+            /// - Remark: Generated from `#/components/schemas/QuoteLine/label`.
+            public var label: Swift.String
+            /// - Remark: Generated from `#/components/schemas/QuoteLine/amount`.
+            public var amount: Swift.Int64
+            /// Creates a new `QuoteLine`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - label:
+            ///   - amount:
+            public init(
+                code: Swift.String,
+                label: Swift.String,
+                amount: Swift.Int64
+            ) {
+                self.code = code
+                self.label = label
+                self.amount = amount
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+                case label
+                case amount
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ComputedRentalQuote`.
+        public struct ComputedRentalQuote: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ComputedRentalQuote/effective_residual_value`.
+            public var effectiveResidualValue: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/ComputedRentalQuote/residual_was_floored`.
+            public var residualWasFloored: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/ComputedRentalQuote/lines`.
+            public var lines: [Components.Schemas.QuoteLine]
+            /// - Remark: Generated from `#/components/schemas/ComputedRentalQuote/monthly_total`.
+            public var monthlyTotal: Swift.Int64
+            /// Creates a new `ComputedRentalQuote`.
+            ///
+            /// - Parameters:
+            ///   - effectiveResidualValue:
+            ///   - residualWasFloored:
+            ///   - lines:
+            ///   - monthlyTotal:
+            public init(
+                effectiveResidualValue: Swift.Int64,
+                residualWasFloored: Swift.Bool,
+                lines: [Components.Schemas.QuoteLine],
+                monthlyTotal: Swift.Int64
+            ) {
+                self.effectiveResidualValue = effectiveResidualValue
+                self.residualWasFloored = residualWasFloored
+                self.lines = lines
+                self.monthlyTotal = monthlyTotal
+            }
+            public enum CodingKeys: String, CodingKey {
+                case effectiveResidualValue = "effective_residual_value"
+                case residualWasFloored = "residual_was_floored"
+                case lines
+                case monthlyTotal = "monthly_total"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ComputeRentalQuoteRequest`.
+        public struct ComputeRentalQuoteRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ComputeRentalQuoteRequest/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/ComputeRentalQuoteRequest/acquisition_value_won`.
+            public var acquisitionValueWon: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/ComputeRentalQuoteRequest/current_residual_value_won`.
+            public var currentResidualValueWon: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/ComputeRentalQuoteRequest/cumulative_repair_cost_won`.
+            public var cumulativeRepairCostWon: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/ComputeRentalQuoteRequest/config`.
+            public var config: Components.Schemas.FinancialConfigSnapshot
+            /// Creates a new `ComputeRentalQuoteRequest`.
+            ///
+            /// - Parameters:
+            ///   - branchId:
+            ///   - acquisitionValueWon:
+            ///   - currentResidualValueWon:
+            ///   - cumulativeRepairCostWon:
+            ///   - config:
+            public init(
+                branchId: Components.Schemas.Uuid,
+                acquisitionValueWon: Swift.Int64,
+                currentResidualValueWon: Swift.Int64,
+                cumulativeRepairCostWon: Swift.Int64,
+                config: Components.Schemas.FinancialConfigSnapshot
+            ) {
+                self.branchId = branchId
+                self.acquisitionValueWon = acquisitionValueWon
+                self.currentResidualValueWon = currentResidualValueWon
+                self.cumulativeRepairCostWon = cumulativeRepairCostWon
+                self.config = config
+            }
+            public enum CodingKeys: String, CodingKey {
+                case branchId = "branch_id"
+                case acquisitionValueWon = "acquisition_value_won"
+                case currentResidualValueWon = "current_residual_value_won"
+                case cumulativeRepairCostWon = "cumulative_repair_cost_won"
+                case config
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CreateRentalQuoteRequest`.
+        public struct CreateRentalQuoteRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CreateRentalQuoteRequest/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CreateRentalQuoteRequest/equipment_id`.
+            public var equipmentId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CreateRentalQuoteRequest/config`.
+            public var config: Components.Schemas.FinancialConfigSnapshot
+            /// Creates a new `CreateRentalQuoteRequest`.
+            ///
+            /// - Parameters:
+            ///   - branchId:
+            ///   - equipmentId:
+            ///   - config:
+            public init(
+                branchId: Components.Schemas.Uuid,
+                equipmentId: Components.Schemas.Uuid,
+                config: Components.Schemas.FinancialConfigSnapshot
+            ) {
+                self.branchId = branchId
+                self.equipmentId = equipmentId
+                self.config = config
+            }
+            public enum CodingKeys: String, CodingKey {
+                case branchId = "branch_id"
+                case equipmentId = "equipment_id"
+                case config
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RentalQuoteSummary`.
+        public struct RentalQuoteSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RentalQuoteSummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/RentalQuoteSummary/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/RentalQuoteSummary/equipment_id`.
+            public var equipmentId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/RentalQuoteSummary/acquisition_value`.
+            public var acquisitionValue: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/RentalQuoteSummary/current_residual_value`.
+            public var currentResidualValue: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/RentalQuoteSummary/effective_residual_value`.
+            public var effectiveResidualValue: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/RentalQuoteSummary/residual_was_floored`.
+            public var residualWasFloored: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/RentalQuoteSummary/cumulative_repair_cost`.
+            public var cumulativeRepairCost: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/RentalQuoteSummary/monthly_total`.
+            public var monthlyTotal: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/RentalQuoteSummary/lines`.
+            public var lines: [Components.Schemas.QuoteLine]
+            /// - Remark: Generated from `#/components/schemas/RentalQuoteSummary/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// Creates a new `RentalQuoteSummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - branchId:
+            ///   - equipmentId:
+            ///   - acquisitionValue:
+            ///   - currentResidualValue:
+            ///   - effectiveResidualValue:
+            ///   - residualWasFloored:
+            ///   - cumulativeRepairCost:
+            ///   - monthlyTotal:
+            ///   - lines:
+            ///   - createdAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid,
+                equipmentId: Components.Schemas.Uuid,
+                acquisitionValue: Swift.Int64,
+                currentResidualValue: Swift.Int64,
+                effectiveResidualValue: Swift.Int64,
+                residualWasFloored: Swift.Bool,
+                cumulativeRepairCost: Swift.Int64,
+                monthlyTotal: Swift.Int64,
+                lines: [Components.Schemas.QuoteLine],
+                createdAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.branchId = branchId
+                self.equipmentId = equipmentId
+                self.acquisitionValue = acquisitionValue
+                self.currentResidualValue = currentResidualValue
+                self.effectiveResidualValue = effectiveResidualValue
+                self.residualWasFloored = residualWasFloored
+                self.cumulativeRepairCost = cumulativeRepairCost
+                self.monthlyTotal = monthlyTotal
+                self.lines = lines
+                self.createdAt = createdAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case branchId = "branch_id"
+                case equipmentId = "equipment_id"
+                case acquisitionValue = "acquisition_value"
+                case currentResidualValue = "current_residual_value"
+                case effectiveResidualValue = "effective_residual_value"
+                case residualWasFloored = "residual_was_floored"
+                case cumulativeRepairCost = "cumulative_repair_cost"
+                case monthlyTotal = "monthly_total"
+                case lines
+                case createdAt = "created_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AppendManualCostLedgerRequest`.
+        public struct AppendManualCostLedgerRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AppendManualCostLedgerRequest/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/AppendManualCostLedgerRequest/work_order_id`.
+            public var workOrderId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/AppendManualCostLedgerRequest/amount_won`.
+            public var amountWon: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AppendManualCostLedgerRequest/memo`.
+            public var memo: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AppendManualCostLedgerRequest/config`.
+            public var config: Components.Schemas.FinancialConfigSnapshot
+            /// Creates a new `AppendManualCostLedgerRequest`.
+            ///
+            /// - Parameters:
+            ///   - branchId:
+            ///   - workOrderId:
+            ///   - amountWon:
+            ///   - memo:
+            ///   - config:
+            public init(
+                branchId: Components.Schemas.Uuid,
+                workOrderId: Swift.String? = nil,
+                amountWon: Swift.Int64,
+                memo: Swift.String,
+                config: Components.Schemas.FinancialConfigSnapshot
+            ) {
+                self.branchId = branchId
+                self.workOrderId = workOrderId
+                self.amountWon = amountWon
+                self.memo = memo
+                self.config = config
+            }
+            public enum CodingKeys: String, CodingKey {
+                case branchId = "branch_id"
+                case workOrderId = "work_order_id"
+                case amountWon = "amount_won"
+                case memo
+                case config
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CostLedgerEntrySummary`.
+        public struct CostLedgerEntrySummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CostLedgerEntrySummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CostLedgerEntrySummary/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CostLedgerEntrySummary/equipment_id`.
+            public var equipmentId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CostLedgerEntrySummary/work_order_id`.
+            public var workOrderId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CostLedgerEntrySummary/purchase_request_id`.
+            public var purchaseRequestId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CostLedgerEntrySummary/source`.
+            public var source: Components.Schemas.CostLedgerSource
+            /// - Remark: Generated from `#/components/schemas/CostLedgerEntrySummary/amount_won`.
+            public var amountWon: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/CostLedgerEntrySummary/memo`.
+            public var memo: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CostLedgerEntrySummary/residual_before_won`.
+            public var residualBeforeWon: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/CostLedgerEntrySummary/residual_after_won`.
+            public var residualAfterWon: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/CostLedgerEntrySummary/entry_at`.
+            public var entryAt: Components.Schemas.Timestamp
+            /// Creates a new `CostLedgerEntrySummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - branchId:
+            ///   - equipmentId:
+            ///   - workOrderId:
+            ///   - purchaseRequestId:
+            ///   - source:
+            ///   - amountWon:
+            ///   - memo:
+            ///   - residualBeforeWon:
+            ///   - residualAfterWon:
+            ///   - entryAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid,
+                equipmentId: Components.Schemas.Uuid,
+                workOrderId: Swift.String? = nil,
+                purchaseRequestId: Swift.String? = nil,
+                source: Components.Schemas.CostLedgerSource,
+                amountWon: Swift.Int64,
+                memo: Swift.String,
+                residualBeforeWon: Swift.Int64,
+                residualAfterWon: Swift.Int64,
+                entryAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.branchId = branchId
+                self.equipmentId = equipmentId
+                self.workOrderId = workOrderId
+                self.purchaseRequestId = purchaseRequestId
+                self.source = source
+                self.amountWon = amountWon
+                self.memo = memo
+                self.residualBeforeWon = residualBeforeWon
+                self.residualAfterWon = residualAfterWon
+                self.entryAt = entryAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case branchId = "branch_id"
+                case equipmentId = "equipment_id"
+                case workOrderId = "work_order_id"
+                case purchaseRequestId = "purchase_request_id"
+                case source
+                case amountWon = "amount_won"
+                case memo
+                case residualBeforeWon = "residual_before_won"
+                case residualAfterWon = "residual_after_won"
+                case entryAt = "entry_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CreatePurchaseRequest`.
+        public struct CreatePurchaseRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CreatePurchaseRequest/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CreatePurchaseRequest/equipment_id`.
+            public var equipmentId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CreatePurchaseRequest/work_order_id`.
+            public var workOrderId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreatePurchaseRequest/statement_evidence_id`.
+            public var statementEvidenceId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CreatePurchaseRequest/vendor_name`.
+            public var vendorName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CreatePurchaseRequest/amount_won`.
+            public var amountWon: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/CreatePurchaseRequest/memo`.
+            public var memo: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CreatePurchaseRequest/config`.
+            public var config: Components.Schemas.FinancialConfigSnapshot
+            /// Creates a new `CreatePurchaseRequest`.
+            ///
+            /// - Parameters:
+            ///   - branchId:
+            ///   - equipmentId:
+            ///   - workOrderId:
+            ///   - statementEvidenceId:
+            ///   - vendorName:
+            ///   - amountWon:
+            ///   - memo:
+            ///   - config:
+            public init(
+                branchId: Components.Schemas.Uuid,
+                equipmentId: Components.Schemas.Uuid,
+                workOrderId: Swift.String? = nil,
+                statementEvidenceId: Components.Schemas.Uuid,
+                vendorName: Swift.String,
+                amountWon: Swift.Int64,
+                memo: Swift.String,
+                config: Components.Schemas.FinancialConfigSnapshot
+            ) {
+                self.branchId = branchId
+                self.equipmentId = equipmentId
+                self.workOrderId = workOrderId
+                self.statementEvidenceId = statementEvidenceId
+                self.vendorName = vendorName
+                self.amountWon = amountWon
+                self.memo = memo
+                self.config = config
+            }
+            public enum CodingKeys: String, CodingKey {
+                case branchId = "branch_id"
+                case equipmentId = "equipment_id"
+                case workOrderId = "work_order_id"
+                case statementEvidenceId = "statement_evidence_id"
+                case vendorName = "vendor_name"
+                case amountWon = "amount_won"
+                case memo
+                case config
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PurchaseRequestSummary`.
+        public struct PurchaseRequestSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PurchaseRequestSummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/PurchaseRequestSummary/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/PurchaseRequestSummary/equipment_id`.
+            public var equipmentId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/PurchaseRequestSummary/work_order_id`.
+            public var workOrderId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/PurchaseRequestSummary/statement_evidence_id`.
+            public var statementEvidenceId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/PurchaseRequestSummary/vendor_name`.
+            public var vendorName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PurchaseRequestSummary/amount_won`.
+            public var amountWon: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/PurchaseRequestSummary/status`.
+            public var status: Components.Schemas.PurchaseStatus
+            /// - Remark: Generated from `#/components/schemas/PurchaseRequestSummary/expenditure_no`.
+            public var expenditureNo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/PurchaseRequestSummary/rejection_memo`.
+            public var rejectionMemo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/PurchaseRequestSummary/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/PurchaseRequestSummary/updated_at`.
+            public var updatedAt: Components.Schemas.Timestamp
+            /// Creates a new `PurchaseRequestSummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - branchId:
+            ///   - equipmentId:
+            ///   - workOrderId:
+            ///   - statementEvidenceId:
+            ///   - vendorName:
+            ///   - amountWon:
+            ///   - status:
+            ///   - expenditureNo:
+            ///   - rejectionMemo:
+            ///   - createdAt:
+            ///   - updatedAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid,
+                equipmentId: Components.Schemas.Uuid,
+                workOrderId: Swift.String? = nil,
+                statementEvidenceId: Components.Schemas.Uuid,
+                vendorName: Swift.String,
+                amountWon: Swift.Int64,
+                status: Components.Schemas.PurchaseStatus,
+                expenditureNo: Swift.String? = nil,
+                rejectionMemo: Swift.String? = nil,
+                createdAt: Components.Schemas.Timestamp,
+                updatedAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.branchId = branchId
+                self.equipmentId = equipmentId
+                self.workOrderId = workOrderId
+                self.statementEvidenceId = statementEvidenceId
+                self.vendorName = vendorName
+                self.amountWon = amountWon
+                self.status = status
+                self.expenditureNo = expenditureNo
+                self.rejectionMemo = rejectionMemo
+                self.createdAt = createdAt
+                self.updatedAt = updatedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case branchId = "branch_id"
+                case equipmentId = "equipment_id"
+                case workOrderId = "work_order_id"
+                case statementEvidenceId = "statement_evidence_id"
+                case vendorName = "vendor_name"
+                case amountWon = "amount_won"
+                case status
+                case expenditureNo = "expenditure_no"
+                case rejectionMemo = "rejection_memo"
+                case createdAt = "created_at"
+                case updatedAt = "updated_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PrepareExpenditureRequest`.
+        public struct PrepareExpenditureRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PrepareExpenditureRequest/expenditure_no`.
+            public var expenditureNo: Swift.String
+            /// Creates a new `PrepareExpenditureRequest`.
+            ///
+            /// - Parameters:
+            ///   - expenditureNo:
+            public init(expenditureNo: Swift.String) {
+                self.expenditureNo = expenditureNo
+            }
+            public enum CodingKeys: String, CodingKey {
+                case expenditureNo = "expenditure_no"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RejectPurchaseRequest`.
+        public struct RejectPurchaseRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RejectPurchaseRequest/memo`.
+            public var memo: Swift.String
+            /// Creates a new `RejectPurchaseRequest`.
+            ///
+            /// - Parameters:
+            ///   - memo:
+            public init(memo: Swift.String) {
+                self.memo = memo
+            }
+            public enum CodingKeys: String, CodingKey {
+                case memo
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RestartPurchaseRequest`.
+        public struct RestartPurchaseRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RestartPurchaseRequest/statement_evidence_id`.
+            public var statementEvidenceId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/RestartPurchaseRequest/amount_won`.
+            public var amountWon: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/RestartPurchaseRequest/memo`.
+            public var memo: Swift.String
+            /// Creates a new `RestartPurchaseRequest`.
+            ///
+            /// - Parameters:
+            ///   - statementEvidenceId:
+            ///   - amountWon:
+            ///   - memo:
+            public init(
+                statementEvidenceId: Components.Schemas.Uuid,
+                amountWon: Swift.Int64,
+                memo: Swift.String
+            ) {
+                self.statementEvidenceId = statementEvidenceId
+                self.amountWon = amountWon
+                self.memo = memo
+            }
+            public enum CodingKeys: String, CodingKey {
+                case statementEvidenceId = "statement_evidence_id"
+                case amountWon = "amount_won"
+                case memo
+            }
+        }
     }
     /// Types generated from the `#/components/parameters` section of the OpenAPI document.
     public enum Parameters {
@@ -3537,6 +4406,12 @@ public enum Components {
         public typealias ThreadId = Swift.String
         /// - Remark: Generated from `#/components/parameters/EquipmentId`.
         public typealias EquipmentId = Swift.String
+        /// - Remark: Generated from `#/components/parameters/QuoteId`.
+        public typealias QuoteId = Swift.String
+        /// - Remark: Generated from `#/components/parameters/EquipmentIdV2`.
+        public typealias EquipmentIdV2 = Swift.String
+        /// - Remark: Generated from `#/components/parameters/PurchaseRequestId`.
+        public typealias PurchaseRequestId = Swift.String
     }
     /// Types generated from the `#/components/requestBodies` section of the OpenAPI document.
     public enum RequestBodies {}
@@ -10478,6 +11353,2871 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Compute a rental quote from explicit financial inputs without persisting it
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/rental-quotes/compute`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/compute/post(computeRentalQuote)`.
+    public enum ComputeRentalQuote {
+        public static let id: Swift.String = "computeRentalQuote"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/financial/rental-quotes/compute/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ComputeRentalQuote.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ComputeRentalQuote.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ComputeRentalQuote.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/financial/rental-quotes/compute/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/rental-quotes/compute/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.ComputeRentalQuoteRequest)
+            }
+            public var body: Operations.ComputeRentalQuote.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.ComputeRentalQuote.Input.Headers = .init(),
+                body: Operations.ComputeRentalQuote.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/rental-quotes/compute/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/financial/rental-quotes/compute/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ComputedRentalQuote)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ComputedRentalQuote {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ComputeRentalQuote.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ComputeRentalQuote.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Computed rental quote.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/compute/post(computeRentalQuote)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ComputeRentalQuote.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ComputeRentalQuote.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/compute/post(computeRentalQuote)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/compute/post(computeRentalQuote)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/compute/post(computeRentalQuote)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Compute and persist a rental quote for equipment
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/rental-quotes`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/post(createRentalQuote)`.
+    public enum CreateRentalQuote {
+        public static let id: Swift.String = "createRentalQuote"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/financial/rental-quotes/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateRentalQuote.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateRentalQuote.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CreateRentalQuote.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/financial/rental-quotes/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/rental-quotes/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.CreateRentalQuoteRequest)
+            }
+            public var body: Operations.CreateRentalQuote.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.CreateRentalQuote.Input.Headers = .init(),
+                body: Operations.CreateRentalQuote.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/rental-quotes/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/financial/rental-quotes/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.RentalQuoteSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.RentalQuoteSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreateRentalQuote.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreateRentalQuote.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Rental quote persisted.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/post(createRentalQuote)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.CreateRentalQuote.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.CreateRentalQuote.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/post(createRentalQuote)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/post(createRentalQuote)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/post(createRentalQuote)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/post(createRentalQuote)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Fetch a persisted rental quote
+    ///
+    /// - Remark: HTTP `GET /api/v1/financial/rental-quotes/{quoteId}`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/{quoteId}/get(getRentalQuote)`.
+    public enum GetRentalQuote {
+        public static let id: Swift.String = "getRentalQuote"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/financial/rental-quotes/{quoteId}/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/rental-quotes/{quoteId}/GET/path/quoteId`.
+                public var quoteId: Components.Parameters.QuoteId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - quoteId:
+                public init(quoteId: Components.Parameters.QuoteId) {
+                    self.quoteId = quoteId
+                }
+            }
+            public var path: Operations.GetRentalQuote.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/financial/rental-quotes/{quoteId}/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetRentalQuote.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetRentalQuote.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetRentalQuote.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.GetRentalQuote.Input.Path,
+                headers: Operations.GetRentalQuote.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/rental-quotes/{quoteId}/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/financial/rental-quotes/{quoteId}/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.RentalQuoteSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.RentalQuoteSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetRentalQuote.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetRentalQuote.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Rental quote summary.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/{quoteId}/get(getRentalQuote)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetRentalQuote.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetRentalQuote.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/{quoteId}/get(getRentalQuote)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/{quoteId}/get(getRentalQuote)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/rental-quotes/{quoteId}/get(getRentalQuote)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List equipment cost ledger entries
+    ///
+    /// - Remark: HTTP `GET /api/v1/financial/equipment/{equipmentId}/cost-ledger`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/cost-ledger/get(listEquipmentCostLedger)`.
+    public enum ListEquipmentCostLedger {
+        public static let id: Swift.String = "listEquipmentCostLedger"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/financial/equipment/{equipmentId}/cost-ledger/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/equipment/{equipmentId}/cost-ledger/GET/path/equipmentId`.
+                public var equipmentId: Components.Parameters.EquipmentIdV2
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - equipmentId:
+                public init(equipmentId: Components.Parameters.EquipmentIdV2) {
+                    self.equipmentId = equipmentId
+                }
+            }
+            public var path: Operations.ListEquipmentCostLedger.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/financial/equipment/{equipmentId}/cost-ledger/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListEquipmentCostLedger.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListEquipmentCostLedger.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListEquipmentCostLedger.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.ListEquipmentCostLedger.Input.Path,
+                headers: Operations.ListEquipmentCostLedger.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/equipment/{equipmentId}/cost-ledger/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/financial/equipment/{equipmentId}/cost-ledger/GET/responses/200/content/application\/json`.
+                    case json([Components.Schemas.CostLedgerEntrySummary])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.CostLedgerEntrySummary] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListEquipmentCostLedger.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListEquipmentCostLedger.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Equipment cost ledger entries.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/cost-ledger/get(listEquipmentCostLedger)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListEquipmentCostLedger.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListEquipmentCostLedger.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/cost-ledger/get(listEquipmentCostLedger)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/cost-ledger/get(listEquipmentCostLedger)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/cost-ledger/get(listEquipmentCostLedger)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Append a manual admin equipment cost and recompute residual value
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/equipment/{equipmentId}/cost-ledger/manual`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/cost-ledger/manual/post(appendManualCostLedgerEntry)`.
+    public enum AppendManualCostLedgerEntry {
+        public static let id: Swift.String = "appendManualCostLedgerEntry"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/financial/equipment/{equipmentId}/cost-ledger/manual/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/equipment/{equipmentId}/cost-ledger/manual/POST/path/equipmentId`.
+                public var equipmentId: Components.Parameters.EquipmentIdV2
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - equipmentId:
+                public init(equipmentId: Components.Parameters.EquipmentIdV2) {
+                    self.equipmentId = equipmentId
+                }
+            }
+            public var path: Operations.AppendManualCostLedgerEntry.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/financial/equipment/{equipmentId}/cost-ledger/manual/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.AppendManualCostLedgerEntry.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.AppendManualCostLedgerEntry.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.AppendManualCostLedgerEntry.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/financial/equipment/{equipmentId}/cost-ledger/manual/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/equipment/{equipmentId}/cost-ledger/manual/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.AppendManualCostLedgerRequest)
+            }
+            public var body: Operations.AppendManualCostLedgerEntry.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.AppendManualCostLedgerEntry.Input.Path,
+                headers: Operations.AppendManualCostLedgerEntry.Input.Headers = .init(),
+                body: Operations.AppendManualCostLedgerEntry.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/equipment/{equipmentId}/cost-ledger/manual/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/financial/equipment/{equipmentId}/cost-ledger/manual/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.CostLedgerEntrySummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.CostLedgerEntrySummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.AppendManualCostLedgerEntry.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.AppendManualCostLedgerEntry.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Cost ledger entry appended.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/cost-ledger/manual/post(appendManualCostLedgerEntry)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.AppendManualCostLedgerEntry.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.AppendManualCostLedgerEntry.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/cost-ledger/manual/post(appendManualCostLedgerEntry)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/cost-ledger/manual/post(appendManualCostLedgerEntry)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/cost-ledger/manual/post(appendManualCostLedgerEntry)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/cost-ledger/manual/post(appendManualCostLedgerEntry)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Attach a 거래명세표 evidence record and open a purchase request
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/post(createPurchaseRequest)`.
+    public enum CreatePurchaseRequest {
+        public static let id: Swift.String = "createPurchaseRequest"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreatePurchaseRequest.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreatePurchaseRequest.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CreatePurchaseRequest.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.CreatePurchaseRequest)
+            }
+            public var body: Operations.CreatePurchaseRequest.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.CreatePurchaseRequest.Input.Headers = .init(),
+                body: Operations.CreatePurchaseRequest.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.PurchaseRequestSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PurchaseRequestSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreatePurchaseRequest.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreatePurchaseRequest.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Purchase request created in statement-attached state.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/post(createPurchaseRequest)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.CreatePurchaseRequest.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.CreatePurchaseRequest.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/post(createPurchaseRequest)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/post(createPurchaseRequest)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/post(createPurchaseRequest)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/post(createPurchaseRequest)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Fetch one purchase request
+    ///
+    /// - Remark: HTTP `GET /api/v1/financial/purchase-requests/{purchaseRequestId}`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/get(getPurchaseRequest)`.
+    public enum GetPurchaseRequest {
+        public static let id: Swift.String = "getPurchaseRequest"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/GET/path/purchaseRequestId`.
+                public var purchaseRequestId: Components.Parameters.PurchaseRequestId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - purchaseRequestId:
+                public init(purchaseRequestId: Components.Parameters.PurchaseRequestId) {
+                    self.purchaseRequestId = purchaseRequestId
+                }
+            }
+            public var path: Operations.GetPurchaseRequest.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetPurchaseRequest.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetPurchaseRequest.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetPurchaseRequest.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.GetPurchaseRequest.Input.Path,
+                headers: Operations.GetPurchaseRequest.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PurchaseRequestSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PurchaseRequestSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetPurchaseRequest.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetPurchaseRequest.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Purchase request summary.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/get(getPurchaseRequest)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetPurchaseRequest.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetPurchaseRequest.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/get(getPurchaseRequest)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/get(getPurchaseRequest)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/get(getPurchaseRequest)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Submit a statement-attached purchase request for admin approval
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/submit`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/submit/post(submitPurchaseRequest)`.
+    public enum SubmitPurchaseRequest {
+        public static let id: Swift.String = "submitPurchaseRequest"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/submit/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/submit/POST/path/purchaseRequestId`.
+                public var purchaseRequestId: Components.Parameters.PurchaseRequestId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - purchaseRequestId:
+                public init(purchaseRequestId: Components.Parameters.PurchaseRequestId) {
+                    self.purchaseRequestId = purchaseRequestId
+                }
+            }
+            public var path: Operations.SubmitPurchaseRequest.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/submit/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SubmitPurchaseRequest.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SubmitPurchaseRequest.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.SubmitPurchaseRequest.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.SubmitPurchaseRequest.Input.Path,
+                headers: Operations.SubmitPurchaseRequest.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/submit/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/submit/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PurchaseRequestSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PurchaseRequestSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.SubmitPurchaseRequest.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.SubmitPurchaseRequest.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Submitted purchase request.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/submit/post(submitPurchaseRequest)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.SubmitPurchaseRequest.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.SubmitPurchaseRequest.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/submit/post(submitPurchaseRequest)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/submit/post(submitPurchaseRequest)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/submit/post(submitPurchaseRequest)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Admin approval for a submitted purchase request
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin/post(approvePurchaseRequestAdmin)`.
+    public enum ApprovePurchaseRequestAdmin {
+        public static let id: Swift.String = "approvePurchaseRequestAdmin"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin/POST/path/purchaseRequestId`.
+                public var purchaseRequestId: Components.Parameters.PurchaseRequestId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - purchaseRequestId:
+                public init(purchaseRequestId: Components.Parameters.PurchaseRequestId) {
+                    self.purchaseRequestId = purchaseRequestId
+                }
+            }
+            public var path: Operations.ApprovePurchaseRequestAdmin.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ApprovePurchaseRequestAdmin.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ApprovePurchaseRequestAdmin.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ApprovePurchaseRequestAdmin.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.ApprovePurchaseRequestAdmin.Input.Path,
+                headers: Operations.ApprovePurchaseRequestAdmin.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PurchaseRequestSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PurchaseRequestSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ApprovePurchaseRequestAdmin.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ApprovePurchaseRequestAdmin.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Admin-approved purchase request.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin/post(approvePurchaseRequestAdmin)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ApprovePurchaseRequestAdmin.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ApprovePurchaseRequestAdmin.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin/post(approvePurchaseRequestAdmin)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin/post(approvePurchaseRequestAdmin)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin/post(approvePurchaseRequestAdmin)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Record expenditure number and route to execution or executive approval
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure/post(preparePurchaseExpenditure)`.
+    public enum PreparePurchaseExpenditure {
+        public static let id: Swift.String = "preparePurchaseExpenditure"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure/POST/path/purchaseRequestId`.
+                public var purchaseRequestId: Components.Parameters.PurchaseRequestId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - purchaseRequestId:
+                public init(purchaseRequestId: Components.Parameters.PurchaseRequestId) {
+                    self.purchaseRequestId = purchaseRequestId
+                }
+            }
+            public var path: Operations.PreparePurchaseExpenditure.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PreparePurchaseExpenditure.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PreparePurchaseExpenditure.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.PreparePurchaseExpenditure.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.PrepareExpenditureRequest)
+            }
+            public var body: Operations.PreparePurchaseExpenditure.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.PreparePurchaseExpenditure.Input.Path,
+                headers: Operations.PreparePurchaseExpenditure.Input.Headers = .init(),
+                body: Operations.PreparePurchaseExpenditure.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PurchaseRequestSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PurchaseRequestSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PreparePurchaseExpenditure.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PreparePurchaseExpenditure.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Purchase request routed after expenditure preparation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure/post(preparePurchaseExpenditure)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.PreparePurchaseExpenditure.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.PreparePurchaseExpenditure.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure/post(preparePurchaseExpenditure)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure/post(preparePurchaseExpenditure)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure/post(preparePurchaseExpenditure)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Executive final approval for above-threshold purchase requests
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive/post(approvePurchaseRequestExecutive)`.
+    public enum ApprovePurchaseRequestExecutive {
+        public static let id: Swift.String = "approvePurchaseRequestExecutive"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive/POST/path/purchaseRequestId`.
+                public var purchaseRequestId: Components.Parameters.PurchaseRequestId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - purchaseRequestId:
+                public init(purchaseRequestId: Components.Parameters.PurchaseRequestId) {
+                    self.purchaseRequestId = purchaseRequestId
+                }
+            }
+            public var path: Operations.ApprovePurchaseRequestExecutive.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ApprovePurchaseRequestExecutive.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ApprovePurchaseRequestExecutive.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ApprovePurchaseRequestExecutive.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.ApprovePurchaseRequestExecutive.Input.Path,
+                headers: Operations.ApprovePurchaseRequestExecutive.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PurchaseRequestSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PurchaseRequestSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ApprovePurchaseRequestExecutive.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ApprovePurchaseRequestExecutive.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Purchase request ready to execute.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive/post(approvePurchaseRequestExecutive)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ApprovePurchaseRequestExecutive.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ApprovePurchaseRequestExecutive.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive/post(approvePurchaseRequestExecutive)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive/post(approvePurchaseRequestExecutive)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive/post(approvePurchaseRequestExecutive)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Reject a purchase request before execution
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/reject`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/reject/post(rejectPurchaseRequest)`.
+    public enum RejectPurchaseRequest {
+        public static let id: Swift.String = "rejectPurchaseRequest"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/reject/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/reject/POST/path/purchaseRequestId`.
+                public var purchaseRequestId: Components.Parameters.PurchaseRequestId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - purchaseRequestId:
+                public init(purchaseRequestId: Components.Parameters.PurchaseRequestId) {
+                    self.purchaseRequestId = purchaseRequestId
+                }
+            }
+            public var path: Operations.RejectPurchaseRequest.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/reject/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RejectPurchaseRequest.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RejectPurchaseRequest.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.RejectPurchaseRequest.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/reject/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/reject/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.RejectPurchaseRequest)
+            }
+            public var body: Operations.RejectPurchaseRequest.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.RejectPurchaseRequest.Input.Path,
+                headers: Operations.RejectPurchaseRequest.Input.Headers = .init(),
+                body: Operations.RejectPurchaseRequest.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/reject/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/reject/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PurchaseRequestSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PurchaseRequestSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.RejectPurchaseRequest.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.RejectPurchaseRequest.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Rejected purchase request.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/reject/post(rejectPurchaseRequest)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.RejectPurchaseRequest.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.RejectPurchaseRequest.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/reject/post(rejectPurchaseRequest)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/reject/post(rejectPurchaseRequest)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/reject/post(rejectPurchaseRequest)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Restart a rejected purchase request with a replacement statement evidence record
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/restart`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/restart/post(restartPurchaseRequest)`.
+    public enum RestartPurchaseRequest {
+        public static let id: Swift.String = "restartPurchaseRequest"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/restart/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/restart/POST/path/purchaseRequestId`.
+                public var purchaseRequestId: Components.Parameters.PurchaseRequestId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - purchaseRequestId:
+                public init(purchaseRequestId: Components.Parameters.PurchaseRequestId) {
+                    self.purchaseRequestId = purchaseRequestId
+                }
+            }
+            public var path: Operations.RestartPurchaseRequest.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/restart/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RestartPurchaseRequest.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RestartPurchaseRequest.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.RestartPurchaseRequest.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/restart/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/restart/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.RestartPurchaseRequest)
+            }
+            public var body: Operations.RestartPurchaseRequest.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.RestartPurchaseRequest.Input.Path,
+                headers: Operations.RestartPurchaseRequest.Input.Headers = .init(),
+                body: Operations.RestartPurchaseRequest.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/restart/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/restart/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PurchaseRequestSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PurchaseRequestSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.RestartPurchaseRequest.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.RestartPurchaseRequest.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Restarted purchase request.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/restart/post(restartPurchaseRequest)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.RestartPurchaseRequest.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.RestartPurchaseRequest.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/restart/post(restartPurchaseRequest)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/restart/post(restartPurchaseRequest)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/restart/post(restartPurchaseRequest)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/restart/post(restartPurchaseRequest)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Execute an approved purchase request and feed the amount into the equipment cost ledger
+    ///
+    /// - Remark: HTTP `POST /api/v1/financial/purchase-requests/{purchaseRequestId}/execute`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/execute/post(executePurchaseRequest)`.
+    public enum ExecutePurchaseRequest {
+        public static let id: Swift.String = "executePurchaseRequest"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/execute/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/execute/POST/path/purchaseRequestId`.
+                public var purchaseRequestId: Components.Parameters.PurchaseRequestId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - purchaseRequestId:
+                public init(purchaseRequestId: Components.Parameters.PurchaseRequestId) {
+                    self.purchaseRequestId = purchaseRequestId
+                }
+            }
+            public var path: Operations.ExecutePurchaseRequest.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/execute/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ExecutePurchaseRequest.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ExecutePurchaseRequest.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ExecutePurchaseRequest.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.ExecutePurchaseRequest.Input.Path,
+                headers: Operations.ExecutePurchaseRequest.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/execute/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/financial/purchase-requests/{purchaseRequestId}/execute/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PurchaseRequestSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PurchaseRequestSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ExecutePurchaseRequest.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ExecutePurchaseRequest.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Executed purchase request.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/execute/post(executePurchaseRequest)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ExecutePurchaseRequest.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ExecutePurchaseRequest.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/execute/post(executePurchaseRequest)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/execute/post(executePurchaseRequest)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/purchase-requests/{purchaseRequestId}/execute/post(executePurchaseRequest)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
                             response: self
                         )
                     }

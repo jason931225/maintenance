@@ -1813,6 +1813,8 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "http",
+ "mnt-financial-adapter-postgres",
+ "mnt-financial-rest",
  "mnt-kernel-core",
  "mnt-messenger-adapter-postgres",
  "mnt-messenger-rest",
@@ -1881,6 +1883,60 @@ dependencies = [
  "mnt-kernel-core",
  "serde",
  "time",
+]
+
+[[package]]
+name = "mnt-financial-adapter-postgres"
+version = "0.0.0"
+dependencies = [
+ "mnt-financial-application",
+ "mnt-financial-domain",
+ "mnt-kernel-core",
+ "mnt-platform-db",
+ "serde_json",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-financial-application"
+version = "0.0.0"
+dependencies = [
+ "mnt-financial-domain",
+ "mnt-kernel-core",
+ "serde",
+ "serde_json",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-financial-domain"
+version = "0.0.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+]
+
+[[package]]
+name = "mnt-financial-rest"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "mnt-financial-adapter-postgres",
+ "mnt-financial-application",
+ "mnt-financial-domain",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-db",
+ "serde",
+ "sqlx 0.9.0",
+ "time",
+ "uuid",
 ]
 
 [[package]]

@@ -18,6 +18,8 @@ path = "src/lib.rs"
 [dependencies]
 axum = { workspace = true }
 http = { workspace = true }
+mnt-financial-adapter-postgres = { workspace = true }
+mnt-financial-rest = { workspace = true }
 mnt-kernel-core = { workspace = true }
 mnt-messenger-adapter-postgres = { workspace = true }
 mnt-messenger-rest = { workspace = true }

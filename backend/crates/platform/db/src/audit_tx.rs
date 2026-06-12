@@ -58,50 +58,93 @@ where
             Err(e)
         }
         Ok(value) => {
-            // Serialize optional snapshot fields.
-            let before_json: Option<serde_json::Value> = event.before.clone();
-            let after_json: Option<serde_json::Value> = event.after.clone();
-
-            let actor_uuid: Option<uuid::Uuid> = event.actor.map(|uid| *uid.as_uuid());
-            let event_id_uuid: uuid::Uuid = *event.id.as_uuid();
-            let branch_uuid: Option<uuid::Uuid> = event.branch_id.map(|bid| *bid.as_uuid());
-            let action_str = event.action.as_str();
-            let occurred_at = event.occurred_at;
-            let trace_id = event.trace.trace_id();
-            let span_id = event.trace.span_id();
-
-            sqlx::query!(
-                r#"
-                INSERT INTO audit_events (
-                    id, actor, action, target_type, target_id,
-                    branch_id, before_snap, after_snap,
-                    trace_id, span_id, occurred_at
-                ) VALUES (
-                    $1, $2, $3, $4, $5,
-                    $6, $7, $8,
-                    $9, $10, $11
-                )
-                "#,
-                event_id_uuid,
-                actor_uuid,
-                action_str,
-                event.target_type,
-                event.target_id,
-                branch_uuid,
-                before_json,
-                after_json,
-                trace_id,
-                span_id,
-                occurred_at,
-            )
-            .execute(tx.as_mut())
-            .await
-            .map_err(|e| E::from(DbError::Sqlx(e)))?;
-
+            insert_audit_event_tx(&mut tx, &event)
+                .await
+                .map_err(E::from)?;
             tx.commit().await.map_err(|e| E::from(DbError::Sqlx(e)))?;
             Ok(value)
         }
     }
+}
+
+/// Execute a mutation closure that returns one or more audit events computed
+/// from rows locked inside the same transaction.
+///
+/// Use this when the audit snapshots cannot be known before `SELECT FOR UPDATE`,
+/// or when a single business action intentionally updates multiple audited
+/// targets atomically.
+pub async fn with_audits<F, T, E>(pool: &PgPool, f: F) -> Result<T, E>
+where
+    F: for<'tx> FnOnce(
+        &'tx mut Transaction<'_, Postgres>,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<(T, Vec<AuditEvent>), E>> + Send + 'tx>,
+    >,
+    E: From<DbError>,
+{
+    let mut tx = pool.begin().await.map_err(|e| E::from(DbError::Sqlx(e)))?;
+    let result = f(&mut tx).await;
+
+    match result {
+        Err(e) => {
+            let _ = tx.rollback().await;
+            Err(e)
+        }
+        Ok((value, events)) => {
+            for event in &events {
+                insert_audit_event_tx(&mut tx, event)
+                    .await
+                    .map_err(E::from)?;
+            }
+            tx.commit().await.map_err(|e| E::from(DbError::Sqlx(e)))?;
+            Ok(value)
+        }
+    }
+}
+
+async fn insert_audit_event_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    event: &AuditEvent,
+) -> Result<(), DbError> {
+    let before_json: Option<serde_json::Value> = event.before.clone();
+    let after_json: Option<serde_json::Value> = event.after.clone();
+
+    let actor_uuid: Option<uuid::Uuid> = event.actor.map(|uid| *uid.as_uuid());
+    let event_id_uuid: uuid::Uuid = *event.id.as_uuid();
+    let branch_uuid: Option<uuid::Uuid> = event.branch_id.map(|bid| *bid.as_uuid());
+    let action_str = event.action.as_str();
+    let occurred_at = event.occurred_at;
+    let trace_id = event.trace.trace_id();
+    let span_id = event.trace.span_id();
+
+    sqlx::query!(
+        r#"
+        INSERT INTO audit_events (
+            id, actor, action, target_type, target_id,
+            branch_id, before_snap, after_snap,
+            trace_id, span_id, occurred_at
+        ) VALUES (
+            $1, $2, $3, $4, $5,
+            $6, $7, $8,
+            $9, $10, $11
+        )
+        "#,
+        event_id_uuid,
+        actor_uuid,
+        action_str,
+        event.target_type,
+        event.target_id,
+        branch_uuid,
+        before_json,
+        after_json,
+        trace_id,
+        span_id,
+        occurred_at,
+    )
+    .execute(tx.as_mut())
+    .await
+    .map_err(DbError::Sqlx)?;
+    Ok(())
 }
 
 #[cfg(test)]

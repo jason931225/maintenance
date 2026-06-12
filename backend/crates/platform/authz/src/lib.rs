@@ -100,6 +100,14 @@ pub enum Feature {
     SubordinateUserCreate,
     ElevatedRoleGrant,
     MasterListImport,
+    RentalQuoteManage,
+    EquipmentCostLedgerRead,
+    EquipmentCostLedgerWrite,
+    PurchaseRequestCreate,
+    PurchaseRequestRead,
+    PurchaseRequestApprove,
+    PurchaseFinalApprove,
+    PurchaseExecute,
     AuditLogRead,
     ExcelDownload,
     /// Permission metadata for the future AI assistant seam. T0.6 requires the
@@ -108,7 +116,7 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 30] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -128,6 +136,14 @@ impl Feature {
         Self::SubordinateUserCreate,
         Self::ElevatedRoleGrant,
         Self::MasterListImport,
+        Self::RentalQuoteManage,
+        Self::EquipmentCostLedgerRead,
+        Self::EquipmentCostLedgerWrite,
+        Self::PurchaseRequestCreate,
+        Self::PurchaseRequestRead,
+        Self::PurchaseRequestApprove,
+        Self::PurchaseFinalApprove,
+        Self::PurchaseExecute,
         Self::AuditLogRead,
         Self::ExcelDownload,
         Self::AiAssist,
@@ -156,6 +172,14 @@ impl Feature {
             Self::SubordinateUserCreate => [D, D, L, D, A],
             Self::ElevatedRoleGrant => [D, D, D, D, A],
             Self::MasterListImport => [D, D, A, D, A],
+            Self::RentalQuoteManage => [A, D, A, A, A],
+            Self::EquipmentCostLedgerRead => [D, D, A, A, A],
+            Self::EquipmentCostLedgerWrite => [D, D, A, D, A],
+            Self::PurchaseRequestCreate => [A, R, A, D, A],
+            Self::PurchaseRequestRead => [A, L, A, A, A],
+            Self::PurchaseRequestApprove => [D, D, A, D, A],
+            Self::PurchaseFinalApprove => [D, D, D, A, A],
+            Self::PurchaseExecute => [A, D, A, D, A],
             Self::AuditLogRead => [D, D, A, D, A],
             Self::ExcelDownload => [A, A, A, A, A],
             Self::AiAssist => [A, A, A, A, A],

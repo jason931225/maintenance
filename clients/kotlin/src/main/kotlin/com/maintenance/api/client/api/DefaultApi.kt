@@ -27,10 +27,16 @@ import java.io.IOException
 import okhttp3.Call
 import okhttp3.HttpUrl
 
+import com.maintenance.api.client.model.AppendManualCostLedgerRequest
 import com.maintenance.api.client.model.AssignWorkOrderRequest
+import com.maintenance.api.client.model.ComputeRentalQuoteRequest
+import com.maintenance.api.client.model.ComputedRentalQuote
+import com.maintenance.api.client.model.CostLedgerEntrySummary
 import com.maintenance.api.client.model.CreateDailyPlanRequest
 import com.maintenance.api.client.model.CreateMessengerThreadRequest
 import com.maintenance.api.client.model.CreateOutsourceWorkRequest
+import com.maintenance.api.client.model.CreatePurchaseRequest
+import com.maintenance.api.client.model.CreateRentalQuoteRequest
 import com.maintenance.api.client.model.CreateWorkOrderRequest
 import com.maintenance.api.client.model.DailyPlanSummary
 import com.maintenance.api.client.model.DeviceRegistrationRequest
@@ -57,9 +63,14 @@ import com.maintenance.api.client.model.PasskeyRegisterFinishRequest
 import com.maintenance.api.client.model.PasskeyRegisterFinishResponse
 import com.maintenance.api.client.model.PasskeyRegisterStartRequest
 import com.maintenance.api.client.model.PasskeyRegisterStartResponse
+import com.maintenance.api.client.model.PrepareExpenditureRequest
 import com.maintenance.api.client.model.PriorityLevel
+import com.maintenance.api.client.model.PurchaseRequestSummary
 import com.maintenance.api.client.model.RefreshTokenRequest
+import com.maintenance.api.client.model.RejectPurchaseRequest
 import com.maintenance.api.client.model.RejectWorkOrderRequest
+import com.maintenance.api.client.model.RentalQuoteSummary
+import com.maintenance.api.client.model.RestartPurchaseRequest
 import com.maintenance.api.client.model.ReviewDailyPlanRequest
 import com.maintenance.api.client.model.ReviewTargetChangeRequest
 import com.maintenance.api.client.model.SendMessengerMessageRequest
@@ -547,6 +558,229 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/financial/equipment/{equipmentId}/cost-ledger/manual
+     * Append a manual admin equipment cost and recompute residual value
+     *
+     * @param equipmentId
+     * @param appendManualCostLedgerRequest
+     * @return CostLedgerEntrySummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun appendManualCostLedgerEntry(equipmentId: java.util.UUID, appendManualCostLedgerRequest: AppendManualCostLedgerRequest) : CostLedgerEntrySummary = withContext(Dispatchers.IO) {
+        val localVarResponse = appendManualCostLedgerEntryWithHttpInfo(equipmentId = equipmentId, appendManualCostLedgerRequest = appendManualCostLedgerRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CostLedgerEntrySummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/financial/equipment/{equipmentId}/cost-ledger/manual
+     * Append a manual admin equipment cost and recompute residual value
+     *
+     * @param equipmentId
+     * @param appendManualCostLedgerRequest
+     * @return ApiResponse<CostLedgerEntrySummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun appendManualCostLedgerEntryWithHttpInfo(equipmentId: java.util.UUID, appendManualCostLedgerRequest: AppendManualCostLedgerRequest) : ApiResponse<CostLedgerEntrySummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = appendManualCostLedgerEntryRequestConfig(equipmentId = equipmentId, appendManualCostLedgerRequest = appendManualCostLedgerRequest)
+
+        return@withContext request<AppendManualCostLedgerRequest, CostLedgerEntrySummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation appendManualCostLedgerEntry
+     *
+     * @param equipmentId
+     * @param appendManualCostLedgerRequest
+     * @return RequestConfig
+     */
+    fun appendManualCostLedgerEntryRequestConfig(equipmentId: java.util.UUID, appendManualCostLedgerRequest: AppendManualCostLedgerRequest) : RequestConfig<AppendManualCostLedgerRequest> {
+        val localVariableBody = appendManualCostLedgerRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/financial/equipment/{equipmentId}/cost-ledger/manual".replace("{"+"equipmentId"+"}", encodeURIComponent(equipmentId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin
+     * Admin approval for a submitted purchase request
+     *
+     * @param purchaseRequestId
+     * @return PurchaseRequestSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun approvePurchaseRequestAdmin(purchaseRequestId: java.util.UUID) : PurchaseRequestSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = approvePurchaseRequestAdminWithHttpInfo(purchaseRequestId = purchaseRequestId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PurchaseRequestSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin
+     * Admin approval for a submitted purchase request
+     *
+     * @param purchaseRequestId
+     * @return ApiResponse<PurchaseRequestSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun approvePurchaseRequestAdminWithHttpInfo(purchaseRequestId: java.util.UUID) : ApiResponse<PurchaseRequestSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = approvePurchaseRequestAdminRequestConfig(purchaseRequestId = purchaseRequestId)
+
+        return@withContext request<Unit, PurchaseRequestSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation approvePurchaseRequestAdmin
+     *
+     * @param purchaseRequestId
+     * @return RequestConfig
+     */
+    fun approvePurchaseRequestAdminRequestConfig(purchaseRequestId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin".replace("{"+"purchaseRequestId"+"}", encodeURIComponent(purchaseRequestId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive
+     * Executive final approval for above-threshold purchase requests
+     *
+     * @param purchaseRequestId
+     * @return PurchaseRequestSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun approvePurchaseRequestExecutive(purchaseRequestId: java.util.UUID) : PurchaseRequestSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = approvePurchaseRequestExecutiveWithHttpInfo(purchaseRequestId = purchaseRequestId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PurchaseRequestSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive
+     * Executive final approval for above-threshold purchase requests
+     *
+     * @param purchaseRequestId
+     * @return ApiResponse<PurchaseRequestSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun approvePurchaseRequestExecutiveWithHttpInfo(purchaseRequestId: java.util.UUID) : ApiResponse<PurchaseRequestSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = approvePurchaseRequestExecutiveRequestConfig(purchaseRequestId = purchaseRequestId)
+
+        return@withContext request<Unit, PurchaseRequestSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation approvePurchaseRequestExecutive
+     *
+     * @param purchaseRequestId
+     * @return RequestConfig
+     */
+    fun approvePurchaseRequestExecutiveRequestConfig(purchaseRequestId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive".replace("{"+"purchaseRequestId"+"}", encodeURIComponent(purchaseRequestId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/work-orders/{workOrderId}/approve
      * Approve the next pending non-mechanic approval step
      *
@@ -771,6 +1005,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/equipment",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/financial/rental-quotes/compute
+     * Compute a rental quote from explicit financial inputs without persisting it
+     *
+     * @param computeRentalQuoteRequest
+     * @return ComputedRentalQuote
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun computeRentalQuote(computeRentalQuoteRequest: ComputeRentalQuoteRequest) : ComputedRentalQuote = withContext(Dispatchers.IO) {
+        val localVarResponse = computeRentalQuoteWithHttpInfo(computeRentalQuoteRequest = computeRentalQuoteRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ComputedRentalQuote
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/financial/rental-quotes/compute
+     * Compute a rental quote from explicit financial inputs without persisting it
+     *
+     * @param computeRentalQuoteRequest
+     * @return ApiResponse<ComputedRentalQuote?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun computeRentalQuoteWithHttpInfo(computeRentalQuoteRequest: ComputeRentalQuoteRequest) : ApiResponse<ComputedRentalQuote?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = computeRentalQuoteRequestConfig(computeRentalQuoteRequest = computeRentalQuoteRequest)
+
+        return@withContext request<ComputeRentalQuoteRequest, ComputedRentalQuote>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation computeRentalQuote
+     *
+     * @param computeRentalQuoteRequest
+     * @return RequestConfig
+     */
+    fun computeRentalQuoteRequestConfig(computeRentalQuoteRequest: ComputeRentalQuoteRequest) : RequestConfig<ComputeRentalQuoteRequest> {
+        val localVariableBody = computeRentalQuoteRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/financial/rental-quotes/compute",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -1150,6 +1458,154 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/financial/purchase-requests
+     * Attach a 거래명세표 evidence record and open a purchase request
+     *
+     * @param createPurchaseRequest
+     * @return PurchaseRequestSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createPurchaseRequest(createPurchaseRequest: CreatePurchaseRequest) : PurchaseRequestSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = createPurchaseRequestWithHttpInfo(createPurchaseRequest = createPurchaseRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PurchaseRequestSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/financial/purchase-requests
+     * Attach a 거래명세표 evidence record and open a purchase request
+     *
+     * @param createPurchaseRequest
+     * @return ApiResponse<PurchaseRequestSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createPurchaseRequestWithHttpInfo(createPurchaseRequest: CreatePurchaseRequest) : ApiResponse<PurchaseRequestSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createPurchaseRequestRequestConfig(createPurchaseRequest = createPurchaseRequest)
+
+        return@withContext request<CreatePurchaseRequest, PurchaseRequestSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createPurchaseRequest
+     *
+     * @param createPurchaseRequest
+     * @return RequestConfig
+     */
+    fun createPurchaseRequestRequestConfig(createPurchaseRequest: CreatePurchaseRequest) : RequestConfig<CreatePurchaseRequest> {
+        val localVariableBody = createPurchaseRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/financial/purchase-requests",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/financial/rental-quotes
+     * Compute and persist a rental quote for equipment
+     *
+     * @param createRentalQuoteRequest
+     * @return RentalQuoteSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createRentalQuote(createRentalQuoteRequest: CreateRentalQuoteRequest) : RentalQuoteSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = createRentalQuoteWithHttpInfo(createRentalQuoteRequest = createRentalQuoteRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as RentalQuoteSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/financial/rental-quotes
+     * Compute and persist a rental quote for equipment
+     *
+     * @param createRentalQuoteRequest
+     * @return ApiResponse<RentalQuoteSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createRentalQuoteWithHttpInfo(createRentalQuoteRequest: CreateRentalQuoteRequest) : ApiResponse<RentalQuoteSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createRentalQuoteRequestConfig(createRentalQuoteRequest = createRentalQuoteRequest)
+
+        return@withContext request<CreateRentalQuoteRequest, RentalQuoteSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createRentalQuote
+     *
+     * @param createRentalQuoteRequest
+     * @return RequestConfig
+     */
+    fun createRentalQuoteRequestConfig(createRentalQuoteRequest: CreateRentalQuoteRequest) : RequestConfig<CreateRentalQuoteRequest> {
+        val localVariableBody = createRentalQuoteRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/financial/rental-quotes",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/work-orders
      * Create a work order from branch-scoped equipment management number
      *
@@ -1216,6 +1672,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/work-orders",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/financial/purchase-requests/{purchaseRequestId}/execute
+     * Execute an approved purchase request and feed the amount into the equipment cost ledger
+     *
+     * @param purchaseRequestId
+     * @return PurchaseRequestSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun executePurchaseRequest(purchaseRequestId: java.util.UUID) : PurchaseRequestSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = executePurchaseRequestWithHttpInfo(purchaseRequestId = purchaseRequestId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PurchaseRequestSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/financial/purchase-requests/{purchaseRequestId}/execute
+     * Execute an approved purchase request and feed the amount into the equipment cost ledger
+     *
+     * @param purchaseRequestId
+     * @return ApiResponse<PurchaseRequestSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun executePurchaseRequestWithHttpInfo(purchaseRequestId: java.util.UUID) : ApiResponse<PurchaseRequestSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = executePurchaseRequestRequestConfig(purchaseRequestId = purchaseRequestId)
+
+        return@withContext request<Unit, PurchaseRequestSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation executePurchaseRequest
+     *
+     * @param purchaseRequestId
+     * @return RequestConfig
+     */
+    fun executePurchaseRequestRequestConfig(purchaseRequestId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/financial/purchase-requests/{purchaseRequestId}/execute".replace("{"+"purchaseRequestId"+"}", encodeURIComponent(purchaseRequestId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -1298,6 +1827,152 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/kpi",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/financial/purchase-requests/{purchaseRequestId}
+     * Fetch one purchase request
+     *
+     * @param purchaseRequestId
+     * @return PurchaseRequestSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getPurchaseRequest(purchaseRequestId: java.util.UUID) : PurchaseRequestSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = getPurchaseRequestWithHttpInfo(purchaseRequestId = purchaseRequestId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PurchaseRequestSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/financial/purchase-requests/{purchaseRequestId}
+     * Fetch one purchase request
+     *
+     * @param purchaseRequestId
+     * @return ApiResponse<PurchaseRequestSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getPurchaseRequestWithHttpInfo(purchaseRequestId: java.util.UUID) : ApiResponse<PurchaseRequestSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getPurchaseRequestRequestConfig(purchaseRequestId = purchaseRequestId)
+
+        return@withContext request<Unit, PurchaseRequestSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getPurchaseRequest
+     *
+     * @param purchaseRequestId
+     * @return RequestConfig
+     */
+    fun getPurchaseRequestRequestConfig(purchaseRequestId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/financial/purchase-requests/{purchaseRequestId}".replace("{"+"purchaseRequestId"+"}", encodeURIComponent(purchaseRequestId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/financial/rental-quotes/{quoteId}
+     * Fetch a persisted rental quote
+     *
+     * @param quoteId
+     * @return RentalQuoteSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getRentalQuote(quoteId: java.util.UUID) : RentalQuoteSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = getRentalQuoteWithHttpInfo(quoteId = quoteId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as RentalQuoteSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/financial/rental-quotes/{quoteId}
+     * Fetch a persisted rental quote
+     *
+     * @param quoteId
+     * @return ApiResponse<RentalQuoteSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getRentalQuoteWithHttpInfo(quoteId: java.util.UUID) : ApiResponse<RentalQuoteSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getRentalQuoteRequestConfig(quoteId = quoteId)
+
+        return@withContext request<Unit, RentalQuoteSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getRentalQuote
+     *
+     * @param quoteId
+     * @return RequestConfig
+     */
+    fun getRentalQuoteRequestConfig(quoteId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/financial/rental-quotes/{quoteId}".replace("{"+"quoteId"+"}", encodeURIComponent(quoteId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -1514,6 +2189,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/financial/equipment/{equipmentId}/cost-ledger
+     * List equipment cost ledger entries
+     *
+     * @param equipmentId
+     * @return kotlin.collections.List<CostLedgerEntrySummary>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listEquipmentCostLedger(equipmentId: java.util.UUID) : kotlin.collections.List<CostLedgerEntrySummary> = withContext(Dispatchers.IO) {
+        val localVarResponse = listEquipmentCostLedgerWithHttpInfo(equipmentId = equipmentId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<CostLedgerEntrySummary>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/financial/equipment/{equipmentId}/cost-ledger
+     * List equipment cost ledger entries
+     *
+     * @param equipmentId
+     * @return ApiResponse<kotlin.collections.List<CostLedgerEntrySummary>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listEquipmentCostLedgerWithHttpInfo(equipmentId: java.util.UUID) : ApiResponse<kotlin.collections.List<CostLedgerEntrySummary>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listEquipmentCostLedgerRequestConfig(equipmentId = equipmentId)
+
+        return@withContext request<Unit, kotlin.collections.List<CostLedgerEntrySummary>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listEquipmentCostLedger
+     *
+     * @param equipmentId
+     * @return RequestConfig
+     */
+    fun listEquipmentCostLedgerRequestConfig(equipmentId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/financial/equipment/{equipmentId}/cost-ledger".replace("{"+"equipmentId"+"}", encodeURIComponent(equipmentId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
             body = localVariableBody
         )
     }
@@ -2044,6 +2792,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure
+     * Record expenditure number and route to execution or executive approval
+     *
+     * @param purchaseRequestId
+     * @param prepareExpenditureRequest
+     * @return PurchaseRequestSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun preparePurchaseExpenditure(purchaseRequestId: java.util.UUID, prepareExpenditureRequest: PrepareExpenditureRequest) : PurchaseRequestSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = preparePurchaseExpenditureWithHttpInfo(purchaseRequestId = purchaseRequestId, prepareExpenditureRequest = prepareExpenditureRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PurchaseRequestSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure
+     * Record expenditure number and route to execution or executive approval
+     *
+     * @param purchaseRequestId
+     * @param prepareExpenditureRequest
+     * @return ApiResponse<PurchaseRequestSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun preparePurchaseExpenditureWithHttpInfo(purchaseRequestId: java.util.UUID, prepareExpenditureRequest: PrepareExpenditureRequest) : ApiResponse<PurchaseRequestSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = preparePurchaseExpenditureRequestConfig(purchaseRequestId = purchaseRequestId, prepareExpenditureRequest = prepareExpenditureRequest)
+
+        return@withContext request<PrepareExpenditureRequest, PurchaseRequestSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation preparePurchaseExpenditure
+     *
+     * @param purchaseRequestId
+     * @param prepareExpenditureRequest
+     * @return RequestConfig
+     */
+    fun preparePurchaseExpenditureRequestConfig(purchaseRequestId: java.util.UUID, prepareExpenditureRequest: PrepareExpenditureRequest) : RequestConfig<PrepareExpenditureRequest> {
+        val localVariableBody = prepareExpenditureRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure".replace("{"+"purchaseRequestId"+"}", encodeURIComponent(purchaseRequestId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/evidence/presign
      * Issue a presigned upload ticket for work-order evidence
      *
@@ -2255,6 +3080,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/devices",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/financial/purchase-requests/{purchaseRequestId}/reject
+     * Reject a purchase request before execution
+     *
+     * @param purchaseRequestId
+     * @param rejectPurchaseRequest
+     * @return PurchaseRequestSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun rejectPurchaseRequest(purchaseRequestId: java.util.UUID, rejectPurchaseRequest: RejectPurchaseRequest) : PurchaseRequestSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = rejectPurchaseRequestWithHttpInfo(purchaseRequestId = purchaseRequestId, rejectPurchaseRequest = rejectPurchaseRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PurchaseRequestSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/financial/purchase-requests/{purchaseRequestId}/reject
+     * Reject a purchase request before execution
+     *
+     * @param purchaseRequestId
+     * @param rejectPurchaseRequest
+     * @return ApiResponse<PurchaseRequestSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun rejectPurchaseRequestWithHttpInfo(purchaseRequestId: java.util.UUID, rejectPurchaseRequest: RejectPurchaseRequest) : ApiResponse<PurchaseRequestSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = rejectPurchaseRequestRequestConfig(purchaseRequestId = purchaseRequestId, rejectPurchaseRequest = rejectPurchaseRequest)
+
+        return@withContext request<RejectPurchaseRequest, PurchaseRequestSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation rejectPurchaseRequest
+     *
+     * @param purchaseRequestId
+     * @param rejectPurchaseRequest
+     * @return RequestConfig
+     */
+    fun rejectPurchaseRequestRequestConfig(purchaseRequestId: java.util.UUID, rejectPurchaseRequest: RejectPurchaseRequest) : RequestConfig<RejectPurchaseRequest> {
+        val localVariableBody = rejectPurchaseRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/financial/purchase-requests/{purchaseRequestId}/reject".replace("{"+"purchaseRequestId"+"}", encodeURIComponent(purchaseRequestId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -2560,6 +3462,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/work-orders/{workOrderId}/target-change-requests".replace("{"+"workOrderId"+"}", encodeURIComponent(workOrderId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/financial/purchase-requests/{purchaseRequestId}/restart
+     * Restart a rejected purchase request with a replacement statement evidence record
+     *
+     * @param purchaseRequestId
+     * @param restartPurchaseRequest
+     * @return PurchaseRequestSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun restartPurchaseRequest(purchaseRequestId: java.util.UUID, restartPurchaseRequest: RestartPurchaseRequest) : PurchaseRequestSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = restartPurchaseRequestWithHttpInfo(purchaseRequestId = purchaseRequestId, restartPurchaseRequest = restartPurchaseRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PurchaseRequestSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/financial/purchase-requests/{purchaseRequestId}/restart
+     * Restart a rejected purchase request with a replacement statement evidence record
+     *
+     * @param purchaseRequestId
+     * @param restartPurchaseRequest
+     * @return ApiResponse<PurchaseRequestSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun restartPurchaseRequestWithHttpInfo(purchaseRequestId: java.util.UUID, restartPurchaseRequest: RestartPurchaseRequest) : ApiResponse<PurchaseRequestSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = restartPurchaseRequestRequestConfig(purchaseRequestId = purchaseRequestId, restartPurchaseRequest = restartPurchaseRequest)
+
+        return@withContext request<RestartPurchaseRequest, PurchaseRequestSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation restartPurchaseRequest
+     *
+     * @param purchaseRequestId
+     * @param restartPurchaseRequest
+     * @return RequestConfig
+     */
+    fun restartPurchaseRequestRequestConfig(purchaseRequestId: java.util.UUID, restartPurchaseRequest: RestartPurchaseRequest) : RequestConfig<RestartPurchaseRequest> {
+        val localVariableBody = restartPurchaseRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/financial/purchase-requests/{purchaseRequestId}/restart".replace("{"+"purchaseRequestId"+"}", encodeURIComponent(purchaseRequestId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -2946,6 +3925,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/work-orders/{workOrderId}/start".replace("{"+"workOrderId"+"}", encodeURIComponent(workOrderId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/financial/purchase-requests/{purchaseRequestId}/submit
+     * Submit a statement-attached purchase request for admin approval
+     *
+     * @param purchaseRequestId
+     * @return PurchaseRequestSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun submitPurchaseRequest(purchaseRequestId: java.util.UUID) : PurchaseRequestSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = submitPurchaseRequestWithHttpInfo(purchaseRequestId = purchaseRequestId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PurchaseRequestSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/financial/purchase-requests/{purchaseRequestId}/submit
+     * Submit a statement-attached purchase request for admin approval
+     *
+     * @param purchaseRequestId
+     * @return ApiResponse<PurchaseRequestSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun submitPurchaseRequestWithHttpInfo(purchaseRequestId: java.util.UUID) : ApiResponse<PurchaseRequestSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = submitPurchaseRequestRequestConfig(purchaseRequestId = purchaseRequestId)
+
+        return@withContext request<Unit, PurchaseRequestSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation submitPurchaseRequest
+     *
+     * @param purchaseRequestId
+     * @return RequestConfig
+     */
+    fun submitPurchaseRequestRequestConfig(purchaseRequestId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/financial/purchase-requests/{purchaseRequestId}/submit".replace("{"+"purchaseRequestId"+"}", encodeURIComponent(purchaseRequestId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
