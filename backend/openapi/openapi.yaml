@@ -508,6 +508,125 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+  /api/v1/inspections/schedules:
+    get:
+      operationId: listInspectionSchedules
+      summary: List branch-scoped regular inspection schedules
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: due_start
+        in: query
+        required: true
+        schema:
+          $ref: '#/components/schemas/Date'
+      - name: due_end
+        in: query
+        required: true
+        schema:
+          $ref: '#/components/schemas/Date'
+      responses:
+        '200':
+          description: Inspection schedules due in the requested date range.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InspectionScheduleSummary'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+    post:
+      operationId: createInspectionSchedule
+      summary: Create a regular inspection schedule
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInspectionScheduleRequest'
+      responses:
+        '201':
+          description: Inspection schedule created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InspectionScheduleSummary'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/inspections/schedules/{schedule_id}/rounds:
+    post:
+      operationId: completeInspectionRound
+      summary: Complete a scheduled regular inspection round
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: schedule_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteInspectionRoundRequest'
+      responses:
+        '201':
+          description: Inspection round completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InspectionRoundSummary'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
   /api/v1/equipment/lookup:
     get:
       operationId: lookupEquipment
@@ -1470,9 +1589,8 @@ paths:
     get:
       operationId: getDailyStatusExport
       summary: Export the daily work-progress status workbook
-      description: Fills the real 일일업무진행현황 Excel template from live work-order and daily-plan data for
-        the requested date. Inspection rows are omitted with source notes until the inspection schedule
-        source tables merge.
+      description: Fills the real 일일업무진행현황 Excel template from live work-order, daily-plan, and
+        regular-inspection schedule data for the requested date.
       security:
       - bearerAuth: []
       parameters:
@@ -1830,6 +1948,26 @@ components:
       - APPROVED
       - REJECTED
       - FINAL_CONFIRMED
+    InspectionCycle:
+      type: string
+      enum:
+      - DAILY
+      - WEEKLY
+      - MONTHLY
+      - QUARTERLY
+      - YEARLY
+      - CUSTOM
+    InspectionScheduleStatus:
+      type: string
+      enum:
+      - SCHEDULED
+      - COMPLETED
+      - CANCELLED
+    InspectionRoundOutcome:
+      type: string
+      enum:
+      - COMPLETED
+      - FOLLOW_UP_REQUIRED
     TargetChangeDecision:
       type: string
       enum:
@@ -1918,6 +2056,9 @@ components:
       - revisit_rate_bps
       - delay_rate_bps
       - delay_reason_distribution
+      - inspection_schedule_due_count
+      - inspection_schedule_completed_count
+      - inspection_plan_completion_bps
       properties:
         scope:
           $ref: '#/components/schemas/KpiRollupScope'
@@ -1968,6 +2109,21 @@ components:
             type: integer
             format: int32
             minimum: 0
+        inspection_schedule_due_count:
+          type: integer
+          format: int32
+          minimum: 0
+        inspection_schedule_completed_count:
+          type: integer
+          format: int32
+          minimum: 0
+        inspection_plan_completion_bps:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          minimum: 0
+          maximum: 10000
     UnavailableMetric:
       type: object
       required:
@@ -2107,6 +2263,54 @@ components:
         memo:
           type: string
           minLength: 1
+    CreateInspectionScheduleRequest:
+      type: object
+      required:
+      - branch_id
+      - equipment_id
+      - mechanic_id
+      - cycle
+      - interval_days
+      - due_date
+      properties:
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        equipment_id:
+          $ref: '#/components/schemas/Uuid'
+        mechanic_id:
+          $ref: '#/components/schemas/Uuid'
+        cycle:
+          $ref: '#/components/schemas/InspectionCycle'
+        interval_days:
+          type: integer
+          format: int32
+          minimum: 1
+        due_date:
+          $ref: '#/components/schemas/Date'
+        note:
+          type:
+          - string
+          - 'null'
+    CompleteInspectionRoundRequest:
+      type: object
+      required:
+      - outcome
+      - findings
+      properties:
+        outcome:
+          $ref: '#/components/schemas/InspectionRoundOutcome'
+        completed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        findings:
+          type: string
+          minLength: 1
+        note:
+          type:
+          - string
+          - 'null'
     NamedEntity:
       type: object
       required:
@@ -2184,6 +2388,102 @@ components:
           $ref: '#/components/schemas/NamedEntity'
         site:
           $ref: '#/components/schemas/NamedEntity'
+    InspectionScheduleSummary:
+      type: object
+      required:
+      - id
+      - branch_id
+      - equipment_id
+      - mechanic_id
+      - cycle
+      - interval_days
+      - due_date
+      - status
+      - completed_at
+      - note
+      - site_name
+      - management_no
+      - model
+      - created_at
+      - updated_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        equipment_id:
+          $ref: '#/components/schemas/Uuid'
+        mechanic_id:
+          $ref: '#/components/schemas/Uuid'
+        cycle:
+          $ref: '#/components/schemas/InspectionCycle'
+        interval_days:
+          type: integer
+          format: int32
+          minimum: 1
+        due_date:
+          $ref: '#/components/schemas/Date'
+        status:
+          $ref: '#/components/schemas/InspectionScheduleStatus'
+        completed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        note:
+          type:
+          - string
+          - 'null'
+        site_name:
+          type: string
+        management_no:
+          type:
+          - string
+          - 'null'
+        model:
+          type:
+          - string
+          - 'null'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    InspectionRoundSummary:
+      type: object
+      required:
+      - id
+      - schedule_id
+      - branch_id
+      - equipment_id
+      - mechanic_id
+      - completed_by
+      - outcome
+      - findings
+      - note
+      - completed_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        schedule_id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        equipment_id:
+          $ref: '#/components/schemas/Uuid'
+        mechanic_id:
+          $ref: '#/components/schemas/Uuid'
+        completed_by:
+          $ref: '#/components/schemas/Uuid'
+        outcome:
+          $ref: '#/components/schemas/InspectionRoundOutcome'
+        findings:
+          type: string
+        note:
+          type:
+          - string
+          - 'null'
+        completed_at:
+          $ref: '#/components/schemas/Timestamp'
     EquipmentAutocompletePage:
       type: object
       required:

@@ -123,6 +123,21 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/work-orders/{workOrderId}/reject`.
     /// - Remark: Generated from `#/paths//api/v1/work-orders/{workOrderId}/reject/post(rejectWorkOrder)`.
     func rejectWorkOrder(_ input: Operations.RejectWorkOrder.Input) async throws -> Operations.RejectWorkOrder.Output
+    /// List branch-scoped regular inspection schedules
+    ///
+    /// - Remark: HTTP `GET /api/v1/inspections/schedules`.
+    /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/get(listInspectionSchedules)`.
+    func listInspectionSchedules(_ input: Operations.ListInspectionSchedules.Input) async throws -> Operations.ListInspectionSchedules.Output
+    /// Create a regular inspection schedule
+    ///
+    /// - Remark: HTTP `POST /api/v1/inspections/schedules`.
+    /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/post(createInspectionSchedule)`.
+    func createInspectionSchedule(_ input: Operations.CreateInspectionSchedule.Input) async throws -> Operations.CreateInspectionSchedule.Output
+    /// Complete a scheduled regular inspection round
+    ///
+    /// - Remark: HTTP `POST /api/v1/inspections/schedules/{schedule_id}/rounds`.
+    /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/{schedule_id}/rounds/post(completeInspectionRound)`.
+    func completeInspectionRound(_ input: Operations.CompleteInspectionRound.Input) async throws -> Operations.CompleteInspectionRound.Output
     /// Resolve branch-scoped equipment by management number
     ///
     /// - Remark: HTTP `GET /api/v1/equipment/lookup`.
@@ -320,7 +335,7 @@ public protocol APIProtocol: Sendable {
     func forceAssignP1Dispatch(_ input: Operations.ForceAssignP1Dispatch.Input) async throws -> Operations.ForceAssignP1Dispatch.Output
     /// Export the daily work-progress status workbook
     ///
-    /// Fills the real 일일업무진행현황 Excel template from live work-order and daily-plan data for the requested date. Inspection rows are omitted with source notes until the inspection schedule source tables merge.
+    /// Fills the real 일일업무진행현황 Excel template from live work-order, daily-plan, and regular-inspection schedule data for the requested date.
     ///
     /// - Remark: HTTP `GET /api/v1/exports/daily-status`.
     /// - Remark: Generated from `#/paths//api/v1/exports/daily-status/get(getDailyStatusExport)`.
@@ -630,6 +645,47 @@ extension APIProtocol {
         body: Operations.RejectWorkOrder.Input.Body
     ) async throws -> Operations.RejectWorkOrder.Output {
         try await rejectWorkOrder(Operations.RejectWorkOrder.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// List branch-scoped regular inspection schedules
+    ///
+    /// - Remark: HTTP `GET /api/v1/inspections/schedules`.
+    /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/get(listInspectionSchedules)`.
+    public func listInspectionSchedules(
+        query: Operations.ListInspectionSchedules.Input.Query,
+        headers: Operations.ListInspectionSchedules.Input.Headers = .init()
+    ) async throws -> Operations.ListInspectionSchedules.Output {
+        try await listInspectionSchedules(Operations.ListInspectionSchedules.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Create a regular inspection schedule
+    ///
+    /// - Remark: HTTP `POST /api/v1/inspections/schedules`.
+    /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/post(createInspectionSchedule)`.
+    public func createInspectionSchedule(
+        headers: Operations.CreateInspectionSchedule.Input.Headers = .init(),
+        body: Operations.CreateInspectionSchedule.Input.Body
+    ) async throws -> Operations.CreateInspectionSchedule.Output {
+        try await createInspectionSchedule(Operations.CreateInspectionSchedule.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Complete a scheduled regular inspection round
+    ///
+    /// - Remark: HTTP `POST /api/v1/inspections/schedules/{schedule_id}/rounds`.
+    /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/{schedule_id}/rounds/post(completeInspectionRound)`.
+    public func completeInspectionRound(
+        path: Operations.CompleteInspectionRound.Input.Path,
+        headers: Operations.CompleteInspectionRound.Input.Headers = .init(),
+        body: Operations.CompleteInspectionRound.Input.Body
+    ) async throws -> Operations.CompleteInspectionRound.Output {
+        try await completeInspectionRound(Operations.CompleteInspectionRound.Input(
             path: path,
             headers: headers,
             body: body
@@ -1150,7 +1206,7 @@ extension APIProtocol {
     }
     /// Export the daily work-progress status workbook
     ///
-    /// Fills the real 일일업무진행현황 Excel template from live work-order and daily-plan data for the requested date. Inspection rows are omitted with source notes until the inspection schedule source tables merge.
+    /// Fills the real 일일업무진행현황 Excel template from live work-order, daily-plan, and regular-inspection schedule data for the requested date.
     ///
     /// - Remark: HTTP `GET /api/v1/exports/daily-status`.
     /// - Remark: Generated from `#/paths//api/v1/exports/daily-status/get(getDailyStatusExport)`.
@@ -1311,6 +1367,26 @@ public enum Components {
             case approved = "APPROVED"
             case rejected = "REJECTED"
             case finalConfirmed = "FINAL_CONFIRMED"
+        }
+        /// - Remark: Generated from `#/components/schemas/InspectionCycle`.
+        @frozen public enum InspectionCycle: String, Codable, Hashable, Sendable, CaseIterable {
+            case daily = "DAILY"
+            case weekly = "WEEKLY"
+            case monthly = "MONTHLY"
+            case quarterly = "QUARTERLY"
+            case yearly = "YEARLY"
+            case custom = "CUSTOM"
+        }
+        /// - Remark: Generated from `#/components/schemas/InspectionScheduleStatus`.
+        @frozen public enum InspectionScheduleStatus: String, Codable, Hashable, Sendable, CaseIterable {
+            case scheduled = "SCHEDULED"
+            case completed = "COMPLETED"
+            case cancelled = "CANCELLED"
+        }
+        /// - Remark: Generated from `#/components/schemas/InspectionRoundOutcome`.
+        @frozen public enum InspectionRoundOutcome: String, Codable, Hashable, Sendable, CaseIterable {
+            case completed = "COMPLETED"
+            case followUpRequired = "FOLLOW_UP_REQUIRED"
         }
         /// - Remark: Generated from `#/components/schemas/TargetChangeDecision`.
         @frozen public enum TargetChangeDecision: String, Codable, Hashable, Sendable, CaseIterable {
@@ -1489,6 +1565,12 @@ public enum Components {
             }
             /// - Remark: Generated from `#/components/schemas/KpiRollup/delay_reason_distribution`.
             public var delayReasonDistribution: Components.Schemas.KpiRollup.DelayReasonDistributionPayload
+            /// - Remark: Generated from `#/components/schemas/KpiRollup/inspection_schedule_due_count`.
+            public var inspectionScheduleDueCount: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/KpiRollup/inspection_schedule_completed_count`.
+            public var inspectionScheduleCompletedCount: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/KpiRollup/inspection_plan_completion_bps`.
+            public var inspectionPlanCompletionBps: Swift.Int32?
             /// Creates a new `KpiRollup`.
             ///
             /// - Parameters:
@@ -1502,6 +1584,9 @@ public enum Components {
             ///   - revisitRateBps:
             ///   - delayRateBps:
             ///   - delayReasonDistribution:
+            ///   - inspectionScheduleDueCount:
+            ///   - inspectionScheduleCompletedCount:
+            ///   - inspectionPlanCompletionBps:
             public init(
                 scope: Components.Schemas.KpiRollupScope,
                 approvedReportCount: Swift.Int32,
@@ -1512,7 +1597,10 @@ public enum Components {
                 targetDueComplianceBps: Swift.Int32? = nil,
                 revisitRateBps: Swift.Int32,
                 delayRateBps: Swift.Int32,
-                delayReasonDistribution: Components.Schemas.KpiRollup.DelayReasonDistributionPayload
+                delayReasonDistribution: Components.Schemas.KpiRollup.DelayReasonDistributionPayload,
+                inspectionScheduleDueCount: Swift.Int32,
+                inspectionScheduleCompletedCount: Swift.Int32,
+                inspectionPlanCompletionBps: Swift.Int32? = nil
             ) {
                 self.scope = scope
                 self.approvedReportCount = approvedReportCount
@@ -1524,6 +1612,9 @@ public enum Components {
                 self.revisitRateBps = revisitRateBps
                 self.delayRateBps = delayRateBps
                 self.delayReasonDistribution = delayReasonDistribution
+                self.inspectionScheduleDueCount = inspectionScheduleDueCount
+                self.inspectionScheduleCompletedCount = inspectionScheduleCompletedCount
+                self.inspectionPlanCompletionBps = inspectionPlanCompletionBps
             }
             public enum CodingKeys: String, CodingKey {
                 case scope
@@ -1536,6 +1627,9 @@ public enum Components {
                 case revisitRateBps = "revisit_rate_bps"
                 case delayRateBps = "delay_rate_bps"
                 case delayReasonDistribution = "delay_reason_distribution"
+                case inspectionScheduleDueCount = "inspection_schedule_due_count"
+                case inspectionScheduleCompletedCount = "inspection_schedule_completed_count"
+                case inspectionPlanCompletionBps = "inspection_plan_completion_bps"
             }
         }
         /// - Remark: Generated from `#/components/schemas/UnavailableMetric`.
@@ -1864,6 +1958,94 @@ public enum Components {
                 case memo
             }
         }
+        /// - Remark: Generated from `#/components/schemas/CreateInspectionScheduleRequest`.
+        public struct CreateInspectionScheduleRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CreateInspectionScheduleRequest/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CreateInspectionScheduleRequest/equipment_id`.
+            public var equipmentId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CreateInspectionScheduleRequest/mechanic_id`.
+            public var mechanicId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CreateInspectionScheduleRequest/cycle`.
+            public var cycle: Components.Schemas.InspectionCycle
+            /// - Remark: Generated from `#/components/schemas/CreateInspectionScheduleRequest/interval_days`.
+            public var intervalDays: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/CreateInspectionScheduleRequest/due_date`.
+            public var dueDate: Components.Schemas.Date
+            /// - Remark: Generated from `#/components/schemas/CreateInspectionScheduleRequest/note`.
+            public var note: Swift.String?
+            /// Creates a new `CreateInspectionScheduleRequest`.
+            ///
+            /// - Parameters:
+            ///   - branchId:
+            ///   - equipmentId:
+            ///   - mechanicId:
+            ///   - cycle:
+            ///   - intervalDays:
+            ///   - dueDate:
+            ///   - note:
+            public init(
+                branchId: Components.Schemas.Uuid,
+                equipmentId: Components.Schemas.Uuid,
+                mechanicId: Components.Schemas.Uuid,
+                cycle: Components.Schemas.InspectionCycle,
+                intervalDays: Swift.Int32,
+                dueDate: Components.Schemas.Date,
+                note: Swift.String? = nil
+            ) {
+                self.branchId = branchId
+                self.equipmentId = equipmentId
+                self.mechanicId = mechanicId
+                self.cycle = cycle
+                self.intervalDays = intervalDays
+                self.dueDate = dueDate
+                self.note = note
+            }
+            public enum CodingKeys: String, CodingKey {
+                case branchId = "branch_id"
+                case equipmentId = "equipment_id"
+                case mechanicId = "mechanic_id"
+                case cycle
+                case intervalDays = "interval_days"
+                case dueDate = "due_date"
+                case note
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CompleteInspectionRoundRequest`.
+        public struct CompleteInspectionRoundRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CompleteInspectionRoundRequest/outcome`.
+            public var outcome: Components.Schemas.InspectionRoundOutcome
+            /// - Remark: Generated from `#/components/schemas/CompleteInspectionRoundRequest/completed_at`.
+            public var completedAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/CompleteInspectionRoundRequest/findings`.
+            public var findings: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CompleteInspectionRoundRequest/note`.
+            public var note: Swift.String?
+            /// Creates a new `CompleteInspectionRoundRequest`.
+            ///
+            /// - Parameters:
+            ///   - outcome:
+            ///   - completedAt:
+            ///   - findings:
+            ///   - note:
+            public init(
+                outcome: Components.Schemas.InspectionRoundOutcome,
+                completedAt: Foundation.Date? = nil,
+                findings: Swift.String,
+                note: Swift.String? = nil
+            ) {
+                self.outcome = outcome
+                self.completedAt = completedAt
+                self.findings = findings
+                self.note = note
+            }
+            public enum CodingKeys: String, CodingKey {
+                case outcome
+                case completedAt = "completed_at"
+                case findings
+                case note
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/NamedEntity`.
         public struct NamedEntity: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/NamedEntity/id`.
@@ -2009,6 +2191,178 @@ public enum Components {
                 case tonText = "ton_text"
                 case customer
                 case site
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary`.
+        public struct InspectionScheduleSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary/equipment_id`.
+            public var equipmentId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary/mechanic_id`.
+            public var mechanicId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary/cycle`.
+            public var cycle: Components.Schemas.InspectionCycle
+            /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary/interval_days`.
+            public var intervalDays: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary/due_date`.
+            public var dueDate: Components.Schemas.Date
+            /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary/status`.
+            public var status: Components.Schemas.InspectionScheduleStatus
+            /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary/completed_at`.
+            public var completedAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary/note`.
+            public var note: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary/site_name`.
+            public var siteName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary/management_no`.
+            public var managementNo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary/model`.
+            public var model: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary/updated_at`.
+            public var updatedAt: Components.Schemas.Timestamp
+            /// Creates a new `InspectionScheduleSummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - branchId:
+            ///   - equipmentId:
+            ///   - mechanicId:
+            ///   - cycle:
+            ///   - intervalDays:
+            ///   - dueDate:
+            ///   - status:
+            ///   - completedAt:
+            ///   - note:
+            ///   - siteName:
+            ///   - managementNo:
+            ///   - model:
+            ///   - createdAt:
+            ///   - updatedAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid,
+                equipmentId: Components.Schemas.Uuid,
+                mechanicId: Components.Schemas.Uuid,
+                cycle: Components.Schemas.InspectionCycle,
+                intervalDays: Swift.Int32,
+                dueDate: Components.Schemas.Date,
+                status: Components.Schemas.InspectionScheduleStatus,
+                completedAt: Foundation.Date? = nil,
+                note: Swift.String? = nil,
+                siteName: Swift.String,
+                managementNo: Swift.String? = nil,
+                model: Swift.String? = nil,
+                createdAt: Components.Schemas.Timestamp,
+                updatedAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.branchId = branchId
+                self.equipmentId = equipmentId
+                self.mechanicId = mechanicId
+                self.cycle = cycle
+                self.intervalDays = intervalDays
+                self.dueDate = dueDate
+                self.status = status
+                self.completedAt = completedAt
+                self.note = note
+                self.siteName = siteName
+                self.managementNo = managementNo
+                self.model = model
+                self.createdAt = createdAt
+                self.updatedAt = updatedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case branchId = "branch_id"
+                case equipmentId = "equipment_id"
+                case mechanicId = "mechanic_id"
+                case cycle
+                case intervalDays = "interval_days"
+                case dueDate = "due_date"
+                case status
+                case completedAt = "completed_at"
+                case note
+                case siteName = "site_name"
+                case managementNo = "management_no"
+                case model
+                case createdAt = "created_at"
+                case updatedAt = "updated_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/InspectionRoundSummary`.
+        public struct InspectionRoundSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/InspectionRoundSummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/InspectionRoundSummary/schedule_id`.
+            public var scheduleId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/InspectionRoundSummary/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/InspectionRoundSummary/equipment_id`.
+            public var equipmentId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/InspectionRoundSummary/mechanic_id`.
+            public var mechanicId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/InspectionRoundSummary/completed_by`.
+            public var completedBy: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/InspectionRoundSummary/outcome`.
+            public var outcome: Components.Schemas.InspectionRoundOutcome
+            /// - Remark: Generated from `#/components/schemas/InspectionRoundSummary/findings`.
+            public var findings: Swift.String
+            /// - Remark: Generated from `#/components/schemas/InspectionRoundSummary/note`.
+            public var note: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/InspectionRoundSummary/completed_at`.
+            public var completedAt: Components.Schemas.Timestamp
+            /// Creates a new `InspectionRoundSummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - scheduleId:
+            ///   - branchId:
+            ///   - equipmentId:
+            ///   - mechanicId:
+            ///   - completedBy:
+            ///   - outcome:
+            ///   - findings:
+            ///   - note:
+            ///   - completedAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                scheduleId: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid,
+                equipmentId: Components.Schemas.Uuid,
+                mechanicId: Components.Schemas.Uuid,
+                completedBy: Components.Schemas.Uuid,
+                outcome: Components.Schemas.InspectionRoundOutcome,
+                findings: Swift.String,
+                note: Swift.String? = nil,
+                completedAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.scheduleId = scheduleId
+                self.branchId = branchId
+                self.equipmentId = equipmentId
+                self.mechanicId = mechanicId
+                self.completedBy = completedBy
+                self.outcome = outcome
+                self.findings = findings
+                self.note = note
+                self.completedAt = completedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case scheduleId = "schedule_id"
+                case branchId = "branch_id"
+                case equipmentId = "equipment_id"
+                case mechanicId = "mechanic_id"
+                case completedBy = "completed_by"
+                case outcome
+                case findings
+                case note
+                case completedAt = "completed_at"
             }
         }
         /// - Remark: Generated from `#/components/schemas/EquipmentAutocompletePage`.
@@ -4696,6 +5050,12 @@ public enum Components {
             public var autoAssignedMechanicId: Components.Schemas.Uuid?
             /// - Remark: Generated from `#/components/schemas/P1DispatchSummary/manager_force_pending_at`.
             public var managerForcePendingAt: Components.Schemas.Timestamp?
+            /// - Remark: Generated from `#/components/schemas/P1DispatchSummary/manual_call_required`.
+            public var manualCallRequired: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/P1DispatchSummary/manual_call_required_at`.
+            public var manualCallRequiredAt: Components.Schemas.Timestamp?
+            /// - Remark: Generated from `#/components/schemas/P1DispatchSummary/manual_call_cleared_at`.
+            public var manualCallClearedAt: Components.Schemas.Timestamp?
             /// - Remark: Generated from `#/components/schemas/P1DispatchSummary/target_count`.
             public var targetCount: Swift.Int64
             /// - Remark: Generated from `#/components/schemas/P1DispatchSummary/accepted_count`.
@@ -4714,6 +5074,9 @@ public enum Components {
             ///   - acceptWindowEndsAt:
             ///   - autoAssignedMechanicId:
             ///   - managerForcePendingAt:
+            ///   - manualCallRequired:
+            ///   - manualCallRequiredAt:
+            ///   - manualCallClearedAt:
             ///   - targetCount:
             ///   - acceptedCount:
             ///   - declinedCount:
@@ -4727,6 +5090,9 @@ public enum Components {
                 acceptWindowEndsAt: Components.Schemas.Timestamp,
                 autoAssignedMechanicId: Components.Schemas.Uuid? = nil,
                 managerForcePendingAt: Components.Schemas.Timestamp? = nil,
+                manualCallRequired: Swift.Bool,
+                manualCallRequiredAt: Components.Schemas.Timestamp? = nil,
+                manualCallClearedAt: Components.Schemas.Timestamp? = nil,
                 targetCount: Swift.Int64,
                 acceptedCount: Swift.Int64,
                 declinedCount: Swift.Int64
@@ -4740,6 +5106,9 @@ public enum Components {
                 self.acceptWindowEndsAt = acceptWindowEndsAt
                 self.autoAssignedMechanicId = autoAssignedMechanicId
                 self.managerForcePendingAt = managerForcePendingAt
+                self.manualCallRequired = manualCallRequired
+                self.manualCallRequiredAt = manualCallRequiredAt
+                self.manualCallClearedAt = manualCallClearedAt
                 self.targetCount = targetCount
                 self.acceptedCount = acceptedCount
                 self.declinedCount = declinedCount
@@ -4754,6 +5123,9 @@ public enum Components {
                 case acceptWindowEndsAt = "accept_window_ends_at"
                 case autoAssignedMechanicId = "auto_assigned_mechanic_id"
                 case managerForcePendingAt = "manager_force_pending_at"
+                case manualCallRequired = "manual_call_required"
+                case manualCallRequiredAt = "manual_call_required_at"
+                case manualCallClearedAt = "manual_call_cleared_at"
                 case targetCount = "target_count"
                 case acceptedCount = "accepted_count"
                 case declinedCount = "declined_count"
@@ -8323,6 +8695,920 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List branch-scoped regular inspection schedules
+    ///
+    /// - Remark: HTTP `GET /api/v1/inspections/schedules`.
+    /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/get(listInspectionSchedules)`.
+    public enum ListInspectionSchedules {
+        public static let id: Swift.String = "listInspectionSchedules"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/GET/query/due_start`.
+                public var dueStart: Components.Schemas.Date
+                /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/GET/query/due_end`.
+                public var dueEnd: Components.Schemas.Date
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - dueStart:
+                ///   - dueEnd:
+                public init(
+                    dueStart: Components.Schemas.Date,
+                    dueEnd: Components.Schemas.Date
+                ) {
+                    self.dueStart = dueStart
+                    self.dueEnd = dueEnd
+                }
+            }
+            public var query: Operations.ListInspectionSchedules.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListInspectionSchedules.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListInspectionSchedules.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListInspectionSchedules.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListInspectionSchedules.Input.Query,
+                headers: Operations.ListInspectionSchedules.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/GET/responses/200/content/application\/json`.
+                    case json([Components.Schemas.InspectionScheduleSummary])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.InspectionScheduleSummary] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListInspectionSchedules.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListInspectionSchedules.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Inspection schedules due in the requested date range.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/get(listInspectionSchedules)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListInspectionSchedules.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListInspectionSchedules.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/get(listInspectionSchedules)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/get(listInspectionSchedules)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/get(listInspectionSchedules)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/get(listInspectionSchedules)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListInspectionSchedules.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListInspectionSchedules.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/get(listInspectionSchedules)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ListInspectionSchedules.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ListInspectionSchedules.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Create a regular inspection schedule
+    ///
+    /// - Remark: HTTP `POST /api/v1/inspections/schedules`.
+    /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/post(createInspectionSchedule)`.
+    public enum CreateInspectionSchedule {
+        public static let id: Swift.String = "createInspectionSchedule"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateInspectionSchedule.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateInspectionSchedule.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CreateInspectionSchedule.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.CreateInspectionScheduleRequest)
+            }
+            public var body: Operations.CreateInspectionSchedule.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.CreateInspectionSchedule.Input.Headers = .init(),
+                body: Operations.CreateInspectionSchedule.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.InspectionScheduleSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.InspectionScheduleSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreateInspectionSchedule.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreateInspectionSchedule.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Inspection schedule created.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/post(createInspectionSchedule)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.CreateInspectionSchedule.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.CreateInspectionSchedule.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/post(createInspectionSchedule)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/post(createInspectionSchedule)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/post(createInspectionSchedule)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/post(createInspectionSchedule)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/post(createInspectionSchedule)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/post(createInspectionSchedule)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreateInspectionSchedule.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreateInspectionSchedule.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/post(createInspectionSchedule)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.CreateInspectionSchedule.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.CreateInspectionSchedule.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Complete a scheduled regular inspection round
+    ///
+    /// - Remark: HTTP `POST /api/v1/inspections/schedules/{schedule_id}/rounds`.
+    /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/{schedule_id}/rounds/post(completeInspectionRound)`.
+    public enum CompleteInspectionRound {
+        public static let id: Swift.String = "completeInspectionRound"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/{schedule_id}/rounds/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/{schedule_id}/rounds/POST/path/schedule_id`.
+                public var scheduleId: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - scheduleId:
+                public init(scheduleId: Components.Schemas.Uuid) {
+                    self.scheduleId = scheduleId
+                }
+            }
+            public var path: Operations.CompleteInspectionRound.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/{schedule_id}/rounds/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CompleteInspectionRound.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CompleteInspectionRound.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CompleteInspectionRound.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/{schedule_id}/rounds/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/{schedule_id}/rounds/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.CompleteInspectionRoundRequest)
+            }
+            public var body: Operations.CompleteInspectionRound.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.CompleteInspectionRound.Input.Path,
+                headers: Operations.CompleteInspectionRound.Input.Headers = .init(),
+                body: Operations.CompleteInspectionRound.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/{schedule_id}/rounds/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/{schedule_id}/rounds/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.InspectionRoundSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.InspectionRoundSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CompleteInspectionRound.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CompleteInspectionRound.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Inspection round completed.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/{schedule_id}/rounds/post(completeInspectionRound)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.CompleteInspectionRound.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.CompleteInspectionRound.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/{schedule_id}/rounds/post(completeInspectionRound)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/{schedule_id}/rounds/post(completeInspectionRound)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/{schedule_id}/rounds/post(completeInspectionRound)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/{schedule_id}/rounds/post(completeInspectionRound)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/{schedule_id}/rounds/post(completeInspectionRound)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/{schedule_id}/rounds/post(completeInspectionRound)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/{schedule_id}/rounds/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/{schedule_id}/rounds/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CompleteInspectionRound.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CompleteInspectionRound.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/{schedule_id}/rounds/post(completeInspectionRound)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.CompleteInspectionRound.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.CompleteInspectionRound.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
                             response: self
                         )
                     }
@@ -15851,7 +17137,7 @@ public enum Operations {
     }
     /// Export the daily work-progress status workbook
     ///
-    /// Fills the real 일일업무진행현황 Excel template from live work-order and daily-plan data for the requested date. Inspection rows are omitted with source notes until the inspection schedule source tables merge.
+    /// Fills the real 일일업무진행현황 Excel template from live work-order, daily-plan, and regular-inspection schedule data for the requested date.
     ///
     /// - Remark: HTTP `GET /api/v1/exports/daily-status`.
     /// - Remark: Generated from `#/paths//api/v1/exports/daily-status/get(getDailyStatusExport)`.

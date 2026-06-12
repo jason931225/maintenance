@@ -18,9 +18,9 @@ use mnt_reporting_application::{
     WorkDiaryQuery, WorkDiaryUpdateCommand,
 };
 use mnt_reporting_domain::{
-    DailyStatusReport, DailyStatusRow, ExportSourceNote, KpiInputRecord, KpiMetric, KpiReport,
-    KpiScope, PeriodicInspectionRow, UnavailableMetric, WorkDiaryActionEntry, WorkDiaryBody,
-    WorkDiaryDraft, WorkDiaryStatus, calculate_kpi_report,
+    DailyStatusReport, DailyStatusRow, ExportSourceNote, KpiInputRecord, KpiInspectionRecord,
+    KpiMetric, KpiReport, KpiScope, PeriodicInspectionRow, UnavailableMetric, WorkDiaryActionEntry,
+    WorkDiaryBody, WorkDiaryDraft, WorkDiaryStatus, calculate_kpi_report,
 };
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use time::{Date, Duration, OffsetDateTime, Time};
@@ -98,11 +98,13 @@ impl PgKpiRepository {
         }
 
         let records = self.load_work_order_records(&query).await?;
+        let inspection_records = self.load_inspection_records(&query).await?;
         let unavailable_metrics = self.unavailable_source_metrics().await?;
         Ok(calculate_kpi_report(
             query.period,
             query.scope,
             &records,
+            &inspection_records,
             unavailable_metrics,
         ))
     }
@@ -200,14 +202,15 @@ impl PgKpiRepository {
     async fn unavailable_source_metrics(&self) -> Result<Vec<UnavailableMetric>, KpiQueryError> {
         let mut unavailable = Vec::new();
         if !self
-            .has_any_table(&["regular_inspection_schedules", "inspection_schedules"])
+            .has_any_table(&["regular_inspection_schedules"])
             .await?
         {
             unavailable.push(UnavailableMetric {
                 metric: KpiMetric::InspectionPlanCompletionRate,
                 source_domain: "inspection".to_owned(),
-                reason: "regular inspection schedule source tables are not present in this migration set; T6.4 has not merged"
-                    .to_owned(),
+                reason:
+                    "regular inspection schedule source tables are not present in this database"
+                        .to_owned(),
             });
         }
         if !self
@@ -227,6 +230,54 @@ impl PgKpiRepository {
             });
         }
         Ok(unavailable)
+    }
+
+    async fn load_inspection_records(
+        &self,
+        query: &KpiQuery,
+    ) -> Result<Vec<KpiInspectionRecord>, KpiQueryError> {
+        if !self
+            .has_any_table(&["regular_inspection_schedules"])
+            .await?
+        {
+            return Ok(Vec::new());
+        }
+
+        let mut builder = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT
+                s.id AS schedule_id,
+                s.branch_id,
+                b.region_id,
+                s.mechanic_id AS technician_id,
+                s.completed_at IS NOT NULL AND s.completed_at <
+            "#,
+        );
+        builder.push_bind(query.period.end);
+        builder.push(
+            r#" AS completed
+            FROM regular_inspection_schedules s
+            JOIN branches b ON b.id = s.branch_id
+            WHERE s.status <> 'CANCELLED'
+              AND s.due_date >=
+            "#,
+        );
+        builder.push_bind(query.period.start.date());
+        builder.push(" AND s.due_date < ");
+        builder.push_bind(query.period.end.date());
+        builder.push(" AND ");
+        push_branch_column_filter(&mut builder, &query.branch_scope, "s.branch_id");
+        push_requested_inspection_scope_filter(&mut builder, query.scope);
+        builder.push(" ORDER BY s.due_date, s.id");
+
+        let rows = builder
+            .build()
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|err| KpiQueryError::Database(err.to_string()))?;
+        rows.iter()
+            .map(inspection_record_from_row)
+            .collect::<Result<Vec<_>, _>>()
     }
 
     async fn has_any_table(&self, table_names: &[&str]) -> Result<bool, KpiQueryError> {
@@ -506,7 +557,9 @@ impl PgKpiRepository {
                 .await?,
             plans: self.load_plan_rows(query.date, &query.branch_scope).await?,
             pending_backlog: self.load_pending_rows(&query.branch_scope).await?,
-            periodic_inspections: Vec::new(),
+            periodic_inspections: self
+                .load_periodic_inspection_rows(query.date, &query.branch_scope)
+                .await?,
             source_notes,
         })
     }
@@ -787,16 +840,76 @@ impl PgKpiRepository {
         rows.iter().map(action_entry_from_row).collect()
     }
 
+    async fn load_periodic_inspection_rows(
+        &self,
+        date: Date,
+        branch_scope: &BranchScope,
+    ) -> Result<Vec<PeriodicInspectionRow>, PgReportingError> {
+        if !self
+            .has_any_table_reporting(&["regular_inspection_schedules"])
+            .await?
+        {
+            return Ok(Vec::new());
+        }
+
+        let mut builder = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT
+                site.name AS site_name,
+                e.vehicle_registration_no AS vehicle_no,
+                e.management_no,
+                e.model,
+                e.vin AS serial_no,
+                CASE
+                    WHEN s.status = 'COMPLETED' THEN COALESCE(r.findings, '정기검사 완료')
+                    ELSE '정기검사 예정'
+                END AS issue,
+                CONCAT(
+                    CASE s.cycle
+                        WHEN 'DAILY' THEN '일간'
+                        WHEN 'WEEKLY' THEN '주간'
+                        WHEN 'MONTHLY' THEN '월간'
+                        WHEN 'QUARTERLY' THEN '분기'
+                        WHEN 'YEARLY' THEN '연간'
+                        ELSE '사용자 지정'
+                    END,
+                    ' / ',
+                    s.due_date::TEXT
+                ) AS inspection_period,
+                COALESCE(r.note, s.note) AS note
+            FROM regular_inspection_schedules s
+            JOIN registry_equipment e ON e.id = s.equipment_id
+            JOIN registry_sites site ON site.id = e.site_id
+            LEFT JOIN LATERAL (
+                SELECT findings, note
+                FROM inspection_rounds
+                WHERE schedule_id = s.id
+                ORDER BY completed_at DESC, id DESC
+                LIMIT 1
+            ) r ON TRUE
+            WHERE s.status <> 'CANCELLED'
+              AND s.due_date =
+            "#,
+        );
+        builder.push_bind(date);
+        builder.push(" AND ");
+        push_branch_column_filter(&mut builder, branch_scope, "s.branch_id");
+        builder.push(" ORDER BY site.name, e.management_no, s.id");
+
+        let rows = builder.build().fetch_all(&self.pool).await?;
+        rows.iter().map(periodic_inspection_row_from_row).collect()
+    }
+
     async fn export_source_notes(&self) -> Result<Vec<ExportSourceNote>, PgReportingError> {
         if self
-            .has_any_table_reporting(&["regular_inspection_schedules", "inspection_schedules"])
+            .has_any_table_reporting(&["regular_inspection_schedules"])
             .await?
         {
             return Ok(Vec::new());
         }
         Ok(vec![ExportSourceNote {
             source_domain: "inspection".to_owned(),
-            reason: "regular inspection schedule source tables are not present in this migration set; T6.4 has not merged"
+            reason: "regular inspection schedule source tables are not present in this database"
                 .to_owned(),
         }])
     }
@@ -920,6 +1033,24 @@ fn push_requested_scope_filter(builder: &mut QueryBuilder<Postgres>, scope: KpiS
     }
 }
 
+fn push_requested_inspection_scope_filter(builder: &mut QueryBuilder<Postgres>, scope: KpiScope) {
+    match scope {
+        KpiScope::Company => {}
+        KpiScope::Region(region_id) => {
+            builder.push(" AND b.region_id = ");
+            builder.push_bind(*region_id.as_uuid());
+        }
+        KpiScope::Branch(branch_id) => {
+            builder.push(" AND s.branch_id = ");
+            builder.push_bind(*branch_id.as_uuid());
+        }
+        KpiScope::Technician(user_id) => {
+            builder.push(" AND s.mechanic_id = ");
+            builder.push_bind(*user_id.as_uuid());
+        }
+    }
+}
+
 fn record_from_row(row: &sqlx::postgres::PgRow) -> Result<KpiInputRecord, KpiQueryError> {
     let work_order_id = row
         .try_get::<uuid::Uuid, _>("work_order_id")
@@ -949,6 +1080,18 @@ fn record_from_row(row: &sqlx::postgres::PgRow) -> Result<KpiInputRecord, KpiQue
     })
 }
 
+fn inspection_record_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<KpiInspectionRecord, KpiQueryError> {
+    Ok(KpiInspectionRecord {
+        schedule_id: row.try_get("schedule_id").map_err(row_error)?,
+        branch_id: BranchId::from_uuid(row.try_get("branch_id").map_err(row_error)?),
+        region_id: RegionId::from_uuid(row.try_get("region_id").map_err(row_error)?),
+        technician_id: UserId::from_uuid(row.try_get("technician_id").map_err(row_error)?),
+        completed: row.try_get("completed").map_err(row_error)?,
+    })
+}
+
 fn row_error(error: sqlx::Error) -> KpiQueryError {
     KpiQueryError::Database(error.to_string())
 }
@@ -974,6 +1117,21 @@ fn daily_status_row_from_row(
         result_note: row.try_get("result_note")?,
         priority: row.try_get("priority")?,
         status: row.try_get("status")?,
+    })
+}
+
+fn periodic_inspection_row_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<PeriodicInspectionRow, PgReportingError> {
+    Ok(PeriodicInspectionRow {
+        site_name: row.try_get("site_name")?,
+        vehicle_no: row.try_get("vehicle_no")?,
+        management_no: row.try_get("management_no")?,
+        model: row.try_get("model")?,
+        serial_no: row.try_get("serial_no")?,
+        issue: row.try_get("issue")?,
+        inspection_period: row.try_get("inspection_period")?,
+        note: row.try_get("note")?,
     })
 }
 

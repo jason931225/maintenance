@@ -42,6 +42,9 @@ import kotlinx.serialization.Contextual
  * @param revisitRateBps
  * @param delayRateBps
  * @param delayReasonDistribution
+ * @param inspectionScheduleDueCount
+ * @param inspectionScheduleCompletedCount
+ * @param inspectionPlanCompletionBps
  */
 @Serializable
 
@@ -75,7 +78,16 @@ data class KpiRollup (
     val delayRateBps: kotlin.Int,
 
     @SerialName(value = "delay_reason_distribution")
-    val delayReasonDistribution: kotlin.collections.Map<kotlin.String, kotlin.Int>
+    val delayReasonDistribution: kotlin.collections.Map<kotlin.String, kotlin.Int>,
+
+    @SerialName(value = "inspection_schedule_due_count")
+    val inspectionScheduleDueCount: kotlin.Int,
+
+    @SerialName(value = "inspection_schedule_completed_count")
+    val inspectionScheduleCompletedCount: kotlin.Int,
+
+    @SerialName(value = "inspection_plan_completion_bps")
+    val inspectionPlanCompletionBps: kotlin.Int?
 
 ) {
 

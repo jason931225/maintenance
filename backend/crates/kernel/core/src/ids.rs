@@ -91,6 +91,8 @@ typed_id!(VendorId);
 typed_id!(QuoteId);
 typed_id!(PurchaseRequestId);
 typed_id!(InspectionId);
+typed_id!(InspectionScheduleId);
+typed_id!(InspectionRoundId);
 typed_id!(AuditEventId);
 
 #[cfg(test)]
