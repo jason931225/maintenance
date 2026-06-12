@@ -1,0 +1,16 @@
+services:
+  app:
+    ports:
+      - "127.0.0.1:${MNT_APP_PORT:-8080}:8080"
+
+  worker:
+    ports:
+      - "127.0.0.1:${MNT_WORKER_PORT:-8081}:8080"
+
+  postgres:
+    ports:
+      - "127.0.0.1:${MNT_POSTGRES_PORT:-5432}:5432"
+
+  seaweedfs:
+    ports:
+      - "127.0.0.1:${MNT_S3_PORT:-8333}:8333"

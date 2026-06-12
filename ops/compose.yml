@@ -1,0 +1,152 @@
+name: mnt-prod
+
+x-app-image: &app-image
+  build:
+    context: ../backend
+    dockerfile: Dockerfile
+  image: mnt-app:local
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql://${MNT_POSTGRES_USER:-mnt_app}:${MNT_POSTGRES_PASSWORD:-mnt-prod-local-change-me}@postgres:5432/${MNT_POSTGRES_DB:-mnt_prod}
+  MNT_SHUTDOWN_TIMEOUT_SECS: "10"
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  RUST_LOG: ${RUST_LOG:-info,tower_http=info}
+
+services:
+  traefik:
+    image: traefik:v3.7.5
+    command:
+      - --api.dashboard=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --ping=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:18.4@sha256:65f70a152846cf504dff86e807007e9aeac98c3aeb7b62541b2c55ab9d264e56
+    environment:
+      POSTGRES_DB: ${MNT_POSTGRES_DB:-mnt_prod}
+      POSTGRES_USER: ${MNT_POSTGRES_USER:-mnt_app}
+      POSTGRES_PASSWORD: ${MNT_POSTGRES_PASSWORD:-mnt-prod-local-change-me}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} -h 127.0.0.1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.32
+    command:
+      - server
+      - -s3
+      - -ip=seaweedfs
+      - -ip.bind=0.0.0.0
+      - -dir=/data
+      - -s3.port=8333
+    expose:
+      - "8333"
+    volumes:
+      - seaweedfs-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8333/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yml:/etc/otelcol-contrib/config.yaml:ro
+    expose:
+      - "4317"
+      - "4318"
+      - "13133"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/otelcol-contrib",
+          "validate",
+          "--config=/etc/otelcol-contrib/config.yaml",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
+  app:
+    <<: *app-image
+    environment:
+      <<: *app-env
+      MNT_APP_ROLE: api
+      MNT_HTTP_ADDR: 0.0.0.0:8080
+      OTEL_SERVICE_NAME: mnt-app-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      otel-collector:
+        condition: service_healthy
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.mnt-app.rule: Host(`${MNT_APP_HOST:-mnt.localhost}`)
+      traefik.http.routers.mnt-app.entrypoints: websecure
+      traefik.http.routers.mnt-app.tls: "true"
+      traefik.http.services.mnt-app.loadbalancer.server.port: "8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  worker:
+    <<: *app-image
+    environment:
+      <<: *app-env
+      MNT_APP_ROLE: worker
+      MNT_HTTP_ADDR: 0.0.0.0:8080
+      OTEL_SERVICE_NAME: mnt-app-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      otel-collector:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  seaweedfs-data:
