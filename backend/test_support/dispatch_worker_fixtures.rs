@@ -5,6 +5,8 @@ use time::macros::datetime;
 #[derive(Debug)]
 pub struct SeededDispatchContext {
     pub receptionist: UserId,
+    pub manager: UserId,
+    pub near_mechanic: UserId,
     pub work_order_id: WorkOrderId,
 }
 
@@ -23,6 +25,8 @@ pub async fn seed_dispatch_context(pool: &PgPool) -> SeededDispatchContext {
 
     SeededDispatchContext {
         receptionist,
+        manager,
+        near_mechanic,
         work_order_id,
     }
 }

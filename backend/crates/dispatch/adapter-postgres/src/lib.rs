@@ -315,6 +315,54 @@ impl PgDispatchStore {
         .await
     }
 
+    pub async fn mark_manual_call_required(
+        &self,
+        command: ExpireP1DispatchCommand,
+    ) -> Result<P1DispatchSummary, PgDispatchError> {
+        let head = dispatch_head(&self.pool, command.dispatch_id).await?;
+        let event = dispatch_audit_event(
+            "dispatch.escalation.manual_call_required",
+            None,
+            head.branch_id,
+            command.dispatch_id,
+            command.trace,
+            command.occurred_at,
+        )?
+        .with_snapshots(
+            None,
+            Some(serde_json::json!({
+                "manual_call_required": true,
+                "manual_call_required_at": command.occurred_at,
+            })),
+        );
+        let dispatch_id = command.dispatch_id;
+        let occurred_at = command.occurred_at;
+
+        with_audit::<_, P1DispatchSummary, PgDispatchError>(&self.pool, event, |tx| {
+            Box::pin(async move {
+                let dispatch = lock_dispatch(tx, dispatch_id).await?;
+                if dispatch.status == DispatchStatus::AutoAssigned {
+                    return fetch_dispatch_summary_tx(tx, dispatch_id).await;
+                }
+                sqlx::query(
+                    r#"
+                    UPDATE p1_dispatches
+                    SET manual_call_required_at = COALESCE(manual_call_required_at, $2),
+                        manual_call_cleared_at = NULL,
+                        updated_at = $2
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(*dispatch_id.as_uuid())
+                .bind(occurred_at)
+                .execute(tx.as_mut())
+                .await?;
+                fetch_dispatch_summary_tx(tx, dispatch_id).await
+            })
+        })
+        .await
+    }
+
     pub async fn force_assign(
         &self,
         command: ForceAssignP1DispatchCommand,
@@ -361,6 +409,10 @@ impl PgDispatchStore {
                     UPDATE p1_dispatches
                     SET status = 'AUTO_ASSIGNED',
                         auto_assigned_mechanic_id = $2,
+                        manual_call_cleared_at = CASE
+                            WHEN manual_call_required_at IS NOT NULL THEN $3
+                            ELSE manual_call_cleared_at
+                        END,
                         updated_at = $3
                     WHERE id = $1
                     "#,
@@ -558,6 +610,17 @@ impl PgDispatchStore {
             occurred_at,
         )
         .await
+    }
+
+    pub async fn mark_alert_skipped(
+        &self,
+        alert_id: P1DispatchAlertId,
+        reason: String,
+        trace: TraceContext,
+        occurred_at: OffsetDateTime,
+    ) -> Result<(), PgDispatchError> {
+        self.update_alert_status(alert_id, "SKIPPED", None, Some(reason), trace, occurred_at)
+            .await
     }
 
     async fn update_alert_status(
@@ -1384,6 +1447,7 @@ async fn fetch_dispatch_summary_tx(
             d.incident_latitude, d.incident_longitude,
             d.accept_window_started_at, d.accept_window_ends_at,
             d.auto_assigned_mechanic_id, d.manager_force_pending_at,
+            d.manual_call_required_at, d.manual_call_cleared_at,
             COUNT(DISTINCT t.id) AS target_count,
             COUNT(DISTINCT r.id) FILTER (WHERE r.response = 'ACCEPT') AS accepted_count,
             COUNT(DISTINCT r.id) FILTER (WHERE r.response = 'DECLINE') AS declined_count
@@ -1419,6 +1483,14 @@ async fn fetch_dispatch_summary_tx(
             .try_get::<Option<uuid::Uuid>, _>("auto_assigned_mechanic_id")?
             .map(UserId::from_uuid),
         manager_force_pending_at: row.try_get("manager_force_pending_at")?,
+        manual_call_required: row
+            .try_get::<Option<OffsetDateTime>, _>("manual_call_required_at")?
+            .is_some()
+            && row
+                .try_get::<Option<OffsetDateTime>, _>("manual_call_cleared_at")?
+                .is_none(),
+        manual_call_required_at: row.try_get("manual_call_required_at")?,
+        manual_call_cleared_at: row.try_get("manual_call_cleared_at")?,
         target_count: row.try_get("target_count")?,
         accepted_count: row.try_get("accepted_count")?,
         declined_count: row.try_get("declined_count")?,

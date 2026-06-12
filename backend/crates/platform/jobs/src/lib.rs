@@ -53,6 +53,7 @@ pub enum PlatformJob {
     EscalationTimer(EscalationTimerJob),
     DispatchAcceptWindowExpired(DispatchTimerJob),
     DispatchAlimtalkNoAck(DispatchTimerJob),
+    DispatchManualCallRequired(DispatchTimerJob),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -118,6 +119,22 @@ impl JobRequest {
             }),
             idempotency_key: IdempotencyKey::new(format!(
                 "p1-dispatch:{}:alimtalk-no-ack",
+                dispatch_id
+            ))?,
+        })
+    }
+
+    pub fn dispatch_manual_call_required(
+        dispatch_id: P1DispatchId,
+        scheduled_for: Timestamp,
+    ) -> Result<Self, JobQueueError> {
+        Ok(Self {
+            job: PlatformJob::DispatchManualCallRequired(DispatchTimerJob {
+                dispatch_id,
+                scheduled_for,
+            }),
+            idempotency_key: IdempotencyKey::new(format!(
+                "p1-dispatch:{}:manual-call-required",
                 dispatch_id
             ))?,
         })
@@ -674,5 +691,26 @@ mod tests {
         assert!(!is_unique_idempotency_conflict(
             "duplicate key value violates unique constraint"
         ));
+    }
+
+    #[test]
+    fn manual_call_required_job_uses_dispatch_scoped_idempotency_key() {
+        let dispatch_id = P1DispatchId::new();
+        let scheduled_for = time::macros::datetime!(2026-06-12 09:10:00 UTC);
+
+        let request = JobRequest::dispatch_manual_call_required(dispatch_id, scheduled_for)
+            .expect("manual-call dispatch job request should be valid");
+
+        assert_eq!(
+            request.idempotency_key.as_str(),
+            format!("p1-dispatch:{dispatch_id}:manual-call-required")
+        );
+        assert_eq!(
+            request.job,
+            PlatformJob::DispatchManualCallRequired(DispatchTimerJob {
+                dispatch_id,
+                scheduled_for,
+            })
+        );
     }
 }

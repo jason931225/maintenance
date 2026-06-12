@@ -21,7 +21,7 @@ use axum::{Json, Router};
 use mnt_dispatch_adapter_postgres::PgDispatchStore;
 use mnt_dispatch_domain::DispatchTimerConfig;
 use mnt_dispatch_rest::DispatchRestState;
-use mnt_dispatch_worker::DispatchWorker;
+use mnt_dispatch_worker::{AlimtalkEscalationPolicy, DispatchWorker};
 use mnt_financial_adapter_postgres::PgFinancialStore;
 use mnt_financial_rest::FinancialRestState;
 use mnt_kernel_core::{
@@ -126,6 +126,7 @@ pub struct AppConfig {
     pub dispatch_jobs_enabled: bool,
     pub fcm: Option<FcmConfig>,
     pub solapi: Option<SolapiConfig>,
+    pub solapi_disabled_reason: Option<String>,
     pub shutdown_timeout: Duration,
 }
 
@@ -211,7 +212,7 @@ impl AppConfig {
             None => true,
         };
         let fcm = fcm_config_from_vars(&vars)?;
-        let solapi = solapi_config_from_vars(&vars)?;
+        let (solapi, solapi_disabled_reason) = solapi_config_from_vars(&vars)?;
         let shutdown_timeout = match vars.get("MNT_SHUTDOWN_TIMEOUT_SECS") {
             Some(raw) => raw.parse::<u64>().map(Duration::from_secs).map_err(|err| {
                 AppError::Config(format!("invalid MNT_SHUTDOWN_TIMEOUT_SECS: {err}"))
@@ -232,6 +233,7 @@ impl AppConfig {
             dispatch_jobs_enabled,
             fcm,
             solapi,
+            solapi_disabled_reason,
             shutdown_timeout,
         })
     }
@@ -369,20 +371,26 @@ fn fcm_config_from_vars(vars: &HashMap<String, String>) -> Result<Option<FcmConf
 
 fn solapi_config_from_vars(
     vars: &HashMap<String, String>,
-) -> Result<Option<SolapiConfig>, AppError> {
+) -> Result<(Option<SolapiConfig>, Option<String>), AppError> {
     let api_key = non_empty(vars.get("MNT_SOLAPI_API_KEY"));
     let api_secret = non_empty(vars.get("MNT_SOLAPI_API_SECRET"));
     let from = non_empty(vars.get("MNT_SOLAPI_FROM"));
     let pf_id = non_empty(vars.get("MNT_SOLAPI_PF_ID"));
     let template_id = non_empty(vars.get("MNT_SOLAPI_TEMPLATE_ID"));
-    let configured = api_key.is_some()
-        || api_secret.is_some()
-        || from.is_some()
-        || pf_id.is_some()
-        || template_id.is_some();
-    if !configured {
-        return Ok(None);
+    let credentials_configured =
+        api_key.is_some() || api_secret.is_some() || from.is_some() || pf_id.is_some();
+    if !credentials_configured && template_id.is_none() {
+        return Ok((None, None));
     }
+    let Some(template_id) = template_id else {
+        return Ok((
+            None,
+            Some(
+                "Solapi Alimtalk disabled: MNT_SOLAPI_TEMPLATE_ID is required after Kakao template approval"
+                    .to_owned(),
+            ),
+        ));
+    };
     let required = |value: Option<String>, name: &'static str| {
         value.ok_or_else(|| {
             AppError::Config(format!("{name} is required when Solapi is configured"))
@@ -395,12 +403,12 @@ fn solapi_config_from_vars(
         api_secret: required(api_secret, "MNT_SOLAPI_API_SECRET")?,
         from: required(from, "MNT_SOLAPI_FROM")?,
         pf_id: required(pf_id, "MNT_SOLAPI_PF_ID")?,
-        template_id: required(template_id, "MNT_SOLAPI_TEMPLATE_ID")?,
+        template_id,
     };
     config
         .validate()
         .map_err(|err| AppError::Config(err.to_string()))?;
-    Ok(Some(config))
+    Ok((Some(config), None))
 }
 
 fn parse_time_duration_secs(
@@ -529,6 +537,9 @@ impl AppState {
             .map(SolapiAlimtalkClient::new)
             .transpose()
             .map_err(|err| AppError::Config(format!("invalid Solapi config: {err}")))?;
+        if let Some(reason) = &config.solapi_disabled_reason {
+            tracing::warn!(reason = %reason, "Solapi Alimtalk escalation disabled");
+        }
         if fcm.is_some() || solapi.is_some() {
             state.push_notifier = Some(Arc::new(ProviderPushNotifier::new(fcm, solapi)));
         }
@@ -1220,7 +1231,16 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
         queue = "mnt.dispatch",
         "starting mnt-app worker"
     );
-    let worker = DispatchWorker::new(PgDispatchStore::new(pool), state.push_notifier.clone());
+    let alimtalk_policy = if config.solapi.is_some() {
+        AlimtalkEscalationPolicy::enabled()
+    } else {
+        AlimtalkEscalationPolicy::disabled()
+    };
+    let worker = DispatchWorker::new(
+        PgDispatchStore::new(pool),
+        state.push_notifier.clone(),
+        alimtalk_policy,
+    );
     run_apalis_worker_until_shutdown(
         database_url,
         "mnt.dispatch",
