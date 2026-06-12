@@ -9,6 +9,7 @@ members = [
   "app",
   "crates/kernel/*",
   "crates/compliance/*",
+  "crates/workorder/*",
   "crates/platform/*",
   "ci/gates/*",
 ]
@@ -57,6 +58,7 @@ opentelemetry-otlp = "0.32.0"
 mnt-kernel-core = { path = "crates/kernel/core" }
 mnt-compliance-domain = { path = "crates/compliance/domain" }
 mnt-compliance-application = { path = "crates/compliance/application" }
+mnt-workorder-domain = { path = "crates/workorder/domain" }
 mnt-platform-db = { path = "crates/platform/db" }
 
 [workspace.lints.rust]

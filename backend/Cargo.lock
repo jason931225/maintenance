@@ -1785,6 +1785,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-workorder-domain"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "serde_json",
+ "time",
+]
+
+[[package]]
 name = "nom"
 version = "7.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
