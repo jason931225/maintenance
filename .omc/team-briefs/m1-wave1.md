@@ -109,3 +109,13 @@ Same Hard Rules as `/Users/jasonlee/Developer/maintenance/.omc/team-briefs/m0-wa
 ### 15. T1.12 — i18n-ready verification across 3 clients
 - Verify/enforce: web (check-ui-strings gate exists — extend if gaps), android (strings.xml — add a lint check forbidding hardcoded UI strings in Compose code), ios (Localizable.strings + a check script). All content Korean-only; structure locale-ready.
 - One CI step running all three checks; document the i18n architecture in docs/i18n.md (3 paragraphs max, honest about what locale-adding would take).
+
+### 16. T1.8 — parity checklist + CI dual-build gate (owns .github/workflows/ci.yml ONLY)
+- Per brief #14 above. docs/parity-checklist.md EXISTS (T1.7 wrote it) — your gate script consumes it: fail CI on any unchecked/missing row; plus string-key parity check between android strings.xml and ios ko.lproj/Localizable.strings (T1.7 noted iOS includes Android keys + aliases — the checker must allow declared aliases via a mapping file, not silently pass extras).
+- CI: ubuntu job for android (./gradlew build, SDK via android-actions/setup-android or sdkmanager), macOS job for ios (swift build + behavior runner; xcodebuild packaging marked for T1.11's workflow), path-filtered (android/**, ios/**, clients/**, backend/openapi/**, tags).
+- Local verification: run the parity script + both builds locally (Android SDK + Swift CLT both present on this host).
+
+### 17. T1.11 — mobile distribution pipeline (owns .github/workflows/release.yml — do NOT touch ci.yml)
+- TestFlight (iOS) + Play internal track (Android) on release tags. fastlane or native tooling — verify current best practice live (App Store Connect API key auth; Play service account JSON).
+- Signing scaffolding: android/ signingConfigs wired to env/secret refs; ios export options plist + match-or-manual strategy documented. The workflow must FAIL CLEARLY with instructions when secrets are absent — and a docs/release/SECRETS.md listing EXACTLY what the user must add (names, where to obtain: App Store Connect API key id/issuer/key, Play console service account, keystore) — uploads are unverifiable until the user provides them: state this honestly in your final report; do NOT fake an upload.
+- Local verification: workflow YAML parses; fastlane/gradle dry-run lanes that stop before upload run green locally; android release AAB assembles unsigned (or with a generated debug keystore clearly marked non-production).
