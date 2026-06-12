@@ -1,0 +1,217 @@
+name: Mobile Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run local build checks without uploading to TestFlight or Play"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FASTLANE_DISABLE_COLORS: "1"
+  FASTLANE_HIDE_GITHUB_ISSUES: "1"
+  FASTLANE_SKIP_UPDATE_CHECK: "1"
+
+jobs:
+  android:
+    name: Android - Play internal track
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+
+      - name: Select release mode
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${{ inputs.dry_run }}" == "true" ]]; then
+            echo "RELEASE_DRY_RUN=1" >> "$GITHUB_ENV"
+          else
+            echo "RELEASE_DRY_RUN=0" >> "$GITHUB_ENV"
+          fi
+
+      - name: Prepare Android signing and Play credentials
+        if: env.RELEASE_DRY_RUN == '0'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          ANDROID_PACKAGE_NAME: ${{ secrets.ANDROID_PACKAGE_NAME }}
+        run: |
+          missing=()
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD PLAY_SERVICE_ACCOUNT_JSON; do
+            if [[ -z "${!name}" ]]; then
+              missing+=("$name")
+            fi
+          done
+
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required Android release secrets: %s\n' "${missing[*]}" >&2
+            printf 'Add them in GitHub repository settings before pushing a release tag. See docs/release/SECRETS.md.\n' >&2
+            exit 64
+          fi
+
+          mkdir -p "$RUNNER_TEMP/android-release"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/android-release/upload-keystore.jks"
+          printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/android-release/play-service-account.json"
+
+          {
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/android-release/upload-keystore.jks"
+            echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
+            echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS"
+            echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
+            echo "PLAY_JSON_KEY_PATH=$RUNNER_TEMP/android-release/play-service-account.json"
+          } >> "$GITHUB_ENV"
+
+          if [[ -n "$ANDROID_PACKAGE_NAME" ]]; then
+            echo "ANDROID_PACKAGE_NAME=$ANDROID_PACKAGE_NAME" >> "$GITHUB_ENV"
+          fi
+
+      - name: Android dry run
+        if: env.RELEASE_DRY_RUN == '1'
+        run: bundle exec fastlane android dry_run
+
+      - name: Upload Android AAB to Play internal track
+        if: env.RELEASE_DRY_RUN == '0'
+        run: bundle exec fastlane android release
+
+      - name: Upload Android release artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-artifacts
+          path: |
+            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: ignore
+
+  ios:
+    name: iOS - TestFlight
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+
+      - name: Verify Swift toolchain
+        run: swift --version
+
+      - name: Select release mode
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${{ inputs.dry_run }}" == "true" ]]; then
+            echo "RELEASE_DRY_RUN=1" >> "$GITHUB_ENV"
+          else
+            echo "RELEASE_DRY_RUN=0" >> "$GITHUB_ENV"
+          fi
+
+      - name: Prepare App Store Connect and manual signing credentials
+        if: env.RELEASE_DRY_RUN == '0'
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_BASE64 }}
+          IOS_APP_IDENTIFIER: ${{ secrets.IOS_APP_IDENTIFIER }}
+          IOS_SCHEME: ${{ secrets.IOS_SCHEME }}
+          IOS_XCODE_PROJECT: ${{ secrets.IOS_XCODE_PROJECT }}
+          IOS_XCODE_WORKSPACE: ${{ secrets.IOS_XCODE_WORKSPACE }}
+          IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+        run: |
+          missing=()
+          for name in APP_STORE_CONNECT_KEY_ID APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_KEY_BASE64 IOS_APP_IDENTIFIER IOS_SCHEME IOS_CERTIFICATE_P12_BASE64 IOS_CERTIFICATE_PASSWORD IOS_PROVISIONING_PROFILE_BASE64 IOS_KEYCHAIN_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [[ -z "$IOS_XCODE_PROJECT" && -z "$IOS_XCODE_WORKSPACE" ]]; then
+            missing+=("IOS_XCODE_PROJECT or IOS_XCODE_WORKSPACE")
+          fi
+
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required iOS release inputs: %s\n' "${missing[*]}" >&2
+            printf 'Add them in GitHub repository settings before pushing a release tag. See docs/release/SECRETS.md.\n' >&2
+            exit 64
+          fi
+
+          mkdir -p "$RUNNER_TEMP/ios-release"
+          printf '%s' "$APP_STORE_CONNECT_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/ios-release/AuthKey.p8"
+          printf '%s' "$IOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/ios-release/distribution.p12"
+          printf '%s' "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/ios-release/profile.mobileprovision"
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/ios-release/release.keychain-db"
+          security create-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$RUNNER_TEMP/ios-release/distribution.p12" -P "$IOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          security cms -D -i "$RUNNER_TEMP/ios-release/profile.mobileprovision" > "$RUNNER_TEMP/ios-release/profile.plist"
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$RUNNER_TEMP/ios-release/profile.plist")
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print Name' "$RUNNER_TEMP/ios-release/profile.plist")
+          cp "$RUNNER_TEMP/ios-release/profile.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+
+          {
+            echo "APP_STORE_CONNECT_KEY_ID=$APP_STORE_CONNECT_KEY_ID"
+            echo "APP_STORE_CONNECT_ISSUER_ID=$APP_STORE_CONNECT_ISSUER_ID"
+            echo "APP_STORE_CONNECT_KEY_PATH=$RUNNER_TEMP/ios-release/AuthKey.p8"
+            echo "IOS_APP_IDENTIFIER=$IOS_APP_IDENTIFIER"
+            echo "IOS_PROVISIONING_PROFILE_NAME=$PROFILE_NAME"
+            echo "IOS_SCHEME=$IOS_SCHEME"
+            echo "IOS_XCODE_PROJECT=$IOS_XCODE_PROJECT"
+            echo "IOS_XCODE_WORKSPACE=$IOS_XCODE_WORKSPACE"
+          } >> "$GITHUB_ENV"
+
+      - name: iOS dry run
+        if: env.RELEASE_DRY_RUN == '1'
+        run: bundle exec fastlane ios dry_run
+
+      - name: Upload iOS archive to TestFlight
+        if: env.RELEASE_DRY_RUN == '0'
+        run: bundle exec fastlane ios release
+
+      - name: Upload iOS release artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-release-artifacts
+          path: ios/build/release
+          if-no-files-found: ignore
