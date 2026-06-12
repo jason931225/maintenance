@@ -8,829 +8,712 @@ paths:
       operationId: healthz
       summary: Health check
       responses:
-        "200":
+        '200':
           description: Service is alive.
   /readyz:
     get:
       operationId: readyz
       summary: Readiness check
       responses:
-        "200":
+        '200':
           description: Service dependencies are ready.
-        "503":
+        '503':
           description: A required dependency is unavailable.
-  /api/messenger/threads:
-    get:
-      operationId: listMessengerThreads
-      summary: List branch-scoped messenger threads for the authenticated member
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: integer
-            format: int64
-            minimum: 1
-            maximum: 100
-            default: 50
-      responses:
-        "200":
-          description: Messenger threads visible to the authenticated member.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MessengerThreadListResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-    post:
-      operationId: createMessengerThread
-      summary: Create a branch-scoped messenger thread
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateMessengerThreadRequest"
-      responses:
-        "201":
-          description: Messenger thread created.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MessengerThreadSummary"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-  /api/messenger/threads/{threadId}/messages:
-    get:
-      operationId: listMessengerMessages
-      summary: Page messenger messages before an optional cursor
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: "#/components/parameters/ThreadId"
-        - name: before_message_id
-          in: query
-          required: false
-          schema:
-            $ref: "#/components/schemas/Uuid"
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: integer
-            format: int64
-            minimum: 1
-            maximum: 100
-            default: 50
-      responses:
-        "200":
-          description: Cursor-stable message page.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MessengerMessagePage"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-    post:
-      operationId: sendMessengerMessage
-      summary: Send a message with optional evidence attachments
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: "#/components/parameters/ThreadId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SendMessengerMessageRequest"
-      responses:
-        "201":
-          description: Message persisted.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MessengerMessageSummary"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-  /api/messenger/threads/{threadId}/read-receipt:
-    put:
-      operationId: markMessengerThreadRead
-      summary: Mark the authenticated member's thread read cursor
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: "#/components/parameters/ThreadId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/MarkMessengerThreadReadRequest"
-      responses:
-        "200":
-          description: Read receipt upserted.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MessengerReadReceiptSummary"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-  /api/messenger/search:
-    get:
-      operationId: searchMessengerMessages
-      summary: Search branch-scoped messenger messages visible to the authenticated member
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: q
-          in: query
-          required: true
-          schema:
-            type: string
-            minLength: 1
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: integer
-            format: int64
-            minimum: 1
-            maximum: 100
-            default: 50
-      responses:
-        "200":
-          description: Matching messenger messages.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MessengerMessageListResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
   /api/work-orders:
     post:
       operationId: createWorkOrder
       summary: Create a work order from branch-scoped equipment management number
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateWorkOrderRequest"
+              $ref: '#/components/schemas/CreateWorkOrderRequest'
       responses:
-        "201":
+        '201':
           description: Work order created.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WorkOrderSummary"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "422":
-          $ref: "#/components/responses/ValidationError"
+                $ref: '#/components/schemas/WorkOrderSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/work-orders/{workOrderId}:
     get:
       operationId: getWorkOrder
       summary: Fetch one work order
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/WorkOrderId"
+      - $ref: '#/components/parameters/WorkOrderId'
       responses:
-        "200":
+        '200':
           description: Work order summary.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WorkOrderSummary"
-        "404":
-          $ref: "#/components/responses/NotFound"
+                $ref: '#/components/schemas/WorkOrderSummary'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/work-orders/{workOrderId}/priority:
     patch:
       operationId: updateWorkOrderPriority
       summary: Update work-order priority
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/WorkOrderId"
+      - $ref: '#/components/parameters/WorkOrderId'
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [priority]
+              required:
+              - priority
               properties:
                 priority:
-                  $ref: "#/components/schemas/PriorityLevel"
+                  $ref: '#/components/schemas/PriorityLevel'
       responses:
-        "200":
+        '200':
           description: Updated work order.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WorkOrderSummary"
+                $ref: '#/components/schemas/WorkOrderSummary'
   /api/work-orders/{workOrderId}/assignments:
     put:
       operationId: assignWorkOrder
       summary: Assign mechanics and approval-line approvers
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/WorkOrderId"
+      - $ref: '#/components/parameters/WorkOrderId'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/AssignWorkOrderRequest"
+              $ref: '#/components/schemas/AssignWorkOrderRequest'
       responses:
-        "200":
+        '200':
           description: Assigned work order.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WorkOrderSummary"
+                $ref: '#/components/schemas/WorkOrderSummary'
   /api/work-orders/{workOrderId}/start:
     post:
       operationId: startWorkOrder
       summary: Start assigned work
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/WorkOrderId"
+      - $ref: '#/components/parameters/WorkOrderId'
       responses:
-        "200":
+        '200':
           description: In-progress work order.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WorkOrderSummary"
+                $ref: '#/components/schemas/WorkOrderSummary'
   /api/work-orders/{workOrderId}/report:
     post:
       operationId: submitWorkOrderReport
       summary: Submit a mechanic work report
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/WorkOrderId"
+      - $ref: '#/components/parameters/WorkOrderId'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/SubmitReportRequest"
+              $ref: '#/components/schemas/SubmitReportRequest'
       responses:
-        "200":
+        '200':
           description: Report-submitted work order.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WorkOrderSummary"
+                $ref: '#/components/schemas/WorkOrderSummary'
   /api/work-orders/{workOrderId}/approve:
     post:
       operationId: approveWorkOrder
       summary: Approve the next pending non-mechanic approval step
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/WorkOrderId"
+      - $ref: '#/components/parameters/WorkOrderId'
       responses:
-        "200":
+        '200':
           description: Updated work-order approval state.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WorkOrderSummary"
-        "409":
-          $ref: "#/components/responses/Conflict"
+                $ref: '#/components/schemas/WorkOrderSummary'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /api/work-orders/{workOrderId}/target-change-requests:
     post:
       operationId: requestTargetChange
       summary: Request a target due-date change
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/WorkOrderId"
+      - $ref: '#/components/parameters/WorkOrderId'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/TargetChangeRequest"
+              $ref: '#/components/schemas/TargetChangeRequest'
       responses:
-        "201":
+        '201':
           description: Target change request created.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TargetChangeRequestSummary"
+                $ref: '#/components/schemas/TargetChangeRequestSummary'
   /api/target-change-requests/{requestId}/review:
     post:
       operationId: reviewTargetChange
       summary: Review a target due-date change request
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+      - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ReviewTargetChangeRequest"
+              $ref: '#/components/schemas/ReviewTargetChangeRequest'
       responses:
-        "200":
+        '200':
           description: Target change review persisted.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TargetChangeRequestSummary"
+                $ref: '#/components/schemas/TargetChangeRequestSummary'
   /api/daily-work-plans:
     post:
       operationId: createDailyWorkPlan
       summary: Create a daily work plan
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateDailyPlanRequest"
+              $ref: '#/components/schemas/CreateDailyPlanRequest'
       responses:
-        "201":
+        '201':
           description: Daily plan created.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DailyPlanSummary"
+                $ref: '#/components/schemas/DailyPlanSummary'
   /api/daily-work-plans/{planId}/request-review:
     post:
       operationId: requestDailyWorkPlanReview
       summary: Send a daily work plan for review
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/PlanId"
+      - $ref: '#/components/parameters/PlanId'
       responses:
-        "200":
+        '200':
           description: Daily plan moved to requested.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DailyPlanSummary"
+                $ref: '#/components/schemas/DailyPlanSummary'
   /api/daily-work-plans/{planId}/review:
     post:
       operationId: reviewDailyWorkPlan
       summary: Review a daily work plan
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/PlanId"
+      - $ref: '#/components/parameters/PlanId'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ReviewDailyPlanRequest"
+              $ref: '#/components/schemas/ReviewDailyPlanRequest'
       responses:
-        "200":
+        '200':
           description: Daily plan reviewed.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DailyPlanSummary"
+                $ref: '#/components/schemas/DailyPlanSummary'
   /api/daily-work-plans/{planId}/confirm:
     post:
       operationId: confirmDailyWorkPlan
       summary: Confirm an approved daily work plan
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/PlanId"
+      - $ref: '#/components/parameters/PlanId'
       responses:
-        "200":
+        '200':
           description: Daily plan confirmed.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DailyPlanSummary"
+                $ref: '#/components/schemas/DailyPlanSummary'
   /api/work-orders/{workOrderId}/outsource-works:
     post:
       operationId: createOutsourceWork
       summary: Create an outsource work request for a work order
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/WorkOrderId"
+      - $ref: '#/components/parameters/WorkOrderId'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateOutsourceWorkRequest"
+              $ref: '#/components/schemas/CreateOutsourceWorkRequest'
       responses:
-        "201":
+        '201':
           description: Outsource work created.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/OutsourceWorkSummary"
+                $ref: '#/components/schemas/OutsourceWorkSummary'
+  /api/v1/kpi:
+    get:
+      operationId: getKpiReport
+      summary: Fetch branch-scoped KPI rollups for the seven standard metrics
+      description: Computes KPI metrics from approved work-order reports within the requested approval
+        period. Metrics whose source domains have not merged yet are returned in `unavailable_metrics`
+        instead of fabricated values.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: period
+        in: query
+        required: true
+        schema:
+          type: string
+          pattern: ^[0-9]{4}-[0-9]{2}-[0-9]{2}\.\.[0-9]{4}-[0-9]{2}-[0-9]{2}$
+        example: 2026-06-01..2026-07-01
+        description: Inclusive start date and exclusive end date in UTC day boundaries.
+      - name: scope
+        in: query
+        required: false
+        schema:
+          type: string
+          default: company
+        examples:
+          company:
+            value: company
+          region:
+            value: region:00000000-0000-0000-0000-000000000000
+          branch:
+            value: branch:00000000-0000-0000-0000-000000000000
+          technician:
+            value: technician:00000000-0000-0000-0000-000000000000
+      responses:
+        '200':
+          description: KPI report with company, region, branch, and technician rollups constrained by
+            the authenticated principal branch scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KpiReport'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
   /api/v1/work-orders:
     get:
       operationId: listWorkOrders
       summary: List branch-scoped work orders
-      description: Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values.
+      description: Returns branch-scoped work orders sorted by priority and target due date. The server
+        accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated
+        values.
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - name: status
-          in: query
-          required: false
-          style: form
-          explode: true
-          schema:
-            type: array
-            items:
-              $ref: "#/components/schemas/WorkOrderStatus"
-        - name: priority
-          in: query
-          required: false
-          style: form
-          explode: true
-          schema:
-            type: array
-            items:
-              $ref: "#/components/schemas/PriorityLevel"
-        - name: assigned_to
-          in: query
-          required: false
-          schema:
-            type: string
-          description: Use `me` for the authenticated user or a user UUID.
-        - name: customer_id
-          in: query
-          required: false
-          schema:
-            $ref: "#/components/schemas/Uuid"
-        - name: site_id
-          in: query
-          required: false
-          schema:
-            $ref: "#/components/schemas/Uuid"
-        - name: target_due_from
-          in: query
-          required: false
-          schema:
-            $ref: "#/components/schemas/Timestamp"
-        - name: target_due_to
-          in: query
-          required: false
-          schema:
-            $ref: "#/components/schemas/Timestamp"
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: integer
-            format: int64
-            minimum: 1
-            maximum: 100
-            default: 50
-        - name: offset
-          in: query
-          required: false
-          schema:
-            type: integer
-            format: int64
-            minimum: 0
-            default: 0
+      - name: status
+        in: query
+        required: false
+        style: form
+        explode: true
+        schema:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkOrderStatus'
+      - name: priority
+        in: query
+        required: false
+        style: form
+        explode: true
+        schema:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriorityLevel'
+      - name: assigned_to
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Use `me` for the authenticated user or a user UUID.
+      - name: customer_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: site_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: target_due_from
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Timestamp'
+      - name: target_due_to
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Timestamp'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+          default: 50
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
       responses:
-        "200":
+        '200':
           description: Paginated work-order list.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WorkOrderListPage"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
+                $ref: '#/components/schemas/WorkOrderListPage'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /api/v1/work-orders/{workOrderId}:
     get:
       operationId: getWorkOrderDetail
       summary: Fetch branch-scoped work-order detail
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/WorkOrderId"
+      - $ref: '#/components/parameters/WorkOrderId'
       responses:
-        "200":
+        '200':
           description: Full work-order detail.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WorkOrderDetail"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
+                $ref: '#/components/schemas/WorkOrderDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/v1/work-orders/{workOrderId}/reject:
     post:
       operationId: rejectWorkOrder
       summary: Reject a submitted work order with an audit memo
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/WorkOrderId"
+      - $ref: '#/components/parameters/WorkOrderId'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RejectWorkOrderRequest"
+              $ref: '#/components/schemas/RejectWorkOrderRequest'
       responses:
-        "200":
+        '200':
           description: Rejected work order.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WorkOrderSummary"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
+                $ref: '#/components/schemas/WorkOrderSummary'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /api/v1/equipment/lookup:
     get:
       operationId: lookupEquipment
       summary: Resolve branch-scoped equipment by management number
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - name: management_no
-          in: query
-          required: true
-          schema:
-            type: string
-            minLength: 1
-          description: Equipment management number. A leading `#` is accepted and ignored.
+      - name: management_no
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+        description: Equipment management number. A leading `#` is accepted and ignored.
       responses:
-        "200":
+        '200':
           description: Matching equipment, model, customer, and site.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/EquipmentLookupResponse"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
+                $ref: '#/components/schemas/EquipmentLookupResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/v1/equipment:
     get:
       operationId: autocompleteEquipment
       summary: Autocomplete branch-scoped equipment by management number, equipment number, or model
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - name: q
-          in: query
-          required: true
-          schema:
-            type: string
-            minLength: 1
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: integer
-            format: int64
-            minimum: 1
-            maximum: 20
-            default: 10
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 20
+          default: 10
       responses:
-        "200":
+        '200':
           description: Prefix-search equipment matches.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/EquipmentAutocompletePage"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
+                $ref: '#/components/schemas/EquipmentAutocompletePage'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /api/v1/sync:
     post:
       operationId: replayOfflineSyncBatch
       summary: Replay an idempotent mobile offline-operation batch
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/XDeviceId"
+      - $ref: '#/components/parameters/XDeviceId'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/SyncBatchRequest"
+              $ref: '#/components/schemas/SyncBatchRequest'
       responses:
-        "200":
+        '200':
           description: Per-operation replay results. Individual failures do not abort the batch.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SyncBatchResponse"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "503":
+                $ref: '#/components/schemas/SyncBatchResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
           description: JWT verification is not configured.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorBody"
+                $ref: '#/components/schemas/ErrorBody'
   /api/v1/evidence/presign:
     post:
       operationId: presignEvidenceUpload
       summary: Issue a presigned upload ticket for work-order evidence
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/EvidencePresignRequest"
+              $ref: '#/components/schemas/EvidencePresignRequest'
       responses:
-        "200":
+        '200':
           description: Presigned evidence upload ticket.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/EvidencePresignResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "503":
+                $ref: '#/components/schemas/EvidencePresignResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
           description: Evidence storage is not configured.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorBody"
+                $ref: '#/components/schemas/ErrorBody'
   /api/v1/evidence/{evidenceId}/confirm:
     post:
       operationId: confirmEvidenceUpload
       summary: Confirm direct evidence upload completion and trigger replica verification
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/EvidenceId"
+      - $ref: '#/components/parameters/EvidenceId'
       responses:
-        "200":
+        '200':
           description: Evidence confirmation and replica status.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/EvidenceConfirmResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "503":
+                $ref: '#/components/schemas/EvidenceConfirmResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
           description: Evidence storage is not configured.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorBody"
+                $ref: '#/components/schemas/ErrorBody'
   /api/v1/devices:
     post:
       operationId: registerMobileDevice
       summary: Register or refresh a mobile device binding
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/XDeviceId"
+      - $ref: '#/components/parameters/XDeviceId'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/DeviceRegistrationRequest"
+              $ref: '#/components/schemas/DeviceRegistrationRequest'
       responses:
-        "200":
+        '200':
           description: Registered device binding.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DeviceRegistrationResponse"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
+                $ref: '#/components/schemas/DeviceRegistrationResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/v1/auth/passkey/register/start:
     post:
       summary: Start passkey registration
-      description: Starts registration with either a bootstrap credential or an authenticated bearer session adding a device.
+      description: Starts registration with either a bootstrap credential or an authenticated bearer session
+        adding a device.
       security:
-        - bearerAuth: []
-        - {}
+      - bearerAuth: []
+      - {}
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/PasskeyRegisterStartRequest"
+              $ref: '#/components/schemas/PasskeyRegisterStartRequest'
       responses:
-        "200":
+        '200':
           description: Registration ceremony challenge.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PasskeyRegisterStartResponse"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "409":
-          $ref: "#/components/responses/Conflict"
+                $ref: '#/components/schemas/PasskeyRegisterStartResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /api/v1/auth/passkey/register/finish:
     post:
       summary: Finish passkey registration
       description: Finishes a bootstrap-linked registration ceremony or an authenticated add-device ceremony.
       security:
-        - bearerAuth: []
-        - {}
+      - bearerAuth: []
+      - {}
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/PasskeyRegisterFinishRequest"
+              $ref: '#/components/schemas/PasskeyRegisterFinishRequest'
       responses:
-        "201":
+        '201':
           description: Passkey registered.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PasskeyRegisterFinishResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "409":
-          $ref: "#/components/responses/Conflict"
+                $ref: '#/components/schemas/PasskeyRegisterFinishResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /api/v1/auth/passkey/login/start:
     post:
       summary: Start passkey login
@@ -839,54 +722,56 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/PasskeyLoginStartRequest"
+              $ref: '#/components/schemas/PasskeyLoginStartRequest'
       responses:
-        "200":
+        '200':
           description: Authentication ceremony challenge.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PasskeyLoginStartResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
+                $ref: '#/components/schemas/PasskeyLoginStartResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/v1/auth/passkey/login/finish:
     post:
       summary: Finish passkey login
-      description: Verifies the passkey assertion and issues an ES256 access JWT plus an opaque rotating refresh token.
+      description: Verifies the passkey assertion and issues an ES256 access JWT plus an opaque rotating
+        refresh token.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/PasskeyLoginFinishRequest"
+              $ref: '#/components/schemas/PasskeyLoginFinishRequest'
       responses:
-        "200":
+        '200':
           description: Access and refresh tokens.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TokenPairResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
+                $ref: '#/components/schemas/TokenPairResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/v1/auth/token/refresh:
     post:
       summary: Rotate refresh token
-      description: Rotates an opaque refresh token; reuse of an old token revokes the whole family and returns 401.
+      description: Rotates an opaque refresh token; reuse of an old token revokes the whole family and
+        returns 401.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RefreshTokenRequest"
+              $ref: '#/components/schemas/RefreshTokenRequest'
       responses:
-        "200":
+        '200':
           description: New access and refresh tokens.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TokenPairResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
+                $ref: '#/components/schemas/TokenPairResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/v1/auth/logout:
     post:
       summary: Logout and revoke refresh-token family
@@ -895,12 +780,188 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/LogoutRequest"
+              $ref: '#/components/schemas/LogoutRequest'
       responses:
-        "204":
+        '204':
           description: Refresh-token family revoked.
-        "401":
-          $ref: "#/components/responses/Unauthorized"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/messenger/threads:
+    get:
+      operationId: listMessengerThreads
+      summary: List branch-scoped messenger threads for the authenticated member
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+          default: 50
+      responses:
+        '200':
+          description: Messenger threads visible to the authenticated member.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerThreadListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: createMessengerThread
+      summary: Create a branch-scoped messenger thread
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMessengerThreadRequest'
+      responses:
+        '201':
+          description: Messenger thread created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerThreadSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/messenger/threads/{threadId}/messages:
+    get:
+      operationId: listMessengerMessages
+      summary: Page messenger messages before an optional cursor
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/ThreadId'
+      - name: before_message_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+          default: 50
+      responses:
+        '200':
+          description: Cursor-stable message page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerMessagePage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      operationId: sendMessengerMessage
+      summary: Send a message with optional evidence attachments
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/ThreadId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessengerMessageRequest'
+      responses:
+        '201':
+          description: Message persisted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerMessageSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/messenger/threads/{threadId}/read-receipt:
+    put:
+      operationId: markMessengerThreadRead
+      summary: Mark the authenticated member's thread read cursor
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/ThreadId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarkMessengerThreadReadRequest'
+      responses:
+        '200':
+          description: Read receipt upserted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerReadReceiptSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/messenger/search:
+    get:
+      operationId: searchMessengerMessages
+      summary: Search branch-scoped messenger messages visible to the authenticated member
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+          default: 50
+      responses:
+        '200':
+          description: Matching messenger messages.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerMessageListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 components:
   securitySchemes:
     bearerAuth:
@@ -910,13 +971,6 @@ components:
   parameters:
     WorkOrderId:
       name: workOrderId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    ThreadId:
-      name: threadId
       in: path
       required: true
       schema:
@@ -951,37 +1005,44 @@ components:
         type: string
         minLength: 1
       description: Client-stable device identifier. The server stores only a SHA-256 hash.
+    ThreadId:
+      name: threadId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
   responses:
     Unauthorized:
       description: Missing or invalid bearer token.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/ErrorBody"
+            $ref: '#/components/schemas/ErrorBody'
     Forbidden:
       description: Principal lacks role or branch authority.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/ErrorBody"
+            $ref: '#/components/schemas/ErrorBody'
     ValidationError:
       description: Request failed validation.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/ErrorBody"
+            $ref: '#/components/schemas/ErrorBody'
     NotFound:
       description: Resource was not found in branch scope.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/ErrorBody"
+            $ref: '#/components/schemas/ErrorBody'
     Conflict:
       description: State conflict or illegal transition.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/ErrorBody"
+            $ref: '#/components/schemas/ErrorBody'
   schemas:
     Uuid:
       type: string
@@ -994,100 +1055,242 @@ components:
       format: date
     PriorityLevel:
       type: string
-      enum: [P1, P2, P3, OUTSOURCE, UNSET]
+      enum:
+      - P1
+      - P2
+      - P3
+      - OUTSOURCE
+      - UNSET
     WorkOrderStatus:
       type: string
       enum:
-        - RECEIVED
-        - UNASSIGNED
-        - ASSIGNED
-        - IN_PROGRESS
-        - REPORT_SUBMITTED
-        - ADMIN_REVIEW
-        - FINAL_COMPLETED
-        - REJECTED
-        - ON_HOLD
-        - DELAYED
-        - TEMPORARY_ACTION
-        - PART_WAITING
-        - EQUIPMENT_IN_USE
-        - REVISIT_REQUIRED
-        - ARCHIVED
-        - CANCELLED
+      - RECEIVED
+      - UNASSIGNED
+      - ASSIGNED
+      - IN_PROGRESS
+      - REPORT_SUBMITTED
+      - ADMIN_REVIEW
+      - FINAL_COMPLETED
+      - REJECTED
+      - ON_HOLD
+      - DELAYED
+      - TEMPORARY_ACTION
+      - PART_WAITING
+      - EQUIPMENT_IN_USE
+      - REVISIT_REQUIRED
+      - ARCHIVED
+      - CANCELLED
     WorkResultType:
       type: string
-      enum: [COMPLETED, TEMPORARY_ACTION, INCOMPLETE, REVISIT_REQUIRED, UNKNOWN]
+      enum:
+      - COMPLETED
+      - TEMPORARY_ACTION
+      - INCOMPLETE
+      - REVISIT_REQUIRED
+      - UNKNOWN
     AssignmentRole:
       type: string
-      enum: [PRIMARY, SECONDARY]
+      enum:
+      - PRIMARY
+      - SECONDARY
     AttachmentStage:
       type: string
-      enum: [REQUEST, BEFORE, DURING, AFTER, REPORT, OUTSOURCE_RESULT]
+      enum:
+      - REQUEST
+      - BEFORE
+      - DURING
+      - AFTER
+      - REPORT
+      - OUTSOURCE_RESULT
     SyncOperationKind:
       type: string
-      enum: [WORK_ORDER_START, WORK_ORDER_REPORT]
+      enum:
+      - WORK_ORDER_START
+      - WORK_ORDER_REPORT
     SyncOperationStatus:
       type: string
-      enum: [APPLIED, FAILED]
+      enum:
+      - APPLIED
+      - FAILED
     DevicePlatform:
       type: string
-      enum: [ios, android]
+      enum:
+      - ios
+      - android
     WormReplicaStatus:
       type: string
-      enum: [PENDING, VERIFIED, FAILED]
+      enum:
+      - PENDING
+      - VERIFIED
+      - FAILED
     DailyPlanStatus:
       type: string
-      enum: [DRAFT, REQUESTED, APPROVED, REJECTED, FINAL_CONFIRMED]
+      enum:
+      - DRAFT
+      - REQUESTED
+      - APPROVED
+      - REJECTED
+      - FINAL_CONFIRMED
     TargetChangeDecision:
       type: string
-      enum: [APPROVED, REJECTED]
-    MessengerThreadKind:
+      enum:
+      - APPROVED
+      - REJECTED
+    KpiMetric:
       type: string
-      enum: [work_order, team, dm, group]
-    CreateMessengerThreadRequest:
+      enum:
+      - completed_count
+      - average_response_speed
+      - completion_duration_and_due_compliance
+      - revisit_rate
+      - delay_rate_and_reason_distribution
+      - inspection_plan_completion_rate
+      - p1_acceptance_rate
+    Period:
       type: object
-      required: [branch_id, kind, member_ids]
+      required:
+      - start
+      - end
       properties:
-        branch_id:
-          $ref: "#/components/schemas/Uuid"
+        start:
+          $ref: '#/components/schemas/Timestamp'
+        end:
+          $ref: '#/components/schemas/Timestamp'
+    KpiScope:
+      type: object
+      required:
+      - kind
+      properties:
         kind:
-          $ref: "#/components/schemas/MessengerThreadKind"
-        title:
-          type:
-            - string
-            - "null"
-        work_order_id:
-          type:
-            - string
-            - "null"
-          format: uuid
-        member_ids:
-          type: array
-          items:
-            $ref: "#/components/schemas/Uuid"
-    SendMessengerMessageRequest:
-      type: object
-      required: [body]
-      properties:
-        body:
           type: string
-          minLength: 1
-        attachment_evidence_ids:
+          enum:
+          - company
+          - region
+          - branch
+          - technician
+        id:
+          $ref: '#/components/schemas/Uuid'
+      description: '`id` is present for region, branch, and technician scopes and absent for company.'
+    KpiRollupScope:
+      type: object
+      required:
+      - kind
+      properties:
+        kind:
+          type: string
+          enum:
+          - company
+          - region
+          - branch
+          - technician
+        id:
+          $ref: '#/components/schemas/Uuid'
+      description: '`id` is present for region, branch, and technician rollups and absent for company.'
+    KpiReport:
+      type: object
+      required:
+      - period
+      - requested_scope
+      - rollups
+      - unavailable_metrics
+      properties:
+        period:
+          $ref: '#/components/schemas/Period'
+        requested_scope:
+          $ref: '#/components/schemas/KpiScope'
+        rollups:
           type: array
           items:
-            $ref: "#/components/schemas/Uuid"
-    MarkMessengerThreadReadRequest:
+            $ref: '#/components/schemas/KpiRollup'
+        unavailable_metrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/UnavailableMetric'
+    KpiRollup:
       type: object
-      required: [last_read_message_id]
+      required:
+      - scope
+      - approved_report_count
+      - completed_count
+      - weighted_completed_points
+      - average_response_seconds
+      - average_completion_seconds
+      - target_due_compliance_bps
+      - revisit_rate_bps
+      - delay_rate_bps
+      - delay_reason_distribution
       properties:
-        last_read_message_id:
-          $ref: "#/components/schemas/Uuid"
+        scope:
+          $ref: '#/components/schemas/KpiRollupScope'
+        approved_report_count:
+          type: integer
+          format: int32
+          minimum: 0
+        completed_count:
+          type: integer
+          format: int32
+          minimum: 0
+        weighted_completed_points:
+          type: integer
+          format: int32
+          minimum: 0
+        average_response_seconds:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          minimum: 0
+        average_completion_seconds:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          minimum: 0
+        target_due_compliance_bps:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          minimum: 0
+          maximum: 10000
+        revisit_rate_bps:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 10000
+        delay_rate_bps:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 10000
+        delay_reason_distribution:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int32
+            minimum: 0
+    UnavailableMetric:
+      type: object
+      required:
+      - metric
+      - source_domain
+      - reason
+      properties:
+        metric:
+          $ref: '#/components/schemas/KpiMetric'
+        source_domain:
+          type: string
+        reason:
+          type: string
     CreateWorkOrderRequest:
       type: object
-      required: [branch_id, management_no, symptom]
+      required:
+      - branch_id
+      - management_no
+      - symptom
       properties:
         branch_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         management_no:
           type: string
         symptom:
@@ -1095,84 +1298,101 @@ components:
         customer_request:
           type: string
         target_due_at:
-          $ref: "#/components/schemas/Timestamp"
+          $ref: '#/components/schemas/Timestamp'
     AssignWorkOrderRequest:
       type: object
-      required: [assignments]
+      required:
+      - assignments
       properties:
         assignments:
           type: array
           minItems: 1
           items:
             type: object
-            required: [mechanic_id, role]
+            required:
+            - mechanic_id
+            - role
             properties:
               mechanic_id:
-                $ref: "#/components/schemas/Uuid"
+                $ref: '#/components/schemas/Uuid'
               role:
-                $ref: "#/components/schemas/AssignmentRole"
+                $ref: '#/components/schemas/AssignmentRole'
         admin_approver_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         executive_approver_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
     SubmitReportRequest:
       type: object
-      required: [result_type, diagnosis, action_taken]
+      required:
+      - result_type
+      - diagnosis
+      - action_taken
       properties:
         result_type:
-          $ref: "#/components/schemas/WorkResultType"
+          $ref: '#/components/schemas/WorkResultType'
         diagnosis:
           type: string
         action_taken:
           type: string
     TargetChangeRequest:
       type: object
-      required: [requested_target_due_at, reason]
+      required:
+      - requested_target_due_at
+      - reason
       properties:
         requested_target_due_at:
-          $ref: "#/components/schemas/Timestamp"
+          $ref: '#/components/schemas/Timestamp'
         reason:
           type: string
     ReviewTargetChangeRequest:
       type: object
-      required: [decision]
+      required:
+      - decision
       properties:
         decision:
-          $ref: "#/components/schemas/TargetChangeDecision"
+          $ref: '#/components/schemas/TargetChangeDecision'
         memo:
           type: string
     CreateDailyPlanRequest:
       type: object
-      required: [branch_id, mechanic_id, plan_date, items]
+      required:
+      - branch_id
+      - mechanic_id
+      - plan_date
+      - items
       properties:
         branch_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         mechanic_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         plan_date:
-          $ref: "#/components/schemas/Date"
+          $ref: '#/components/schemas/Date'
         items:
           type: array
           minItems: 1
           items:
             type: object
-            required: [description]
+            required:
+            - description
             properties:
               work_order_id:
-                $ref: "#/components/schemas/Uuid"
+                $ref: '#/components/schemas/Uuid'
               description:
                 type: string
     ReviewDailyPlanRequest:
       type: object
-      required: [decision]
+      required:
+      - decision
       properties:
         decision:
-          $ref: "#/components/schemas/DailyPlanStatus"
+          $ref: '#/components/schemas/DailyPlanStatus'
         memo:
           type: string
     CreateOutsourceWorkRequest:
       type: object
-      required: [vendor_name, reason]
+      required:
+      - vendor_name
+      - reason
       properties:
         vendor_name:
           type: string
@@ -1182,35 +1402,45 @@ components:
           type: string
     RejectWorkOrderRequest:
       type: object
-      required: [memo]
+      required:
+      - memo
       properties:
         memo:
           type: string
           minLength: 1
     NamedEntity:
       type: object
-      required: [id, name]
+      required:
+      - id
+      - name
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         name:
           type: string
     EquipmentSummary:
       type: object
-      required: [id, equipment_no, management_no, model, status, specification, ton_text]
+      required:
+      - id
+      - equipment_no
+      - management_no
+      - model
+      - status
+      - specification
+      - ton_text
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         equipment_no:
           type: string
         management_no:
           type:
-            - string
-            - "null"
+          - string
+          - 'null'
         model:
           type:
-            - string
-            - "null"
+          - string
+          - 'null'
         status:
           type: string
         specification:
@@ -1220,31 +1450,31 @@ components:
     EquipmentLookupResponse:
       type: object
       required:
-        - id
-        - branch_id
-        - equipment_no
-        - management_no
-        - model
-        - status
-        - specification
-        - ton_text
-        - customer
-        - site
+      - id
+      - branch_id
+      - equipment_no
+      - management_no
+      - model
+      - status
+      - specification
+      - ton_text
+      - customer
+      - site
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         branch_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         equipment_no:
           type: string
         management_no:
           type:
-            - string
-            - "null"
+          - string
+          - 'null'
         model:
           type:
-            - string
-            - "null"
+          - string
+          - 'null'
         status:
           type: string
         specification:
@@ -1252,48 +1482,55 @@ components:
         ton_text:
           type: string
         customer:
-          $ref: "#/components/schemas/NamedEntity"
+          $ref: '#/components/schemas/NamedEntity'
         site:
-          $ref: "#/components/schemas/NamedEntity"
+          $ref: '#/components/schemas/NamedEntity'
     EquipmentAutocompletePage:
       type: object
-      required: [items, limit]
+      required:
+      - items
+      - limit
       properties:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/EquipmentLookupResponse"
+            $ref: '#/components/schemas/EquipmentLookupResponse'
         limit:
           type: integer
           format: int64
     AssignmentSummary:
       type: object
-      required: [id, mechanic_id, mechanic_name, role, assigned_at]
+      required:
+      - id
+      - mechanic_id
+      - mechanic_name
+      - role
+      - assigned_at
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         mechanic_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         mechanic_name:
           type: string
         role:
-          $ref: "#/components/schemas/AssignmentRole"
+          $ref: '#/components/schemas/AssignmentRole'
         assigned_at:
-          $ref: "#/components/schemas/Timestamp"
+          $ref: '#/components/schemas/Timestamp'
     ApprovalStepSummary:
       type: object
       required:
-        - id
-        - step_order
-        - role
-        - approver_id
-        - status
-        - requested_at
-        - approved_at
-        - approved_by_id
+      - id
+      - step_order
+      - role
+      - approver_id
+      - status
+      - requested_at
+      - approved_at
+      - approved_by_id
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         step_order:
           type: integer
           format: int32
@@ -1301,140 +1538,150 @@ components:
           type: string
         approver_id:
           type:
-            - string
-            - "null"
+          - string
+          - 'null'
           format: uuid
         status:
           type: string
         requested_at:
           type:
-            - string
-            - "null"
+          - string
+          - 'null'
           format: date-time
         approved_at:
           type:
-            - string
-            - "null"
+          - string
+          - 'null'
           format: date-time
         approved_by_id:
           type:
-            - string
-            - "null"
+          - string
+          - 'null'
           format: uuid
     StatusHistorySummary:
       type: object
-      required: [id, actor, action, from_status, to_status, occurred_at]
+      required:
+      - id
+      - actor
+      - action
+      - from_status
+      - to_status
+      - occurred_at
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         actor:
           type:
-            - string
-            - "null"
+          - string
+          - 'null'
           format: uuid
         action:
           type: string
         from_status:
           type:
-            - string
-            - "null"
+          - string
+          - 'null'
         to_status:
-          $ref: "#/components/schemas/WorkOrderStatus"
+          $ref: '#/components/schemas/WorkOrderStatus'
         occurred_at:
-          $ref: "#/components/schemas/Timestamp"
+          $ref: '#/components/schemas/Timestamp'
     EvidenceSummary:
       type: object
       required:
-        - id
-        - stage
-        - content_type
-        - size_bytes
-        - uploaded_by
-        - worm_replica_status
-        - retry_count
-        - verified_at
-        - created_at
+      - id
+      - stage
+      - content_type
+      - size_bytes
+      - uploaded_by
+      - worm_replica_status
+      - retry_count
+      - verified_at
+      - created_at
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         stage:
-          $ref: "#/components/schemas/AttachmentStage"
+          $ref: '#/components/schemas/AttachmentStage'
         content_type:
           type: string
         size_bytes:
           type: integer
           format: int64
         uploaded_by:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         worm_replica_status:
-          $ref: "#/components/schemas/WormReplicaStatus"
+          $ref: '#/components/schemas/WormReplicaStatus'
         retry_count:
           type: integer
           format: int32
         verified_at:
           type:
-            - string
-            - "null"
+          - string
+          - 'null'
           format: date-time
         created_at:
-          $ref: "#/components/schemas/Timestamp"
+          $ref: '#/components/schemas/Timestamp'
     WorkOrderListItem:
       type: object
       required:
-        - id
-        - request_no
-        - branch_id
-        - status
-        - priority
-        - result_type
-        - target_due_at
-        - created_at
-        - updated_at
-        - equipment
-        - customer
-        - site
-        - assignments
+      - id
+      - request_no
+      - branch_id
+      - status
+      - priority
+      - result_type
+      - target_due_at
+      - created_at
+      - updated_at
+      - equipment
+      - customer
+      - site
+      - assignments
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         request_no:
           type: string
-          pattern: "^[0-9]{8}-[0-9]{3}$"
+          pattern: ^[0-9]{8}-[0-9]{3}$
         branch_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         status:
-          $ref: "#/components/schemas/WorkOrderStatus"
+          $ref: '#/components/schemas/WorkOrderStatus'
         priority:
-          $ref: "#/components/schemas/PriorityLevel"
+          $ref: '#/components/schemas/PriorityLevel'
         result_type:
-          $ref: "#/components/schemas/WorkResultType"
+          $ref: '#/components/schemas/WorkResultType'
         target_due_at:
           type:
-            - string
-            - "null"
+          - string
+          - 'null'
           format: date-time
         created_at:
-          $ref: "#/components/schemas/Timestamp"
+          $ref: '#/components/schemas/Timestamp'
         updated_at:
-          $ref: "#/components/schemas/Timestamp"
+          $ref: '#/components/schemas/Timestamp'
         equipment:
-          $ref: "#/components/schemas/EquipmentSummary"
+          $ref: '#/components/schemas/EquipmentSummary'
         customer:
-          $ref: "#/components/schemas/NamedEntity"
+          $ref: '#/components/schemas/NamedEntity'
         site:
-          $ref: "#/components/schemas/NamedEntity"
+          $ref: '#/components/schemas/NamedEntity'
         assignments:
           type: array
           items:
-            $ref: "#/components/schemas/AssignmentSummary"
+            $ref: '#/components/schemas/AssignmentSummary'
     WorkOrderListPage:
       type: object
-      required: [items, limit, offset, total]
+      required:
+      - items
+      - limit
+      - offset
+      - total
       properties:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/WorkOrderListItem"
+            $ref: '#/components/schemas/WorkOrderListItem'
         limit:
           type: integer
           format: int64
@@ -1446,74 +1693,76 @@ components:
           format: int64
     WorkOrderDetail:
       allOf:
-        - $ref: "#/components/schemas/WorkOrderListItem"
-        - type: object
-          required:
-            - symptom
-            - customer_request
-            - delay_reason
-            - delay_note
-            - diagnosis
-            - action_taken
-            - report_submitted_by
-            - report_submitted_at
-            - kpi_excluded
-            - evidence_verified
-            - approval_line
-            - status_history
-            - evidence
-          properties:
-            symptom:
-              type: string
-            customer_request:
-              type:
-                - string
-                - "null"
-            delay_reason:
-              type:
-                - string
-                - "null"
-            delay_note:
-              type:
-                - string
-                - "null"
-            diagnosis:
-              type:
-                - string
-                - "null"
-            action_taken:
-              type:
-                - string
-                - "null"
-            report_submitted_by:
-              type:
-                - string
-                - "null"
-              format: uuid
-            report_submitted_at:
-              type:
-                - string
-                - "null"
-              format: date-time
-            kpi_excluded:
-              type: boolean
-            evidence_verified:
-              type: boolean
-            approval_line:
-              type: array
-              items:
-                $ref: "#/components/schemas/ApprovalStepSummary"
-            status_history:
-              type: array
-              items:
-                $ref: "#/components/schemas/StatusHistorySummary"
-            evidence:
-              type: array
-              items:
-                $ref: "#/components/schemas/EvidenceSummary"
+      - $ref: '#/components/schemas/WorkOrderListItem'
+      - type: object
+        required:
+        - symptom
+        - customer_request
+        - delay_reason
+        - delay_note
+        - diagnosis
+        - action_taken
+        - report_submitted_by
+        - report_submitted_at
+        - kpi_excluded
+        - evidence_verified
+        - approval_line
+        - status_history
+        - evidence
+        properties:
+          symptom:
+            type: string
+          customer_request:
+            type:
+            - string
+            - 'null'
+          delay_reason:
+            type:
+            - string
+            - 'null'
+          delay_note:
+            type:
+            - string
+            - 'null'
+          diagnosis:
+            type:
+            - string
+            - 'null'
+          action_taken:
+            type:
+            - string
+            - 'null'
+          report_submitted_by:
+            type:
+            - string
+            - 'null'
+            format: uuid
+          report_submitted_at:
+            type:
+            - string
+            - 'null'
+            format: date-time
+          kpi_excluded:
+            type: boolean
+          evidence_verified:
+            type: boolean
+          approval_line:
+            type: array
+            items:
+              $ref: '#/components/schemas/ApprovalStepSummary'
+          status_history:
+            type: array
+            items:
+              $ref: '#/components/schemas/StatusHistorySummary'
+          evidence:
+            type: array
+            items:
+              $ref: '#/components/schemas/EvidenceSummary'
     SyncBatchRequest:
       type: object
-      required: [sync_id, operations]
+      required:
+      - sync_id
+      - operations
       properties:
         sync_id:
           type: string
@@ -1522,74 +1771,92 @@ components:
           type: array
           minItems: 1
           items:
-            $ref: "#/components/schemas/SyncOperationRequest"
+            $ref: '#/components/schemas/SyncOperationRequest'
     SyncOperationRequest:
       type: object
-      required: [request_id, operation, created_at, payload]
+      required:
+      - request_id
+      - operation
+      - created_at
+      - payload
       properties:
         request_id:
           type: string
           minLength: 1
         operation:
-          $ref: "#/components/schemas/SyncOperationKind"
+          $ref: '#/components/schemas/SyncOperationKind'
         created_at:
-          $ref: "#/components/schemas/Timestamp"
+          $ref: '#/components/schemas/Timestamp'
         payload:
           oneOf:
-            - $ref: "#/components/schemas/SyncWorkOrderStartPayload"
-            - $ref: "#/components/schemas/SyncWorkOrderReportPayload"
+          - $ref: '#/components/schemas/SyncWorkOrderStartPayload'
+          - $ref: '#/components/schemas/SyncWorkOrderReportPayload'
     SyncWorkOrderStartPayload:
       type: object
-      required: [work_order_id]
+      required:
+      - work_order_id
       properties:
         work_order_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
     SyncWorkOrderReportPayload:
       type: object
-      required: [work_order_id, result_type, diagnosis, action_taken]
+      required:
+      - work_order_id
+      - result_type
+      - diagnosis
+      - action_taken
       properties:
         work_order_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         result_type:
-          $ref: "#/components/schemas/WorkResultType"
+          $ref: '#/components/schemas/WorkResultType'
         diagnosis:
           type: string
         action_taken:
           type: string
     SyncBatchResponse:
       type: object
-      required: [sync_id, results]
+      required:
+      - sync_id
+      - results
       properties:
         sync_id:
           type: string
         results:
           type: array
           items:
-            $ref: "#/components/schemas/SyncOperationResult"
+            $ref: '#/components/schemas/SyncOperationResult'
     SyncOperationResult:
       type: object
-      required: [request_id, operation, status, http_status, replayed]
+      required:
+      - request_id
+      - operation
+      - status
+      - http_status
+      - replayed
       properties:
         request_id:
           type: string
         operation:
-          $ref: "#/components/schemas/SyncOperationKind"
+          $ref: '#/components/schemas/SyncOperationKind'
         status:
-          $ref: "#/components/schemas/SyncOperationStatus"
+          $ref: '#/components/schemas/SyncOperationStatus'
         http_status:
           type: integer
           format: int32
           minimum: 100
           maximum: 599
         result:
-          $ref: "#/components/schemas/WorkOrderSummary"
+          $ref: '#/components/schemas/WorkOrderSummary'
         error:
-          $ref: "#/components/schemas/SyncError"
+          $ref: '#/components/schemas/SyncError'
         replayed:
           type: boolean
     SyncError:
       type: object
-      required: [code, message]
+      required:
+      - code
+      - message
       properties:
         code:
           type: string
@@ -1597,12 +1864,16 @@ components:
           type: string
     EvidencePresignRequest:
       type: object
-      required: [work_order_id, stage, content_type, size_bytes]
+      required:
+      - work_order_id
+      - stage
+      - content_type
+      - size_bytes
       properties:
         work_order_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         stage:
-          $ref: "#/components/schemas/AttachmentStage"
+          $ref: '#/components/schemas/AttachmentStage'
         content_type:
           type: string
         size_bytes:
@@ -1613,11 +1884,16 @@ components:
           type: string
     PresignedUpload:
       type: object
-      required: [method, url, headers, expires_in_secs]
+      required:
+      - method
+      - url
+      - headers
+      - expires_in_secs
       properties:
         method:
           type: string
-          enum: [PUT]
+          enum:
+          - PUT
         url:
           type: string
           format: uri
@@ -1626,8 +1902,8 @@ components:
           items:
             type: array
             prefixItems:
-              - type: string
-              - type: string
+            - type: string
+            - type: string
             minItems: 2
             maxItems: 2
         expires_in_secs:
@@ -1636,67 +1912,84 @@ components:
           minimum: 1
     EvidencePresignResponse:
       type: object
-      required: [id, work_order_id, stage, upload]
+      required:
+      - id
+      - work_order_id
+      - stage
+      - upload
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         work_order_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         stage:
-          $ref: "#/components/schemas/AttachmentStage"
+          $ref: '#/components/schemas/AttachmentStage'
         upload:
-          $ref: "#/components/schemas/PresignedUpload"
+          $ref: '#/components/schemas/PresignedUpload'
     EvidenceConfirmResponse:
       type: object
-      required: [id, work_order_id, stage, worm_replica_status, retry_count]
+      required:
+      - id
+      - work_order_id
+      - stage
+      - worm_replica_status
+      - retry_count
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         work_order_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         stage:
-          $ref: "#/components/schemas/AttachmentStage"
+          $ref: '#/components/schemas/AttachmentStage'
         worm_replica_status:
-          $ref: "#/components/schemas/WormReplicaStatus"
+          $ref: '#/components/schemas/WormReplicaStatus'
         retry_count:
           type: integer
           format: int32
         verified_at:
-          $ref: "#/components/schemas/Timestamp"
+          $ref: '#/components/schemas/Timestamp'
     DeviceRegistrationRequest:
       type: object
-      required: [platform, app_version]
+      required:
+      - platform
+      - app_version
       properties:
         platform:
-          $ref: "#/components/schemas/DevicePlatform"
+          $ref: '#/components/schemas/DevicePlatform'
         push_token:
           type:
-            - string
-            - "null"
+          - string
+          - 'null'
         app_version:
           type: string
           minLength: 1
     DeviceRegistrationResponse:
       type: object
-      required: [id, user_id, device_hash, platform, app_version, last_registered_at]
+      required:
+      - id
+      - user_id
+      - device_hash
+      - platform
+      - app_version
+      - last_registered_at
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         user_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         device_hash:
           type: string
-          pattern: "^[a-f0-9]{64}$"
+          pattern: ^[a-f0-9]{64}$
         platform:
-          $ref: "#/components/schemas/DevicePlatform"
+          $ref: '#/components/schemas/DevicePlatform'
         push_token:
           type:
-            - string
-            - "null"
+          - string
+          - 'null'
         app_version:
           type: string
         last_registered_at:
-          $ref: "#/components/schemas/Timestamp"
+          $ref: '#/components/schemas/Timestamp'
     PasskeyRegisterStartRequest:
       type: object
       properties:
@@ -1709,71 +2002,90 @@ components:
           type: string
     PasskeyRegisterStartResponse:
       type: object
-      required: [ceremony_id, challenge, expires_at]
+      required:
+      - ceremony_id
+      - challenge
+      - expires_at
       properties:
         ceremony_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         challenge:
           type: object
           additionalProperties: true
         expires_at:
-          $ref: "#/components/schemas/Timestamp"
+          $ref: '#/components/schemas/Timestamp'
     PasskeyRegisterFinishRequest:
       type: object
-      required: [ceremony_id, credential]
+      required:
+      - ceremony_id
+      - credential
       properties:
         ceremony_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         credential:
           type: object
           additionalProperties: true
     PasskeyRegisterFinishResponse:
       type: object
-      required: [passkey_id, user_id, credential_id]
+      required:
+      - passkey_id
+      - user_id
+      - credential_id
       properties:
         passkey_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         user_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         credential_id:
           type: string
     PasskeyLoginStartRequest:
       type: object
-      required: [user_id]
+      required:
+      - user_id
       properties:
         user_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
     PasskeyLoginStartResponse:
       type: object
-      required: [ceremony_id, challenge, expires_at]
+      required:
+      - ceremony_id
+      - challenge
+      - expires_at
       properties:
         ceremony_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         challenge:
           type: object
           additionalProperties: true
         expires_at:
-          $ref: "#/components/schemas/Timestamp"
+          $ref: '#/components/schemas/Timestamp'
     PasskeyLoginFinishRequest:
       type: object
-      required: [ceremony_id, credential]
+      required:
+      - ceremony_id
+      - credential
       properties:
         ceremony_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         credential:
           type: object
           additionalProperties: true
     RefreshTokenRequest:
       type: object
-      required: [refresh_token]
+      required:
+      - refresh_token
       properties:
         refresh_token:
           type: string
     LogoutRequest:
-      $ref: "#/components/schemas/RefreshTokenRequest"
+      $ref: '#/components/schemas/RefreshTokenRequest'
     TokenPairResponse:
       type: object
-      required: [access_token, refresh_token, token_type, refresh_expires_at]
+      required:
+      - access_token
+      - refresh_token
+      - token_type
+      - refresh_expires_at
       properties:
         access_token:
           type: string
@@ -1781,205 +2093,285 @@ components:
           type: string
         token_type:
           type: string
-          enum: [Bearer]
+          enum:
+          - Bearer
         refresh_expires_at:
-          $ref: "#/components/schemas/Timestamp"
-    MessengerThreadSummary:
-      type: object
-      required:
-        - id
-        - kind
-        - branch_id
-        - title
-        - work_order_id
-        - last_message_id
-        - last_message_at
-        - member_count
-        - created_at
-        - updated_at
-      properties:
-        id:
-          $ref: "#/components/schemas/Uuid"
-        kind:
-          $ref: "#/components/schemas/MessengerThreadKind"
-        branch_id:
-          $ref: "#/components/schemas/Uuid"
-        title:
-          type:
-            - string
-            - "null"
-        work_order_id:
-          type:
-            - string
-            - "null"
-          format: uuid
-        last_message_id:
-          type:
-            - string
-            - "null"
-          format: uuid
-        last_message_at:
-          type:
-            - string
-            - "null"
-          format: date-time
-        member_count:
-          type: integer
-          format: int64
-        created_at:
-          $ref: "#/components/schemas/Timestamp"
-        updated_at:
-          $ref: "#/components/schemas/Timestamp"
-    MessengerThreadListResponse:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/MessengerThreadSummary"
-    MessengerMessageSummary:
-      type: object
-      required: [id, thread_id, branch_id, sender_id, body, attachment_evidence_ids, sent_at, created_at]
-      properties:
-        id:
-          $ref: "#/components/schemas/Uuid"
-        thread_id:
-          $ref: "#/components/schemas/Uuid"
-        branch_id:
-          $ref: "#/components/schemas/Uuid"
-        sender_id:
-          $ref: "#/components/schemas/Uuid"
-        body:
-          type: string
-        attachment_evidence_ids:
-          type: array
-          items:
-            $ref: "#/components/schemas/Uuid"
-        sent_at:
-          $ref: "#/components/schemas/Timestamp"
-        created_at:
-          $ref: "#/components/schemas/Timestamp"
-    MessengerMessageListResponse:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/MessengerMessageSummary"
-    MessengerMessagePage:
-      type: object
-      required: [items, next_cursor]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/MessengerMessageSummary"
-        next_cursor:
-          type:
-            - string
-            - "null"
-          format: uuid
-    MessengerReadReceiptSummary:
-      type: object
-      required: [thread_id, user_id, last_read_message_id, read_at, updated_at]
-      properties:
-        thread_id:
-          $ref: "#/components/schemas/Uuid"
-        user_id:
-          $ref: "#/components/schemas/Uuid"
-        last_read_message_id:
-          $ref: "#/components/schemas/Uuid"
-        read_at:
-          $ref: "#/components/schemas/Timestamp"
-        updated_at:
-          $ref: "#/components/schemas/Timestamp"
+          $ref: '#/components/schemas/Timestamp'
     WorkOrderSummary:
       type: object
       required:
-        - id
-        - request_no
-        - branch_id
-        - equipment_id
-        - customer_id
-        - site_id
-        - status
-        - priority
-        - result_type
-        - evidence_verified
+      - id
+      - request_no
+      - branch_id
+      - equipment_id
+      - customer_id
+      - site_id
+      - status
+      - priority
+      - result_type
+      - evidence_verified
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         request_no:
           type: string
-          pattern: "^[0-9]{8}-[0-9]{3}$"
+          pattern: ^[0-9]{8}-[0-9]{3}$
         branch_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         equipment_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         customer_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         site_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         status:
-          $ref: "#/components/schemas/WorkOrderStatus"
+          $ref: '#/components/schemas/WorkOrderStatus'
         priority:
-          $ref: "#/components/schemas/PriorityLevel"
+          $ref: '#/components/schemas/PriorityLevel'
         result_type:
-          $ref: "#/components/schemas/WorkResultType"
+          $ref: '#/components/schemas/WorkResultType'
         evidence_verified:
           type: boolean
     TargetChangeRequestSummary:
       type: object
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         work_order_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         branch_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         requested_target_due_at:
-          $ref: "#/components/schemas/Timestamp"
+          $ref: '#/components/schemas/Timestamp'
         status:
           type: string
-          enum: [REQUESTED, APPROVED, REJECTED]
+          enum:
+          - REQUESTED
+          - APPROVED
+          - REJECTED
     DailyPlanSummary:
       type: object
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         branch_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         mechanic_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         plan_date:
-          $ref: "#/components/schemas/Date"
+          $ref: '#/components/schemas/Date'
         status:
-          $ref: "#/components/schemas/DailyPlanStatus"
+          $ref: '#/components/schemas/DailyPlanStatus'
     OutsourceWorkSummary:
       type: object
       properties:
         id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         work_order_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         vendor_id:
-          $ref: "#/components/schemas/Uuid"
+          $ref: '#/components/schemas/Uuid'
         vendor_name:
           type: string
         status:
           type: string
-          enum: [REQUESTED, ASSIGNED, IN_PROGRESS, RESULT_SUBMITTED, COMPLETED, CANCELLED]
+          enum:
+          - REQUESTED
+          - ASSIGNED
+          - IN_PROGRESS
+          - RESULT_SUBMITTED
+          - COMPLETED
+          - CANCELLED
     ErrorBody:
       type: object
-      required: [error]
+      required:
+      - error
       properties:
         error:
           type: object
-          required: [code, message]
+          required:
+          - code
+          - message
           properties:
             code:
               type: string
             message:
               type: string
+    MessengerThreadKind:
+      type: string
+      enum:
+      - work_order
+      - team
+      - dm
+      - group
+    CreateMessengerThreadRequest:
+      type: object
+      required:
+      - branch_id
+      - kind
+      - member_ids
+      properties:
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        kind:
+          $ref: '#/components/schemas/MessengerThreadKind'
+        title:
+          type:
+          - string
+          - 'null'
+        work_order_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        member_ids:
+          type: array
+          items:
+            $ref: '#/components/schemas/Uuid'
+    SendMessengerMessageRequest:
+      type: object
+      required:
+      - body
+      properties:
+        body:
+          type: string
+          minLength: 1
+        attachment_evidence_ids:
+          type: array
+          items:
+            $ref: '#/components/schemas/Uuid'
+    MarkMessengerThreadReadRequest:
+      type: object
+      required:
+      - last_read_message_id
+      properties:
+        last_read_message_id:
+          $ref: '#/components/schemas/Uuid'
+    MessengerThreadSummary:
+      type: object
+      required:
+      - id
+      - kind
+      - branch_id
+      - title
+      - work_order_id
+      - last_message_id
+      - last_message_at
+      - member_count
+      - created_at
+      - updated_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        kind:
+          $ref: '#/components/schemas/MessengerThreadKind'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        title:
+          type:
+          - string
+          - 'null'
+        work_order_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        last_message_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        last_message_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        member_count:
+          type: integer
+          format: int64
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    MessengerThreadListResponse:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessengerThreadSummary'
+    MessengerMessageSummary:
+      type: object
+      required:
+      - id
+      - thread_id
+      - branch_id
+      - sender_id
+      - body
+      - attachment_evidence_ids
+      - sent_at
+      - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        thread_id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        sender_id:
+          $ref: '#/components/schemas/Uuid'
+        body:
+          type: string
+        attachment_evidence_ids:
+          type: array
+          items:
+            $ref: '#/components/schemas/Uuid'
+        sent_at:
+          $ref: '#/components/schemas/Timestamp'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    MessengerMessageListResponse:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessengerMessageSummary'
+    MessengerMessagePage:
+      type: object
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessengerMessageSummary'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+          format: uuid
+    MessengerReadReceiptSummary:
+      type: object
+      required:
+      - thread_id
+      - user_id
+      - last_read_message_id
+      - read_at
+      - updated_at
+      properties:
+        thread_id:
+          $ref: '#/components/schemas/Uuid'
+        user_id:
+          $ref: '#/components/schemas/Uuid'
+        last_read_message_id:
+          $ref: '#/components/schemas/Uuid'
+        read_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'

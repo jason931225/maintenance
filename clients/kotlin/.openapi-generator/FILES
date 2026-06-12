@@ -54,6 +54,11 @@ src/main/kotlin/com/maintenance/api/client/model/EvidenceConfirmResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidencePresignRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidencePresignResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/EvidenceSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/KpiMetric.kt
+src/main/kotlin/com/maintenance/api/client/model/KpiReport.kt
+src/main/kotlin/com/maintenance/api/client/model/KpiRollup.kt
+src/main/kotlin/com/maintenance/api/client/model/KpiRollupScope.kt
+src/main/kotlin/com/maintenance/api/client/model/KpiScope.kt
 src/main/kotlin/com/maintenance/api/client/model/MarkMessengerThreadReadRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/MessengerMessageListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/MessengerMessagePage.kt
@@ -71,6 +76,7 @@ src/main/kotlin/com/maintenance/api/client/model/PasskeyRegisterFinishRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyRegisterFinishResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyRegisterStartRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyRegisterStartResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/Period.kt
 src/main/kotlin/com/maintenance/api/client/model/PresignedUpload.kt
 src/main/kotlin/com/maintenance/api/client/model/PriorityLevel.kt
 src/main/kotlin/com/maintenance/api/client/model/RefreshTokenRequest.kt
@@ -94,6 +100,7 @@ src/main/kotlin/com/maintenance/api/client/model/TargetChangeDecision.kt
 src/main/kotlin/com/maintenance/api/client/model/TargetChangeRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/TargetChangeRequestSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/TokenPairResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/UnavailableMetric.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateWorkOrderPriorityRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkOrderDetail.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkOrderListItem.kt
