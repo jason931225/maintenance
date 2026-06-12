@@ -276,6 +276,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/kpi": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch branch-scoped KPI rollups for the seven standard metrics
+         * @description Computes KPI metrics from approved work-order reports within the requested approval period. Metrics whose source domains have not merged yet are returned in `unavailable_metrics` instead of fabricated values.
+         */
+        get: operations["getKpiReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/work-orders": {
         parameters: {
             query?: never;
@@ -723,6 +743,57 @@ export interface components {
         DailyPlanStatus: "DRAFT" | "REQUESTED" | "APPROVED" | "REJECTED" | "FINAL_CONFIRMED";
         /** @enum {string} */
         TargetChangeDecision: "APPROVED" | "REJECTED";
+        /** @enum {string} */
+        KpiMetric: "completed_count" | "average_response_speed" | "completion_duration_and_due_compliance" | "revisit_rate" | "delay_rate_and_reason_distribution" | "inspection_plan_completion_rate" | "p1_acceptance_rate";
+        Period: {
+            start: components["schemas"]["Timestamp"];
+            end: components["schemas"]["Timestamp"];
+        };
+        /** @description `id` is present for region, branch, and technician scopes and absent for company. */
+        KpiScope: {
+            /** @enum {string} */
+            kind: "company" | "region" | "branch" | "technician";
+            id?: components["schemas"]["Uuid"];
+        };
+        /** @description `id` is present for region, branch, and technician rollups and absent for company. */
+        KpiRollupScope: {
+            /** @enum {string} */
+            kind: "company" | "region" | "branch" | "technician";
+            id?: components["schemas"]["Uuid"];
+        };
+        KpiReport: {
+            period: components["schemas"]["Period"];
+            requested_scope: components["schemas"]["KpiScope"];
+            rollups: components["schemas"]["KpiRollup"][];
+            unavailable_metrics: components["schemas"]["UnavailableMetric"][];
+        };
+        KpiRollup: {
+            scope: components["schemas"]["KpiRollupScope"];
+            /** Format: int32 */
+            approved_report_count: number;
+            /** Format: int32 */
+            completed_count: number;
+            /** Format: int32 */
+            weighted_completed_points: number;
+            /** Format: int64 */
+            average_response_seconds: number | null;
+            /** Format: int64 */
+            average_completion_seconds: number | null;
+            /** Format: int32 */
+            target_due_compliance_bps: number | null;
+            /** Format: int32 */
+            revisit_rate_bps: number;
+            /** Format: int32 */
+            delay_rate_bps: number;
+            delay_reason_distribution: {
+                [key: string]: number;
+            };
+        };
+        UnavailableMetric: {
+            metric: components["schemas"]["KpiMetric"];
+            source_domain: string;
+            reason: string;
+        };
         CreateWorkOrderRequest: {
             branch_id: components["schemas"]["Uuid"];
             management_no: string;
@@ -1515,6 +1586,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OutsourceWorkSummary"];
+                };
+            };
+        };
+    };
+    getKpiReport: {
+        parameters: {
+            query: {
+                /**
+                 * @description Inclusive start date and exclusive end date in UTC day boundaries.
+                 * @example 2026-06-01..2026-07-01
+                 */
+                period: string;
+                scope?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description KPI report with company, region, branch, and technician rollups constrained by the authenticated principal branch scope. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KpiReport"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
         };

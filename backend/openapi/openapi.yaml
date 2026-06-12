@@ -293,6 +293,58 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OutsourceWorkSummary"
+  /api/v1/kpi:
+    get:
+      operationId: getKpiReport
+      summary: Fetch branch-scoped KPI rollups for the seven standard metrics
+      description: Computes KPI metrics from approved work-order reports within the requested approval period. Metrics whose source domains have not merged yet are returned in `unavailable_metrics` instead of fabricated values.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}\\.\\.[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+          example: "2026-06-01..2026-07-01"
+          description: Inclusive start date and exclusive end date in UTC day boundaries.
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            default: company
+          examples:
+            company:
+              value: company
+            region:
+              value: region:00000000-0000-0000-0000-000000000000
+            branch:
+              value: branch:00000000-0000-0000-0000-000000000000
+            technician:
+              value: technician:00000000-0000-0000-0000-000000000000
+      responses:
+        "200":
+          description: KPI report with company, region, branch, and technician rollups constrained by the authenticated principal branch scope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KpiReport"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "503":
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /api/v1/work-orders:
     get:
       operationId: listWorkOrders
@@ -858,6 +910,133 @@ components:
     TargetChangeDecision:
       type: string
       enum: [APPROVED, REJECTED]
+    KpiMetric:
+      type: string
+      enum:
+        - completed_count
+        - average_response_speed
+        - completion_duration_and_due_compliance
+        - revisit_rate
+        - delay_rate_and_reason_distribution
+        - inspection_plan_completion_rate
+        - p1_acceptance_rate
+    Period:
+      type: object
+      required: [start, end]
+      properties:
+        start:
+          $ref: "#/components/schemas/Timestamp"
+        end:
+          $ref: "#/components/schemas/Timestamp"
+    KpiScope:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [company, region, branch, technician]
+        id:
+          $ref: "#/components/schemas/Uuid"
+      description: "`id` is present for region, branch, and technician scopes and absent for company."
+    KpiRollupScope:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [company, region, branch, technician]
+        id:
+          $ref: "#/components/schemas/Uuid"
+      description: "`id` is present for region, branch, and technician rollups and absent for company."
+    KpiReport:
+      type: object
+      required: [period, requested_scope, rollups, unavailable_metrics]
+      properties:
+        period:
+          $ref: "#/components/schemas/Period"
+        requested_scope:
+          $ref: "#/components/schemas/KpiScope"
+        rollups:
+          type: array
+          items:
+            $ref: "#/components/schemas/KpiRollup"
+        unavailable_metrics:
+          type: array
+          items:
+            $ref: "#/components/schemas/UnavailableMetric"
+    KpiRollup:
+      type: object
+      required:
+        - scope
+        - approved_report_count
+        - completed_count
+        - weighted_completed_points
+        - average_response_seconds
+        - average_completion_seconds
+        - target_due_compliance_bps
+        - revisit_rate_bps
+        - delay_rate_bps
+        - delay_reason_distribution
+      properties:
+        scope:
+          $ref: "#/components/schemas/KpiRollupScope"
+        approved_report_count:
+          type: integer
+          format: int32
+          minimum: 0
+        completed_count:
+          type: integer
+          format: int32
+          minimum: 0
+        weighted_completed_points:
+          type: integer
+          format: int32
+          minimum: 0
+        average_response_seconds:
+          type:
+            - integer
+            - "null"
+          format: int64
+          minimum: 0
+        average_completion_seconds:
+          type:
+            - integer
+            - "null"
+          format: int64
+          minimum: 0
+        target_due_compliance_bps:
+          type:
+            - integer
+            - "null"
+          format: int32
+          minimum: 0
+          maximum: 10000
+        revisit_rate_bps:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 10000
+        delay_rate_bps:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 10000
+        delay_reason_distribution:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int32
+            minimum: 0
+    UnavailableMetric:
+      type: object
+      required: [metric, source_domain, reason]
+      properties:
+        metric:
+          $ref: "#/components/schemas/KpiMetric"
+        source_domain:
+          type: string
+        reason:
+          type: string
     CreateWorkOrderRequest:
       type: object
       required: [branch_id, management_no, symptom]

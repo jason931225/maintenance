@@ -91,6 +91,13 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/work-orders/{workOrderId}/outsource-works`.
     /// - Remark: Generated from `#/paths//api/work-orders/{workOrderId}/outsource-works/post(createOutsourceWork)`.
     func createOutsourceWork(_ input: Operations.CreateOutsourceWork.Input) async throws -> Operations.CreateOutsourceWork.Output
+    /// Fetch branch-scoped KPI rollups for the seven standard metrics
+    ///
+    /// Computes KPI metrics from approved work-order reports within the requested approval period. Metrics whose source domains have not merged yet are returned in `unavailable_metrics` instead of fabricated values.
+    ///
+    /// - Remark: HTTP `GET /api/v1/kpi`.
+    /// - Remark: Generated from `#/paths//api/v1/kpi/get(getKpiReport)`.
+    func getKpiReport(_ input: Operations.GetKpiReport.Input) async throws -> Operations.GetKpiReport.Output
     /// List branch-scoped work orders
     ///
     /// Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values.
@@ -388,6 +395,21 @@ extension APIProtocol {
             path: path,
             headers: headers,
             body: body
+        ))
+    }
+    /// Fetch branch-scoped KPI rollups for the seven standard metrics
+    ///
+    /// Computes KPI metrics from approved work-order reports within the requested approval period. Metrics whose source domains have not merged yet are returned in `unavailable_metrics` instead of fabricated values.
+    ///
+    /// - Remark: HTTP `GET /api/v1/kpi`.
+    /// - Remark: Generated from `#/paths//api/v1/kpi/get(getKpiReport)`.
+    public func getKpiReport(
+        query: Operations.GetKpiReport.Input.Query,
+        headers: Operations.GetKpiReport.Input.Headers = .init()
+    ) async throws -> Operations.GetKpiReport.Output {
+        try await getKpiReport(Operations.GetKpiReport.Input(
+            query: query,
+            headers: headers
         ))
     }
     /// List branch-scoped work orders
@@ -694,6 +716,256 @@ public enum Components {
         @frozen public enum TargetChangeDecision: String, Codable, Hashable, Sendable, CaseIterable {
             case approved = "APPROVED"
             case rejected = "REJECTED"
+        }
+        /// - Remark: Generated from `#/components/schemas/KpiMetric`.
+        @frozen public enum KpiMetric: String, Codable, Hashable, Sendable, CaseIterable {
+            case completedCount = "completed_count"
+            case averageResponseSpeed = "average_response_speed"
+            case completionDurationAndDueCompliance = "completion_duration_and_due_compliance"
+            case revisitRate = "revisit_rate"
+            case delayRateAndReasonDistribution = "delay_rate_and_reason_distribution"
+            case inspectionPlanCompletionRate = "inspection_plan_completion_rate"
+            case p1AcceptanceRate = "p1_acceptance_rate"
+        }
+        /// - Remark: Generated from `#/components/schemas/Period`.
+        public struct Period: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/Period/start`.
+            public var start: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/Period/end`.
+            public var end: Components.Schemas.Timestamp
+            /// Creates a new `Period`.
+            ///
+            /// - Parameters:
+            ///   - start:
+            ///   - end:
+            public init(
+                start: Components.Schemas.Timestamp,
+                end: Components.Schemas.Timestamp
+            ) {
+                self.start = start
+                self.end = end
+            }
+            public enum CodingKeys: String, CodingKey {
+                case start
+                case end
+            }
+        }
+        /// `id` is present for region, branch, and technician scopes and absent for company.
+        ///
+        /// - Remark: Generated from `#/components/schemas/KpiScope`.
+        public struct KpiScope: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/KpiScope/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case company = "company"
+                case region = "region"
+                case branch = "branch"
+                case technician = "technician"
+            }
+            /// - Remark: Generated from `#/components/schemas/KpiScope/kind`.
+            public var kind: Components.Schemas.KpiScope.KindPayload
+            /// - Remark: Generated from `#/components/schemas/KpiScope/id`.
+            public var id: Components.Schemas.Uuid?
+            /// Creates a new `KpiScope`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - id:
+            public init(
+                kind: Components.Schemas.KpiScope.KindPayload,
+                id: Components.Schemas.Uuid? = nil
+            ) {
+                self.kind = kind
+                self.id = id
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case id
+            }
+        }
+        /// `id` is present for region, branch, and technician rollups and absent for company.
+        ///
+        /// - Remark: Generated from `#/components/schemas/KpiRollupScope`.
+        public struct KpiRollupScope: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/KpiRollupScope/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case company = "company"
+                case region = "region"
+                case branch = "branch"
+                case technician = "technician"
+            }
+            /// - Remark: Generated from `#/components/schemas/KpiRollupScope/kind`.
+            public var kind: Components.Schemas.KpiRollupScope.KindPayload
+            /// - Remark: Generated from `#/components/schemas/KpiRollupScope/id`.
+            public var id: Components.Schemas.Uuid?
+            /// Creates a new `KpiRollupScope`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - id:
+            public init(
+                kind: Components.Schemas.KpiRollupScope.KindPayload,
+                id: Components.Schemas.Uuid? = nil
+            ) {
+                self.kind = kind
+                self.id = id
+            }
+            public enum CodingKeys: String, CodingKey {
+                case kind
+                case id
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/KpiReport`.
+        public struct KpiReport: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/KpiReport/period`.
+            public var period: Components.Schemas.Period
+            /// - Remark: Generated from `#/components/schemas/KpiReport/requested_scope`.
+            public var requestedScope: Components.Schemas.KpiScope
+            /// - Remark: Generated from `#/components/schemas/KpiReport/rollups`.
+            public var rollups: [Components.Schemas.KpiRollup]
+            /// - Remark: Generated from `#/components/schemas/KpiReport/unavailable_metrics`.
+            public var unavailableMetrics: [Components.Schemas.UnavailableMetric]
+            /// Creates a new `KpiReport`.
+            ///
+            /// - Parameters:
+            ///   - period:
+            ///   - requestedScope:
+            ///   - rollups:
+            ///   - unavailableMetrics:
+            public init(
+                period: Components.Schemas.Period,
+                requestedScope: Components.Schemas.KpiScope,
+                rollups: [Components.Schemas.KpiRollup],
+                unavailableMetrics: [Components.Schemas.UnavailableMetric]
+            ) {
+                self.period = period
+                self.requestedScope = requestedScope
+                self.rollups = rollups
+                self.unavailableMetrics = unavailableMetrics
+            }
+            public enum CodingKeys: String, CodingKey {
+                case period
+                case requestedScope = "requested_scope"
+                case rollups
+                case unavailableMetrics = "unavailable_metrics"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/KpiRollup`.
+        public struct KpiRollup: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/KpiRollup/scope`.
+            public var scope: Components.Schemas.KpiRollupScope
+            /// - Remark: Generated from `#/components/schemas/KpiRollup/approved_report_count`.
+            public var approvedReportCount: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/KpiRollup/completed_count`.
+            public var completedCount: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/KpiRollup/weighted_completed_points`.
+            public var weightedCompletedPoints: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/KpiRollup/average_response_seconds`.
+            public var averageResponseSeconds: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/KpiRollup/average_completion_seconds`.
+            public var averageCompletionSeconds: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/KpiRollup/target_due_compliance_bps`.
+            public var targetDueComplianceBps: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/KpiRollup/revisit_rate_bps`.
+            public var revisitRateBps: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/KpiRollup/delay_rate_bps`.
+            public var delayRateBps: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/KpiRollup/delay_reason_distribution`.
+            public struct DelayReasonDistributionPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: [String: Swift.Int32]
+                /// Creates a new `DelayReasonDistributionPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: [String: Swift.Int32] = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/KpiRollup/delay_reason_distribution`.
+            public var delayReasonDistribution: Components.Schemas.KpiRollup.DelayReasonDistributionPayload
+            /// Creates a new `KpiRollup`.
+            ///
+            /// - Parameters:
+            ///   - scope:
+            ///   - approvedReportCount:
+            ///   - completedCount:
+            ///   - weightedCompletedPoints:
+            ///   - averageResponseSeconds:
+            ///   - averageCompletionSeconds:
+            ///   - targetDueComplianceBps:
+            ///   - revisitRateBps:
+            ///   - delayRateBps:
+            ///   - delayReasonDistribution:
+            public init(
+                scope: Components.Schemas.KpiRollupScope,
+                approvedReportCount: Swift.Int32,
+                completedCount: Swift.Int32,
+                weightedCompletedPoints: Swift.Int32,
+                averageResponseSeconds: Swift.Int64? = nil,
+                averageCompletionSeconds: Swift.Int64? = nil,
+                targetDueComplianceBps: Swift.Int32? = nil,
+                revisitRateBps: Swift.Int32,
+                delayRateBps: Swift.Int32,
+                delayReasonDistribution: Components.Schemas.KpiRollup.DelayReasonDistributionPayload
+            ) {
+                self.scope = scope
+                self.approvedReportCount = approvedReportCount
+                self.completedCount = completedCount
+                self.weightedCompletedPoints = weightedCompletedPoints
+                self.averageResponseSeconds = averageResponseSeconds
+                self.averageCompletionSeconds = averageCompletionSeconds
+                self.targetDueComplianceBps = targetDueComplianceBps
+                self.revisitRateBps = revisitRateBps
+                self.delayRateBps = delayRateBps
+                self.delayReasonDistribution = delayReasonDistribution
+            }
+            public enum CodingKeys: String, CodingKey {
+                case scope
+                case approvedReportCount = "approved_report_count"
+                case completedCount = "completed_count"
+                case weightedCompletedPoints = "weighted_completed_points"
+                case averageResponseSeconds = "average_response_seconds"
+                case averageCompletionSeconds = "average_completion_seconds"
+                case targetDueComplianceBps = "target_due_compliance_bps"
+                case revisitRateBps = "revisit_rate_bps"
+                case delayRateBps = "delay_rate_bps"
+                case delayReasonDistribution = "delay_reason_distribution"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/UnavailableMetric`.
+        public struct UnavailableMetric: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UnavailableMetric/metric`.
+            public var metric: Components.Schemas.KpiMetric
+            /// - Remark: Generated from `#/components/schemas/UnavailableMetric/source_domain`.
+            public var sourceDomain: Swift.String
+            /// - Remark: Generated from `#/components/schemas/UnavailableMetric/reason`.
+            public var reason: Swift.String
+            /// Creates a new `UnavailableMetric`.
+            ///
+            /// - Parameters:
+            ///   - metric:
+            ///   - sourceDomain:
+            ///   - reason:
+            public init(
+                metric: Components.Schemas.KpiMetric,
+                sourceDomain: Swift.String,
+                reason: Swift.String
+            ) {
+                self.metric = metric
+                self.sourceDomain = sourceDomain
+                self.reason = reason
+            }
+            public enum CodingKeys: String, CodingKey {
+                case metric
+                case sourceDomain = "source_domain"
+                case reason
+            }
         }
         /// - Remark: Generated from `#/components/schemas/CreateWorkOrderRequest`.
         public struct CreateWorkOrderRequest: Codable, Hashable, Sendable {
@@ -4895,6 +5167,288 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Fetch branch-scoped KPI rollups for the seven standard metrics
+    ///
+    /// Computes KPI metrics from approved work-order reports within the requested approval period. Metrics whose source domains have not merged yet are returned in `unavailable_metrics` instead of fabricated values.
+    ///
+    /// - Remark: HTTP `GET /api/v1/kpi`.
+    /// - Remark: Generated from `#/paths//api/v1/kpi/get(getKpiReport)`.
+    public enum GetKpiReport {
+        public static let id: Swift.String = "getKpiReport"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/kpi/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// Inclusive start date and exclusive end date in UTC day boundaries.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/kpi/GET/query/period`.
+                public var period: Swift.String
+                /// - Remark: Generated from `#/paths/api/v1/kpi/GET/query/scope`.
+                public var scope: Swift.String?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - period: Inclusive start date and exclusive end date in UTC day boundaries.
+                ///   - scope:
+                public init(
+                    period: Swift.String,
+                    scope: Swift.String? = nil
+                ) {
+                    self.period = period
+                    self.scope = scope
+                }
+            }
+            public var query: Operations.GetKpiReport.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/kpi/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetKpiReport.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetKpiReport.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetKpiReport.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.GetKpiReport.Input.Query,
+                headers: Operations.GetKpiReport.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/kpi/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/kpi/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.KpiReport)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.KpiReport {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetKpiReport.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetKpiReport.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// KPI report with company, region, branch, and technician rollups constrained by the authenticated principal branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/kpi/get(getKpiReport)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetKpiReport.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetKpiReport.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/kpi/get(getKpiReport)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/kpi/get(getKpiReport)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/kpi/get(getKpiReport)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/kpi/get(getKpiReport)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/kpi/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/kpi/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetKpiReport.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetKpiReport.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/kpi/get(getKpiReport)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetKpiReport.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.GetKpiReport.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
                             response: self
                         )
                     }

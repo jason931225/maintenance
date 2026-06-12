@@ -40,6 +40,7 @@ import com.maintenance.api.client.model.ErrorBody
 import com.maintenance.api.client.model.EvidenceConfirmResponse
 import com.maintenance.api.client.model.EvidencePresignRequest
 import com.maintenance.api.client.model.EvidencePresignResponse
+import com.maintenance.api.client.model.KpiReport
 import com.maintenance.api.client.model.OutsourceWorkSummary
 import com.maintenance.api.client.model.PasskeyLoginFinishRequest
 import com.maintenance.api.client.model.PasskeyLoginStartRequest
@@ -1131,6 +1132,88 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/work-orders",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/kpi
+     * Fetch branch-scoped KPI rollups for the seven standard metrics
+     * Computes KPI metrics from approved work-order reports within the requested approval period. Metrics whose source domains have not merged yet are returned in &#x60;unavailable_metrics&#x60; instead of fabricated values.
+     * @param period Inclusive start date and exclusive end date in UTC day boundaries.
+     * @param scope  (optional, default to "company")
+     * @return KpiReport
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getKpiReport(period: kotlin.String, scope: kotlin.String? = "company") : KpiReport = withContext(Dispatchers.IO) {
+        val localVarResponse = getKpiReportWithHttpInfo(period = period, scope = scope)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as KpiReport
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/kpi
+     * Fetch branch-scoped KPI rollups for the seven standard metrics
+     * Computes KPI metrics from approved work-order reports within the requested approval period. Metrics whose source domains have not merged yet are returned in &#x60;unavailable_metrics&#x60; instead of fabricated values.
+     * @param period Inclusive start date and exclusive end date in UTC day boundaries.
+     * @param scope  (optional, default to "company")
+     * @return ApiResponse<KpiReport?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getKpiReportWithHttpInfo(period: kotlin.String, scope: kotlin.String?) : ApiResponse<KpiReport?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getKpiReportRequestConfig(period = period, scope = scope)
+
+        return@withContext request<Unit, KpiReport>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getKpiReport
+     *
+     * @param period Inclusive start date and exclusive end date in UTC day boundaries.
+     * @param scope  (optional, default to "company")
+     * @return RequestConfig
+     */
+    fun getKpiReportRequestConfig(period: kotlin.String, scope: kotlin.String?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("period", listOf(period.toString()))
+                if (scope != null) {
+                    put("scope", listOf(scope.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/kpi",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
