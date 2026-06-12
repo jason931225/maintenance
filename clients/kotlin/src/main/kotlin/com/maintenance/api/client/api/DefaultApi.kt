@@ -29,10 +29,12 @@ import okhttp3.HttpUrl
 
 import com.maintenance.api.client.model.AppendManualCostLedgerRequest
 import com.maintenance.api.client.model.AssignWorkOrderRequest
+import com.maintenance.api.client.model.CompleteInspectionRoundRequest
 import com.maintenance.api.client.model.ComputeRentalQuoteRequest
 import com.maintenance.api.client.model.ComputedRentalQuote
 import com.maintenance.api.client.model.CostLedgerEntrySummary
 import com.maintenance.api.client.model.CreateDailyPlanRequest
+import com.maintenance.api.client.model.CreateInspectionScheduleRequest
 import com.maintenance.api.client.model.CreateMessengerThreadRequest
 import com.maintenance.api.client.model.CreateOutsourceWorkRequest
 import com.maintenance.api.client.model.CreatePurchaseRequest
@@ -48,6 +50,8 @@ import com.maintenance.api.client.model.EvidenceConfirmResponse
 import com.maintenance.api.client.model.EvidencePresignRequest
 import com.maintenance.api.client.model.EvidencePresignResponse
 import com.maintenance.api.client.model.ForceAssignP1DispatchRequest
+import com.maintenance.api.client.model.InspectionRoundSummary
+import com.maintenance.api.client.model.InspectionScheduleSummary
 import com.maintenance.api.client.model.KpiReport
 import com.maintenance.api.client.model.MarkMessengerThreadReadRequest
 import com.maintenance.api.client.model.MessengerMessageListResponse
@@ -1019,6 +1023,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/inspections/schedules/{schedule_id}/rounds
+     * Complete a scheduled regular inspection round
+     *
+     * @param scheduleId
+     * @param completeInspectionRoundRequest
+     * @return InspectionRoundSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun completeInspectionRound(scheduleId: java.util.UUID, completeInspectionRoundRequest: CompleteInspectionRoundRequest) : InspectionRoundSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = completeInspectionRoundWithHttpInfo(scheduleId = scheduleId, completeInspectionRoundRequest = completeInspectionRoundRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as InspectionRoundSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/inspections/schedules/{schedule_id}/rounds
+     * Complete a scheduled regular inspection round
+     *
+     * @param scheduleId
+     * @param completeInspectionRoundRequest
+     * @return ApiResponse<InspectionRoundSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun completeInspectionRoundWithHttpInfo(scheduleId: java.util.UUID, completeInspectionRoundRequest: CompleteInspectionRoundRequest) : ApiResponse<InspectionRoundSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = completeInspectionRoundRequestConfig(scheduleId = scheduleId, completeInspectionRoundRequest = completeInspectionRoundRequest)
+
+        return@withContext request<CompleteInspectionRoundRequest, InspectionRoundSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation completeInspectionRound
+     *
+     * @param scheduleId
+     * @param completeInspectionRoundRequest
+     * @return RequestConfig
+     */
+    fun completeInspectionRoundRequestConfig(scheduleId: java.util.UUID, completeInspectionRoundRequest: CompleteInspectionRoundRequest) : RequestConfig<CompleteInspectionRoundRequest> {
+        val localVariableBody = completeInspectionRoundRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/inspections/schedules/{schedule_id}/rounds".replace("{"+"schedule_id"+"}", encodeURIComponent(scheduleId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/financial/rental-quotes/compute
      * Compute a rental quote from explicit financial inputs without persisting it
      *
@@ -1457,6 +1538,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/daily-work-plans",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/inspections/schedules
+     * Create a regular inspection schedule
+     *
+     * @param createInspectionScheduleRequest
+     * @return InspectionScheduleSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createInspectionSchedule(createInspectionScheduleRequest: CreateInspectionScheduleRequest) : InspectionScheduleSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = createInspectionScheduleWithHttpInfo(createInspectionScheduleRequest = createInspectionScheduleRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as InspectionScheduleSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/inspections/schedules
+     * Create a regular inspection schedule
+     *
+     * @param createInspectionScheduleRequest
+     * @return ApiResponse<InspectionScheduleSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createInspectionScheduleWithHttpInfo(createInspectionScheduleRequest: CreateInspectionScheduleRequest) : ApiResponse<InspectionScheduleSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createInspectionScheduleRequestConfig(createInspectionScheduleRequest = createInspectionScheduleRequest)
+
+        return@withContext request<CreateInspectionScheduleRequest, InspectionScheduleSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createInspectionSchedule
+     *
+     * @param createInspectionScheduleRequest
+     * @return RequestConfig
+     */
+    fun createInspectionScheduleRequestConfig(createInspectionScheduleRequest: CreateInspectionScheduleRequest) : RequestConfig<CreateInspectionScheduleRequest> {
+        val localVariableBody = createInspectionScheduleRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/inspections/schedules",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -1990,7 +2145,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     /**
      * GET /api/v1/exports/daily-status
      * Export the daily work-progress status workbook
-     * Fills the real 일일업무진행현황 Excel template from live work-order and daily-plan data for the requested date. Inspection rows are omitted with source notes until the inspection schedule source tables merge.
+     * Fills the real 일일업무진행현황 Excel template from live work-order, daily-plan, and regular-inspection schedule data for the requested date.
      * @param date Report date in YYYY-MM-DD format.
      * @return java.io.File
      * @throws IllegalStateException If the request is not correctly configured
@@ -2022,7 +2177,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     /**
      * GET /api/v1/exports/daily-status
      * Export the daily work-progress status workbook
-     * Fills the real 일일업무진행현황 Excel template from live work-order and daily-plan data for the requested date. Inspection rows are omitted with source notes until the inspection schedule source tables merge.
+     * Fills the real 일일업무진행현황 Excel template from live work-order, daily-plan, and regular-inspection schedule data for the requested date.
      * @param date Report date in YYYY-MM-DD format.
      * @return ApiResponse<java.io.File?>
      * @throws IllegalStateException If the request is not correctly configured
@@ -2876,6 +3031,86 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/equipment/{id}/substitutes".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/inspections/schedules
+     * List branch-scoped regular inspection schedules
+     *
+     * @param dueStart
+     * @param dueEnd
+     * @return kotlin.collections.List<InspectionScheduleSummary>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listInspectionSchedules(dueStart: java.time.LocalDate, dueEnd: java.time.LocalDate) : kotlin.collections.List<InspectionScheduleSummary> = withContext(Dispatchers.IO) {
+        val localVarResponse = listInspectionSchedulesWithHttpInfo(dueStart = dueStart, dueEnd = dueEnd)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<InspectionScheduleSummary>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/inspections/schedules
+     * List branch-scoped regular inspection schedules
+     *
+     * @param dueStart
+     * @param dueEnd
+     * @return ApiResponse<kotlin.collections.List<InspectionScheduleSummary>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listInspectionSchedulesWithHttpInfo(dueStart: java.time.LocalDate, dueEnd: java.time.LocalDate) : ApiResponse<kotlin.collections.List<InspectionScheduleSummary>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listInspectionSchedulesRequestConfig(dueStart = dueStart, dueEnd = dueEnd)
+
+        return@withContext request<Unit, kotlin.collections.List<InspectionScheduleSummary>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listInspectionSchedules
+     *
+     * @param dueStart
+     * @param dueEnd
+     * @return RequestConfig
+     */
+    fun listInspectionSchedulesRequestConfig(dueStart: java.time.LocalDate, dueEnd: java.time.LocalDate) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("due_start", listOf(parseDateToQueryString<java.time.LocalDate>(dueStart)))
+                put("due_end", listOf(parseDateToQueryString<java.time.LocalDate>(dueEnd)))
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/inspections/schedules",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

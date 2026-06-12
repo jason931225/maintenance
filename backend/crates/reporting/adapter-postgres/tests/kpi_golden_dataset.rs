@@ -82,15 +82,69 @@ async fn delay_rate_and_reason_distribution_ignore_excluded_records(pool: PgPool
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
-async fn inspection_plan_completion_is_honestly_unavailable_without_source_tables(pool: PgPool) {
-    seed_golden_dataset(&pool).await;
+async fn inspection_plan_completion_uses_regular_inspection_schedules(pool: PgPool) {
+    let seeded = seed_golden_dataset(&pool).await;
+    seed_inspection_schedule(
+        &pool,
+        seeded.branch_a,
+        seeded.equipment_a,
+        seeded.tech_a,
+        time::macros::date!(2026 - 06 - 10),
+        Some(PERIOD_START + Duration::days(9) + Duration::hours(10)),
+    )
+    .await;
+    seed_inspection_schedule(
+        &pool,
+        seeded.branch_a,
+        seeded.equipment_a,
+        seeded.tech_a,
+        time::macros::date!(2026 - 06 - 20),
+        None,
+    )
+    .await;
+    seed_inspection_schedule(
+        &pool,
+        seeded.branch_b,
+        seeded.equipment_b,
+        seeded.tech_b,
+        time::macros::date!(2026 - 06 - 15),
+        Some(PERIOD_START + Duration::days(14) + Duration::hours(9)),
+    )
+    .await;
+    seed_inspection_schedule(
+        &pool,
+        seeded.branch_a,
+        seeded.equipment_a,
+        seeded.tech_a,
+        time::macros::date!(2026 - 07 - 01),
+        Some(PERIOD_END + Duration::hours(9)),
+    )
+    .await;
     let report = company_report(&pool).await;
 
-    let unavailable = report
-        .unavailable_metric(KpiMetric::InspectionPlanCompletionRate)
+    assert!(
+        report
+            .unavailable_metric(KpiMetric::InspectionPlanCompletionRate)
+            .is_none()
+    );
+    let company = report.rollup(&KpiRollupScope::Company).unwrap();
+    assert_eq!(company.inspection_schedule_due_count, 3);
+    assert_eq!(company.inspection_schedule_completed_count, 2);
+    assert_eq!(company.inspection_plan_completion_bps, Some(6_666));
+
+    let branch_a = report
+        .rollup(&KpiRollupScope::Branch(seeded.branch_a))
         .unwrap();
-    assert_eq!(unavailable.source_domain, "inspection");
-    assert!(unavailable.reason.contains("regular inspection schedule"));
+    assert_eq!(branch_a.inspection_schedule_due_count, 2);
+    assert_eq!(branch_a.inspection_schedule_completed_count, 1);
+    assert_eq!(branch_a.inspection_plan_completion_bps, Some(5_000));
+
+    let tech_b = report
+        .rollup(&KpiRollupScope::Technician(seeded.tech_b))
+        .unwrap();
+    assert_eq!(tech_b.inspection_schedule_due_count, 1);
+    assert_eq!(tech_b.inspection_schedule_completed_count, 1);
+    assert_eq!(tech_b.inspection_plan_completion_bps, Some(10_000));
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
@@ -165,6 +219,8 @@ struct SeededGoldenDataset {
     branch_b: BranchId,
     tech_a: UserId,
     tech_b: UserId,
+    equipment_a: uuid::Uuid,
+    equipment_b: uuid::Uuid,
     p1_completed: uuid::Uuid,
     p2_revoked_exclusion_completed: uuid::Uuid,
     p3_completed: uuid::Uuid,
@@ -370,6 +426,8 @@ async fn seed_golden_dataset(pool: &PgPool) -> SeededGoldenDataset {
         branch_b,
         tech_a,
         tech_b,
+        equipment_a,
+        equipment_b,
         p1_completed,
         p2_revoked_exclusion_completed,
         p3_completed,
@@ -461,6 +519,44 @@ async fn seed_equipment(
         _ => "GOLZZ-0001",
     })
     .bind(management_no)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn seed_inspection_schedule(
+    pool: &PgPool,
+    branch: BranchId,
+    equipment: uuid::Uuid,
+    mechanic: UserId,
+    due_date: time::Date,
+    completed_at: Option<OffsetDateTime>,
+) -> uuid::Uuid {
+    sqlx::query_scalar(
+        r#"
+        INSERT INTO regular_inspection_schedules (
+            branch_id, equipment_id, mechanic_id, cycle, interval_days, due_date,
+            status, completed_at, completed_by, note, created_by, created_at, updated_at
+        )
+        VALUES (
+            $1, $2, $3, 'MONTHLY', 30, $4,
+            $5, $6, $7, 'golden inspection', $3, $8, $8
+        )
+        RETURNING id
+        "#,
+    )
+    .bind(*branch.as_uuid())
+    .bind(equipment)
+    .bind(*mechanic.as_uuid())
+    .bind(due_date)
+    .bind(if completed_at.is_some() {
+        "COMPLETED"
+    } else {
+        "SCHEDULED"
+    })
+    .bind(completed_at)
+    .bind(completed_at.map(|_| *mechanic.as_uuid()))
+    .bind(PERIOD_START)
     .fetch_one(pool)
     .await
     .unwrap()

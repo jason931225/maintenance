@@ -24,6 +24,8 @@ use mnt_dispatch_rest::DispatchRestState;
 use mnt_dispatch_worker::{AlimtalkEscalationPolicy, DispatchWorker};
 use mnt_financial_adapter_postgres::PgFinancialStore;
 use mnt_financial_rest::FinancialRestState;
+use mnt_inspection_adapter_postgres::PgInspectionStore;
+use mnt_inspection_rest::InspectionRestState;
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, TraceContext, UserId,
 };
@@ -693,6 +695,7 @@ pub fn build_router(state: AppState) -> Router {
                 .with_notifier(Arc::new(PostgresMessageNotifier::new(pool.clone())));
             let registry_store = PgRegistryStore::new(pool.clone());
             let financial_store = PgFinancialStore::new(pool.clone());
+            let inspection_store = PgInspectionStore::new(pool.clone());
             let dispatch_store = PgDispatchStore::new(pool.clone());
             let work_order_store = PgWorkOrderStore::new(pool.clone())
                 .with_created_listener(Arc::new(messenger_store.clone()));
@@ -706,6 +709,10 @@ pub fn build_router(state: AppState) -> Router {
                 )))
                 .merge(mnt_financial_rest::router(FinancialRestState::new(
                     financial_store,
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_inspection_rest::router(InspectionRestState::new(
+                    inspection_store,
                     state.jwt_verifier.clone(),
                 )))
                 .merge(mnt_registry_rest::router(RegistryRestState::new(

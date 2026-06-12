@@ -39,12 +39,15 @@ import kotlinx.serialization.Contextual
  * @param status
  * @param acceptWindowStartedAt
  * @param acceptWindowEndsAt
+ * @param manualCallRequired
  * @param targetCount
  * @param acceptedCount
  * @param declinedCount
  * @param incidentLocation
  * @param autoAssignedMechanicId
  * @param managerForcePendingAt
+ * @param manualCallRequiredAt
+ * @param manualCallClearedAt
  */
 @Serializable
 
@@ -68,6 +71,9 @@ data class P1DispatchSummary (
     @Contextual @SerialName(value = "accept_window_ends_at")
     val acceptWindowEndsAt: java.time.OffsetDateTime,
 
+    @SerialName(value = "manual_call_required")
+    val manualCallRequired: kotlin.Boolean,
+
     @SerialName(value = "target_count")
     val targetCount: kotlin.Long,
 
@@ -84,7 +90,13 @@ data class P1DispatchSummary (
     val autoAssignedMechanicId: java.util.UUID? = null,
 
     @Contextual @SerialName(value = "manager_force_pending_at")
-    val managerForcePendingAt: java.time.OffsetDateTime? = null
+    val managerForcePendingAt: java.time.OffsetDateTime? = null,
+
+    @Contextual @SerialName(value = "manual_call_required_at")
+    val manualCallRequiredAt: java.time.OffsetDateTime? = null,
+
+    @Contextual @SerialName(value = "manual_call_cleared_at")
+    val manualCallClearedAt: java.time.OffsetDateTime? = null
 
 ) {
 

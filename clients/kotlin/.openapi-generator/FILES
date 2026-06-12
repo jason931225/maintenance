@@ -36,12 +36,14 @@ src/main/kotlin/com/maintenance/api/client/model/AssignWorkOrderRequestAssignmen
 src/main/kotlin/com/maintenance/api/client/model/AssignmentRole.kt
 src/main/kotlin/com/maintenance/api/client/model/AssignmentSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/AttachmentStage.kt
+src/main/kotlin/com/maintenance/api/client/model/CompleteInspectionRoundRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ComputeRentalQuoteRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ComputedRentalQuote.kt
 src/main/kotlin/com/maintenance/api/client/model/CostLedgerEntrySummary.kt
 src/main/kotlin/com/maintenance/api/client/model/CostLedgerSource.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateDailyPlanRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateDailyPlanRequestItemsInner.kt
+src/main/kotlin/com/maintenance/api/client/model/CreateInspectionScheduleRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateMessengerThreadRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateOutsourceWorkRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreatePurchaseRequest.kt
@@ -69,6 +71,11 @@ src/main/kotlin/com/maintenance/api/client/model/ExportSourceNote.kt
 src/main/kotlin/com/maintenance/api/client/model/FinancialConfigSnapshot.kt
 src/main/kotlin/com/maintenance/api/client/model/ForceAssignP1DispatchRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/IncidentLocation.kt
+src/main/kotlin/com/maintenance/api/client/model/InspectionCycle.kt
+src/main/kotlin/com/maintenance/api/client/model/InspectionRoundOutcome.kt
+src/main/kotlin/com/maintenance/api/client/model/InspectionRoundSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/InspectionScheduleStatus.kt
+src/main/kotlin/com/maintenance/api/client/model/InspectionScheduleSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiMetric.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiReport.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiRollup.kt

@@ -62,6 +62,14 @@ async fn daily_status_export_maps_live_work_orders_to_template_sections(pool: Pg
         "4. 정기검사",
         "34 open rows should force section 4 below the original template range"
     );
+    assert_eq!(cell_value(ws, 3, 83), "검사현장");
+    assert_eq!(cell_value(ws, 4, 83), "검사차량-904");
+    assert_eq!(cell_value(ws, 5, 83), "#904");
+    assert_eq!(cell_value(ws, 6, 83), "GTS30D");
+    assert_eq!(cell_value(ws, 7, 83), "VIN-904");
+    assert_eq!(cell_value(ws, 8, 83), "정기검사 예정");
+    assert_eq!(cell_value(ws, 9, 83), "월간 / 2026-06-12");
+    assert_eq!(cell_value(ws, 12, 83), "월간 안전점검");
 
     let export_log_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM excel_export_logs WHERE export_kind = 'daily_status'",
@@ -293,6 +301,18 @@ async fn seed_export_dataset(pool: &PgPool) -> SeededExportDataset {
     )
     .await;
 
+    let inspection_equipment = seed_equipment(pool, branch, "904", "검사현장", "INSPQ-0904").await;
+    seed_inspection_schedule(
+        pool,
+        branch,
+        inspection_equipment,
+        planned_tech,
+        actor,
+        EXPORT_DATE,
+        "월간 안전점검",
+    )
+    .await;
+
     for index in 1..=33 {
         let management_no = format!("{}", 1000 + index);
         let site_name = format!("미결현장-{index:02}");
@@ -394,10 +414,10 @@ async fn seed_equipment(
         r#"
         INSERT INTO registry_equipment (
             branch_id, customer_id, site_id, equipment_no, management_no, model, vin,
-            manufacturer_code, kind_code, power_code, status, specification, ton_text,
+            vehicle_registration_no, manufacturer_code, kind_code, power_code, status, specification, ton_text,
             source_sheet, source_row, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, 'GTS30D', $6,
+        VALUES ($1, $2, $3, $4, $5, 'GTS30D', $6, $7,
                 'GLD', 'FBR', 'BATTERY', '임대', '입식', '3톤', 'exports', 1, now())
         RETURNING id
         "#,
@@ -408,6 +428,38 @@ async fn seed_equipment(
     .bind(equipment_no)
     .bind(management_no)
     .bind(format!("VIN-{management_no}"))
+    .bind(format!("검사차량-{management_no}"))
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn seed_inspection_schedule(
+    pool: &PgPool,
+    branch: BranchId,
+    equipment: uuid::Uuid,
+    mechanic: UserId,
+    actor: UserId,
+    due_date: Date,
+    note: &str,
+) -> uuid::Uuid {
+    sqlx::query_scalar(
+        r#"
+        INSERT INTO regular_inspection_schedules (
+            branch_id, equipment_id, mechanic_id, cycle, interval_days, due_date,
+            status, note, created_by, created_at, updated_at
+        )
+        VALUES ($1, $2, $3, 'MONTHLY', 30, $4, 'SCHEDULED', $5, $6, $7, $7)
+        RETURNING id
+        "#,
+    )
+    .bind(*branch.as_uuid())
+    .bind(equipment)
+    .bind(*mechanic.as_uuid())
+    .bind(due_date)
+    .bind(note)
+    .bind(*actor.as_uuid())
+    .bind(EXPORT_START)
     .fetch_one(pool)
     .await
     .unwrap()

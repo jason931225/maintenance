@@ -398,8 +398,14 @@ async fn kpi_endpoint_is_jwt_authorized_and_branch_scoped(pool: PgPool) {
             .count(),
         1
     );
+    assert_eq!(company["inspection_schedule_due_count"], 0);
+    assert_eq!(company["inspection_schedule_completed_count"], 0);
+    assert_eq!(
+        company["inspection_plan_completion_bps"],
+        serde_json::Value::Null
+    );
     assert!(
-        report.json["unavailable_metrics"]
+        !report.json["unavailable_metrics"]
             .as_array()
             .unwrap()
             .iter()

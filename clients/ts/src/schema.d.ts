@@ -370,6 +370,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/inspections/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List branch-scoped regular inspection schedules */
+        get: operations["listInspectionSchedules"];
+        put?: never;
+        /** Create a regular inspection schedule */
+        post: operations["createInspectionSchedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inspections/schedules/{schedule_id}/rounds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete a scheduled regular inspection round */
+        post: operations["completeInspectionRound"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/equipment/lookup": {
         parameters: {
             query?: never;
@@ -1136,7 +1171,7 @@ export interface paths {
         };
         /**
          * Export the daily work-progress status workbook
-         * @description Fills the real 일일업무진행현황 Excel template from live work-order and daily-plan data for the requested date. Inspection rows are omitted with source notes until the inspection schedule source tables merge.
+         * @description Fills the real 일일업무진행현황 Excel template from live work-order, daily-plan, and regular-inspection schedule data for the requested date.
          */
         get: operations["getDailyStatusExport"];
         put?: never;
@@ -1233,6 +1268,12 @@ export interface components {
         /** @enum {string} */
         DailyPlanStatus: "DRAFT" | "REQUESTED" | "APPROVED" | "REJECTED" | "FINAL_CONFIRMED";
         /** @enum {string} */
+        InspectionCycle: "DAILY" | "WEEKLY" | "MONTHLY" | "QUARTERLY" | "YEARLY" | "CUSTOM";
+        /** @enum {string} */
+        InspectionScheduleStatus: "SCHEDULED" | "COMPLETED" | "CANCELLED";
+        /** @enum {string} */
+        InspectionRoundOutcome: "COMPLETED" | "FOLLOW_UP_REQUIRED";
+        /** @enum {string} */
         TargetChangeDecision: "APPROVED" | "REJECTED";
         /** @enum {string} */
         KpiMetric: "completed_count" | "average_response_speed" | "completion_duration_and_due_compliance" | "revisit_rate" | "delay_rate_and_reason_distribution" | "inspection_plan_completion_rate" | "p1_acceptance_rate";
@@ -1279,6 +1320,12 @@ export interface components {
             delay_reason_distribution: {
                 [key: string]: number;
             };
+            /** Format: int32 */
+            inspection_schedule_due_count: number;
+            /** Format: int32 */
+            inspection_schedule_completed_count: number;
+            /** Format: int32 */
+            inspection_plan_completion_bps: number | null;
         };
         UnavailableMetric: {
             metric: components["schemas"]["KpiMetric"];
@@ -1334,6 +1381,23 @@ export interface components {
         RejectWorkOrderRequest: {
             memo: string;
         };
+        CreateInspectionScheduleRequest: {
+            branch_id: components["schemas"]["Uuid"];
+            equipment_id: components["schemas"]["Uuid"];
+            mechanic_id: components["schemas"]["Uuid"];
+            cycle: components["schemas"]["InspectionCycle"];
+            /** Format: int32 */
+            interval_days: number;
+            due_date: components["schemas"]["Date"];
+            note?: string | null;
+        };
+        CompleteInspectionRoundRequest: {
+            outcome: components["schemas"]["InspectionRoundOutcome"];
+            /** Format: date-time */
+            completed_at?: string | null;
+            findings: string;
+            note?: string | null;
+        };
         NamedEntity: {
             id: components["schemas"]["Uuid"];
             name: string;
@@ -1358,6 +1422,37 @@ export interface components {
             ton_text: string;
             customer: components["schemas"]["NamedEntity"];
             site: components["schemas"]["NamedEntity"];
+        };
+        InspectionScheduleSummary: {
+            id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            equipment_id: components["schemas"]["Uuid"];
+            mechanic_id: components["schemas"]["Uuid"];
+            cycle: components["schemas"]["InspectionCycle"];
+            /** Format: int32 */
+            interval_days: number;
+            due_date: components["schemas"]["Date"];
+            status: components["schemas"]["InspectionScheduleStatus"];
+            /** Format: date-time */
+            completed_at: string | null;
+            note: string | null;
+            site_name: string;
+            management_no: string | null;
+            model: string | null;
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        InspectionRoundSummary: {
+            id: components["schemas"]["Uuid"];
+            schedule_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            equipment_id: components["schemas"]["Uuid"];
+            mechanic_id: components["schemas"]["Uuid"];
+            completed_by: components["schemas"]["Uuid"];
+            outcome: components["schemas"]["InspectionRoundOutcome"];
+            findings: string;
+            note: string | null;
+            completed_at: components["schemas"]["Timestamp"];
         };
         EquipmentAutocompletePage: {
             items: components["schemas"]["EquipmentLookupResponse"][];
@@ -1885,6 +1980,9 @@ export interface components {
             accept_window_ends_at: components["schemas"]["Timestamp"];
             auto_assigned_mechanic_id?: components["schemas"]["Uuid"];
             manager_force_pending_at?: components["schemas"]["Timestamp"];
+            manual_call_required: boolean;
+            manual_call_required_at?: components["schemas"]["Timestamp"];
+            manual_call_cleared_at?: components["schemas"]["Timestamp"];
             /** Format: int64 */
             target_count: number;
             /** Format: int64 */
@@ -2539,6 +2637,122 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    listInspectionSchedules: {
+        parameters: {
+            query: {
+                due_start: components["schemas"]["Date"];
+                due_end: components["schemas"]["Date"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Inspection schedules due in the requested date range. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InspectionScheduleSummary"][];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    createInspectionSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateInspectionScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description Inspection schedule created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InspectionScheduleSummary"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    completeInspectionRound: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                schedule_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteInspectionRoundRequest"];
+            };
+        };
+        responses: {
+            /** @description Inspection round completed. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InspectionRoundSummary"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
         };
     };
     lookupEquipment: {

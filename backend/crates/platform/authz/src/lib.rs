@@ -108,6 +108,8 @@ pub enum Feature {
     PurchaseRequestApprove,
     PurchaseFinalApprove,
     PurchaseExecute,
+    InspectionScheduleManage,
+    InspectionRoundComplete,
     AuditLogRead,
     ExcelDownload,
     /// Permission metadata for the future AI assistant seam. T0.6 requires the
@@ -116,7 +118,7 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Self; 30] = [
+    pub const ALL: [Self; 32] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -144,6 +146,8 @@ impl Feature {
         Self::PurchaseRequestApprove,
         Self::PurchaseFinalApprove,
         Self::PurchaseExecute,
+        Self::InspectionScheduleManage,
+        Self::InspectionRoundComplete,
         Self::AuditLogRead,
         Self::ExcelDownload,
         Self::AiAssist,
@@ -180,6 +184,8 @@ impl Feature {
             Self::PurchaseRequestApprove => [D, D, A, D, A],
             Self::PurchaseFinalApprove => [D, D, D, A, A],
             Self::PurchaseExecute => [A, D, A, D, A],
+            Self::InspectionScheduleManage => [D, D, A, D, A],
+            Self::InspectionRoundComplete => [D, A, A, D, A],
             Self::AuditLogRead => [D, D, A, D, A],
             Self::ExcelDownload => [A, A, A, A, A],
             Self::AiAssist => [A, A, A, A, A],
