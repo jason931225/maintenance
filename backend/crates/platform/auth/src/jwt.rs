@@ -42,6 +42,12 @@ pub struct JwtIssuer {
     decoding_key: DecodingKey,
 }
 
+#[derive(Clone, Debug)]
+pub struct JwtVerifier {
+    settings: JwtSettings,
+    decoding_key: DecodingKey,
+}
+
 impl JwtIssuer {
     pub fn from_es256_pem(
         settings: JwtSettings,
@@ -83,11 +89,35 @@ impl JwtIssuer {
     }
 
     pub fn verify_access_token(&self, token: &str) -> Result<AccessClaims, AuthError> {
-        let mut validation = Validation::new(Algorithm::ES256);
-        validation.set_issuer(&[self.settings.issuer.as_str()]);
-        validation.set_audience(&[self.settings.audience.as_str()]);
-        validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
-        let token = decode::<AccessClaims>(token, &self.decoding_key, &validation)?;
-        Ok(token.claims)
+        verify_access_token(token, &self.decoding_key, &self.settings)
     }
+}
+
+impl JwtVerifier {
+    pub fn from_es256_public_pem(
+        settings: JwtSettings,
+        public_key_pem: &[u8],
+    ) -> Result<Self, AuthError> {
+        Ok(Self {
+            settings,
+            decoding_key: DecodingKey::from_ec_pem(public_key_pem)?,
+        })
+    }
+
+    pub fn verify_access_token(&self, token: &str) -> Result<AccessClaims, AuthError> {
+        verify_access_token(token, &self.decoding_key, &self.settings)
+    }
+}
+
+fn verify_access_token(
+    token: &str,
+    decoding_key: &DecodingKey,
+    settings: &JwtSettings,
+) -> Result<AccessClaims, AuthError> {
+    let mut validation = Validation::new(Algorithm::ES256);
+    validation.set_issuer(&[settings.issuer.as_str()]);
+    validation.set_audience(&[settings.audience.as_str()]);
+    validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
+    let token = decode::<AccessClaims>(token, decoding_key, &validation)?;
+    Ok(token.claims)
 }

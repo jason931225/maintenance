@@ -9,7 +9,7 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn healthz_reports_process_liveness_and_role() -> Result<(), Box<dyn std::error::Error>> {
     let config = app_config(AppRole::Api)?;
-    let state = AppState::new(config, DatabaseDependency::NotConfigured);
+    let state = AppState::new(config, DatabaseDependency::NotConfigured)?;
     let response = build_router(state)
         .oneshot(Request::builder().uri("/healthz").body(Body::empty())?)
         .await?;
@@ -22,7 +22,7 @@ async fn healthz_reports_process_liveness_and_role() -> Result<(), Box<dyn std::
 async fn readyz_is_ready_without_configured_dependencies() -> Result<(), Box<dyn std::error::Error>>
 {
     let config = app_config(AppRole::Worker)?;
-    let state = AppState::new(config, DatabaseDependency::NotConfigured);
+    let state = AppState::new(config, DatabaseDependency::NotConfigured)?;
     let response = build_router(state)
         .oneshot(Request::builder().uri("/readyz").body(Body::empty())?)
         .await?;
@@ -39,7 +39,7 @@ async fn readyz_returns_503_when_configured_database_is_unreachable()
         .max_connections(1)
         .acquire_timeout(Duration::from_millis(100))
         .connect_lazy("postgres://mnt_app:wrong@127.0.0.1:1/mnt_missing")?;
-    let state = AppState::new(config, DatabaseDependency::Postgres(pool));
+    let state = AppState::new(config, DatabaseDependency::Postgres(pool))?;
     let response = build_router(state)
         .oneshot(Request::builder().uri("/readyz").body(Body::empty())?)
         .await?;
