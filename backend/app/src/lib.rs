@@ -4,26 +4,36 @@
 //! readiness endpoints, telemetry, database dependency wiring, and graceful
 //! shutdown. Domain behavior lands in narrower crates and is composed here.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::env;
 use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
+use std::str::FromStr;
 use std::time::Duration;
 
-use axum::extract::State;
-use axum::http::StatusCode;
+use axum::body::Body;
+use axum::extract::{Query, State};
+use axum::http::{HeaderMap, Request, Response, StatusCode, header};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
+use mnt_kernel_core::{
+    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, TraceContext, UserId,
+};
+use mnt_platform_auth::{AccessClaims, JwtSettings, JwtVerifier};
+use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
+use mnt_platform_db::{DbError, with_audit};
 use opentelemetry::global;
-use opentelemetry::trace::TracerProvider;
+use opentelemetry::trace::{TraceContextExt, TracerProvider};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::trace::SdkTracerProvider;
-use serde::Serialize;
-use sqlx::PgPool;
+use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
+use sqlx::{PgPool, Postgres, QueryBuilder};
 use tower_http::trace::TraceLayer;
+use tracing::Instrument;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -31,6 +41,10 @@ use tracing_subscriber::util::SubscriberInitExt;
 const DEFAULT_HTTP_ADDR: &str = "0.0.0.0:8080";
 const DEFAULT_SERVICE_NAME: &str = "mnt-app";
 const DEFAULT_SHUTDOWN_TIMEOUT_SECS: u64 = 10;
+const DEFAULT_JWT_ISSUER: &str = "mnt-platform-auth";
+const DEFAULT_JWT_AUDIENCE: &str = "mnt-api";
+const DEFAULT_AUDIT_LIMIT: i64 = 50;
+const MAX_AUDIT_LIMIT: i64 = 200;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -69,7 +83,29 @@ pub struct AppConfig {
     pub http_addr: SocketAddr,
     pub database_url: Option<String>,
     pub otlp_endpoint: Option<String>,
+    pub jwt: Option<JwtVerifierConfig>,
     pub shutdown_timeout: Duration,
+}
+
+#[derive(Debug, Clone)]
+pub struct JwtVerifierConfig {
+    pub issuer: String,
+    pub audience: String,
+    pub public_key_pem: String,
+}
+
+impl JwtVerifierConfig {
+    fn build(&self) -> Result<JwtVerifier, AppError> {
+        JwtVerifier::from_es256_public_pem(
+            JwtSettings {
+                issuer: self.issuer.clone(),
+                audience: self.audience.clone(),
+                access_token_ttl: time::Duration::minutes(15),
+            },
+            self.public_key_pem.as_bytes(),
+        )
+        .map_err(|err| AppError::Config(format!("invalid MNT_JWT_PUBLIC_KEY_PEM: {err}")))
+    }
 }
 
 impl AppConfig {
@@ -106,6 +142,23 @@ impl AppConfig {
             .map_err(|err| AppError::Config(format!("invalid MNT_HTTP_ADDR: {err}")))?;
         let database_url = non_empty(vars.get("DATABASE_URL"));
         let otlp_endpoint = non_empty(vars.get("OTEL_EXPORTER_OTLP_ENDPOINT"));
+        let jwt_public_key_pem = non_empty(vars.get("MNT_JWT_PUBLIC_KEY_PEM"));
+        let jwt_has_partial_config = jwt_public_key_pem.is_none()
+            && (non_empty(vars.get("MNT_JWT_ISSUER")).is_some()
+                || non_empty(vars.get("MNT_JWT_AUDIENCE")).is_some());
+        if jwt_has_partial_config {
+            return Err(AppError::Config(
+                "MNT_JWT_PUBLIC_KEY_PEM is required when JWT issuer/audience is configured"
+                    .to_owned(),
+            ));
+        }
+        let jwt = jwt_public_key_pem.map(|public_key_pem| JwtVerifierConfig {
+            issuer: non_empty(vars.get("MNT_JWT_ISSUER"))
+                .unwrap_or_else(|| DEFAULT_JWT_ISSUER.to_owned()),
+            audience: non_empty(vars.get("MNT_JWT_AUDIENCE"))
+                .unwrap_or_else(|| DEFAULT_JWT_AUDIENCE.to_owned()),
+            public_key_pem,
+        });
         let shutdown_timeout = match vars.get("MNT_SHUTDOWN_TIMEOUT_SECS") {
             Some(raw) => raw.parse::<u64>().map(Duration::from_secs).map_err(|err| {
                 AppError::Config(format!("invalid MNT_SHUTDOWN_TIMEOUT_SECS: {err}"))
@@ -119,6 +172,7 @@ impl AppConfig {
             http_addr,
             database_url,
             otlp_endpoint,
+            jwt,
             shutdown_timeout,
         })
     }
@@ -145,11 +199,21 @@ pub enum DatabaseDependency {
 pub struct AppState {
     config: AppConfig,
     database: DatabaseDependency,
+    jwt_verifier: Option<JwtVerifier>,
 }
 
 impl AppState {
-    pub fn new(config: AppConfig, database: DatabaseDependency) -> Self {
-        Self { config, database }
+    pub fn new(config: AppConfig, database: DatabaseDependency) -> Result<Self, AppError> {
+        let jwt_verifier = config
+            .jwt
+            .as_ref()
+            .map(JwtVerifierConfig::build)
+            .transpose()?;
+        Ok(Self {
+            config,
+            database,
+            jwt_verifier,
+        })
     }
 
     pub async fn from_config(config: AppConfig) -> Result<Self, AppError> {
@@ -166,7 +230,7 @@ impl AppState {
             None => DatabaseDependency::NotConfigured,
         };
 
-        Ok(Self::new(config, database))
+        Self::new(config, database)
     }
 
     pub fn config(&self) -> &AppConfig {
@@ -189,11 +253,93 @@ struct ReadyBody<'a> {
     database: &'a str,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+struct AuditQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
+    target_type: Option<String>,
+    actor: Option<uuid::Uuid>,
+}
+
+#[derive(Debug, Clone)]
+struct NormalizedAuditQuery {
+    limit: i64,
+    offset: i64,
+    target_type: Option<String>,
+    actor: Option<uuid::Uuid>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+struct AuditRecord {
+    id: uuid::Uuid,
+    actor: Option<uuid::Uuid>,
+    action: String,
+    target_type: String,
+    target_id: String,
+    branch_id: Option<uuid::Uuid>,
+    before_snap: Option<serde_json::Value>,
+    after_snap: Option<serde_json::Value>,
+    trace_id: String,
+    span_id: String,
+    occurred_at: time::OffsetDateTime,
+}
+
+#[derive(Debug, Serialize)]
+struct AuditPage {
+    items: Vec<AuditRecord>,
+    limit: i64,
+    offset: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct ErrorBody {
+    error: ErrorPayload,
+}
+
+#[derive(Debug, Serialize)]
+struct ErrorPayload {
+    code: &'static str,
+    message: String,
+}
+
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
-        .layer(TraceLayer::new_for_http())
+        .route("/api/audit", get(audit_log))
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(|request: &Request<Body>| {
+                    tracing::info_span!(
+                        "http.request",
+                        method = %request.method(),
+                        uri = %request.uri(),
+                        version = ?request.version(),
+                        trace_id = tracing::field::Empty,
+                        span_id = tracing::field::Empty,
+                    )
+                })
+                .on_request(|request: &Request<Body>, span: &tracing::Span| {
+                    let trace_id = record_otel_ids(span);
+                    tracing::info!(
+                        trace_id = %trace_id,
+                        method = %request.method(),
+                        uri = %request.uri(),
+                        "http request started"
+                    );
+                })
+                .on_response(
+                    |response: &Response<Body>, latency: Duration, span: &tracing::Span| {
+                        let trace_id = record_otel_ids(span);
+                        tracing::info!(
+                            trace_id = %trace_id,
+                            status = response.status().as_u16(),
+                            latency_ms = latency.as_millis(),
+                            "http request completed"
+                        );
+                    },
+                ),
+        )
         .with_state(state)
 }
 
@@ -217,7 +363,16 @@ async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
             }),
         ),
         DatabaseDependency::Postgres(pool) => {
-            let database_ready = sqlx::query("SELECT 1").execute(pool).await.is_ok();
+            let database_ready = sqlx::query("SELECT 1")
+                .execute(pool)
+                .instrument(tracing::info_span!(
+                    "db.query",
+                    db_system = "postgresql",
+                    db_operation = "SELECT",
+                    db_statement = "SELECT 1",
+                ))
+                .await
+                .is_ok();
             if database_ready {
                 (
                     StatusCode::OK,
@@ -240,6 +395,329 @@ async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
                 )
             }
         }
+    }
+}
+
+async fn audit_log(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<AuditQuery>,
+) -> Result<Json<AuditPage>, ApiError> {
+    let pool = match &state.database {
+        DatabaseDependency::Postgres(pool) => pool,
+        DatabaseDependency::NotConfigured => {
+            return Err(ApiError::service_unavailable(
+                "database is not configured for audit access",
+            ));
+        }
+    };
+    let verifier = state.jwt_verifier.as_ref().ok_or_else(|| {
+        ApiError::service_unavailable("JWT verification is not configured for audit access")
+    })?;
+    let token = bearer_token(&headers)?;
+    let claims = verifier
+        .verify_access_token(token)
+        .map_err(|_| ApiError::unauthorized("invalid bearer token"))?;
+    let principal = principal_from_claims(claims)?;
+    authorize_audit_read(&principal)?;
+    let query = normalize_audit_query(query)?;
+    let audit_event = audit_read_event(&principal)?;
+    let branch_scope = principal.branch_scope.clone();
+    let limit = query.limit;
+    let offset = query.offset;
+
+    let items = with_audit::<_, Vec<AuditRecord>, AppError>(pool, audit_event, |tx| {
+        Box::pin(async move {
+            fetch_audit_records(tx.as_mut(), branch_scope, query)
+                .await
+                .map_err(AppError::Database)
+        })
+    })
+    .await
+    .map_err(ApiError::from_app)?;
+
+    Ok(Json(AuditPage {
+        items,
+        limit,
+        offset,
+    }))
+}
+
+fn bearer_token(headers: &HeaderMap) -> Result<&str, ApiError> {
+    let header_value = headers
+        .get(header::AUTHORIZATION)
+        .ok_or_else(|| ApiError::unauthorized("missing bearer token"))?
+        .to_str()
+        .map_err(|_| ApiError::unauthorized("invalid authorization header"))?;
+    header_value
+        .strip_prefix("Bearer ")
+        .filter(|token| !token.trim().is_empty())
+        .ok_or_else(|| ApiError::unauthorized("authorization header must use Bearer scheme"))
+}
+
+fn principal_from_claims(claims: AccessClaims) -> Result<Principal, ApiError> {
+    let user_id = UserId::from_str(&claims.sub)
+        .map_err(|_| ApiError::unauthorized("token subject is not a valid user id"))?;
+    let roles_vec: Vec<Role> = claims
+        .roles
+        .iter()
+        .map(|role| {
+            Role::from_str(role)
+                .map_err(|_| ApiError::unauthorized("token contains an unknown role"))
+        })
+        .collect::<Result<_, _>>()?;
+    let roles = roles_vec.iter().copied().collect::<BTreeSet<_>>();
+    let branch_scope = if roles_vec
+        .iter()
+        .any(|role| matches!(role, Role::SuperAdmin | Role::Executive))
+    {
+        BranchScope::All
+    } else {
+        let branches = claims
+            .branches
+            .iter()
+            .map(|branch| {
+                BranchId::from_str(branch)
+                    .map_err(|_| ApiError::unauthorized("token contains an invalid branch id"))
+            })
+            .collect::<Result<BTreeSet<_>, _>>()?;
+        BranchScope::Branches(branches)
+    };
+
+    Ok(Principal::new(user_id, roles, branch_scope))
+}
+
+fn authorize_audit_read(principal: &Principal) -> Result<(), ApiError> {
+    let resource_branch = match &principal.branch_scope {
+        BranchScope::All => BranchId::new(),
+        BranchScope::Branches(branches) => branches
+            .iter()
+            .next()
+            .copied()
+            .ok_or_else(|| ApiError::forbidden("principal has no branch scope"))?,
+    };
+    authorize(
+        principal,
+        Action::new(Feature::AuditLogRead),
+        resource_branch,
+    )
+    .map_err(ApiError::from_kernel)
+}
+
+fn normalize_audit_query(query: AuditQuery) -> Result<NormalizedAuditQuery, ApiError> {
+    let limit = query.limit.unwrap_or(DEFAULT_AUDIT_LIMIT);
+    if !(1..=MAX_AUDIT_LIMIT).contains(&limit) {
+        return Err(ApiError::validation(format!(
+            "limit must be between 1 and {MAX_AUDIT_LIMIT}"
+        )));
+    }
+    let offset = query.offset.unwrap_or(0);
+    if offset < 0 {
+        return Err(ApiError::validation("offset must be non-negative"));
+    }
+    let target_type = query
+        .target_type
+        .map(|target_type| target_type.trim().to_owned())
+        .filter(|target_type| !target_type.is_empty());
+
+    Ok(NormalizedAuditQuery {
+        limit,
+        offset,
+        target_type,
+        actor: query.actor,
+    })
+}
+
+fn audit_read_event(principal: &Principal) -> Result<AuditEvent, ApiError> {
+    let event = AuditEvent::new(
+        Some(principal.user_id),
+        AuditAction::new("audit.read").map_err(ApiError::from_kernel)?,
+        "audit_log",
+        "query",
+        current_trace_context(),
+        time::OffsetDateTime::now_utc(),
+    );
+    Ok(match audit_event_branch(&principal.branch_scope) {
+        Some(branch_id) => event.with_branch(branch_id),
+        None => event,
+    })
+}
+
+fn audit_event_branch(scope: &BranchScope) -> Option<BranchId> {
+    match scope {
+        BranchScope::All => None,
+        BranchScope::Branches(branches) => branches.iter().next().copied(),
+    }
+}
+
+async fn fetch_audit_records(
+    conn: &mut sqlx::PgConnection,
+    branch_scope: BranchScope,
+    query: NormalizedAuditQuery,
+) -> Result<Vec<AuditRecord>, sqlx::Error> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            id, actor, action, target_type, target_id, branch_id,
+            before_snap, after_snap, trace_id::text AS trace_id,
+            span_id::text AS span_id, occurred_at
+        FROM audit_events
+        WHERE
+        "#,
+    );
+
+    match branch_scope {
+        BranchScope::All => {
+            builder.push("TRUE");
+        }
+        BranchScope::Branches(branches) if branches.is_empty() => {
+            builder.push("FALSE");
+        }
+        BranchScope::Branches(branches) => {
+            let branch_ids: Vec<uuid::Uuid> = branches
+                .into_iter()
+                .map(|branch_id| *branch_id.as_uuid())
+                .collect();
+            builder
+                .push("branch_id = ANY(")
+                .push_bind(branch_ids)
+                .push(")");
+        }
+    }
+
+    if let Some(target_type) = query.target_type {
+        builder.push(" AND target_type = ").push_bind(target_type);
+    }
+    if let Some(actor) = query.actor {
+        builder.push(" AND actor = ").push_bind(actor);
+    }
+    builder
+        .push(" ORDER BY occurred_at DESC, id DESC LIMIT ")
+        .push_bind(query.limit)
+        .push(" OFFSET ")
+        .push_bind(query.offset);
+
+    builder
+        .build_query_as::<AuditRecord>()
+        .fetch_all(conn)
+        .instrument(tracing::info_span!(
+            "db.query",
+            db_system = "postgresql",
+            db_operation = "SELECT",
+            db_statement = "SELECT audit_events",
+        ))
+        .await
+}
+
+fn current_trace_context() -> TraceContext {
+    let context = tracing::Span::current().context();
+    let span_context = context.span().span_context().clone();
+    if span_context.is_valid() {
+        TraceContext::new(
+            span_context.trace_id().to_string(),
+            span_context.span_id().to_string(),
+        )
+        .unwrap_or_else(|_| TraceContext::generate())
+    } else {
+        TraceContext::generate()
+    }
+}
+
+fn record_otel_ids(span: &tracing::Span) -> String {
+    let context = span.context();
+    let span_context = context.span().span_context().clone();
+    let fallback = TraceContext::generate();
+    let trace_id = if span_context.is_valid() {
+        span_context.trace_id().to_string()
+    } else {
+        fallback.trace_id().to_owned()
+    };
+    let span_id = if span_context.is_valid() {
+        span_context.span_id().to_string()
+    } else {
+        fallback.span_id().to_owned()
+    };
+    span.record("trace_id", tracing::field::display(&trace_id));
+    span.record("span_id", tracing::field::display(&span_id));
+    trace_id
+}
+
+#[derive(Debug)]
+struct ApiError {
+    status: StatusCode,
+    code: &'static str,
+    message: String,
+}
+
+impl ApiError {
+    fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            status,
+            code,
+            message: message.into(),
+        }
+    }
+
+    fn unauthorized(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::UNAUTHORIZED, "unauthorized", message)
+    }
+
+    fn forbidden(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::FORBIDDEN, "forbidden", message)
+    }
+
+    fn validation(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::UNPROCESSABLE_ENTITY, "validation", message)
+    }
+
+    fn service_unavailable(message: impl Into<String>) -> Self {
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "service_unavailable",
+            message,
+        )
+    }
+
+    fn internal(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", message)
+    }
+
+    fn from_kernel(error: KernelError) -> Self {
+        match error.kind {
+            ErrorKind::Validation => Self::validation(error.message),
+            ErrorKind::Forbidden => Self::forbidden(error.message),
+            ErrorKind::NotFound => Self::new(StatusCode::NOT_FOUND, "not_found", error.message),
+            ErrorKind::Conflict | ErrorKind::InvalidTransition => {
+                Self::new(StatusCode::CONFLICT, "conflict", error.message)
+            }
+            ErrorKind::Internal => Self::internal(error.message),
+        }
+    }
+
+    fn from_app(error: AppError) -> Self {
+        tracing::error!(error = %error, "audit api failed");
+        match error {
+            AppError::Config(message) => Self::service_unavailable(message),
+            AppError::Database(_)
+            | AppError::Io(_)
+            | AppError::Telemetry(_)
+            | AppError::Internal(_) => Self::internal("internal server error"),
+        }
+    }
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> axum::response::Response {
+        (
+            self.status,
+            Json(ErrorBody {
+                error: ErrorPayload {
+                    code: self.code,
+                    message: self.message,
+                },
+            }),
+        )
+            .into_response()
     }
 }
 
@@ -357,8 +835,19 @@ pub enum AppError {
     Config(String),
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
+    #[error("internal error: {0}")]
+    Internal(String),
     #[error("i/o error: {0}")]
     Io(#[from] std::io::Error),
     #[error("telemetry error: {0}")]
     Telemetry(String),
+}
+
+impl From<DbError> for AppError {
+    fn from(value: DbError) -> Self {
+        match value {
+            DbError::Sqlx(err) => Self::Database(err),
+            DbError::Serialize(err) => Self::Internal(err.to_string()),
+        }
+    }
 }
