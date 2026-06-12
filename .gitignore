@@ -6,6 +6,7 @@ backend/target/
 node_modules/
 dist/
 .cache/
+*.tsbuildinfo
 
 # Swift / Gradle build outputs
 **/.build/
