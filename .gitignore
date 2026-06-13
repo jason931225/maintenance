@@ -32,3 +32,4 @@ clients/kotlin/**/build/
 **/.omc/sessions/
 **/.omc/project-memory.json
 .claude/worktrees/
+ops/.dev-secrets/

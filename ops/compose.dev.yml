@@ -2,6 +2,19 @@ services:
   app:
     ports:
       - "127.0.0.1:${MNT_APP_PORT:-8080}:8080"
+    # DEV-ONLY auth wiring so the local stack can actually sign in. The JWT keys
+    # are interpolated from the shell (never committed; see ops/.dev-secrets/,
+    # gitignored). WebAuthn RP is localhost:5173 to match the vite dev server
+    # origin, so passkey enrollment/login work in the browser. NOT for production
+    # — prod injects real secrets per docs/release/SECRETS.md.
+    environment:
+      MNT_JWT_PRIVATE_KEY_PEM: ${MNT_JWT_PRIVATE_KEY_PEM:-}
+      MNT_JWT_PUBLIC_KEY_PEM: ${MNT_JWT_PUBLIC_KEY_PEM:-}
+      MNT_JWT_ISSUER: mnt-console-dev
+      MNT_JWT_AUDIENCE: mnt-console
+      MNT_WEBAUTHN_RP_ID: localhost
+      MNT_WEBAUTHN_RP_ORIGIN: http://localhost:5173
+      MNT_WEBAUTHN_RP_NAME: "정비 콘솔 (dev)"
 
   worker:
     ports:
