@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type {
   KpiMetric,
@@ -32,6 +32,9 @@ interface MetricCard {
   unavailable?: UnavailableMetric;
 }
 
+const periodPattern = /^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$/;
+const periodDebounceMs = 400;
+
 const metricOrder: KpiMetric[] = [
   "completed_count",
   "average_response_speed",
@@ -49,6 +52,22 @@ export function KpiDashboard({
   onPeriodChange,
 }: KpiDashboardProps) {
   const [selectedScopeKey, setSelectedScopeKey] = useState<string>();
+  const [periodDraft, setPeriodDraft] = useState(period);
+  const periodValid = periodPattern.test(periodDraft.trim());
+
+  useEffect(() => {
+    const trimmed = periodDraft.trim();
+    if (trimmed === period || !periodPattern.test(trimmed)) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      onPeriodChange(trimmed);
+    }, periodDebounceMs);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [onPeriodChange, period, periodDraft]);
+
   const defaultScopeKey = useMemo(() => {
     if (!report) {
       return "";
@@ -106,16 +125,38 @@ export function KpiDashboard({
           {ko.kpi.period}
           <Input
             aria-label={ko.kpi.period}
-            value={period}
+            placeholder={ko.kpi.periodPlaceholder}
+            value={periodDraft}
+            aria-invalid={!periodValid}
+            aria-describedby={
+              periodValid ? "kpi-period-hint" : "kpi-period-error"
+            }
             onChange={(event) => {
-              onPeriodChange(event.currentTarget.value);
+              setPeriodDraft(event.currentTarget.value);
             }}
           />
+          {periodValid ? (
+            <span id="kpi-period-hint" className="text-xs font-normal text-slate-500">
+              {ko.kpi.periodHint}
+            </span>
+          ) : (
+            <span
+              id="kpi-period-error"
+              role="alert"
+              className="text-xs font-medium text-red-700"
+            >
+              {ko.kpi.periodInvalid}
+            </span>
+          )}
         </label>
         {report ? (
           <div className="grid gap-2">
             <p className="text-sm font-medium text-slate-700">{ko.kpi.rollup}</p>
-            <div className="flex flex-wrap gap-2">
+            <div
+              role="group"
+              aria-label={ko.kpi.rollupGroup}
+              className="flex flex-wrap gap-2"
+            >
               {report.rollups.map((rollup) => {
                 const key = scopeKey(rollup.scope);
                 const selected = key === scopeKey(selectedRollup?.scope);

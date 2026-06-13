@@ -28,9 +28,12 @@ export function LocationConsentPanel({
   const [ledger, setLedger] = useState<LocationConsentLedgerPage>();
   const [isLoading, setIsLoading] = useState(false);
   const [busyAction, setBusyAction] = useState<MutatingAction>();
+  const [isExporting, setIsExporting] = useState(false);
+  const [exported, setExported] = useState(false);
   const [error, setError] = useState(false);
 
   const canCallApi = Boolean(session);
+  const hasStatus = status !== undefined;
   const state = status?.state ?? "NO_RECORD";
   const mayCollect = status?.may_collect ?? false;
   const actionLabels = ko.location.actions;
@@ -52,6 +55,7 @@ export function LocationConsentPanel({
 
     setIsLoading(true);
     setError(false);
+    setExported(false);
     const [statusResponse, ledgerResponse] = await Promise.all([
       api.GET("/api/v1/location-consent/status", {
         params: { query: { branch_id: branchId } },
@@ -103,15 +107,25 @@ export function LocationConsentPanel({
   }
 
   async function exportCsv() {
-    const response = await api.GET("/api/v1/location-consents/ledger.csv", {
-      params: { query: { branch_id: branchId, limit: 100, offset: 0 } },
-      parseAs: "text",
-    });
-    if (!response.data) {
+    setExported(false);
+    setError(false);
+    setIsExporting(true);
+    try {
+      const response = await api.GET("/api/v1/location-consents/ledger.csv", {
+        params: { query: { branch_id: branchId, limit: 100, offset: 0 } },
+        parseAs: "text",
+      });
+      if (!response.data) {
+        setError(true);
+        return;
+      }
+      downloadCsv(response.data);
+      setExported(true);
+    } catch {
       setError(true);
-      return;
+    } finally {
+      setIsExporting(false);
     }
-    downloadCsv(response.data);
   }
 
   return (
@@ -126,12 +140,20 @@ export function LocationConsentPanel({
           </h2>
           <p className="text-sm text-slate-600">{ko.location.subtitle}</p>
         </div>
-        <span
-          className={`shrink-0 rounded-md border px-2 py-1 text-xs font-bold ${statusTone}`}
-        >
-          {stateLabels[state]}
-        </span>
+        {hasStatus ? (
+          <span
+            className={`shrink-0 rounded-md border px-2 py-1 text-xs font-bold ${statusTone}`}
+          >
+            {stateLabels[state]}
+          </span>
+        ) : null}
       </div>
+
+      {isLoading ? (
+        <p role="status" className="text-sm font-medium text-slate-700">
+          {ko.location.loading}
+        </p>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-2">
         <Button
@@ -140,9 +162,11 @@ export function LocationConsentPanel({
           onClick={() => void transition("grant")}
         >
           <ShieldCheck aria-hidden="true" className="size-4" />
-          {state === "WITHDRAWN"
-            ? actionLabels.regain
-            : actionLabels.grant}
+          {busyAction === "grant"
+            ? ko.location.pending
+            : state === "WITHDRAWN"
+              ? actionLabels.regain
+              : actionLabels.grant}
         </Button>
         <Button
           disabled={!canCallApi || state !== "GRANTED" || busyAction === "suspend"}
@@ -151,7 +175,7 @@ export function LocationConsentPanel({
           onClick={() => void transition("suspend")}
         >
           <PowerOff aria-hidden="true" className="size-4" />
-          {actionLabels.suspend}
+          {busyAction === "suspend" ? ko.location.pending : actionLabels.suspend}
         </Button>
         <Button
           disabled={!canCallApi || state !== "SUSPENDED" || busyAction === "resume"}
@@ -160,7 +184,7 @@ export function LocationConsentPanel({
           onClick={() => void transition("resume")}
         >
           <Power aria-hidden="true" className="size-4" />
-          {actionLabels.resume}
+          {busyAction === "resume" ? ko.location.pending : actionLabels.resume}
         </Button>
         <Button
           disabled={
@@ -173,7 +197,9 @@ export function LocationConsentPanel({
           onClick={() => void transition("withdraw")}
         >
           <PowerOff aria-hidden="true" className="size-4" />
-          {actionLabels.withdraw}
+          {busyAction === "withdraw"
+            ? ko.location.pending
+            : actionLabels.withdraw}
         </Button>
       </div>
 
@@ -189,22 +215,32 @@ export function LocationConsentPanel({
           {ko.location.refresh}
         </Button>
         <Button
-          disabled={!canCallApi}
+          disabled={!canCallApi || isExporting}
           type="button"
           variant="ghost"
           size="sm"
           onClick={() => void exportCsv()}
         >
           <Download aria-hidden="true" className="size-4" />
-          {ko.location.exportCsv}
+          {isExporting ? ko.location.exporting : ko.location.exportCsv}
         </Button>
       </div>
+
+      {exported ? (
+        <p role="status" className="text-sm font-semibold text-emerald-800">
+          {ko.location.exported}
+        </p>
+      ) : null}
 
       <dl className="grid grid-cols-2 gap-2 text-sm">
         <div>
           <dt className="text-slate-500">{ko.location.collection}</dt>
           <dd className="font-semibold text-slate-950">
-            {mayCollect ? ko.common.yes : ko.common.no}
+            {!hasStatus
+              ? ko.common.notSet
+              : mayCollect
+                ? ko.common.yes
+                : ko.common.no}
           </dd>
         </div>
         <div>

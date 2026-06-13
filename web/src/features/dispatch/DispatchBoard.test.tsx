@@ -8,7 +8,7 @@ import { primaryMechanicId, workOrderListItems } from "../../test/fixtures";
 describe("DispatchBoard", () => {
   it("groups work orders by dispatch status and assigns a dropped card through the callback", async () => {
     const user = userEvent.setup();
-    const assign = vi.fn().mockResolvedValue(undefined);
+    const assign = vi.fn().mockResolvedValue(true);
 
     render(
       <DispatchBoard

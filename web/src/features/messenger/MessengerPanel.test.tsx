@@ -158,7 +158,7 @@ describe("MessengerPanel", () => {
 
     await user.type(screen.getByLabelText(ko.messenger.search), "검색");
     await user.click(screen.getByRole("button", { name: ko.messenger.searchButton }));
-    expect(await screen.findByText("검색 결과")).toBeVisible();
+    expect((await screen.findAllByText("검색 결과")).length).toBeGreaterThan(0);
 
     await user.upload(
       screen.getByLabelText(ko.messenger.attachment),

@@ -43,7 +43,9 @@ export function IntakeForm({
   const [customerRequest, setCustomerRequest] = useState("");
   const [targetDueAt, setTargetDueAt] = useState("");
   const [errors, setErrors] = useState<Errors>({});
-  const [status, setStatus] = useState<"idle" | "saving" | "created">("idle");
+  const [status, setStatus] = useState<
+    "idle" | "saving" | "created" | "error"
+  >("idle");
 
   const priorityHint = ko.intake.priorityTriggers.some((trigger) =>
     symptom.includes(trigger),
@@ -66,15 +68,21 @@ export function IntakeForm({
     }
 
     setStatus("saving");
-    const created = await onCreateWorkOrder({
-      branch_id: branchId,
-      management_no: managementNo.trim(),
-      symptom: symptom.trim(),
-      customer_request: customerRequest.trim() || undefined,
-      target_due_at: targetDueAt ? new Date(targetDueAt).toISOString() : undefined,
-    });
-    setStatus("created");
-    onCreated?.(created);
+    try {
+      const created = await onCreateWorkOrder({
+        branch_id: branchId,
+        management_no: managementNo.trim(),
+        symptom: symptom.trim(),
+        customer_request: customerRequest.trim() || undefined,
+        target_due_at: targetDueAt
+          ? new Date(targetDueAt).toISOString()
+          : undefined,
+      });
+      setStatus("created");
+      onCreated?.(created);
+    } catch {
+      setStatus("error");
+    }
   }
 
   return (
@@ -107,6 +115,9 @@ export function IntakeForm({
             }}
             list="equipment-suggestions"
             aria-invalid={Boolean(errors.managementNo)}
+            aria-describedby={
+              errors.managementNo ? "management-no-error" : undefined
+            }
           />
           {equipmentSuggestions.length > 0 ? (
             <datalist id="equipment-suggestions">
@@ -120,7 +131,12 @@ export function IntakeForm({
             </datalist>
           ) : null}
           {errors.managementNo ? (
-            <p className="text-sm font-medium text-red-700">{errors.managementNo}</p>
+            <p
+              id="management-no-error"
+              className="text-sm font-medium text-red-700"
+            >
+              {errors.managementNo}
+            </p>
           ) : null}
         </div>
 
@@ -138,9 +154,12 @@ export function IntakeForm({
               setSymptom(event.currentTarget.value);
             }}
             aria-invalid={Boolean(errors.symptom)}
+            aria-describedby={errors.symptom ? "symptom-error" : undefined}
           />
           {errors.symptom ? (
-            <p className="text-sm font-medium text-red-700">{errors.symptom}</p>
+            <p id="symptom-error" className="text-sm font-medium text-red-700">
+              {errors.symptom}
+            </p>
           ) : null}
         </div>
 
@@ -178,6 +197,11 @@ export function IntakeForm({
         {status === "created" ? (
           <p role="status" className="text-sm font-semibold text-emerald-800">
             {ko.intake.created}
+          </p>
+        ) : null}
+        {status === "error" ? (
+          <p role="alert" className="text-sm font-semibold text-red-700">
+            {ko.intake.saveFailed}
           </p>
         ) : null}
       </form>

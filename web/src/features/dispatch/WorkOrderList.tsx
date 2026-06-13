@@ -5,9 +5,13 @@ import { ko } from "../../i18n/ko";
 
 interface WorkOrderListProps {
   workOrders: WorkOrderListItem[];
+  isLoading?: boolean;
 }
 
-export function WorkOrderList({ workOrders }: WorkOrderListProps) {
+export function WorkOrderList({
+  workOrders,
+  isLoading = false,
+}: WorkOrderListProps) {
   return (
     <Card className="grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -17,9 +21,15 @@ export function WorkOrderList({ workOrders }: WorkOrderListProps) {
         <Badge>{workOrders.length}</Badge>
       </div>
       {workOrders.length === 0 ? (
-        <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
-          {ko.dispatch.empty}
-        </p>
+        isLoading ? (
+          <p role="status" className="text-sm font-medium text-slate-700">
+            {ko.common.loading}
+          </p>
+        ) : (
+          <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+            {ko.dispatch.empty}
+          </p>
+        )
       ) : (
         <div className="grid gap-2">
           {workOrders.map((workOrder) => (

@@ -18,6 +18,7 @@ import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
+import { cn } from "../../lib/utils";
 import { ko } from "../../i18n/ko";
 import {
   createMessengerState,
@@ -49,6 +50,9 @@ export function MessengerPanel({
   const [searchQuery, setSearchQuery] = useState("");
   const [attachment, setAttachment] = useState<File>();
   const [sendError, setSendError] = useState<string>();
+  const [isSending, setIsSending] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
   const cursorRef = useRef<string | undefined>(undefined);
   const selectedThread = state.threads.find(
     (thread) => thread.id === state.selectedThreadId,
@@ -171,20 +175,31 @@ export function MessengerPanel({
   async function handleSearch() {
     const query = searchQuery.trim();
     if (!query) {
+      setHasSearched(false);
       dispatch({ type: "searchResultsLoaded", results: [] });
       return;
     }
-    const response = await api.GET("/api/messenger/search", {
-      params: { query: { q: query, limit: 20 } },
-    });
-    dispatch({ type: "searchResultsLoaded", results: response.data?.items ?? [] });
+    setIsSearching(true);
+    try {
+      const response = await api.GET("/api/messenger/search", {
+        params: { query: { q: query, limit: 20 } },
+      });
+      dispatch({
+        type: "searchResultsLoaded",
+        results: response.data?.items ?? [],
+      });
+      setHasSearched(true);
+    } finally {
+      setIsSearching(false);
+    }
   }
 
   async function handleSend() {
-    if (!selectedThread || !composer.trim()) {
+    if (!selectedThread || !composer.trim() || isSending) {
       return;
     }
     setSendError(undefined);
+    setIsSending(true);
     try {
       const attachmentEvidenceIds = attachment
         ? [await uploadWorkOrderAttachment(selectedThread, attachment)]
@@ -208,6 +223,8 @@ export function MessengerPanel({
       setAttachment(undefined);
     } catch {
       setSendError(ko.messenger.sendFailed);
+    } finally {
+      setIsSending(false);
     }
   }
 
@@ -286,9 +303,27 @@ export function MessengerPanel({
               <Search aria-hidden="true" size={16} />
             </Button>
           </div>
-          {state.searchResults.map((message) => (
-            <MessageRow key={`search-${message.id}`} message={message} />
-          ))}
+          {isSearching ? (
+            <p role="status" className="text-sm text-slate-600">
+              {ko.messenger.searching}
+            </p>
+          ) : null}
+          {!isSearching && hasSearched ? (
+            <div className="grid gap-2">
+              <h3 className="text-sm font-semibold text-slate-800">
+                {ko.messenger.searchResults}
+              </h3>
+              {state.searchResults.length === 0 ? (
+                <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+                  {ko.messenger.searchEmpty}
+                </p>
+              ) : (
+                state.searchResults.map((message) => (
+                  <MessageRow key={`search-${message.id}`} message={message} />
+                ))
+              )}
+            </div>
+          ) : null}
           <h3 className="text-sm font-semibold text-slate-800">
             {ko.messenger.threads}
           </h3>
@@ -301,7 +336,12 @@ export function MessengerPanel({
             <button
               key={thread.id}
               type="button"
-              className="rounded-md border border-slate-200 bg-white p-3 text-left transition hover:border-slate-400"
+              className={cn(
+                "rounded-md border p-3 text-left transition hover:border-slate-400",
+                state.selectedThreadId === thread.id
+                  ? "border-slate-900 bg-slate-100 ring-1 ring-slate-300"
+                  : "border-slate-200 bg-white",
+              )}
               aria-pressed={state.selectedThreadId === thread.id}
               onClick={() => {
                 dispatch({ type: "threadSelected", threadId: thread.id });
@@ -393,9 +433,13 @@ export function MessengerPanel({
                     {sendError}
                   </p>
                 ) : null}
-                <Button type="button" onClick={() => void handleSend()}>
+                <Button
+                  type="button"
+                  disabled={!composer.trim() || isSending}
+                  onClick={() => void handleSend()}
+                >
                   <Send aria-hidden="true" size={16} />
-                  {ko.messenger.send}
+                  {isSending ? ko.messenger.sending : ko.messenger.send}
                 </Button>
               </div>
             </>
@@ -432,9 +476,12 @@ async function putEvidenceUpload(
   const uploadHeaders = Object.fromEntries(
     ticket.upload.headers.map(([name, value]) => [name, value]),
   );
-  await fetch(ticket.upload.url, {
+  const response = await fetch(ticket.upload.url, {
     method: ticket.upload.method,
     headers: uploadHeaders,
     body: file,
   });
+  if (!response.ok) {
+    throw new Error(`evidence upload failed with status ${String(response.status)}`);
+  }
 }

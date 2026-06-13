@@ -26,11 +26,13 @@ import {
 
 const defaultBranchId = "00000000-0000-4000-8000-000000000001";
 const defaultMechanicId = "00000000-0000-4000-8000-000000000002";
+const equipmentDebounceMs = 300;
 const approvalStatuses: WorkOrderListItem["status"][] = [
   "REPORT_SUBMITTED",
   "ADMIN_REVIEW",
 ];
 type ReadState = "idle" | "loading" | "error";
+type WriteState = "idle" | "error";
 type ReadyEquipmentLookup = Extract<
   EquipmentLookupState,
   { status: "ready" }
@@ -53,6 +55,7 @@ export function App({ initialSession }: AppProps = {}) {
   const [readState, setReadState] = useState<ReadState>(
     initialSession ? "loading" : "idle",
   );
+  const [writeState, setWriteState] = useState<WriteState>("idle");
   const [managementNo, setManagementNo] = useState("");
   const [equipmentSuggestions, setEquipmentSuggestions] = useState<
     EquipmentLookupResponse[]
@@ -144,20 +147,24 @@ export function App({ initialSession }: AppProps = {}) {
       setEquipmentLookupState({ status: "notFound" });
     }
 
-    loadEquipment().catch(() => {
-      if (!ignore) {
-        setEquipmentSuggestions([]);
-        setEquipmentLookupState({ status: "error" });
-      }
-    });
+    const timer = window.setTimeout(() => {
+      loadEquipment().catch(() => {
+        if (!ignore) {
+          setEquipmentSuggestions([]);
+          setEquipmentLookupState({ status: "error" });
+        }
+      });
+    }, equipmentDebounceMs);
 
     return () => {
       ignore = true;
+      window.clearTimeout(timer);
     };
   }, [api, managementNo, session]);
 
   function handleSessionChange(nextSession?: TokenPairResponse) {
     setSession(nextSession);
+    setWriteState("idle");
     if (!nextSession) {
       setWorkOrders([]);
       setApprovalWorkOrders([]);
@@ -195,34 +202,73 @@ export function App({ initialSession }: AppProps = {}) {
     return response.data;
   }
 
-  async function assignWorkOrder(workOrderId: string, mechanicId: string) {
-    const response = await api.PUT("/api/work-orders/{workOrderId}/assignments", {
-      params: { path: { workOrderId } },
-      body: {
-        assignments: [{ mechanic_id: mechanicId, role: "PRIMARY" }],
-      },
-    });
-    if (response.data) {
+  async function assignWorkOrder(
+    workOrderId: string,
+    mechanicId: string,
+  ): Promise<boolean> {
+    setWriteState("idle");
+    try {
+      const response = await api.PUT(
+        "/api/work-orders/{workOrderId}/assignments",
+        {
+          params: { path: { workOrderId } },
+          body: {
+            assignments: [{ mechanic_id: mechanicId, role: "PRIMARY" }],
+          },
+        },
+      );
+      if (!response.data) {
+        setWriteState("error");
+        return false;
+      }
       await loadDashboardData();
+      return true;
+    } catch {
+      setWriteState("error");
+      return false;
     }
   }
 
-  async function approveWorkOrder(workOrderId: string) {
-    const response = await api.POST("/api/work-orders/{workOrderId}/approve", {
-      params: { path: { workOrderId } },
-    });
-    if (response.data) {
+  async function approveWorkOrder(workOrderId: string): Promise<boolean> {
+    setWriteState("idle");
+    try {
+      const response = await api.POST("/api/work-orders/{workOrderId}/approve", {
+        params: { path: { workOrderId } },
+      });
+      if (!response.data) {
+        setWriteState("error");
+        return false;
+      }
       await loadDashboardData();
+      return true;
+    } catch {
+      setWriteState("error");
+      return false;
     }
   }
 
-  async function rejectWorkOrder(workOrderId: string, memo: string) {
-    const response = await api.POST("/api/v1/work-orders/{workOrderId}/reject", {
-      params: { path: { workOrderId } },
-      body: { memo },
-    });
-    if (response.data) {
+  async function rejectWorkOrder(
+    workOrderId: string,
+    memo: string,
+  ): Promise<boolean> {
+    setWriteState("idle");
+    try {
+      const response = await api.POST(
+        "/api/v1/work-orders/{workOrderId}/reject",
+        {
+          params: { path: { workOrderId } },
+          body: { memo },
+        },
+      );
+      if (!response.data) {
+        setWriteState("error");
+        return false;
+      }
       await loadDashboardData();
+      return true;
+    } catch {
+      setWriteState("error");
+      return false;
     }
   }
 
@@ -280,7 +326,15 @@ export function App({ initialSession }: AppProps = {}) {
               {ko.common.loadFailed}
             </p>
           ) : null}
-          <WorkOrderList workOrders={workOrders} />
+          {writeState === "error" ? (
+            <p role="alert" className="text-sm font-semibold text-red-700">
+              {ko.common.writeFailed}
+            </p>
+          ) : null}
+          <WorkOrderList
+            workOrders={workOrders}
+            isLoading={readState === "loading"}
+          />
           <KpiDashboard
             isLoading={readState === "loading"}
             period={kpiPeriod}
@@ -290,6 +344,7 @@ export function App({ initialSession }: AppProps = {}) {
           <DispatchBoard
             workOrders={workOrders}
             selectedMechanicId={defaultMechanicId}
+            isLoading={readState === "loading"}
             onAssignWorkOrder={assignWorkOrder}
           />
           <MessengerPanel

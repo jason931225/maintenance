@@ -85,7 +85,11 @@ export function WallBoard({
           </div>
         </header>
 
-        <section aria-labelledby="wallboard-exceptions" className="grid gap-4">
+        <section
+          aria-labelledby="wallboard-exceptions"
+          aria-live="polite"
+          className="grid gap-4"
+        >
           <h2 id="wallboard-exceptions" className="text-xl font-semibold text-slate-200">
             {ko.wallboard.exceptionStrip}
           </h2>

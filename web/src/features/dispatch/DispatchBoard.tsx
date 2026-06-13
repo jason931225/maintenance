@@ -11,7 +11,11 @@ type WorkOrderStatus = WorkOrderListItem["status"];
 interface DispatchBoardProps {
   workOrders: WorkOrderListItem[];
   selectedMechanicId: string;
-  onAssignWorkOrder: (workOrderId: string, mechanicId: string) => Promise<void>;
+  isLoading?: boolean;
+  onAssignWorkOrder: (
+    workOrderId: string,
+    mechanicId: string,
+  ) => Promise<boolean>;
 }
 
 const groups: {
@@ -54,6 +58,7 @@ const groups: {
 export function DispatchBoard({
   workOrders,
   selectedMechanicId,
+  isLoading = false,
   onAssignWorkOrder,
 }: DispatchBoardProps) {
   return (
@@ -65,9 +70,15 @@ export function DispatchBoard({
         </p>
       </div>
       {workOrders.length === 0 ? (
-        <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
-          {ko.dispatch.empty}
-        </p>
+        isLoading ? (
+          <p role="status" className="text-sm font-medium text-slate-700">
+            {ko.common.loading}
+          </p>
+        ) : (
+          <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+            {ko.dispatch.empty}
+          </p>
+        )
       ) : null}
       <div className="grid gap-3 lg:grid-cols-3 xl:grid-cols-6">
         {groups.map((group) => {
@@ -86,7 +97,6 @@ export function DispatchBoard({
                 {items.map((workOrder) => (
                   <article
                     key={workOrder.id}
-                    draggable
                     className="rounded-md border border-slate-200 bg-white p-3"
                   >
                     <div className="flex items-start justify-between gap-2">

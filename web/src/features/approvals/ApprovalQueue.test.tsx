@@ -8,8 +8,8 @@ import { workOrderListItems } from "../../test/fixtures";
 describe("ApprovalQueue", () => {
   it("renders pending approval items and sends approval and reject actions with memo state", async () => {
     const user = userEvent.setup();
-    const approve = vi.fn().mockResolvedValue(undefined);
-    const reject = vi.fn().mockResolvedValue(undefined);
+    const approve = vi.fn().mockResolvedValue(true);
+    const reject = vi.fn().mockResolvedValue(true);
 
     render(
       <ApprovalQueue
