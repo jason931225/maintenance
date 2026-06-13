@@ -1,4 +1,39 @@
 export const ko = {
+  nav: {
+    dispatch: "배차",
+    intake: "접수",
+    approvals: "승인",
+    messenger: "메신저",
+    kpi: "KPI 대시보드",
+    equipment: "장비 조회",
+    location: "GPS 위치 동의",
+    groups: {
+      operations: "운영",
+      data: "데이터",
+      settings: "설정",
+    },
+  },
+  shell: {
+    title: "정비 콘솔",
+    skipToContent: "본문으로 이동",
+    openMenu: "메뉴 열기",
+    collapseMenu: "메뉴 접기",
+    expandMenu: "메뉴 펼치기",
+    userMenu: "사용자 메뉴",
+    refreshToken: "토큰 갱신",
+    locationSettings: "GPS 위치 동의",
+    logout: "로그아웃",
+    user: "사용자",
+    branch: "지점",
+    mainNav: "메인 내비게이션",
+  },
+  page: {
+    refresh: "새로고침",
+    retry: "다시 시도",
+    loading: "불러오는 중",
+    loadFailed: "데이터를 불러오지 못했습니다.",
+    empty: "표시할 내용이 없습니다.",
+  },
   app: {
     title: "정비 콘솔",
     sessionReady: "패스키 세션 연결됨",
@@ -18,6 +53,7 @@ export const ko = {
   },
   intake: {
     title: "접수 입력",
+    description: "호기를 조회하고 새 작업지시를 접수합니다.",
     managementNo: "호기",
     managementNoPlaceholder: "#290",
     symptom: "고장내용",
@@ -44,6 +80,7 @@ export const ko = {
   },
   dispatch: {
     title: "배차 보드",
+    description: "접수된 작업지시를 확인하고 정비사를 배정합니다.",
     listTitle: "작업지시 목록",
     targetDueAt: "목표 완료",
     equipment: "장비",
@@ -61,6 +98,7 @@ export const ko = {
   },
   approvals: {
     title: "승인 대기",
+    description: "보고가 제출된 작업지시를 검토하고 승인 또는 반려합니다.",
     memo: "검토 메모",
     approve: "승인",
     reject: "반려",
@@ -74,6 +112,7 @@ export const ko = {
   },
   messenger: {
     title: "메신저",
+    description: "작업·팀·1:1 대화를 확인하고 메시지를 주고받습니다.",
     threads: "대화방",
     messages: "메시지",
     search: "메시지 검색",
@@ -131,8 +170,13 @@ export const ko = {
       WITHDRAWN: "철회됨",
     },
   },
+  equipment: {
+    title: "장비 조회",
+    description: "호기 번호로 장비·고객 정보를 조회합니다.",
+  },
   kpi: {
     title: "임원 KPI 대시보드",
+    description: "기간별 핵심 운영 지표를 집계해 보여줍니다.",
     period: "기간",
     periodPlaceholder: "YYYY-MM-DD..YYYY-MM-DD",
     periodHint: "기간 형식: YYYY-MM-DD..YYYY-MM-DD",

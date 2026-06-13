@@ -1,10 +1,15 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { http, HttpResponse } from "msw";
+import { http, HttpResponse, ws } from "msw";
 import { setupServer } from "msw/node";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { App } from "./App";
+import { AppRouter } from "./AppRouter";
+import { AuthContext } from "./context/auth";
+import type { AuthContextValue, AuthSession } from "./context/auth";
+import { createConsoleApiClient } from "./api/client";
 import { getDefaultKpiPeriod } from "./features/kpi/kpi-format";
 import {
   equipmentLookup,
@@ -14,31 +19,28 @@ import {
   workOrders,
 } from "./test/fixtures";
 
+// ── MSW handlers ──────────────────────────────────────────────────────────────
+
 const listRequests: URL[] = [];
 const kpiRequests: URL[] = [];
 const autocompleteRequests: URL[] = [];
 const lookupRequests: URL[] = [];
-let rejectRequest:
-  | {
-      url: URL;
-      body: unknown;
-    }
-  | undefined;
+let rejectRequest: { url: URL; body: unknown } | undefined;
+
+const messengerWs = ws.link("ws://localhost:3000/api/v1/ws*");
 
 const server = setupServer(
+  messengerWs.addEventListener("connection", () => {}),
   http.get("*/api/v1/work-orders", ({ request }) => {
     const url = new URL(request.url);
     listRequests.push(url);
-    const statusFilter = url.searchParams.getAll("status").flatMap((value) =>
-      value.split(","),
-    );
+    const statusFilter = url.searchParams
+      .getAll("status")
+      .flatMap((v) => v.split(","));
     const items =
       statusFilter.length > 0
-        ? workOrderListItems.filter((workOrder) =>
-            statusFilter.includes(workOrder.status),
-          )
+        ? workOrderListItems.filter((wo) => statusFilter.includes(wo.status))
         : workOrderListItems;
-
     return HttpResponse.json({
       items,
       limit: Number(url.searchParams.get("limit") ?? 100),
@@ -66,12 +68,7 @@ const server = setupServer(
     }),
   ),
   http.get("*/api/v1/location-consents/ledger", () =>
-    HttpResponse.json({
-      items: [],
-      limit: 10,
-      offset: 0,
-      total: 0,
-    }),
+    HttpResponse.json({ items: [], limit: 10, offset: 0, total: 0 }),
   ),
   http.get("*/api/v1/equipment", ({ request }) => {
     const url = new URL(request.url);
@@ -87,29 +84,18 @@ const server = setupServer(
     return HttpResponse.json(equipmentLookup);
   }),
   http.get("*/api/messenger/threads", () =>
-    HttpResponse.json({
-      items: [],
-    }),
+    HttpResponse.json({ items: [] }),
   ),
   http.post(
     "*/api/v1/work-orders/:workOrderId/reject",
     async ({ request }) => {
-      rejectRequest = {
-        url: new URL(request.url),
-        body: await request.json(),
-      };
-      return HttpResponse.json({
-        ...workOrders[1],
-        status: "REJECTED",
-      });
+      rejectRequest = { url: new URL(request.url), body: await request.json() };
+      return HttpResponse.json({ ...workOrders[1], status: "REJECTED" });
     },
   ),
 );
 
-beforeAll(() => {
-  server.listen({ onUnhandledRequest: "error" });
-});
-
+beforeAll(() => { server.listen({ onUnhandledRequest: "error" }); });
 afterEach(() => {
   server.resetHandlers();
   listRequests.length = 0;
@@ -117,19 +103,151 @@ afterEach(() => {
   autocompleteRequests.length = 0;
   lookupRequests.length = 0;
   rejectRequest = undefined;
-  window.history.pushState({}, "", "/");
+});
+afterAll(() => { server.close(); });
+
+// ── Test helpers ──────────────────────────────────────────────────────────────
+
+function makeAuthContext(session: AuthSession | undefined): AuthContextValue {
+  const api = createConsoleApiClient(session?.access_token);
+  return {
+    session,
+    login: async () => {},
+    logout: async () => {},
+    refresh: async () => {},
+    acceptTokens: () => {},
+    api,
+  };
+}
+
+const authenticatedSession: AuthSession = {
+  access_token: tokenPair.access_token,
+  refresh_token: tokenPair.refresh_token,
+};
+
+function renderAt(path: string, session: AuthSession | undefined = authenticatedSession) {
+  const ctx = makeAuthContext(session);
+  return render(
+    <AuthContext.Provider value={ctx}>
+      <MemoryRouter initialEntries={[path]}>
+        <AppRouter />
+      </MemoryRouter>
+    </AuthContext.Provider>,
+  );
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+describe("ProtectedRoute unit", () => {
+  it("redirects to /login when unauthenticated", () => {
+    const unauthCtx = makeAuthContext(undefined);
+    render(
+      <AuthContext.Provider value={unauthCtx}>
+        <MemoryRouter initialEntries={["/dispatch"]}>
+          <Routes>
+            <Route path="/login" element={<div data-testid="login-page">login</div>} />
+            <Route element={<ProtectedRoute />}>
+              <Route path="/dispatch" element={<div data-testid="dispatch-page">dispatch</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>,
+    );
+    expect(screen.getByTestId("login-page")).toBeVisible();
+    expect(screen.queryByTestId("dispatch-page")).not.toBeInTheDocument();
+  });
+
+  it("renders protected content when authenticated", () => {
+    const authCtx = makeAuthContext(authenticatedSession);
+    render(
+      <AuthContext.Provider value={authCtx}>
+        <MemoryRouter initialEntries={["/dispatch"]}>
+          <Routes>
+            <Route path="/login" element={<div data-testid="login-page">login</div>} />
+            <Route element={<ProtectedRoute />}>
+              <Route path="/dispatch" element={<div data-testid="dispatch-page">dispatch</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>,
+    );
+    expect(screen.getByTestId("dispatch-page")).toBeVisible();
+    expect(screen.queryByTestId("login-page")).not.toBeInTheDocument();
+  });
 });
 
-afterAll(() => {
-  server.close();
+describe("AppRouter authenticated", () => {
+  it("renders the protected dispatch page when authenticated", async () => {
+    renderAt("/dispatch");
+    expect(
+      await screen.findByRole("heading", { name: "작업지시 목록", level: 2 }),
+    ).toBeVisible();
+  });
 });
 
-describe("App", () => {
-  it("loads the board/list and approval queue from the read API with the required filters", async () => {
-    render(<App initialSession={tokenPair} />);
+describe("routing", () => {
+  it("redirects / to /dispatch", async () => {
+    renderAt("/");
+    expect(
+      await screen.findByRole("heading", { name: "작업지시 목록" }),
+    ).toBeVisible();
+  });
 
-    expect((await screen.findAllByText("20260612-001"))[0]).toBeVisible();
-    expect(screen.getByRole("heading", { name: "작업지시 목록" })).toBeVisible();
+  it("renders /intake page", async () => {
+    renderAt("/intake");
+    expect(
+      await screen.findByRole("heading", { name: "접수 입력", level: 2 }),
+    ).toBeVisible();
+  });
+
+  it("renders /approvals page", async () => {
+    renderAt("/approvals");
+    expect(
+      await screen.findByRole("heading", { name: "승인 대기", level: 2 }),
+    ).toBeVisible();
+  });
+
+  it("renders /kpi page", async () => {
+    renderAt("/kpi");
+    expect(
+      await screen.findByRole("heading", { name: "임원 KPI 대시보드", level: 2 }),
+    ).toBeVisible();
+  });
+
+  it("renders /messenger page", async () => {
+    renderAt("/messenger");
+    expect(
+      await screen.findByRole("heading", { name: "메신저", level: 2 }),
+    ).toBeVisible();
+  });
+
+  it("renders /wallboard outside the shell", async () => {
+    renderAt("/wallboard");
+    expect(
+      await screen.findByRole("heading", { name: "일일현황 월보드" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "패스키 로그인" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("redirects unknown paths to /dispatch", async () => {
+    renderAt("/does-not-exist");
+    expect(
+      await screen.findByRole("heading", { name: "작업지시 목록" }),
+    ).toBeVisible();
+  });
+});
+
+describe("DispatchPage", () => {
+  it("loads the work order list from the read API", async () => {
+    renderAt("/dispatch");
+    expect(
+      (await screen.findAllByText("20260612-001"))[0],
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "작업지시 목록" }),
+    ).toBeVisible();
     expect(screen.getAllByText(/한빛물류/)[0]).toBeVisible();
 
     await waitFor(() => {
@@ -140,6 +258,15 @@ describe("App", () => {
             !url.search.includes("status"),
         ),
       ).toBe(true);
+    });
+  });
+});
+
+describe("ApprovalsPage", () => {
+  it("loads approval queue with status filter", async () => {
+    renderAt("/approvals");
+
+    await waitFor(() => {
       expect(
         listRequests.some(
           (url) =>
@@ -148,6 +275,33 @@ describe("App", () => {
             url.search.includes("ADMIN_REVIEW"),
         ),
       ).toBe(true);
+    });
+  });
+
+  it("posts reject memo through the reject route", async () => {
+    const user = userEvent.setup();
+    renderAt("/approvals");
+
+    expect((await screen.findAllByText("20260612-002"))[0]).toBeVisible();
+    await user.type(screen.getByLabelText("검토 메모"), "증빙 보완 필요");
+    await user.click(
+      screen.getByRole("button", { name: "20260612-002 반려" }),
+    );
+
+    await waitFor(() => {
+      expect(rejectRequest?.url.pathname).toBe(
+        `/api/v1/work-orders/${workOrderListItems[1].id}/reject`,
+      );
+      expect(rejectRequest?.body).toEqual({ memo: "증빙 보완 필요" });
+    });
+  });
+});
+
+describe("KpiPage", () => {
+  it("loads kpi report with the default period", async () => {
+    renderAt("/kpi");
+
+    await waitFor(() => {
       expect(
         kpiRequests.some(
           (url) =>
@@ -157,24 +311,12 @@ describe("App", () => {
       ).toBe(true);
     });
   });
+});
 
-  it("renders the wallboard route without the console controls", async () => {
-    window.history.pushState({}, "", "/wallboard");
-
-    render(<App initialSession={tokenPair} />);
-
-    expect(
-      await screen.findByRole("heading", { name: "일일현황 월보드" }),
-    ).toBeVisible();
-    expect(
-      screen.queryByRole("heading", { name: "패스키 로그인" }),
-    ).not.toBeInTheDocument();
-  });
-
+describe("IntakePage", () => {
   it("uses equipment autocomplete and lookup when the intake 호기 changes", async () => {
     const user = userEvent.setup();
-
-    render(<App initialSession={tokenPair} />);
+    renderAt("/intake");
 
     await user.type(screen.getByLabelText("호기"), "#290");
 
@@ -196,25 +338,6 @@ describe("App", () => {
             url.searchParams.get("management_no") === "#290",
         ),
       ).toBe(true);
-    });
-  });
-
-  it("posts reject memo through the read-surface reject route", async () => {
-    const user = userEvent.setup();
-
-    render(<App initialSession={tokenPair} />);
-
-    expect((await screen.findAllByText("20260612-002"))[0]).toBeVisible();
-    await user.type(screen.getByLabelText("검토 메모"), "증빙 보완 필요");
-    await user.click(
-      screen.getByRole("button", { name: "20260612-002 반려" }),
-    );
-
-    await waitFor(() => {
-      expect(rejectRequest?.url.pathname).toBe(
-        `/api/v1/work-orders/${workOrderListItems[1].id}/reject`,
-      );
-      expect(rejectRequest?.body).toEqual({ memo: "증빙 보완 필요" });
     });
   });
 });
