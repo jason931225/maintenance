@@ -26,6 +26,7 @@ Fix: always floor persisted quote residuals, or relax the DB check and add persi
 6. MEDIUM: audited reporting tables permit/write `NULL branch_id`.
 Evidence: branch non-null contract at [0001_create_regions_branches.sql](/Users/jasonlee/Developer/maintenance/backend/crates/platform/db/migrations/0001_create_regions_branches.sql:1); nullable `branch_id` at [0016_create_reporting_exports.sql](/Users/jasonlee/Developer/maintenance/backend/crates/platform/db/migrations/0016_create_reporting_exports.sql:4) and [0016_create_reporting_exports.sql](/Users/jasonlee/Developer/maintenance/backend/crates/platform/db/migrations/0016_create_reporting_exports.sql:22); adapter maps all/multi-branch scopes to `None` at [reporting/adapter-postgres/src/lib.rs](/Users/jasonlee/Developer/maintenance/backend/crates/reporting/adapter-postgres/src/lib.rs:1241).
 Fix: model rollup scope explicitly while preserving branch-scoped rows, or document/test this as an intentional exception.
+RESOLVED-AS-INTENDED: nullable branch_id is the company/region rollup case; scope_key (NOT NULL) is authoritative; codified by test `company_scope_export_log_persists_null_branch_id_with_authoritative_scope_key`.
 
 **Clean Dimensions**
 Work-order FSM transitions, request number allocation, dispatch accept-window/auto-assign, ledger residual recompute, `with_audit`/`with_audits` atomicity, realtime mpsc/NOTIFY/replay, job enqueue idempotency, messenger persist-before-fanout, and append-only audit triggers all looked clean in the opened code.

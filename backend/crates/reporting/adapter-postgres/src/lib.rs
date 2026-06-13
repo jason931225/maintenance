@@ -595,6 +595,11 @@ impl PgKpiRepository {
     ) -> Result<(), PgReportingError> {
         let log_id = uuid::Uuid::new_v4();
         let branch_id = single_branch(&command.branch_scope);
+        // scope_key (NOT NULL) is the authoritative scope discriminator: "ALL" for
+        // company-wide rollups, "region:<id>" for region rollups, or the branch UUID
+        // string for branch-scope rows. branch_id is a nullable denormalized FK that is
+        // populated ONLY when the scope resolves to exactly one branch; company/region
+        // rollup rows carry NULL branch_id by design (finding-#6 disposition).
         let event = audit_event(
             command.action,
             command.actor,

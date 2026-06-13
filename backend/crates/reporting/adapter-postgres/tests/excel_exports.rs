@@ -170,6 +170,99 @@ async fn work_diary_draft_can_be_generated_edited_confirmed_and_exported(pool: P
     assert!(actions.contains(&"export.work_diary".to_owned()));
 }
 
+/// Regression test for finding #6 (correctness-data-concurrency review):
+/// company-scope (BranchScope::All) export logs carry NULL branch_id with a
+/// non-empty scope_key ("ALL"). This is intentional — scope_key is the
+/// authoritative rollup discriminator; branch_id is a convenience FK that is
+/// NULL for company/region rollups by design. The export must still be fully
+/// audited (audit_events row present).
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn company_scope_export_log_persists_null_branch_id_with_authoritative_scope_key(
+    pool: PgPool,
+) {
+    // Seed a minimal branch so we can create the actor user; the export itself
+    // is company-wide (BranchScope::All) and does not filter to this branch.
+    let region_id: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+            .bind(format!("전국-{}", uuid::Uuid::new_v4()))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let branch_id: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
+            .bind(region_id)
+            .bind(format!("본사-{}", uuid::Uuid::new_v4()))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let actor = UserId::new();
+    sqlx::query("INSERT INTO users (id, display_name, roles) VALUES ($1, $2, $3)")
+        .bind(*actor.as_uuid())
+        .bind("총괄임원")
+        .bind(Vec::from(["EXECUTIVE"]))
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+        .bind(*actor.as_uuid())
+        .bind(branch_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let repo = PgReportingRepository::new(pool.clone());
+
+    // Company-scope export: BranchScope::All → scope_key="ALL", branch_id=NULL
+    let export = repo
+        .export_daily_status(ReportingExportQuery {
+            actor,
+            date: EXPORT_DATE,
+            branch_scope: BranchScope::All,
+            trace: TraceContext::generate(),
+            occurred_at: EXPORT_START + Duration::hours(9),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        export.file_name, "daily-status-2026-06-12.xlsx",
+        "filename should be deterministic regardless of scope"
+    );
+
+    // The export_log row must have NULL branch_id and non-empty scope_key="ALL"
+    let (logged_branch_id, logged_scope_key): (Option<uuid::Uuid>, String) = sqlx::query_as(
+        "SELECT branch_id, scope_key FROM excel_export_logs WHERE export_kind = 'daily_status'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    assert!(
+        logged_branch_id.is_none(),
+        "company-scope export log must carry NULL branch_id (rollup exception, finding #6)"
+    );
+    assert!(
+        !logged_scope_key.is_empty(),
+        "scope_key must be non-empty (it is the authoritative scope discriminator)"
+    );
+    assert_eq!(
+        logged_scope_key, "ALL",
+        "company rollup scope_key must be 'ALL'"
+    );
+
+    // Audit coverage: the export must still be recorded in audit_events
+    let audit_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_events WHERE action = 'export.daily_status'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        audit_count, 1,
+        "company-scope export must produce exactly one audit_events row"
+    );
+}
+
 fn export_query(actor: UserId, branch: BranchId) -> ReportingExportQuery {
     ReportingExportQuery {
         actor,
