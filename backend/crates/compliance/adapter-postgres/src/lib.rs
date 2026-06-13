@@ -221,6 +221,8 @@ impl PgComplianceStore {
         self.current_or_unrecorded(user_id, branch_id).await
     }
 
+    // mnt-gate: state-changing-handler
+    // mnt-gate: audit-exempt location_ping_ingestion
     pub async fn record_location_ping(&self, ping: LocationPing) -> Result<(), PgComplianceError> {
         if !ping.on_duty() {
             return Err(KernelError::forbidden(

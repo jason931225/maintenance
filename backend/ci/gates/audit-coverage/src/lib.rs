@@ -13,10 +13,20 @@
 use std::path::{Path, PathBuf};
 use std::{collections::HashMap, fs};
 
+/// An allowed audit carve-out, bound to the exact writer it covers.
+///
+/// The exemption is keyed on the repo-relative source file AND the function
+/// name, not on the reason string alone. Binding to the real writer is what
+/// enforces ADR-0014's "exactly one path" invariant: the carve-out cannot
+/// silently apply to a different handler that merely reuses the reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AuditExclusion {
     pub reason: &'static str,
-    pub path: &'static str,
+    /// Repo-relative path of the file that owns the exempt writer, e.g.
+    /// `crates/compliance/adapter-postgres/src/lib.rs`.
+    pub file: &'static str,
+    /// Name of the exempt function, e.g. `record_location_ping`.
+    pub function: &'static str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,6 +35,9 @@ pub enum ViolationKind {
     UnknownAuditExclusion,
     DuplicateAuditExclusion,
     ExemptionWithoutStateChangingHandler,
+    /// A known exemption reason was used on a file/function that is not the
+    /// writer it is bound to.
+    MisboundAuditExclusion,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,7 +90,8 @@ impl GateResult {
 pub fn allowed_audit_exclusions() -> &'static [AuditExclusion] {
     &[AuditExclusion {
         reason: "location_ping_ingestion",
-        path: "LocationPing ingestion path",
+        file: "crates/compliance/adapter-postgres/src/lib.rs",
+        function: "record_location_ping",
     }]
 }
 
@@ -159,7 +173,37 @@ fn check_source_file(
                             "audit exemption '{reason}' is attached to a handler without the state-changing marker"
                         ),
                     });
-                } else if !is_allowed_exclusion(&reason) {
+                } else if let Some(exclusion) = allowed_exclusion_for_reason(&reason) {
+                    if exclusion_matches_site(exclusion, file, &function_name) {
+                        let count = exclusion_counts.entry(reason.clone()).or_insert(0);
+                        if *count > 0 {
+                            result.violations.push(Violation {
+                                kind: ViolationKind::DuplicateAuditExclusion,
+                                file: file.to_path_buf(),
+                                function_name: Some(function_name.clone()),
+                                detail: format!(
+                                    "audit exemption '{reason}' was already used; only one LocationPing ingestion path is allowed"
+                                ),
+                            });
+                        }
+                        *count += 1;
+                        result.observed_exclusions.push(ObservedExclusion {
+                            reason,
+                            file: file.to_path_buf(),
+                            function_name: function_name.clone(),
+                        });
+                    } else {
+                        result.violations.push(Violation {
+                            kind: ViolationKind::MisboundAuditExclusion,
+                            file: file.to_path_buf(),
+                            function_name: Some(function_name.clone()),
+                            detail: format!(
+                                "audit exemption '{reason}' is bound to {}::{} and may not be applied here",
+                                exclusion.file, exclusion.function
+                            ),
+                        });
+                    }
+                } else {
                     result.violations.push(Violation {
                         kind: ViolationKind::UnknownAuditExclusion,
                         file: file.to_path_buf(),
@@ -167,24 +211,6 @@ fn check_source_file(
                         detail: format!(
                             "audit exemption '{reason}' is not in the hard-coded allowed set"
                         ),
-                    });
-                } else {
-                    let count = exclusion_counts.entry(reason.clone()).or_insert(0);
-                    if *count > 0 {
-                        result.violations.push(Violation {
-                            kind: ViolationKind::DuplicateAuditExclusion,
-                            file: file.to_path_buf(),
-                            function_name: Some(function_name.clone()),
-                            detail: format!(
-                                "audit exemption '{reason}' was already used; only one LocationPing ingestion path is allowed"
-                            ),
-                        });
-                    }
-                    *count += 1;
-                    result.observed_exclusions.push(ObservedExclusion {
-                        reason,
-                        file: file.to_path_buf(),
-                        function_name: function_name.clone(),
                     });
                 }
             } else if is_state_changing && !has_audit_emission(&body) {
@@ -214,10 +240,37 @@ fn parse_exemption_reason(line: &str) -> Option<String> {
     }
 }
 
-fn is_allowed_exclusion(reason: &str) -> bool {
+fn allowed_exclusion_for_reason(reason: &str) -> Option<&'static AuditExclusion> {
     allowed_audit_exclusions()
         .iter()
-        .any(|exclusion| exclusion.reason == reason)
+        .find(|exclusion| exclusion.reason == reason)
+}
+
+/// An observed exemption site matches a bound exclusion when the function name
+/// is identical and the source file ends with the exclusion's repo-relative
+/// path. Suffix matching keeps the binding stable regardless of the absolute
+/// workspace root the gate is invoked from, while still pinning the exemption to
+/// one specific writer.
+fn exclusion_matches_site(exclusion: &AuditExclusion, file: &Path, function_name: &str) -> bool {
+    if exclusion.function != function_name {
+        return false;
+    }
+    path_ends_with_repo_relative(file, exclusion.file)
+}
+
+fn path_ends_with_repo_relative(file: &Path, repo_relative: &str) -> bool {
+    let expected: Vec<&str> = repo_relative.split('/').filter(|s| !s.is_empty()).collect();
+    let actual: Vec<String> = file
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    if expected.len() > actual.len() {
+        return false;
+    }
+    actual[actual.len() - expected.len()..]
+        .iter()
+        .zip(expected.iter())
+        .all(|(actual_part, expected_part)| actual_part == expected_part)
 }
 
 fn parse_function_name(line: &str) -> Option<String> {
@@ -353,7 +406,14 @@ fn find_matching_brace(source: &str, open: usize) -> Option<usize> {
 
 fn has_audit_emission(body: &str) -> bool {
     let executable = strip_comments_and_strings(body);
-    executable.contains("with_audit") && executable.contains("AuditEvent")
+    // Routing through a transactional audit wrapper is what structurally
+    // guarantees an `audit_events` row in the same transaction as the mutation.
+    // Keying on the mechanism (rather than the `AuditEvent` type name) also
+    // covers handlers that build the event via a helper, e.g.
+    // `consent_audit_event`, where the literal type never appears in the body.
+    executable.contains("with_audit")
+        || executable.contains("with_audits")
+        || executable.contains("insert_audit_event")
 }
 
 fn detects_unmarked_state_changing_handler(file: &Path, body: &str) -> bool {
@@ -364,7 +424,15 @@ fn is_handler_surface(file: &Path) -> bool {
     file.components().any(|component| {
         let part = component.as_os_str().to_string_lossy();
         matches!(part.as_ref(), "application" | "rest" | "worker")
-    })
+    }) || is_compliance_location_ping_writer_surface(file)
+}
+
+/// The real LocationPing writer lives in the compliance Postgres adapter, not in
+/// an `application`/`rest`/`worker` crate. We scan that adapter as a handler
+/// surface so the writer is detected as state-changing and must carry the bound
+/// audit exemption — closing the gap where the actual writer escaped coverage.
+fn is_compliance_location_ping_writer_surface(file: &Path) -> bool {
+    path_ends_with_repo_relative(file, "crates/compliance/adapter-postgres/src/lib.rs")
 }
 
 fn contains_state_mutating_sql(body: &str) -> bool {
