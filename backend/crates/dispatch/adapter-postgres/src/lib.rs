@@ -14,7 +14,7 @@ use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, ErrorKind, KernelError, P1DispatchAlertId, P1DispatchId,
     TraceContext, UserId, WorkOrderId,
 };
-use mnt_platform_db::{DbError, insert_audit_event, with_audit};
+use mnt_platform_db::{DbError, insert_audit_event, with_audit, with_audits};
 use mnt_workorder_application::work_order_audit_event;
 use mnt_workorder_domain::{
     ApprovalRole, AssignmentRole, PriorityLevel, TransitionGuardContext, WorkOrderStatus,
@@ -442,149 +442,208 @@ impl PgDispatchStore {
         Ok(work_order_head(&self.pool, work_order_id).await?.branch_id)
     }
 
-    pub async fn pending_fcm_pushes(
+    /// Reclaim any alert whose SENDING lease has expired (a crashed worker) back
+    /// to PENDING so it can be re-claimed (FIX 4).
+    async fn reclaim_expired_leases(
         &self,
         dispatch_id: P1DispatchId,
-    ) -> Result<Vec<PendingFcmPush>, PgDispatchError> {
-        let rows = sqlx::query(
+        now: OffsetDateTime,
+    ) -> Result<(), PgDispatchError> {
+        sqlx::query(
             r#"
-            SELECT
-                a.id AS alert_id,
-                d.id AS dispatch_id,
-                d.work_order_id,
-                a.recipient_user_id,
-                rd.push_token
-            FROM p1_dispatch_alerts a
-            JOIN p1_dispatches d ON d.id = a.dispatch_id
-            JOIN registered_devices rd ON rd.user_id = a.recipient_user_id
-            WHERE a.dispatch_id = $1
-              AND a.alert_type = 'FCM_PUSH'
-              AND a.status = 'PENDING'
-              AND rd.push_token IS NOT NULL
-              AND btrim(rd.push_token) <> ''
+            UPDATE p1_dispatch_alerts
+            SET status = 'PENDING',
+                lease_token = NULL,
+                lease_expires_at = NULL
+            WHERE dispatch_id = $1
+              AND status = 'SENDING'
+              AND lease_expires_at <= $2
             "#,
         )
         .bind(*dispatch_id.as_uuid())
-        .fetch_all(&self.pool)
+        .bind(now)
+        .execute(&self.pool)
         .await?;
-        rows.into_iter()
-            .map(|row| {
-                Ok(PendingFcmPush {
-                    alert_id: P1DispatchAlertId::from_uuid(row.try_get("alert_id")?),
-                    dispatch_id: P1DispatchId::from_uuid(row.try_get("dispatch_id")?),
-                    work_order_id: WorkOrderId::from_uuid(row.try_get("work_order_id")?),
-                    user_id: UserId::from_uuid(row.try_get("recipient_user_id")?),
-                    push_token: row.try_get("push_token")?,
-                })
-            })
-            .collect()
+        Ok(())
     }
 
-    pub async fn pending_manager_force_pushes(
-        &self,
-        dispatch_id: P1DispatchId,
-    ) -> Result<Vec<PendingFcmPush>, PgDispatchError> {
-        let rows = sqlx::query(
-            r#"
-            SELECT DISTINCT ON (a.id)
-                a.id AS alert_id,
-                d.id AS dispatch_id,
-                d.work_order_id,
-                a.recipient_user_id,
-                rd.push_token
-            FROM p1_dispatch_alerts a
-            JOIN p1_dispatches d ON d.id = a.dispatch_id
-            JOIN registered_devices rd ON rd.user_id = a.recipient_user_id
-            WHERE a.dispatch_id = $1
-              AND a.alert_type = 'MANAGER_FORCE_ASSIGN'
-              AND a.status = 'PENDING'
-              AND rd.push_token IS NOT NULL
-              AND btrim(rd.push_token) <> ''
-            ORDER BY a.id, rd.updated_at DESC
-            "#,
-        )
-        .bind(*dispatch_id.as_uuid())
-        .fetch_all(&self.pool)
-        .await?;
-        rows.into_iter()
-            .map(|row| {
-                Ok(PendingFcmPush {
-                    alert_id: P1DispatchAlertId::from_uuid(row.try_get("alert_id")?),
-                    dispatch_id: P1DispatchId::from_uuid(row.try_get("dispatch_id")?),
-                    work_order_id: WorkOrderId::from_uuid(row.try_get("work_order_id")?),
-                    user_id: UserId::from_uuid(row.try_get("recipient_user_id")?),
-                    push_token: row.try_get("push_token")?,
-                })
-            })
-            .collect()
-    }
-
-    pub async fn pending_alimtalk_no_ack_alerts(
-        &self,
-        dispatch_id: P1DispatchId,
-    ) -> Result<Vec<PendingAlimtalkAlert>, PgDispatchError> {
-        self.pending_alimtalk_alerts(dispatch_id, "ALIMTALK_NO_ACK")
-            .await
-    }
-
-    pub async fn pending_manager_force_alimtalks(
-        &self,
-        dispatch_id: P1DispatchId,
-    ) -> Result<Vec<PendingAlimtalkAlert>, PgDispatchError> {
-        self.pending_alimtalk_alerts(dispatch_id, "MANAGER_FORCE_ASSIGN")
-            .await
-    }
-
-    async fn pending_alimtalk_alerts(
+    /// Atomically claim pending FCM alerts (PENDING -> SENDING + lease) that have
+    /// a deliverable push token, so concurrent/retried workers cannot double-send
+    /// (FIX 4). Expired leases are reclaimed first.
+    pub async fn claim_fcm_pushes(
         &self,
         dispatch_id: P1DispatchId,
         alert_type: &'static str,
-    ) -> Result<Vec<PendingAlimtalkAlert>, PgDispatchError> {
+        now: OffsetDateTime,
+    ) -> Result<Vec<PendingFcmPush>, PgDispatchError> {
+        self.reclaim_expired_leases(dispatch_id, now).await?;
+        let lease_expires_at = now
+            .checked_add(ALERT_LEASE_TTL)
+            .ok_or_else(|| KernelError::validation("alert lease expiry overflows time"))?;
         let rows = sqlx::query(
             r#"
-            SELECT
-                a.id AS alert_id,
-                d.id AS dispatch_id,
+            WITH claimable AS (
+                SELECT DISTINCT a.id
+                FROM p1_dispatch_alerts a
+                JOIN registered_devices rd ON rd.user_id = a.recipient_user_id
+                WHERE a.dispatch_id = $1
+                  AND a.alert_type = $2
+                  AND a.status = 'PENDING'
+                  AND rd.push_token IS NOT NULL
+                  AND btrim(rd.push_token) <> ''
+            ),
+            claimed AS (
+                UPDATE p1_dispatch_alerts a
+                SET status = 'SENDING',
+                    lease_token = gen_random_uuid(),
+                    lease_expires_at = $3,
+                    idempotency_key = COALESCE(
+                        a.idempotency_key,
+                        a.dispatch_id::text || ':' || a.id::text
+                    )
+                FROM claimable c
+                WHERE a.id = c.id
+                RETURNING a.id, a.dispatch_id, a.recipient_user_id,
+                          a.lease_token, a.idempotency_key
+            )
+            SELECT DISTINCT ON (claimed.id)
+                claimed.id AS alert_id,
                 d.work_order_id,
-                a.recipient_user_id,
-                u.phone
-            FROM p1_dispatch_alerts a
-            JOIN p1_dispatches d ON d.id = a.dispatch_id
-            JOIN users u ON u.id = a.recipient_user_id
-            WHERE a.dispatch_id = $1
-              AND a.alert_type = $2
-              AND a.status = 'PENDING'
-              AND u.phone IS NOT NULL
-              AND btrim(u.phone) <> ''
-            ORDER BY a.created_at, a.id
+                claimed.recipient_user_id,
+                claimed.lease_token,
+                claimed.idempotency_key,
+                rd.push_token
+            FROM claimed
+            JOIN p1_dispatches d ON d.id = claimed.dispatch_id
+            JOIN registered_devices rd ON rd.user_id = claimed.recipient_user_id
+            WHERE rd.push_token IS NOT NULL
+              AND btrim(rd.push_token) <> ''
+            ORDER BY claimed.id, rd.updated_at DESC
             "#,
         )
         .bind(*dispatch_id.as_uuid())
         .bind(alert_type)
+        .bind(lease_expires_at)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(PendingFcmPush {
+                    alert_id: P1DispatchAlertId::from_uuid(row.try_get("alert_id")?),
+                    dispatch_id,
+                    work_order_id: WorkOrderId::from_uuid(row.try_get("work_order_id")?),
+                    user_id: UserId::from_uuid(row.try_get("recipient_user_id")?),
+                    push_token: row.try_get("push_token")?,
+                    lease_token: row.try_get("lease_token")?,
+                    idempotency_key: row.try_get("idempotency_key")?,
+                })
+            })
+            .collect()
+    }
+
+    pub async fn claim_alimtalk_no_ack_alerts(
+        &self,
+        dispatch_id: P1DispatchId,
+        now: OffsetDateTime,
+    ) -> Result<Vec<PendingAlimtalkAlert>, PgDispatchError> {
+        self.claim_alimtalk_alerts(dispatch_id, "ALIMTALK_NO_ACK", now)
+            .await
+    }
+
+    pub async fn claim_manager_force_alimtalks(
+        &self,
+        dispatch_id: P1DispatchId,
+        now: OffsetDateTime,
+    ) -> Result<Vec<PendingAlimtalkAlert>, PgDispatchError> {
+        self.claim_alimtalk_alerts(dispatch_id, "MANAGER_FORCE_ASSIGN", now)
+            .await
+    }
+
+    /// Atomically claim pending Alimtalk alerts (PENDING -> SENDING + lease) for
+    /// recipients with a phone number (FIX 4). Expired leases are reclaimed first.
+    async fn claim_alimtalk_alerts(
+        &self,
+        dispatch_id: P1DispatchId,
+        alert_type: &'static str,
+        now: OffsetDateTime,
+    ) -> Result<Vec<PendingAlimtalkAlert>, PgDispatchError> {
+        self.reclaim_expired_leases(dispatch_id, now).await?;
+        let lease_expires_at = now
+            .checked_add(ALERT_LEASE_TTL)
+            .ok_or_else(|| KernelError::validation("alert lease expiry overflows time"))?;
+        let rows = sqlx::query(
+            r#"
+            WITH claimable AS (
+                SELECT a.id
+                FROM p1_dispatch_alerts a
+                JOIN users u ON u.id = a.recipient_user_id
+                WHERE a.dispatch_id = $1
+                  AND a.alert_type = $2
+                  AND a.status = 'PENDING'
+                  AND u.phone IS NOT NULL
+                  AND btrim(u.phone) <> ''
+            ),
+            claimed AS (
+                UPDATE p1_dispatch_alerts a
+                SET status = 'SENDING',
+                    lease_token = gen_random_uuid(),
+                    lease_expires_at = $3,
+                    idempotency_key = COALESCE(
+                        a.idempotency_key,
+                        a.dispatch_id::text || ':' || a.id::text
+                    )
+                FROM claimable c
+                WHERE a.id = c.id
+                RETURNING a.id, a.dispatch_id, a.recipient_user_id, a.created_at,
+                          a.lease_token, a.idempotency_key
+            )
+            SELECT
+                claimed.id AS alert_id,
+                d.work_order_id,
+                claimed.recipient_user_id,
+                claimed.lease_token,
+                claimed.idempotency_key,
+                u.phone
+            FROM claimed
+            JOIN p1_dispatches d ON d.id = claimed.dispatch_id
+            JOIN users u ON u.id = claimed.recipient_user_id
+            ORDER BY claimed.created_at, claimed.id
+            "#,
+        )
+        .bind(*dispatch_id.as_uuid())
+        .bind(alert_type)
+        .bind(lease_expires_at)
         .fetch_all(&self.pool)
         .await?;
         rows.into_iter()
             .map(|row| {
                 Ok(PendingAlimtalkAlert {
                     alert_id: P1DispatchAlertId::from_uuid(row.try_get("alert_id")?),
-                    dispatch_id: P1DispatchId::from_uuid(row.try_get("dispatch_id")?),
+                    dispatch_id,
                     work_order_id: WorkOrderId::from_uuid(row.try_get("work_order_id")?),
                     user_id: UserId::from_uuid(row.try_get("recipient_user_id")?),
                     phone: row.try_get("phone")?,
+                    lease_token: row.try_get("lease_token")?,
+                    idempotency_key: row.try_get("idempotency_key")?,
                 })
             })
             .collect()
     }
 
+    /// Mark a claimed alert SENT, but only while this worker still holds the
+    /// lease (FIX 4). Returns `false` if the lease was lost (e.g. reclaimed after
+    /// a crash) so the caller knows the row was handled elsewhere.
     pub async fn mark_alert_sent(
         &self,
         alert_id: P1DispatchAlertId,
+        lease_token: uuid::Uuid,
         provider_message_id: Option<String>,
         trace: TraceContext,
         occurred_at: OffsetDateTime,
-    ) -> Result<(), PgDispatchError> {
+    ) -> Result<bool, PgDispatchError> {
         self.update_alert_status(
             alert_id,
+            Some(lease_token),
             "SENT",
             provider_message_id,
             None,
@@ -597,12 +656,14 @@ impl PgDispatchStore {
     pub async fn mark_alert_failed(
         &self,
         alert_id: P1DispatchAlertId,
+        lease_token: uuid::Uuid,
         failure_reason: String,
         trace: TraceContext,
         occurred_at: OffsetDateTime,
-    ) -> Result<(), PgDispatchError> {
+    ) -> Result<bool, PgDispatchError> {
         self.update_alert_status(
             alert_id,
+            Some(lease_token),
             "FAILED",
             None,
             Some(failure_reason),
@@ -612,26 +673,40 @@ impl PgDispatchStore {
         .await
     }
 
+    /// Mark an alert SKIPPED. Skips can originate from un-leased PENDING alerts
+    /// (e.g. Alimtalk disabled) so the lease token is optional; when provided it
+    /// is enforced like SENT/FAILED.
     pub async fn mark_alert_skipped(
         &self,
         alert_id: P1DispatchAlertId,
+        lease_token: Option<uuid::Uuid>,
         reason: String,
         trace: TraceContext,
         occurred_at: OffsetDateTime,
-    ) -> Result<(), PgDispatchError> {
-        self.update_alert_status(alert_id, "SKIPPED", None, Some(reason), trace, occurred_at)
-            .await
+    ) -> Result<bool, PgDispatchError> {
+        self.update_alert_status(
+            alert_id,
+            lease_token,
+            "SKIPPED",
+            None,
+            Some(reason),
+            trace,
+            occurred_at,
+        )
+        .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn update_alert_status(
         &self,
         alert_id: P1DispatchAlertId,
+        lease_token: Option<uuid::Uuid>,
         status: &'static str,
         provider_message_id: Option<String>,
         failure_reason: Option<String>,
         trace: TraceContext,
         occurred_at: OffsetDateTime,
-    ) -> Result<(), PgDispatchError> {
+    ) -> Result<bool, PgDispatchError> {
         let row = sqlx::query(
             r#"
             SELECT a.id, d.branch_id
@@ -644,27 +719,25 @@ impl PgDispatchStore {
         .fetch_one(&self.pool)
         .await?;
         let branch_id = BranchId::from_uuid(row.try_get("branch_id")?);
-        let event = AuditEvent::new(
-            None,
-            AuditAction::new("p1_dispatch.alert_status")?,
-            "p1_dispatch_alert",
-            alert_id.to_string(),
-            trace,
-            occurred_at,
-        )
-        .with_branch(branch_id)
-        .with_snapshots(None, Some(serde_json::json!({ "status": status })));
+        let alert_target = alert_id.to_string();
 
-        with_audit::<_, (), PgDispatchError>(&self.pool, event, |tx| {
+        with_audits::<_, bool, PgDispatchError>(&self.pool, |tx| {
             Box::pin(async move {
-                sqlx::query(
+                // When a lease token is supplied, only the worker still holding
+                // the lease may transition the alert; a reclaimed lease causes a
+                // no-op so a crashed worker's late mark cannot overwrite a
+                // re-delivery. The lease is cleared on the terminal transition.
+                let affected = sqlx::query(
                     r#"
                     UPDATE p1_dispatch_alerts
                     SET status = $2,
                         provider_message_id = $3,
                         failure_reason = $4,
-                        sent_at = CASE WHEN $2 = 'SENT' THEN $5 ELSE sent_at END
+                        sent_at = CASE WHEN $2 = 'SENT' THEN $5 ELSE sent_at END,
+                        lease_token = NULL,
+                        lease_expires_at = NULL
                     WHERE id = $1
+                      AND ($6::uuid IS NULL OR lease_token = $6)
                     "#,
                 )
                 .bind(*alert_id.as_uuid())
@@ -672,14 +745,38 @@ impl PgDispatchStore {
                 .bind(provider_message_id)
                 .bind(failure_reason)
                 .bind(occurred_at)
+                .bind(lease_token)
                 .execute(tx.as_mut())
-                .await?;
-                Ok(())
+                .await?
+                .rows_affected();
+                // Only audit a transition that actually applied — a lost lease
+                // (reclaimed after a crash) is a no-op and emits no audit row.
+                let events = if affected > 0 {
+                    vec![
+                        AuditEvent::new(
+                            None,
+                            AuditAction::new("p1_dispatch.alert_status")?,
+                            "p1_dispatch_alert",
+                            alert_target,
+                            trace,
+                            occurred_at,
+                        )
+                        .with_branch(branch_id)
+                        .with_snapshots(None, Some(serde_json::json!({ "status": status }))),
+                    ]
+                } else {
+                    Vec::new()
+                };
+                Ok((affected > 0, events))
             })
         })
         .await
     }
 }
+
+/// How long a claimed alert lease is valid before another worker may reclaim it
+/// (FIX 4). A crashed worker's SENDING alert becomes reclaimable after this TTL.
+pub const ALERT_LEASE_TTL: time::Duration = time::Duration::minutes(2);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingFcmPush {
@@ -688,6 +785,10 @@ pub struct PendingFcmPush {
     pub work_order_id: WorkOrderId,
     pub user_id: UserId,
     pub push_token: String,
+    /// Lease token held by the claiming worker; required to mark SENT/FAILED.
+    pub lease_token: uuid::Uuid,
+    /// Stable provider idempotency key (dispatch_id:alert_id).
+    pub idempotency_key: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -697,6 +798,10 @@ pub struct PendingAlimtalkAlert {
     pub work_order_id: WorkOrderId,
     pub user_id: UserId,
     pub phone: String,
+    /// Lease token held by the claiming worker; required to mark SENT/FAILED.
+    pub lease_token: uuid::Uuid,
+    /// Stable provider idempotency key (dispatch_id:alert_id).
+    pub idempotency_key: String,
 }
 
 #[derive(Debug, Clone, Copy)]

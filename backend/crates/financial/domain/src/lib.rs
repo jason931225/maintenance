@@ -170,17 +170,27 @@ pub fn compute_rental_quote(input: RentalQuoteInput) -> Result<ComputedRentalQuo
         ));
     }
 
-    let residual_was_floored =
-        input.current_residual_value.amount() < 0 && input.config.floor_negative_quote_residual;
-    let effective_residual = if residual_was_floored {
-        0
+    // The PERSISTED effective residual is always floored to >= 0 (the storage
+    // column has a CHECK (>= 0)); `residual_was_floored` records that flooring
+    // happened whenever the real residual is negative, regardless of the
+    // `floor_negative_quote_residual` config flag. The real (possibly negative)
+    // residual is preserved separately for audit in
+    // `current_residual_value_won`.
+    let residual_is_negative = input.current_residual_value.amount() < 0;
+    let effective_residual = input.current_residual_value.amount().max(0);
+    let residual_was_floored = residual_is_negative;
+    // The config flag still governs the COMPUTED quote lines: when flooring is
+    // enabled a negative residual is treated as 0 for depreciation; when
+    // disabled the negative residual increases the depreciable base.
+    let depreciable_residual = if input.config.floor_negative_quote_residual {
+        effective_residual
     } else {
         input.current_residual_value.amount()
     };
     let depreciable = input
         .acquisition_value
         .amount()
-        .saturating_sub(effective_residual)
+        .saturating_sub(depreciable_residual)
         .max(0);
     let depreciation = div_ceil_i64(depreciable, i64::from(input.config.useful_life_months));
     let repair_reserve = div_ceil_i64(

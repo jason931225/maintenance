@@ -265,7 +265,7 @@ async fn deliver_fcm_pushes(
     };
     let pushes = state
         .store
-        .pending_fcm_pushes(dispatch_id)
+        .claim_fcm_pushes(dispatch_id, "FCM_PUSH", time::OffsetDateTime::now_utc())
         .await
         .map_err(RestError::from_store)?;
     for push in pushes {
@@ -284,18 +284,22 @@ async fn send_one_fcm(
         ("dispatch_id".to_owned(), push.dispatch_id.to_string()),
         ("work_order_id".to_owned(), push.work_order_id.to_string()),
     ]);
+    let lease_token = push.lease_token;
+    let alert_id = push.alert_id;
     let message = FcmPushMessage {
         token: push.push_token,
         title: "P1 emergency dispatch".to_owned(),
         body: "Immediate response requested".to_owned(),
         data,
+        idempotency_key: push.idempotency_key,
     };
     match notifier.send_fcm(message).await {
         Ok(provider_id) => {
             state
                 .store
                 .mark_alert_sent(
-                    push.alert_id,
+                    alert_id,
+                    lease_token,
                     if provider_id.0.is_empty() {
                         None
                     } else {
@@ -311,7 +315,8 @@ async fn send_one_fcm(
             state
                 .store
                 .mark_alert_failed(
-                    push.alert_id,
+                    alert_id,
+                    lease_token,
                     provider_failure_reason(err),
                     TraceContext::generate(),
                     time::OffsetDateTime::now_utc(),
