@@ -60,13 +60,26 @@ export const ko = {
   },
   onboarding: {
     title: "패스키 등록",
-    subtitle: "다음 로그인부터는 코드 없이 패스키로 바로 로그인할 수 있도록 이 기기에 패스키를 등록하세요.",
-    enroll: "패스키 등록",
+    subtitle:
+      "다음 로그인부터 코드 없이 바로 로그인할 수 있도록 패스키를 등록하세요. 등록 위치를 선택하세요.",
     enrolling: "등록 중",
-    enrolled: "패스키가 등록되었습니다.",
     enrollFailed: "패스키 등록에 실패했습니다. 다시 시도하세요.",
-    continue: "계속",
+    enrollCancelled: "패스키 등록이 취소되었습니다.",
     signOut: "다른 계정으로 로그인",
+    methods: {
+      desktop: {
+        title: "이 데스크톱",
+        description: "Touch ID·Windows Hello 등 이 컴퓨터의 인증으로 등록합니다.",
+      },
+      mobile: {
+        title: "휴대폰",
+        description: "휴대폰에 패스키를 등록합니다. 브라우저가 QR 코드를 표시합니다.",
+      },
+      qr: {
+        title: "데스크톱 + 휴대폰 (QR)",
+        description: "데스크톱에서 시작하고 휴대폰으로 QR을 스캔해 연결합니다.",
+      },
+    },
   },
   admin: {
     title: "관리자 설정",

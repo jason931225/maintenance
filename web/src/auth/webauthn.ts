@@ -102,6 +102,7 @@ export async function issueAdminOtp(
 export async function startPasskeyRegistration(
   api: WebAuthnApi,
   body: components["schemas"]["PasskeyRegisterStartRequest"],
+  attachment?: AuthenticatorAttachment,
 ): Promise<RegisterCeremony> {
   const result = await api.POST("/api/v1/auth/passkey/register/start", {
     body,
@@ -109,7 +110,7 @@ export async function startPasskeyRegistration(
   const data = requireData<RegisterStartResponse>(result.data);
   return {
     ceremonyId: data.ceremony_id,
-    publicKey: toCreationOptions(data.challenge),
+    publicKey: toCreationOptions(data.challenge, attachment),
   };
 }
 
@@ -167,6 +168,7 @@ function toRequestOptions(
 
 function toCreationOptions(
   challenge: Record<string, unknown>,
+  attachment?: AuthenticatorAttachment,
 ): PublicKeyCredentialCreationOptions {
   const options = { ...challenge };
   if (typeof options.challenge === "string") {
@@ -185,6 +187,23 @@ function toCreationOptions(
     options.excludeCredentials = options.excludeCredentials.map((credential) =>
       credentialDescriptorToNative(credential),
     );
+  }
+  if (attachment) {
+    // Steer which authenticator the user chose without weakening the server's
+    // resident-key requirement — passkeys MUST stay discoverable for usernameless
+    // login. "platform" = this device (Touch ID / Windows Hello); "cross-platform"
+    // = a phone or security key, which makes the browser show its native QR /
+    // hybrid (cross-device) flow.
+    const existing = isRecord(options.authenticatorSelection)
+      ? options.authenticatorSelection
+      : {};
+    options.authenticatorSelection = {
+      residentKey: "required",
+      requireResidentKey: true,
+      userVerification: "required",
+      ...existing,
+      authenticatorAttachment: attachment,
+    };
   }
   return options as unknown as PublicKeyCredentialCreationOptions;
 }

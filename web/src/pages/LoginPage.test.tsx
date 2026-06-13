@@ -189,11 +189,9 @@ describe("OnboardingPage enrollment", () => {
     vi.stubGlobal("PublicKeyCredential", FakeCredential);
     vi.stubGlobal("AuthenticatorAttestationResponse", FakeAttestationResponse);
     vi.stubGlobal("AuthenticatorAssertionResponse", class {});
+    const create = vi.fn().mockResolvedValue(new FakeCredential());
     vi.stubGlobal("navigator", {
-      credentials: {
-        create: vi.fn().mockResolvedValue(new FakeCredential()),
-        get: vi.fn(),
-      },
+      credentials: { create, get: vi.fn() },
     });
 
     server.use(
@@ -224,10 +222,36 @@ describe("OnboardingPage enrollment", () => {
 
     renderApp("/onboarding", makeAuthContext({ session, clearPasskeySetup }));
 
-    await user.click(screen.getByRole("button", { name: "패스키 등록" }));
+    await user.click(screen.getByRole("button", { name: /이 데스크톱/ }));
 
     await waitFor(() => {
       expect(clearPasskeySetup).toHaveBeenCalledTimes(1);
     });
+    // "이 데스크톱" must request the platform authenticator (Touch ID / Windows Hello)
+    // while keeping the credential discoverable for usernameless login.
+    const arg = create.mock.calls[0][0] as {
+      publicKey: PublicKeyCredentialCreationOptions;
+    };
+    const selection = arg.publicKey.authenticatorSelection;
+    expect(selection?.authenticatorAttachment).toBe("platform");
+    expect(selection?.residentKey).toBe("required");
+  });
+
+  it("offers desktop, mobile, and QR cross-device passkey methods", () => {
+    renderApp(
+      "/onboarding",
+      makeAuthContext({
+        session: {
+          access_token: "a",
+          refresh_token: "r",
+          requires_passkey_setup: true,
+        },
+      }),
+    );
+    expect(screen.getByRole("button", { name: /이 데스크톱/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /휴대폰에 패스키/ })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /데스크톱 \+ 휴대폰/ }),
+    ).toBeTruthy();
   });
 });
