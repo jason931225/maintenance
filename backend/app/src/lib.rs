@@ -18,6 +18,8 @@ use axum::http::{HeaderMap, Request, Response, StatusCode, header};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
+use mnt_compliance_adapter_postgres::PgComplianceStore;
+use mnt_compliance_rest::ComplianceRestState;
 use mnt_dispatch_adapter_postgres::PgDispatchStore;
 use mnt_dispatch_domain::DispatchTimerConfig;
 use mnt_dispatch_rest::DispatchRestState;
@@ -696,6 +698,7 @@ pub fn build_router(state: AppState) -> Router {
             let registry_store = PgRegistryStore::new(pool.clone());
             let financial_store = PgFinancialStore::new(pool.clone());
             let inspection_store = PgInspectionStore::new(pool.clone());
+            let compliance_store = PgComplianceStore::new(pool.clone());
             let dispatch_store = PgDispatchStore::new(pool.clone());
             let work_order_store = PgWorkOrderStore::new(pool.clone())
                 .with_created_listener(Arc::new(messenger_store.clone()));
@@ -713,6 +716,10 @@ pub fn build_router(state: AppState) -> Router {
                 )))
                 .merge(mnt_inspection_rest::router(InspectionRestState::new(
                     inspection_store,
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_compliance_rest::router(ComplianceRestState::new(
+                    compliance_store,
                     state.jwt_verifier.clone(),
                 )))
                 .merge(mnt_registry_rest::router(RegistryRestState::new(

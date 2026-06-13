@@ -53,6 +53,10 @@ import com.maintenance.api.client.model.ForceAssignP1DispatchRequest
 import com.maintenance.api.client.model.InspectionRoundSummary
 import com.maintenance.api.client.model.InspectionScheduleSummary
 import com.maintenance.api.client.model.KpiReport
+import com.maintenance.api.client.model.LocationConsentLedgerPage
+import com.maintenance.api.client.model.LocationConsentStatus
+import com.maintenance.api.client.model.LocationConsentTransitionRequest
+import com.maintenance.api.client.model.LocationPingRequest
 import com.maintenance.api.client.model.MarkMessengerThreadReadRequest
 import com.maintenance.api.client.model.MessengerMessageListResponse
 import com.maintenance.api.client.model.MessengerMessagePage
@@ -2066,6 +2070,102 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/location-consents/ledger.csv
+     * Export the consent lifecycle ledger as CSV
+     *
+     * @param userId  (optional)
+     * @param branchId  (optional)
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return kotlin.String
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun exportLocationConsentLedgerCsv(userId: java.util.UUID? = null, branchId: java.util.UUID? = null, limit: kotlin.Long? = 100L, offset: kotlin.Long? = 0L) : kotlin.String = withContext(Dispatchers.IO) {
+        val localVarResponse = exportLocationConsentLedgerCsvWithHttpInfo(userId = userId, branchId = branchId, limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.String
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/location-consents/ledger.csv
+     * Export the consent lifecycle ledger as CSV
+     *
+     * @param userId  (optional)
+     * @param branchId  (optional)
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<kotlin.String?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun exportLocationConsentLedgerCsvWithHttpInfo(userId: java.util.UUID?, branchId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<kotlin.String?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = exportLocationConsentLedgerCsvRequestConfig(userId = userId, branchId = branchId, limit = limit, offset = offset)
+
+        return@withContext request<Unit, kotlin.String>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation exportLocationConsentLedgerCsv
+     *
+     * @param userId  (optional)
+     * @param branchId  (optional)
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun exportLocationConsentLedgerCsvRequestConfig(userId: java.util.UUID?, branchId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (userId != null) {
+                    put("user_id", listOf(userId.toString()))
+                }
+                if (branchId != null) {
+                    put("branch_id", listOf(branchId.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/location-consents/ledger.csv",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/p1-dispatches/{dispatchId}/force-assign
      * Manager force-assign a P1 dispatch after accept-window escalation
      *
@@ -2293,6 +2393,84 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/kpi",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/location-consent/status
+     * Read the authenticated user&#39;s location consent status
+     *
+     * @param branchId  (optional)
+     * @return LocationConsentStatus
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getLocationConsentStatus(branchId: java.util.UUID? = null) : LocationConsentStatus = withContext(Dispatchers.IO) {
+        val localVarResponse = getLocationConsentStatusWithHttpInfo(branchId = branchId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LocationConsentStatus
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/location-consent/status
+     * Read the authenticated user&#39;s location consent status
+     *
+     * @param branchId  (optional)
+     * @return ApiResponse<LocationConsentStatus?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getLocationConsentStatusWithHttpInfo(branchId: java.util.UUID?) : ApiResponse<LocationConsentStatus?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getLocationConsentStatusRequestConfig(branchId = branchId)
+
+        return@withContext request<Unit, LocationConsentStatus>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getLocationConsentStatus
+     *
+     * @param branchId  (optional)
+     * @return RequestConfig
+     */
+    fun getLocationConsentStatusRequestConfig(branchId: java.util.UUID?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (branchId != null) {
+                    put("branch_id", listOf(branchId.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/location-consent/status",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -2818,6 +2996,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/location-consent/grant
+     * Grant GPS location collection consent
+     *
+     * @param locationConsentTransitionRequest
+     * @return LocationConsentStatus
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun grantLocationConsent(locationConsentTransitionRequest: LocationConsentTransitionRequest) : LocationConsentStatus = withContext(Dispatchers.IO) {
+        val localVarResponse = grantLocationConsentWithHttpInfo(locationConsentTransitionRequest = locationConsentTransitionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LocationConsentStatus
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/location-consent/grant
+     * Grant GPS location collection consent
+     *
+     * @param locationConsentTransitionRequest
+     * @return ApiResponse<LocationConsentStatus?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun grantLocationConsentWithHttpInfo(locationConsentTransitionRequest: LocationConsentTransitionRequest) : ApiResponse<LocationConsentStatus?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = grantLocationConsentRequestConfig(locationConsentTransitionRequest = locationConsentTransitionRequest)
+
+        return@withContext request<LocationConsentTransitionRequest, LocationConsentStatus>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation grantLocationConsent
+     *
+     * @param locationConsentTransitionRequest
+     * @return RequestConfig
+     */
+    fun grantLocationConsentRequestConfig(locationConsentTransitionRequest: LocationConsentTransitionRequest) : RequestConfig<LocationConsentTransitionRequest> {
+        val localVariableBody = locationConsentTransitionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/location-consent/grant",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /healthz
      * Health check
      *
@@ -3111,6 +3363,102 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/inspections/schedules",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/location-consents/ledger
+     * Read the consent lifecycle ledger
+     *
+     * @param userId  (optional)
+     * @param branchId  (optional)
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return LocationConsentLedgerPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listLocationConsentLedger(userId: java.util.UUID? = null, branchId: java.util.UUID? = null, limit: kotlin.Long? = 100L, offset: kotlin.Long? = 0L) : LocationConsentLedgerPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listLocationConsentLedgerWithHttpInfo(userId = userId, branchId = branchId, limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LocationConsentLedgerPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/location-consents/ledger
+     * Read the consent lifecycle ledger
+     *
+     * @param userId  (optional)
+     * @param branchId  (optional)
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<LocationConsentLedgerPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listLocationConsentLedgerWithHttpInfo(userId: java.util.UUID?, branchId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<LocationConsentLedgerPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listLocationConsentLedgerRequestConfig(userId = userId, branchId = branchId, limit = limit, offset = offset)
+
+        return@withContext request<Unit, LocationConsentLedgerPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listLocationConsentLedger
+     *
+     * @param userId  (optional)
+     * @param branchId  (optional)
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun listLocationConsentLedgerRequestConfig(userId: java.util.UUID?, branchId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (userId != null) {
+                    put("user_id", listOf(userId.toString()))
+                }
+                if (branchId != null) {
+                    put("branch_id", listOf(branchId.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/location-consents/ledger",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -3781,6 +4129,78 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/location-pings
+     * Ingest an on-duty GPS ping when consent is granted
+     * Coordinates are destructible and never written to audit_events.
+     * @param locationPingRequest
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun recordLocationPing(locationPingRequest: LocationPingRequest) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = recordLocationPingWithHttpInfo(locationPingRequest = locationPingRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/location-pings
+     * Ingest an on-duty GPS ping when consent is granted
+     * Coordinates are destructible and never written to audit_events.
+     * @param locationPingRequest
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun recordLocationPingWithHttpInfo(locationPingRequest: LocationPingRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = recordLocationPingRequestConfig(locationPingRequest = locationPingRequest)
+
+        return@withContext request<LocationPingRequest, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation recordLocationPing
+     *
+     * @param locationPingRequest
+     * @return RequestConfig
+     */
+    fun recordLocationPingRequestConfig(locationPingRequest: LocationPingRequest) : RequestConfig<LocationPingRequest> {
+        val localVariableBody = locationPingRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/location-pings",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/devices
      * Register or refresh a mobile device binding
      *
@@ -4387,6 +4807,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/financial/purchase-requests/{purchaseRequestId}/restart".replace("{"+"purchaseRequestId"+"}", encodeURIComponent(purchaseRequestId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/location-consent/resume
+     * Resume GPS collection after an off-switch suspension
+     *
+     * @param locationConsentTransitionRequest
+     * @return LocationConsentStatus
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun resumeLocationConsent(locationConsentTransitionRequest: LocationConsentTransitionRequest) : LocationConsentStatus = withContext(Dispatchers.IO) {
+        val localVarResponse = resumeLocationConsentWithHttpInfo(locationConsentTransitionRequest = locationConsentTransitionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LocationConsentStatus
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/location-consent/resume
+     * Resume GPS collection after an off-switch suspension
+     *
+     * @param locationConsentTransitionRequest
+     * @return ApiResponse<LocationConsentStatus?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun resumeLocationConsentWithHttpInfo(locationConsentTransitionRequest: LocationConsentTransitionRequest) : ApiResponse<LocationConsentStatus?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = resumeLocationConsentRequestConfig(locationConsentTransitionRequest = locationConsentTransitionRequest)
+
+        return@withContext request<LocationConsentTransitionRequest, LocationConsentStatus>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation resumeLocationConsent
+     *
+     * @param locationConsentTransitionRequest
+     * @return RequestConfig
+     */
+    fun resumeLocationConsentRequestConfig(locationConsentTransitionRequest: LocationConsentTransitionRequest) : RequestConfig<LocationConsentTransitionRequest> {
+        val localVariableBody = locationConsentTransitionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/location-consent/resume",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -5008,6 +5502,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/location-consent/suspend
+     * Suspend GPS collection with the always-visible off switch
+     *
+     * @param locationConsentTransitionRequest
+     * @return LocationConsentStatus
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun suspendLocationConsent(locationConsentTransitionRequest: LocationConsentTransitionRequest) : LocationConsentStatus = withContext(Dispatchers.IO) {
+        val localVarResponse = suspendLocationConsentWithHttpInfo(locationConsentTransitionRequest = locationConsentTransitionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LocationConsentStatus
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/location-consent/suspend
+     * Suspend GPS collection with the always-visible off switch
+     *
+     * @param locationConsentTransitionRequest
+     * @return ApiResponse<LocationConsentStatus?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun suspendLocationConsentWithHttpInfo(locationConsentTransitionRequest: LocationConsentTransitionRequest) : ApiResponse<LocationConsentStatus?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = suspendLocationConsentRequestConfig(locationConsentTransitionRequest = locationConsentTransitionRequest)
+
+        return@withContext request<LocationConsentTransitionRequest, LocationConsentStatus>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation suspendLocationConsent
+     *
+     * @param locationConsentTransitionRequest
+     * @return RequestConfig
+     */
+    fun suspendLocationConsentRequestConfig(locationConsentTransitionRequest: LocationConsentTransitionRequest) : RequestConfig<LocationConsentTransitionRequest> {
+        val localVariableBody = locationConsentTransitionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/location-consent/suspend",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * PUT /api/v1/reporting/work-diary
      * Update an editable work-diary draft body
      *
@@ -5157,6 +5725,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.PATCH,
             path = "/api/work-orders/{workOrderId}/priority".replace("{"+"workOrderId"+"}", encodeURIComponent(workOrderId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/location-consent/withdraw
+     * Withdraw location consent and destroy destructible location data
+     *
+     * @param locationConsentTransitionRequest
+     * @return LocationConsentStatus
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun withdrawLocationConsent(locationConsentTransitionRequest: LocationConsentTransitionRequest) : LocationConsentStatus = withContext(Dispatchers.IO) {
+        val localVarResponse = withdrawLocationConsentWithHttpInfo(locationConsentTransitionRequest = locationConsentTransitionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LocationConsentStatus
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/location-consent/withdraw
+     * Withdraw location consent and destroy destructible location data
+     *
+     * @param locationConsentTransitionRequest
+     * @return ApiResponse<LocationConsentStatus?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun withdrawLocationConsentWithHttpInfo(locationConsentTransitionRequest: LocationConsentTransitionRequest) : ApiResponse<LocationConsentStatus?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = withdrawLocationConsentRequestConfig(locationConsentTransitionRequest = locationConsentTransitionRequest)
+
+        return@withContext request<LocationConsentTransitionRequest, LocationConsentStatus>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation withdrawLocationConsent
+     *
+     * @param locationConsentTransitionRequest
+     * @return RequestConfig
+     */
+    fun withdrawLocationConsentRequestConfig(locationConsentTransitionRequest: LocationConsentTransitionRequest) : RequestConfig<LocationConsentTransitionRequest> {
+        val localVariableBody = locationConsentTransitionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/location-consent/withdraw",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

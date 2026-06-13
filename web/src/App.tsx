@@ -15,6 +15,7 @@ import { IntakeForm } from "./features/intake/IntakeForm";
 import { DispatchBoard } from "./features/dispatch/DispatchBoard";
 import { WorkOrderList } from "./features/dispatch/WorkOrderList";
 import { ApprovalQueue } from "./features/approvals/ApprovalQueue";
+import { LocationConsentPanel } from "./features/location/LocationConsentPanel";
 import { KpiDashboard } from "./features/kpi/KpiDashboard";
 import { WallBoard } from "./features/kpi/WallBoard";
 import { MessengerPanel } from "./features/messenger/MessengerPanel";
@@ -251,6 +252,11 @@ export function App({ initialSession }: AppProps = {}) {
             api={api}
             session={session}
             onSessionChange={handleSessionChange}
+          />
+          <LocationConsentPanel
+            api={api}
+            branchId={defaultBranchId}
+            session={session}
           />
           <IntakeForm
             branchId={defaultBranchId}

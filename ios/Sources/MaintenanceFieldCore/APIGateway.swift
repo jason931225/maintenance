@@ -26,6 +26,12 @@ public protocol MaintenanceAPIGateway: SyncGateway, MessengerGateway {
     func registerDevice(deviceID: String, appVersion: String) async throws -> Components.Schemas.DeviceRegistrationResponse
     func presignEvidence(_ request: Components.Schemas.EvidencePresignRequest) async throws -> Components.Schemas.EvidencePresignResponse
     func confirmEvidence(evidenceID: Components.Schemas.Uuid) async throws -> Components.Schemas.EvidenceConfirmResponse
+    func getLocationConsentStatus() async throws -> Components.Schemas.LocationConsentStatus
+    func grantLocationConsent() async throws -> Components.Schemas.LocationConsentStatus
+    func suspendLocationConsent() async throws -> Components.Schemas.LocationConsentStatus
+    func resumeLocationConsent() async throws -> Components.Schemas.LocationConsentStatus
+    func withdrawLocationConsent() async throws -> Components.Schemas.LocationConsentStatus
+    func recordLocationPing(_ request: Components.Schemas.LocationPingRequest) async throws
 }
 
 public struct GeneratedMaintenanceAPIGateway: MaintenanceAPIGateway {
@@ -187,6 +193,44 @@ public struct GeneratedMaintenanceAPIGateway: MaintenanceAPIGateway {
             query: Operations.SearchMessengerMessages.Input.Query(q: query, limit: limit)
         )
         return try output.ok.body.json.items.map { $0.toMessengerMessage() }
+    }
+
+    public func getLocationConsentStatus() async throws -> Components.Schemas.LocationConsentStatus {
+        let output = try await client.getLocationConsentStatus()
+        return try output.ok.body.json
+    }
+
+    public func grantLocationConsent() async throws -> Components.Schemas.LocationConsentStatus {
+        let output = try await client.grantLocationConsent(
+            body: .json(Components.Schemas.LocationConsentTransitionRequest())
+        )
+        return try output.ok.body.json
+    }
+
+    public func suspendLocationConsent() async throws -> Components.Schemas.LocationConsentStatus {
+        let output = try await client.suspendLocationConsent(
+            body: .json(Components.Schemas.LocationConsentTransitionRequest())
+        )
+        return try output.ok.body.json
+    }
+
+    public func resumeLocationConsent() async throws -> Components.Schemas.LocationConsentStatus {
+        let output = try await client.resumeLocationConsent(
+            body: .json(Components.Schemas.LocationConsentTransitionRequest())
+        )
+        return try output.ok.body.json
+    }
+
+    public func withdrawLocationConsent() async throws -> Components.Schemas.LocationConsentStatus {
+        let output = try await client.withdrawLocationConsent(
+            body: .json(Components.Schemas.LocationConsentTransitionRequest())
+        )
+        return try output.ok.body.json
+    }
+
+    public func recordLocationPing(_ request: Components.Schemas.LocationPingRequest) async throws {
+        let output = try await client.recordLocationPing(body: .json(request))
+        _ = try output.noContent
     }
 }
 

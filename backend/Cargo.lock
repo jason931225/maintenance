@@ -1816,6 +1816,8 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "http",
+ "mnt-compliance-adapter-postgres",
+ "mnt-compliance-rest",
  "mnt-dispatch-adapter-postgres",
  "mnt-dispatch-domain",
  "mnt-dispatch-rest",
@@ -1885,6 +1887,7 @@ version = "0.1.0"
 dependencies = [
  "mnt-compliance-domain",
  "mnt-kernel-core",
+ "serde",
  "serde_json",
 ]
 
@@ -1893,6 +1896,21 @@ name = "mnt-compliance-domain"
 version = "0.1.0"
 dependencies = [
  "mnt-kernel-core",
+ "serde",
+ "time",
+]
+
+[[package]]
+name = "mnt-compliance-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "mnt-compliance-adapter-postgres",
+ "mnt-compliance-application",
+ "mnt-compliance-domain",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
  "serde",
  "time",
 ]

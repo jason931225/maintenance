@@ -33,6 +33,12 @@ export type EvidencePresignRequest =
   components["schemas"]["EvidencePresignRequest"];
 export type EvidencePresignResponse =
   components["schemas"]["EvidencePresignResponse"];
+export type LocationConsentLedgerPage =
+  components["schemas"]["LocationConsentLedgerPage"];
+export type LocationConsentState =
+  components["schemas"]["LocationConsentState"];
+export type LocationConsentStatus =
+  components["schemas"]["LocationConsentStatus"];
 
 export interface EquipmentLookupResult {
   managementNo: string;

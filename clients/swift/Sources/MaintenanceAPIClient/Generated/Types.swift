@@ -168,6 +168,48 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/devices`.
     /// - Remark: Generated from `#/paths//api/v1/devices/post(registerMobileDevice)`.
     func registerMobileDevice(_ input: Operations.RegisterMobileDevice.Input) async throws -> Operations.RegisterMobileDevice.Output
+    /// Read the authenticated user's location consent status
+    ///
+    /// - Remark: HTTP `GET /api/v1/location-consent/status`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consent/status/get(getLocationConsentStatus)`.
+    func getLocationConsentStatus(_ input: Operations.GetLocationConsentStatus.Input) async throws -> Operations.GetLocationConsentStatus.Output
+    /// Grant GPS location collection consent
+    ///
+    /// - Remark: HTTP `POST /api/v1/location-consent/grant`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consent/grant/post(grantLocationConsent)`.
+    func grantLocationConsent(_ input: Operations.GrantLocationConsent.Input) async throws -> Operations.GrantLocationConsent.Output
+    /// Suspend GPS collection with the always-visible off switch
+    ///
+    /// - Remark: HTTP `POST /api/v1/location-consent/suspend`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consent/suspend/post(suspendLocationConsent)`.
+    func suspendLocationConsent(_ input: Operations.SuspendLocationConsent.Input) async throws -> Operations.SuspendLocationConsent.Output
+    /// Resume GPS collection after an off-switch suspension
+    ///
+    /// - Remark: HTTP `POST /api/v1/location-consent/resume`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consent/resume/post(resumeLocationConsent)`.
+    func resumeLocationConsent(_ input: Operations.ResumeLocationConsent.Input) async throws -> Operations.ResumeLocationConsent.Output
+    /// Withdraw location consent and destroy destructible location data
+    ///
+    /// - Remark: HTTP `POST /api/v1/location-consent/withdraw`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consent/withdraw/post(withdrawLocationConsent)`.
+    func withdrawLocationConsent(_ input: Operations.WithdrawLocationConsent.Input) async throws -> Operations.WithdrawLocationConsent.Output
+    /// Ingest an on-duty GPS ping when consent is granted
+    ///
+    /// Coordinates are destructible and never written to audit_events.
+    ///
+    /// - Remark: HTTP `POST /api/v1/location-pings`.
+    /// - Remark: Generated from `#/paths//api/v1/location-pings/post(recordLocationPing)`.
+    func recordLocationPing(_ input: Operations.RecordLocationPing.Input) async throws -> Operations.RecordLocationPing.Output
+    /// Read the consent lifecycle ledger
+    ///
+    /// - Remark: HTTP `GET /api/v1/location-consents/ledger`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consents/ledger/get(listLocationConsentLedger)`.
+    func listLocationConsentLedger(_ input: Operations.ListLocationConsentLedger.Input) async throws -> Operations.ListLocationConsentLedger.Output
+    /// Export the consent lifecycle ledger as CSV
+    ///
+    /// - Remark: HTTP `GET /api/v1/location-consents/ledger.csv`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consents/ledger.csv/get(exportLocationConsentLedgerCsv)`.
+    func exportLocationConsentLedgerCsv(_ input: Operations.ExportLocationConsentLedgerCsv.Input) async throws -> Operations.ExportLocationConsentLedgerCsv.Output
     /// Start passkey registration
     ///
     /// Starts registration with either a bootstrap credential or an authenticated bearer session adding a device.
@@ -767,6 +809,112 @@ extension APIProtocol {
         try await registerMobileDevice(Operations.RegisterMobileDevice.Input(
             headers: headers,
             body: body
+        ))
+    }
+    /// Read the authenticated user's location consent status
+    ///
+    /// - Remark: HTTP `GET /api/v1/location-consent/status`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consent/status/get(getLocationConsentStatus)`.
+    public func getLocationConsentStatus(
+        query: Operations.GetLocationConsentStatus.Input.Query = .init(),
+        headers: Operations.GetLocationConsentStatus.Input.Headers = .init()
+    ) async throws -> Operations.GetLocationConsentStatus.Output {
+        try await getLocationConsentStatus(Operations.GetLocationConsentStatus.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Grant GPS location collection consent
+    ///
+    /// - Remark: HTTP `POST /api/v1/location-consent/grant`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consent/grant/post(grantLocationConsent)`.
+    public func grantLocationConsent(
+        headers: Operations.GrantLocationConsent.Input.Headers = .init(),
+        body: Operations.GrantLocationConsent.Input.Body
+    ) async throws -> Operations.GrantLocationConsent.Output {
+        try await grantLocationConsent(Operations.GrantLocationConsent.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Suspend GPS collection with the always-visible off switch
+    ///
+    /// - Remark: HTTP `POST /api/v1/location-consent/suspend`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consent/suspend/post(suspendLocationConsent)`.
+    public func suspendLocationConsent(
+        headers: Operations.SuspendLocationConsent.Input.Headers = .init(),
+        body: Operations.SuspendLocationConsent.Input.Body
+    ) async throws -> Operations.SuspendLocationConsent.Output {
+        try await suspendLocationConsent(Operations.SuspendLocationConsent.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Resume GPS collection after an off-switch suspension
+    ///
+    /// - Remark: HTTP `POST /api/v1/location-consent/resume`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consent/resume/post(resumeLocationConsent)`.
+    public func resumeLocationConsent(
+        headers: Operations.ResumeLocationConsent.Input.Headers = .init(),
+        body: Operations.ResumeLocationConsent.Input.Body
+    ) async throws -> Operations.ResumeLocationConsent.Output {
+        try await resumeLocationConsent(Operations.ResumeLocationConsent.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Withdraw location consent and destroy destructible location data
+    ///
+    /// - Remark: HTTP `POST /api/v1/location-consent/withdraw`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consent/withdraw/post(withdrawLocationConsent)`.
+    public func withdrawLocationConsent(
+        headers: Operations.WithdrawLocationConsent.Input.Headers = .init(),
+        body: Operations.WithdrawLocationConsent.Input.Body
+    ) async throws -> Operations.WithdrawLocationConsent.Output {
+        try await withdrawLocationConsent(Operations.WithdrawLocationConsent.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Ingest an on-duty GPS ping when consent is granted
+    ///
+    /// Coordinates are destructible and never written to audit_events.
+    ///
+    /// - Remark: HTTP `POST /api/v1/location-pings`.
+    /// - Remark: Generated from `#/paths//api/v1/location-pings/post(recordLocationPing)`.
+    public func recordLocationPing(
+        headers: Operations.RecordLocationPing.Input.Headers = .init(),
+        body: Operations.RecordLocationPing.Input.Body
+    ) async throws -> Operations.RecordLocationPing.Output {
+        try await recordLocationPing(Operations.RecordLocationPing.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Read the consent lifecycle ledger
+    ///
+    /// - Remark: HTTP `GET /api/v1/location-consents/ledger`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consents/ledger/get(listLocationConsentLedger)`.
+    public func listLocationConsentLedger(
+        query: Operations.ListLocationConsentLedger.Input.Query = .init(),
+        headers: Operations.ListLocationConsentLedger.Input.Headers = .init()
+    ) async throws -> Operations.ListLocationConsentLedger.Output {
+        try await listLocationConsentLedger(Operations.ListLocationConsentLedger.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Export the consent lifecycle ledger as CSV
+    ///
+    /// - Remark: HTTP `GET /api/v1/location-consents/ledger.csv`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consents/ledger.csv/get(exportLocationConsentLedgerCsv)`.
+    public func exportLocationConsentLedgerCsv(
+        query: Operations.ExportLocationConsentLedgerCsv.Input.Query = .init(),
+        headers: Operations.ExportLocationConsentLedgerCsv.Input.Headers = .init()
+    ) async throws -> Operations.ExportLocationConsentLedgerCsv.Output {
+        try await exportLocationConsentLedgerCsv(Operations.ExportLocationConsentLedgerCsv.Input(
+            query: query,
+            headers: headers
         ))
     }
     /// Start passkey registration
@@ -3324,6 +3472,259 @@ public enum Components {
                 case pushToken = "push_token"
                 case appVersion = "app_version"
                 case lastRegisteredAt = "last_registered_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/LocationConsentState`.
+        @frozen public enum LocationConsentState: String, Codable, Hashable, Sendable, CaseIterable {
+            case noRecord = "NO_RECORD"
+            case granted = "GRANTED"
+            case suspended = "SUSPENDED"
+            case withdrawn = "WITHDRAWN"
+        }
+        /// - Remark: Generated from `#/components/schemas/LocationConsentStatus`.
+        public struct LocationConsentStatus: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/LocationConsentStatus/consent_id`.
+            public var consentId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/LocationConsentStatus/user_id`.
+            public var userId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/LocationConsentStatus/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/LocationConsentStatus/state`.
+            public var state: Components.Schemas.LocationConsentState
+            /// - Remark: Generated from `#/components/schemas/LocationConsentStatus/may_collect`.
+            public var mayCollect: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/LocationConsentStatus/granted_at`.
+            public var grantedAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/LocationConsentStatus/suspended_at`.
+            public var suspendedAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/LocationConsentStatus/resumed_at`.
+            public var resumedAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/LocationConsentStatus/withdrawn_at`.
+            public var withdrawnAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/LocationConsentStatus/updated_at`.
+            public var updatedAt: Foundation.Date?
+            /// Creates a new `LocationConsentStatus`.
+            ///
+            /// - Parameters:
+            ///   - consentId:
+            ///   - userId:
+            ///   - branchId:
+            ///   - state:
+            ///   - mayCollect:
+            ///   - grantedAt:
+            ///   - suspendedAt:
+            ///   - resumedAt:
+            ///   - withdrawnAt:
+            ///   - updatedAt:
+            public init(
+                consentId: Components.Schemas.Uuid,
+                userId: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid,
+                state: Components.Schemas.LocationConsentState,
+                mayCollect: Swift.Bool,
+                grantedAt: Foundation.Date? = nil,
+                suspendedAt: Foundation.Date? = nil,
+                resumedAt: Foundation.Date? = nil,
+                withdrawnAt: Foundation.Date? = nil,
+                updatedAt: Foundation.Date? = nil
+            ) {
+                self.consentId = consentId
+                self.userId = userId
+                self.branchId = branchId
+                self.state = state
+                self.mayCollect = mayCollect
+                self.grantedAt = grantedAt
+                self.suspendedAt = suspendedAt
+                self.resumedAt = resumedAt
+                self.withdrawnAt = withdrawnAt
+                self.updatedAt = updatedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case consentId = "consent_id"
+                case userId = "user_id"
+                case branchId = "branch_id"
+                case state
+                case mayCollect = "may_collect"
+                case grantedAt = "granted_at"
+                case suspendedAt = "suspended_at"
+                case resumedAt = "resumed_at"
+                case withdrawnAt = "withdrawn_at"
+                case updatedAt = "updated_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/LocationConsentTransitionRequest`.
+        public struct LocationConsentTransitionRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/LocationConsentTransitionRequest/branch_id`.
+            public var branchId: Components.Schemas.Uuid?
+            /// Creates a new `LocationConsentTransitionRequest`.
+            ///
+            /// - Parameters:
+            ///   - branchId:
+            public init(branchId: Components.Schemas.Uuid? = nil) {
+                self.branchId = branchId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case branchId = "branch_id"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/LocationPingRequest`.
+        public struct LocationPingRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/LocationPingRequest/branch_id`.
+            public var branchId: Components.Schemas.Uuid?
+            /// - Remark: Generated from `#/components/schemas/LocationPingRequest/latitude`.
+            public var latitude: Swift.Double
+            /// - Remark: Generated from `#/components/schemas/LocationPingRequest/longitude`.
+            public var longitude: Swift.Double
+            /// - Remark: Generated from `#/components/schemas/LocationPingRequest/accuracy_m`.
+            public var accuracyM: Swift.Double?
+            /// - Remark: Generated from `#/components/schemas/LocationPingRequest/recorded_at`.
+            public var recordedAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/LocationPingRequest/on_duty`.
+            public var onDuty: Swift.Bool
+            /// Creates a new `LocationPingRequest`.
+            ///
+            /// - Parameters:
+            ///   - branchId:
+            ///   - latitude:
+            ///   - longitude:
+            ///   - accuracyM:
+            ///   - recordedAt:
+            ///   - onDuty:
+            public init(
+                branchId: Components.Schemas.Uuid? = nil,
+                latitude: Swift.Double,
+                longitude: Swift.Double,
+                accuracyM: Swift.Double? = nil,
+                recordedAt: Components.Schemas.Timestamp,
+                onDuty: Swift.Bool
+            ) {
+                self.branchId = branchId
+                self.latitude = latitude
+                self.longitude = longitude
+                self.accuracyM = accuracyM
+                self.recordedAt = recordedAt
+                self.onDuty = onDuty
+            }
+            public enum CodingKeys: String, CodingKey {
+                case branchId = "branch_id"
+                case latitude
+                case longitude
+                case accuracyM = "accuracy_m"
+                case recordedAt = "recorded_at"
+                case onDuty = "on_duty"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/LocationConsentLedgerEntry`.
+        public struct LocationConsentLedgerEntry: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/LocationConsentLedgerEntry/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/LocationConsentLedgerEntry/consent_id`.
+            public var consentId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/LocationConsentLedgerEntry/user_id`.
+            public var userId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/LocationConsentLedgerEntry/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/LocationConsentLedgerEntry/actor`.
+            public var actor: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/LocationConsentLedgerEntry/action`.
+            @frozen public enum ActionPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case consent_grant = "consent.grant"
+                case consent_suspend = "consent.suspend"
+                case consent_resume = "consent.resume"
+                case consent_withdraw = "consent.withdraw"
+            }
+            /// - Remark: Generated from `#/components/schemas/LocationConsentLedgerEntry/action`.
+            public var action: Components.Schemas.LocationConsentLedgerEntry.ActionPayload
+            /// - Remark: Generated from `#/components/schemas/LocationConsentLedgerEntry/from_status`.
+            public var fromStatus: Components.Schemas.LocationConsentState
+            /// - Remark: Generated from `#/components/schemas/LocationConsentLedgerEntry/to_status`.
+            public var toStatus: Components.Schemas.LocationConsentState
+            /// - Remark: Generated from `#/components/schemas/LocationConsentLedgerEntry/occurred_at`.
+            public var occurredAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/LocationConsentLedgerEntry/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// Creates a new `LocationConsentLedgerEntry`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - consentId:
+            ///   - userId:
+            ///   - branchId:
+            ///   - actor:
+            ///   - action:
+            ///   - fromStatus:
+            ///   - toStatus:
+            ///   - occurredAt:
+            ///   - createdAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                consentId: Components.Schemas.Uuid,
+                userId: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid,
+                actor: Swift.String? = nil,
+                action: Components.Schemas.LocationConsentLedgerEntry.ActionPayload,
+                fromStatus: Components.Schemas.LocationConsentState,
+                toStatus: Components.Schemas.LocationConsentState,
+                occurredAt: Components.Schemas.Timestamp,
+                createdAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.consentId = consentId
+                self.userId = userId
+                self.branchId = branchId
+                self.actor = actor
+                self.action = action
+                self.fromStatus = fromStatus
+                self.toStatus = toStatus
+                self.occurredAt = occurredAt
+                self.createdAt = createdAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case consentId = "consent_id"
+                case userId = "user_id"
+                case branchId = "branch_id"
+                case actor
+                case action
+                case fromStatus = "from_status"
+                case toStatus = "to_status"
+                case occurredAt = "occurred_at"
+                case createdAt = "created_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/LocationConsentLedgerPage`.
+        public struct LocationConsentLedgerPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/LocationConsentLedgerPage/items`.
+            public var items: [Components.Schemas.LocationConsentLedgerEntry]
+            /// - Remark: Generated from `#/components/schemas/LocationConsentLedgerPage/limit`.
+            public var limit: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/LocationConsentLedgerPage/offset`.
+            public var offset: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/LocationConsentLedgerPage/total`.
+            public var total: Swift.Int64
+            /// Creates a new `LocationConsentLedgerPage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - limit:
+            ///   - offset:
+            ///   - total:
+            public init(
+                items: [Components.Schemas.LocationConsentLedgerEntry],
+                limit: Swift.Int64,
+                offset: Swift.Int64,
+                total: Swift.Int64
+            ) {
+                self.items = items
+                self.limit = limit
+                self.offset = offset
+                self.total = total
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case limit
+                case offset
+                case total
             }
         }
         /// - Remark: Generated from `#/components/schemas/PasskeyRegisterStartRequest`.
@@ -10958,6 +11359,1665 @@ public enum Operations {
             }
             public static var allCases: [Self] {
                 [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Read the authenticated user's location consent status
+    ///
+    /// - Remark: HTTP `GET /api/v1/location-consent/status`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consent/status/get(getLocationConsentStatus)`.
+    public enum GetLocationConsentStatus {
+        public static let id: Swift.String = "getLocationConsentStatus"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/location-consent/status/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/location-consent/status/GET/query/branch_id`.
+                public var branchId: Components.Schemas.Uuid?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - branchId:
+                public init(branchId: Components.Schemas.Uuid? = nil) {
+                    self.branchId = branchId
+                }
+            }
+            public var query: Operations.GetLocationConsentStatus.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/location-consent/status/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetLocationConsentStatus.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetLocationConsentStatus.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetLocationConsentStatus.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.GetLocationConsentStatus.Input.Query = .init(),
+                headers: Operations.GetLocationConsentStatus.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/location-consent/status/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/location-consent/status/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.LocationConsentStatus)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.LocationConsentStatus {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetLocationConsentStatus.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetLocationConsentStatus.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Current location consent status.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/status/get(getLocationConsentStatus)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetLocationConsentStatus.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetLocationConsentStatus.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/status/get(getLocationConsentStatus)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/status/get(getLocationConsentStatus)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/status/get(getLocationConsentStatus)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Grant GPS location collection consent
+    ///
+    /// - Remark: HTTP `POST /api/v1/location-consent/grant`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consent/grant/post(grantLocationConsent)`.
+    public enum GrantLocationConsent {
+        public static let id: Swift.String = "grantLocationConsent"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/location-consent/grant/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GrantLocationConsent.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GrantLocationConsent.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GrantLocationConsent.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/location-consent/grant/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/location-consent/grant/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.LocationConsentTransitionRequest)
+            }
+            public var body: Operations.GrantLocationConsent.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.GrantLocationConsent.Input.Headers = .init(),
+                body: Operations.GrantLocationConsent.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/location-consent/grant/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/location-consent/grant/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.LocationConsentStatus)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.LocationConsentStatus {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GrantLocationConsent.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GrantLocationConsent.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Updated location consent status.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/grant/post(grantLocationConsent)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GrantLocationConsent.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GrantLocationConsent.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/grant/post(grantLocationConsent)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/grant/post(grantLocationConsent)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/grant/post(grantLocationConsent)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/grant/post(grantLocationConsent)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Suspend GPS collection with the always-visible off switch
+    ///
+    /// - Remark: HTTP `POST /api/v1/location-consent/suspend`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consent/suspend/post(suspendLocationConsent)`.
+    public enum SuspendLocationConsent {
+        public static let id: Swift.String = "suspendLocationConsent"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/location-consent/suspend/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SuspendLocationConsent.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SuspendLocationConsent.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.SuspendLocationConsent.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/location-consent/suspend/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/location-consent/suspend/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.LocationConsentTransitionRequest)
+            }
+            public var body: Operations.SuspendLocationConsent.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.SuspendLocationConsent.Input.Headers = .init(),
+                body: Operations.SuspendLocationConsent.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/location-consent/suspend/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/location-consent/suspend/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.LocationConsentStatus)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.LocationConsentStatus {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.SuspendLocationConsent.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.SuspendLocationConsent.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Updated location consent status.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/suspend/post(suspendLocationConsent)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.SuspendLocationConsent.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.SuspendLocationConsent.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/suspend/post(suspendLocationConsent)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/suspend/post(suspendLocationConsent)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/suspend/post(suspendLocationConsent)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/suspend/post(suspendLocationConsent)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Resume GPS collection after an off-switch suspension
+    ///
+    /// - Remark: HTTP `POST /api/v1/location-consent/resume`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consent/resume/post(resumeLocationConsent)`.
+    public enum ResumeLocationConsent {
+        public static let id: Swift.String = "resumeLocationConsent"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/location-consent/resume/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ResumeLocationConsent.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ResumeLocationConsent.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ResumeLocationConsent.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/location-consent/resume/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/location-consent/resume/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.LocationConsentTransitionRequest)
+            }
+            public var body: Operations.ResumeLocationConsent.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.ResumeLocationConsent.Input.Headers = .init(),
+                body: Operations.ResumeLocationConsent.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/location-consent/resume/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/location-consent/resume/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.LocationConsentStatus)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.LocationConsentStatus {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ResumeLocationConsent.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ResumeLocationConsent.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Updated location consent status.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/resume/post(resumeLocationConsent)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ResumeLocationConsent.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ResumeLocationConsent.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/resume/post(resumeLocationConsent)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/resume/post(resumeLocationConsent)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/resume/post(resumeLocationConsent)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/resume/post(resumeLocationConsent)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Withdraw location consent and destroy destructible location data
+    ///
+    /// - Remark: HTTP `POST /api/v1/location-consent/withdraw`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consent/withdraw/post(withdrawLocationConsent)`.
+    public enum WithdrawLocationConsent {
+        public static let id: Swift.String = "withdrawLocationConsent"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/location-consent/withdraw/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.WithdrawLocationConsent.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.WithdrawLocationConsent.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.WithdrawLocationConsent.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/location-consent/withdraw/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/location-consent/withdraw/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.LocationConsentTransitionRequest)
+            }
+            public var body: Operations.WithdrawLocationConsent.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.WithdrawLocationConsent.Input.Headers = .init(),
+                body: Operations.WithdrawLocationConsent.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/location-consent/withdraw/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/location-consent/withdraw/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.LocationConsentStatus)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.LocationConsentStatus {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.WithdrawLocationConsent.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.WithdrawLocationConsent.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Updated location consent status after destructive withdrawal.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/withdraw/post(withdrawLocationConsent)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.WithdrawLocationConsent.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.WithdrawLocationConsent.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/withdraw/post(withdrawLocationConsent)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/withdraw/post(withdrawLocationConsent)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/withdraw/post(withdrawLocationConsent)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consent/withdraw/post(withdrawLocationConsent)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Ingest an on-duty GPS ping when consent is granted
+    ///
+    /// Coordinates are destructible and never written to audit_events.
+    ///
+    /// - Remark: HTTP `POST /api/v1/location-pings`.
+    /// - Remark: Generated from `#/paths//api/v1/location-pings/post(recordLocationPing)`.
+    public enum RecordLocationPing {
+        public static let id: Swift.String = "recordLocationPing"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/location-pings/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RecordLocationPing.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RecordLocationPing.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.RecordLocationPing.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/location-pings/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/location-pings/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.LocationPingRequest)
+            }
+            public var body: Operations.RecordLocationPing.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.RecordLocationPing.Input.Headers = .init(),
+                body: Operations.RecordLocationPing.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                public init() {}
+            }
+            /// Location ping accepted.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-pings/post(recordLocationPing)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.RecordLocationPing.Output.NoContent)
+            /// Location ping accepted.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-pings/post(recordLocationPing)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            public static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            public var noContent: Operations.RecordLocationPing.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-pings/post(recordLocationPing)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-pings/post(recordLocationPing)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-pings/post(recordLocationPing)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Read the consent lifecycle ledger
+    ///
+    /// - Remark: HTTP `GET /api/v1/location-consents/ledger`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consents/ledger/get(listLocationConsentLedger)`.
+    public enum ListLocationConsentLedger {
+        public static let id: Swift.String = "listLocationConsentLedger"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/location-consents/ledger/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/location-consents/ledger/GET/query/user_id`.
+                public var userId: Components.Schemas.Uuid?
+                /// - Remark: Generated from `#/paths/api/v1/location-consents/ledger/GET/query/branch_id`.
+                public var branchId: Components.Schemas.Uuid?
+                /// - Remark: Generated from `#/paths/api/v1/location-consents/ledger/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// - Remark: Generated from `#/paths/api/v1/location-consents/ledger/GET/query/offset`.
+                public var offset: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - userId:
+                ///   - branchId:
+                ///   - limit:
+                ///   - offset:
+                public init(
+                    userId: Components.Schemas.Uuid? = nil,
+                    branchId: Components.Schemas.Uuid? = nil,
+                    limit: Swift.Int64? = nil,
+                    offset: Swift.Int64? = nil
+                ) {
+                    self.userId = userId
+                    self.branchId = branchId
+                    self.limit = limit
+                    self.offset = offset
+                }
+            }
+            public var query: Operations.ListLocationConsentLedger.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/location-consents/ledger/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListLocationConsentLedger.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListLocationConsentLedger.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListLocationConsentLedger.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListLocationConsentLedger.Input.Query = .init(),
+                headers: Operations.ListLocationConsentLedger.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/location-consents/ledger/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/location-consents/ledger/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.LocationConsentLedgerPage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.LocationConsentLedgerPage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListLocationConsentLedger.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListLocationConsentLedger.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Paged consent lifecycle ledger.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consents/ledger/get(listLocationConsentLedger)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListLocationConsentLedger.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListLocationConsentLedger.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consents/ledger/get(listLocationConsentLedger)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consents/ledger/get(listLocationConsentLedger)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consents/ledger/get(listLocationConsentLedger)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Export the consent lifecycle ledger as CSV
+    ///
+    /// - Remark: HTTP `GET /api/v1/location-consents/ledger.csv`.
+    /// - Remark: Generated from `#/paths//api/v1/location-consents/ledger.csv/get(exportLocationConsentLedgerCsv)`.
+    public enum ExportLocationConsentLedgerCsv {
+        public static let id: Swift.String = "exportLocationConsentLedgerCsv"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/location-consents/ledger.csv/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/location-consents/ledger.csv/GET/query/user_id`.
+                public var userId: Components.Schemas.Uuid?
+                /// - Remark: Generated from `#/paths/api/v1/location-consents/ledger.csv/GET/query/branch_id`.
+                public var branchId: Components.Schemas.Uuid?
+                /// - Remark: Generated from `#/paths/api/v1/location-consents/ledger.csv/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// - Remark: Generated from `#/paths/api/v1/location-consents/ledger.csv/GET/query/offset`.
+                public var offset: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - userId:
+                ///   - branchId:
+                ///   - limit:
+                ///   - offset:
+                public init(
+                    userId: Components.Schemas.Uuid? = nil,
+                    branchId: Components.Schemas.Uuid? = nil,
+                    limit: Swift.Int64? = nil,
+                    offset: Swift.Int64? = nil
+                ) {
+                    self.userId = userId
+                    self.branchId = branchId
+                    self.limit = limit
+                    self.offset = offset
+                }
+            }
+            public var query: Operations.ExportLocationConsentLedgerCsv.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/location-consents/ledger.csv/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ExportLocationConsentLedgerCsv.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ExportLocationConsentLedgerCsv.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ExportLocationConsentLedgerCsv.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ExportLocationConsentLedgerCsv.Input.Query = .init(),
+                headers: Operations.ExportLocationConsentLedgerCsv.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/location-consents/ledger.csv/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/location-consents/ledger.csv/GET/responses/200/content/text\/csv`.
+                    case csv(OpenAPIRuntime.HTTPBody)
+                    /// The associated value of the enum case if `self` is `.csv`.
+                    ///
+                    /// - Throws: An error if `self` is not `.csv`.
+                    /// - SeeAlso: `.csv`.
+                    public var csv: OpenAPIRuntime.HTTPBody {
+                        get throws {
+                            switch self {
+                            case let .csv(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ExportLocationConsentLedgerCsv.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ExportLocationConsentLedgerCsv.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// CSV consent lifecycle ledger export.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consents/ledger.csv/get(exportLocationConsentLedgerCsv)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ExportLocationConsentLedgerCsv.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ExportLocationConsentLedgerCsv.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consents/ledger.csv/get(exportLocationConsentLedgerCsv)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consents/ledger.csv/get(exportLocationConsentLedgerCsv)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location-consents/ledger.csv/get(exportLocationConsentLedgerCsv)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case csv
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "text/csv":
+                    self = .csv
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .csv:
+                    return "text/csv"
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .csv,
                     .json
                 ]
             }

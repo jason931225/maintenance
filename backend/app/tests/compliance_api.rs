@@ -1,0 +1,408 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use axum::body::{Body, to_bytes};
+use http::{HeaderMap, Request, StatusCode, header};
+use mnt_app::{AppConfig, AppRole, AppState, DatabaseDependency, build_router};
+use mnt_kernel_core::{BranchId, UserId};
+use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings};
+use p256::ecdsa::SigningKey;
+use p256::elliptic_curve::rand_core::OsRng;
+use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
+use serde_json::{Value, json};
+use sqlx::PgPool;
+use time::{Duration, OffsetDateTime};
+use tower::ServiceExt;
+
+const TEST_ISSUER: &str = "mnt-platform-auth";
+const TEST_AUDIENCE: &str = "mnt-api";
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn consent_routes_audit_transitions_and_report_status(pool: PgPool) {
+    let fixture = TestFixture::new(&pool, "Consent API", "Consent Branch").await;
+    let service = build_router(app_state(pool.clone(), fixture.public_key_pem.clone()).unwrap());
+    let body = json!({ "branch_id": fixture.branch_id });
+
+    let grant = post_json(
+        service.clone(),
+        "/api/v1/location-consent/grant",
+        &fixture.mechanic_token,
+        body.clone(),
+    )
+    .await;
+    assert_eq!(grant.status, StatusCode::OK, "{:?}", grant.json);
+    assert_eq!(grant.json["state"], "GRANTED");
+    assert_eq!(grant.json["may_collect"], true);
+
+    let suspend = post_json(
+        service.clone(),
+        "/api/v1/location-consent/suspend",
+        &fixture.mechanic_token,
+        body.clone(),
+    )
+    .await;
+    assert_eq!(suspend.status, StatusCode::OK, "{:?}", suspend.json);
+    assert_eq!(suspend.json["state"], "SUSPENDED");
+    assert_eq!(suspend.json["may_collect"], false);
+
+    let resume = post_json(
+        service.clone(),
+        "/api/v1/location-consent/resume",
+        &fixture.mechanic_token,
+        body.clone(),
+    )
+    .await;
+    assert_eq!(resume.status, StatusCode::OK, "{:?}", resume.json);
+    assert_eq!(resume.json["state"], "GRANTED");
+
+    let withdraw = post_json(
+        service.clone(),
+        "/api/v1/location-consent/withdraw",
+        &fixture.mechanic_token,
+        body,
+    )
+    .await;
+    assert_eq!(withdraw.status, StatusCode::OK, "{:?}", withdraw.json);
+    assert_eq!(withdraw.json["state"], "WITHDRAWN");
+    assert_eq!(withdraw.json["may_collect"], false);
+
+    let status = get_json(
+        service,
+        &format!(
+            "/api/v1/location-consent/status?branch_id={}",
+            fixture.branch_id.as_uuid()
+        ),
+        &fixture.mechanic_token,
+    )
+    .await;
+    assert_eq!(status.status, StatusCode::OK, "{:?}", status.json);
+    assert_eq!(status.json["state"], "WITHDRAWN");
+
+    for action in [
+        "consent.grant",
+        "consent.suspend",
+        "consent.resume",
+        "consent.withdraw",
+    ] {
+        assert_eq!(audit_count(&pool, action).await, 1, "{action}");
+    }
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn ping_ingestion_rejects_without_granted_consent(pool: PgPool) {
+    let fixture = TestFixture::new(&pool, "Consent Ping", "No Consent Branch").await;
+    let service = build_router(app_state(pool.clone(), fixture.public_key_pem.clone()).unwrap());
+
+    let ping = post_json(
+        service,
+        "/api/v1/location-pings",
+        &fixture.mechanic_token,
+        json!({
+            "branch_id": fixture.branch_id,
+            "latitude": 37.5665,
+            "longitude": 126.9780,
+            "accuracy_m": 12.5,
+            "recorded_at": OffsetDateTime::now_utc(),
+            "on_duty": true
+        }),
+    )
+    .await;
+
+    assert_eq!(ping.status, StatusCode::FORBIDDEN, "{:?}", ping.json);
+    assert_eq!(ping.json["error"]["code"], "forbidden");
+    assert_eq!(location_ping_count(&pool).await, 0);
+    assert_eq!(location_collection_log_count(&pool).await, 0);
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn withdrawal_route_destroys_location_pings_and_logs(pool: PgPool) {
+    let fixture = TestFixture::new(&pool, "Consent Destroy", "Destroy Branch").await;
+    let service = build_router(app_state(pool.clone(), fixture.public_key_pem.clone()).unwrap());
+    let transition_body = json!({ "branch_id": fixture.branch_id });
+
+    let grant = post_json(
+        service.clone(),
+        "/api/v1/location-consent/grant",
+        &fixture.mechanic_token,
+        transition_body.clone(),
+    )
+    .await;
+    assert_eq!(grant.status, StatusCode::OK, "{:?}", grant.json);
+
+    let ping = post_json(
+        service.clone(),
+        "/api/v1/location-pings",
+        &fixture.mechanic_token,
+        json!({
+            "branch_id": fixture.branch_id,
+            "latitude": 37.5665,
+            "longitude": 126.9780,
+            "accuracy_m": 12.5,
+            "recorded_at": OffsetDateTime::now_utc(),
+            "on_duty": true
+        }),
+    )
+    .await;
+    assert_eq!(ping.status, StatusCode::NO_CONTENT, "{:?}", ping.json);
+    assert_eq!(location_ping_count(&pool).await, 1);
+    assert_eq!(location_collection_log_count(&pool).await, 1);
+
+    let withdraw = post_json(
+        service,
+        "/api/v1/location-consent/withdraw",
+        &fixture.mechanic_token,
+        transition_body,
+    )
+    .await;
+    assert_eq!(withdraw.status, StatusCode::OK, "{:?}", withdraw.json);
+    assert_eq!(location_ping_count(&pool).await, 0);
+    assert_eq!(location_collection_log_count(&pool).await, 0);
+    assert_eq!(coordinate_audit_count(&pool).await, 0);
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn admin_can_read_and_export_consent_ledger(pool: PgPool) {
+    let fixture = TestFixture::new(&pool, "Consent Ledger", "Ledger Branch").await;
+    let service = build_router(app_state(pool.clone(), fixture.public_key_pem.clone()).unwrap());
+
+    let grant = post_json(
+        service.clone(),
+        "/api/v1/location-consent/grant",
+        &fixture.mechanic_token,
+        json!({ "branch_id": fixture.branch_id }),
+    )
+    .await;
+    assert_eq!(grant.status, StatusCode::OK, "{:?}", grant.json);
+
+    let ledger = get_json(
+        service.clone(),
+        &format!(
+            "/api/v1/location-consents/ledger?branch_id={}",
+            fixture.branch_id.as_uuid()
+        ),
+        &fixture.admin_token,
+    )
+    .await;
+    assert_eq!(ledger.status, StatusCode::OK, "{:?}", ledger.json);
+    assert_eq!(ledger.json["items"][0]["action"], "consent.grant");
+    assert_eq!(ledger.json["total"], 1);
+
+    let csv = get(
+        service,
+        &format!(
+            "/api/v1/location-consents/ledger.csv?branch_id={}",
+            fixture.branch_id.as_uuid()
+        ),
+        &fixture.admin_token,
+    )
+    .await;
+    assert_eq!(csv.status, StatusCode::OK, "{}", csv.body);
+    assert!(
+        csv.headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("text/csv"))
+    );
+    assert!(csv.body.contains("consent.grant"));
+    assert!(!csv.body.contains("37.5665"));
+}
+
+struct TestFixture {
+    branch_id: BranchId,
+    public_key_pem: String,
+    mechanic_token: String,
+    admin_token: String,
+}
+
+impl TestFixture {
+    async fn new(pool: &PgPool, region: &str, branch: &str) -> Self {
+        let signing_key = SigningKey::random(&mut OsRng);
+        let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+        let public_key_pem = signing_key
+            .verifying_key()
+            .to_public_key_pem(LineEnding::LF)
+            .unwrap();
+        let branch_id = seed_branch(pool, region, branch).await;
+        let mechanic = UserId::new();
+        let admin = UserId::new();
+        seed_user_with_branch(pool, mechanic, "MECHANIC", branch_id).await;
+        seed_user_with_branch(pool, admin, "ADMIN", branch_id).await;
+        let mechanic_token = issue_token(
+            private_pem.as_bytes(),
+            public_key_pem.as_bytes(),
+            mechanic,
+            vec!["MECHANIC".to_owned()],
+            vec![branch_id],
+        )
+        .unwrap();
+        let admin_token = issue_token(
+            private_pem.as_bytes(),
+            public_key_pem.as_bytes(),
+            admin,
+            vec!["ADMIN".to_owned()],
+            vec![branch_id],
+        )
+        .unwrap();
+
+        Self {
+            branch_id,
+            public_key_pem,
+            mechanic_token,
+            admin_token,
+        }
+    }
+}
+
+struct HttpResponse {
+    status: StatusCode,
+    headers: HeaderMap,
+    body: String,
+    json: Value,
+}
+
+async fn post_json(service: axum::Router, uri: &str, token: &str, body: Value) -> HttpResponse {
+    let request = Request::builder()
+        .uri(uri)
+        .method("POST")
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    send(service, request).await
+}
+
+async fn get_json(service: axum::Router, uri: &str, token: &str) -> HttpResponse {
+    get(service, uri, token).await
+}
+
+async fn get(service: axum::Router, uri: &str, token: &str) -> HttpResponse {
+    let request = Request::builder()
+        .uri(uri)
+        .method("GET")
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    send(service, request).await
+}
+
+async fn send(service: axum::Router, request: Request<Body>) -> HttpResponse {
+    let response = service.oneshot(request).await.unwrap();
+    let status = response.status();
+    let headers = response.headers().clone();
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = String::from_utf8(bytes.to_vec()).unwrap();
+    let json = serde_json::from_str(&body).unwrap_or_else(|_| json!({}));
+    HttpResponse {
+        status,
+        headers,
+        body,
+        json,
+    }
+}
+
+fn issue_token(
+    private_key_pem: &[u8],
+    public_key_pem: &[u8],
+    user_id: UserId,
+    roles: Vec<String>,
+    branches: Vec<BranchId>,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let issuer = JwtIssuer::from_es256_pem(
+        JwtSettings {
+            issuer: TEST_ISSUER.to_owned(),
+            audience: TEST_AUDIENCE.to_owned(),
+            access_token_ttl: Duration::minutes(15),
+        },
+        private_key_pem,
+        public_key_pem,
+    )?;
+
+    Ok(issuer.issue_access_token(AccessTokenInput {
+        subject: user_id,
+        roles,
+        branches,
+        issued_at: OffsetDateTime::now_utc(),
+    })?)
+}
+
+fn app_state(pool: PgPool, public_key_pem: String) -> Result<AppState, mnt_app::AppError> {
+    let config = AppConfig::from_pairs([
+        ("MNT_APP_ROLE", AppRole::Api.to_string()),
+        ("MNT_HTTP_ADDR", "127.0.0.1:0".to_owned()),
+        ("MNT_JWT_ISSUER", TEST_ISSUER.to_owned()),
+        ("MNT_JWT_AUDIENCE", TEST_AUDIENCE.to_owned()),
+        ("MNT_JWT_PUBLIC_KEY_PEM", public_key_pem),
+    ])?;
+
+    AppState::new(config, DatabaseDependency::Postgres(pool))
+}
+
+async fn seed_branch(pool: &PgPool, region_name: &str, branch_name: &str) -> BranchId {
+    let region_id: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+            .bind(region_name)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    let branch_id: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
+            .bind(region_id)
+            .bind(branch_name)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    BranchId::from_uuid(branch_id)
+}
+
+async fn seed_user_with_branch(pool: &PgPool, user_id: UserId, role: &str, branch_id: BranchId) {
+    sqlx::query("INSERT INTO users (id, display_name, roles) VALUES ($1, $2, $3)")
+        .bind(*user_id.as_uuid())
+        .bind(format!("Compliance API {role}"))
+        .bind(Vec::from([role]))
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+        .bind(*user_id.as_uuid())
+        .bind(*branch_id.as_uuid())
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+async fn audit_count(pool: &PgPool, action: &str) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE action = $1")
+        .bind(action)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn location_ping_count(pool: &PgPool) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM location_pings")
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn location_collection_log_count(pool: &PgPool) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM location_collection_logs")
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn coordinate_audit_count(pool: &PgPool) -> i64 {
+    sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)
+        FROM audit_events
+        WHERE before_snap::text LIKE '%37.5665%'
+           OR after_snap::text LIKE '%37.5665%'
+           OR before_snap::text LIKE '%126.978%'
+           OR after_snap::text LIKE '%126.978%'
+        "#,
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}

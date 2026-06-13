@@ -77,4 +77,18 @@
     <string name="messenger_kind_team">팀</string>
     <string name="messenger_kind_dm">1:1</string>
     <string name="messenger_kind_group">그룹</string>
+    <string name="yes">예</string>
+    <string name="no">아니오</string>
+    <string name="location_consent_title">GPS 위치 동의</string>
+    <string name="location_consent_collection_format">수집 가능: %1$s</string>
+    <string name="location_consent_grant">동의</string>
+    <string name="location_consent_regain">다시 동의</string>
+    <string name="location_consent_suspend">GPS 끄기</string>
+    <string name="location_consent_resume">GPS 켜기</string>
+    <string name="location_consent_withdraw">동의 철회</string>
+    <string name="location_consent_failed">위치 동의 처리에 실패했습니다.</string>
+    <string name="location_consent_state_no_record">미동의</string>
+    <string name="location_consent_state_granted">동의됨</string>
+    <string name="location_consent_state_suspended">GPS 꺼짐</string>
+    <string name="location_consent_state_withdrawn">철회됨</string>
 </resources>

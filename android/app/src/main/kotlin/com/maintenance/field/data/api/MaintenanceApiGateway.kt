@@ -11,6 +11,9 @@ import com.maintenance.api.client.model.MarkMessengerThreadReadRequest
 import com.maintenance.api.client.model.MessengerMessagePage
 import com.maintenance.api.client.model.MessengerMessageSummary
 import com.maintenance.api.client.model.MessengerThreadSummary
+import com.maintenance.api.client.model.LocationConsentStatus
+import com.maintenance.api.client.model.LocationConsentTransitionRequest
+import com.maintenance.api.client.model.LocationPingRequest
 import com.maintenance.api.client.model.PasskeyLoginFinishRequest
 import com.maintenance.api.client.model.PasskeyLoginStartRequest
 import com.maintenance.api.client.model.PasskeyLoginStartResponse
@@ -48,6 +51,18 @@ interface MaintenanceApiGateway : SyncGateway, MessengerGateway {
     suspend fun finishPasskeyLogin(ceremonyId: UUID, credential: Map<String, JsonElement>): TokenPairResponse
 
     suspend fun registerAndroidDevice(deviceId: String, appVersion: String): DeviceRegistrationResponse
+
+    suspend fun getLocationConsentStatus(): LocationConsentStatus
+
+    suspend fun grantLocationConsent(): LocationConsentStatus
+
+    suspend fun suspendLocationConsent(): LocationConsentStatus
+
+    suspend fun resumeLocationConsent(): LocationConsentStatus
+
+    suspend fun withdrawLocationConsent(): LocationConsentStatus
+
+    suspend fun recordLocationPing(request: LocationPingRequest)
 }
 
 class GeneratedMaintenanceApiGateway(
@@ -138,4 +153,22 @@ class GeneratedMaintenanceApiGateway(
         api.searchMessengerMessages(q = query, limit = limit)
             .items
             .map(MessengerMessageSummary::toMessengerMessage)
+    override suspend fun getLocationConsentStatus(): LocationConsentStatus =
+        api.getLocationConsentStatus()
+
+    override suspend fun grantLocationConsent(): LocationConsentStatus =
+        api.grantLocationConsent(LocationConsentTransitionRequest())
+
+    override suspend fun suspendLocationConsent(): LocationConsentStatus =
+        api.suspendLocationConsent(LocationConsentTransitionRequest())
+
+    override suspend fun resumeLocationConsent(): LocationConsentStatus =
+        api.resumeLocationConsent(LocationConsentTransitionRequest())
+
+    override suspend fun withdrawLocationConsent(): LocationConsentStatus =
+        api.withdrawLocationConsent(LocationConsentTransitionRequest())
+
+    override suspend fun recordLocationPing(request: LocationPingRequest) {
+        api.recordLocationPing(request)
+    }
 }

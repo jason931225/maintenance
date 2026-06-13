@@ -51,6 +51,28 @@ const server = setupServer(
     kpiRequests.push(url);
     return HttpResponse.json(kpiReport);
   }),
+  http.get("*/api/v1/location-consent/status", () =>
+    HttpResponse.json({
+      consent_id: "00000000-0000-4000-8000-000000000011",
+      user_id: "00000000-0000-4000-8000-000000000002",
+      branch_id: "00000000-0000-4000-8000-000000000001",
+      state: "GRANTED",
+      may_collect: true,
+      granted_at: "2026-06-12T00:00:00Z",
+      suspended_at: null,
+      resumed_at: null,
+      withdrawn_at: null,
+      updated_at: "2026-06-12T00:00:00Z",
+    }),
+  ),
+  http.get("*/api/v1/location-consents/ledger", () =>
+    HttpResponse.json({
+      items: [],
+      limit: 10,
+      offset: 0,
+      total: 0,
+    }),
+  ),
   http.get("*/api/v1/equipment", ({ request }) => {
     const url = new URL(request.url);
     autocompleteRequests.push(url);

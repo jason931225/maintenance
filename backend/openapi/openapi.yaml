@@ -805,6 +805,255 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/v1/location-consent/status:
+    get:
+      operationId: getLocationConsentStatus
+      summary: Read the authenticated user's location consent status
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: branch_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Current location consent status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationConsentStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/location-consent/grant:
+    post:
+      operationId: grantLocationConsent
+      summary: Grant GPS location collection consent
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocationConsentTransitionRequest'
+      responses:
+        '200':
+          description: Updated location consent status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationConsentStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/location-consent/suspend:
+    post:
+      operationId: suspendLocationConsent
+      summary: Suspend GPS collection with the always-visible off switch
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocationConsentTransitionRequest'
+      responses:
+        '200':
+          description: Updated location consent status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationConsentStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/location-consent/resume:
+    post:
+      operationId: resumeLocationConsent
+      summary: Resume GPS collection after an off-switch suspension
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocationConsentTransitionRequest'
+      responses:
+        '200':
+          description: Updated location consent status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationConsentStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/location-consent/withdraw:
+    post:
+      operationId: withdrawLocationConsent
+      summary: Withdraw location consent and destroy destructible location data
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocationConsentTransitionRequest'
+      responses:
+        '200':
+          description: Updated location consent status after destructive withdrawal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationConsentStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/location-pings:
+    post:
+      operationId: recordLocationPing
+      summary: Ingest an on-duty GPS ping when consent is granted
+      description: Coordinates are destructible and never written to audit_events.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocationPingRequest'
+      responses:
+        '204':
+          description: Location ping accepted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/location-consents/ledger:
+    get:
+      operationId: listLocationConsentLedger
+      summary: Read the consent lifecycle ledger
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: user_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: branch_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 1000
+          default: 100
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Paged consent lifecycle ledger.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationConsentLedgerPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/location-consents/ledger.csv:
+    get:
+      operationId: exportLocationConsentLedgerCsv
+      summary: Export the consent lifecycle ledger as CSV
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: user_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: branch_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 1000
+          default: 100
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: CSV consent lifecycle ledger export.
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/v1/auth/passkey/register/start:
     post:
       summary: Start passkey registration
@@ -2989,6 +3238,154 @@ components:
           type: string
         last_registered_at:
           $ref: '#/components/schemas/Timestamp'
+    LocationConsentState:
+      type: string
+      enum:
+      - NO_RECORD
+      - GRANTED
+      - SUSPENDED
+      - WITHDRAWN
+    LocationConsentStatus:
+      type: object
+      required:
+      - consent_id
+      - user_id
+      - branch_id
+      - state
+      - may_collect
+      properties:
+        consent_id:
+          $ref: '#/components/schemas/Uuid'
+        user_id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        state:
+          $ref: '#/components/schemas/LocationConsentState'
+        may_collect:
+          type: boolean
+        granted_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        suspended_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        resumed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        withdrawn_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        updated_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+    LocationConsentTransitionRequest:
+      type: object
+      properties:
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+    LocationPingRequest:
+      type: object
+      required:
+      - latitude
+      - longitude
+      - recorded_at
+      - on_duty
+      properties:
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+        accuracy_m:
+          type:
+          - number
+          - 'null'
+          format: double
+          minimum: 0
+        recorded_at:
+          $ref: '#/components/schemas/Timestamp'
+        on_duty:
+          type: boolean
+    LocationConsentLedgerEntry:
+      type: object
+      required:
+      - id
+      - consent_id
+      - user_id
+      - branch_id
+      - action
+      - from_status
+      - to_status
+      - occurred_at
+      - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        consent_id:
+          $ref: '#/components/schemas/Uuid'
+        user_id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        actor:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        action:
+          type: string
+          enum:
+          - consent.grant
+          - consent.suspend
+          - consent.resume
+          - consent.withdraw
+        from_status:
+          $ref: '#/components/schemas/LocationConsentState'
+        to_status:
+          $ref: '#/components/schemas/LocationConsentState'
+        occurred_at:
+          $ref: '#/components/schemas/Timestamp'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    LocationConsentLedgerPage:
+      type: object
+      required:
+      - items
+      - limit
+      - offset
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LocationConsentLedgerEntry'
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
+        total:
+          type: integer
+          format: int64
     PasskeyRegisterStartRequest:
       type: object
       properties:

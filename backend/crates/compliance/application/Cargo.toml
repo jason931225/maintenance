@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 mnt-compliance-domain = { workspace = true }
 mnt-kernel-core = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 
 [lints]

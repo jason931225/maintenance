@@ -42,6 +42,7 @@ import java.util.UUID
 
 @Composable
 fun CameraCaptureScreen(
+    modifier: Modifier = Modifier,
     onCancel: () -> Unit,
     onCaptured: (File) -> Unit,
     onError: (Throwable) -> Unit,
@@ -90,7 +91,7 @@ fun CameraCaptureScreen(
     }
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .background(Color.Black),
     ) {

@@ -6,6 +6,7 @@ struct FieldAppContainer {
     let workOrderRepository: WorkOrderRepository
     let evidenceRepository: EvidenceRepository
     let messengerRepository: MessengerRepository
+    let locationConsentRepository: LocationConsentRepository
 
     static func live() -> FieldAppContainer {
         let tokenProvider = CurrentTokenProvider()
@@ -63,7 +64,8 @@ struct FieldAppContainer {
             ),
             workOrderRepository: workOrders,
             evidenceRepository: evidence,
-            messengerRepository: messenger
+            messengerRepository: messenger,
+            locationConsentRepository: LocationConsentRepository(gateway: gateway)
         )
     }
 }

@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -56,6 +57,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.maintenance.api.client.model.AttachmentStage
+import com.maintenance.api.client.model.LocationConsentState
+import com.maintenance.api.client.model.LocationConsentStatus
 import com.maintenance.api.client.model.WorkResultType
 import com.maintenance.field.AppContainer
 import com.maintenance.field.R
@@ -86,6 +89,7 @@ fun FieldApp(container: AppContainer) {
     var messengerState by remember { mutableStateOf(MessengerState()) }
     var messengerSearchQuery by rememberSaveable { mutableStateOf("") }
     var messengerDraft by rememberSaveable { mutableStateOf("") }
+    var locationConsent by remember { mutableStateOf<LocationConsentStatus?>(null) }
     val selected = orders.firstOrNull { it.id.toString() == selectedId }
     val messengerReducer = remember { MessengerReducer() }
     val loginFailedMessage = stringResource(R.string.login_failed)
@@ -94,6 +98,7 @@ fun FieldApp(container: AppContainer) {
     val cameraPermissionDeniedMessage = stringResource(R.string.camera_permission_denied)
     val operationFailedMessage = stringResource(R.string.operation_failed)
     val messengerSendPendingMessage = stringResource(R.string.messenger_send_pending)
+    val locationConsentFailedMessage = stringResource(R.string.location_consent_failed)
 
     suspend fun loadMessengerMessages(threadId: UUID, beforeMessageId: UUID? = null) {
         val page = container.messenger.loadMessages(threadId, beforeMessageId)
@@ -116,6 +121,11 @@ fun FieldApp(container: AppContainer) {
     LaunchedEffect(authenticated) {
         if (authenticated) {
             runCatching { container.workOrders.refreshToday() }
+            runCatching { container.locationConsent.status() }
+                .onSuccess { locationConsent = it }
+                .onFailure { snackbarHostState.showSnackbar(locationConsentFailedMessage) }
+        } else {
+            locationConsent = null
         }
     }
 
@@ -125,34 +135,80 @@ fun FieldApp(container: AppContainer) {
         }
     }
 
+    fun updateLocationConsent(block: suspend () -> LocationConsentStatus) {
+        scope.launch {
+            busy = true
+            runCatching { block() }
+                .onSuccess { locationConsent = it }
+                .onFailure { snackbarHostState.showSnackbar(locationConsentFailedMessage) }
+            busy = false
+        }
+    }
+
     if (showCamera && selected != null) {
         val uploadFailed = stringResource(R.string.operation_failed)
         val uploadSaved = stringResource(R.string.capture_saved)
-        CameraCaptureScreen(
-            onCancel = { showCamera = false },
-            onCaptured = { file ->
-                scope.launch {
-                    busy = true
-                    runCatching {
-                        container.evidence.queueOrUpload(
-                            workOrderId = selected.id,
-                            stage = AttachmentStage.AFTER,
-                            file = file,
-                            contentType = "image/jpeg",
+        Scaffold(
+            contentWindowInsets = WindowInsets.safeDrawing,
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+        ) { padding ->
+            Surface(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                color = MaterialTheme.colorScheme.background,
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    LocationConsentControls(
+                        status = locationConsent,
+                        busy = busy,
+                        onGrant = {
+                            updateLocationConsent { container.locationConsent.grant() }
+                        },
+                        onSuspend = {
+                            updateLocationConsent { container.locationConsent.suspend() }
+                        },
+                        onResume = {
+                            updateLocationConsent { container.locationConsent.resume() }
+                        },
+                        onWithdraw = {
+                            updateLocationConsent { container.locationConsent.withdraw() }
+                        },
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    ) {
+                        CameraCaptureScreen(
+                            onCancel = { showCamera = false },
+                            onCaptured = { file ->
+                                scope.launch {
+                                    busy = true
+                                    runCatching {
+                                        container.evidence.queueOrUpload(
+                                            workOrderId = selected.id,
+                                            stage = AttachmentStage.AFTER,
+                                            file = file,
+                                            contentType = "image/jpeg",
+                                        )
+                                    }.onSuccess {
+                                        snackbarHostState.showSnackbar(uploadSaved)
+                                    }.onFailure {
+                                        snackbarHostState.showSnackbar(uploadFailed)
+                                    }
+                                    busy = false
+                                    showCamera = false
+                                }
+                            },
+                            onError = {
+                                scope.launch { snackbarHostState.showSnackbar(uploadFailed) }
+                            },
                         )
-                    }.onSuccess {
-                        snackbarHostState.showSnackbar(uploadSaved)
-                    }.onFailure {
-                        snackbarHostState.showSnackbar(uploadFailed)
                     }
-                    busy = false
-                    showCamera = false
                 }
-            },
-            onError = {
-                scope.launch { snackbarHostState.showSnackbar(uploadFailed) }
-            },
-        )
+            }
+        }
         return
     }
 
@@ -185,7 +241,20 @@ fun FieldApp(container: AppContainer) {
                 WorkOrderDetailScreen(
                     order = selected,
                     busy = busy,
+                    locationConsent = locationConsent,
                     onBack = { selectedId = null },
+                    onLocationGrant = {
+                        updateLocationConsent { container.locationConsent.grant() }
+                    },
+                    onLocationSuspend = {
+                        updateLocationConsent { container.locationConsent.suspend() }
+                    },
+                    onLocationResume = {
+                        updateLocationConsent { container.locationConsent.resume() }
+                    },
+                    onLocationWithdraw = {
+                        updateLocationConsent { container.locationConsent.withdraw() }
+                    },
                     onStart = {
                         scope.launch {
                             busy = true
@@ -223,6 +292,7 @@ fun FieldApp(container: AppContainer) {
                         TodayScreen(
                             orders = orders,
                             busy = busy,
+                            locationConsent = locationConsent,
                             modifier = Modifier.weight(1f),
                             onRefresh = {
                                 scope.launch {
@@ -232,6 +302,7 @@ fun FieldApp(container: AppContainer) {
                                         container.evidence.uploadPending()
                                         container.messenger.replayPending()
                                         container.workOrders.refreshToday()
+                                        locationConsent = container.locationConsent.status()
                                     }.onFailure {
                                         snackbarHostState.showSnackbar(operationFailedMessage)
                                     }
@@ -243,6 +314,19 @@ fun FieldApp(container: AppContainer) {
                                 authenticated = false
                                 selectedId = null
                                 messengerState = MessengerState()
+                                locationConsent = null
+                            },
+                            onLocationGrant = {
+                                updateLocationConsent { container.locationConsent.grant() }
+                            },
+                            onLocationSuspend = {
+                                updateLocationConsent { container.locationConsent.suspend() }
+                            },
+                            onLocationResume = {
+                                updateLocationConsent { container.locationConsent.resume() }
+                            },
+                            onLocationWithdraw = {
+                                updateLocationConsent { container.locationConsent.withdraw() }
                             },
                             onSelect = { selectedId = it.id.toString() },
                         )
@@ -432,9 +516,14 @@ private fun LoginScreen(
 private fun TodayScreen(
     orders: List<TechnicianWorkOrder>,
     busy: Boolean,
+    locationConsent: LocationConsentStatus?,
     modifier: Modifier = Modifier,
     onRefresh: () -> Unit,
     onLogout: () -> Unit,
+    onLocationGrant: () -> Unit,
+    onLocationSuspend: () -> Unit,
+    onLocationResume: () -> Unit,
+    onLocationWithdraw: () -> Unit,
     onSelect: (TechnicianWorkOrder) -> Unit,
 ) {
     Column(
@@ -466,6 +555,14 @@ private fun TodayScreen(
                 Text(stringResource(R.string.logout))
             }
         }
+        LocationConsentControls(
+            status = locationConsent,
+            busy = busy,
+            onGrant = onLocationGrant,
+            onSuspend = onLocationSuspend,
+            onResume = onLocationResume,
+            onWithdraw = onLocationWithdraw,
+        )
 
         if (orders.isEmpty()) {
             Column(
@@ -799,7 +896,12 @@ private fun WorkOrderRow(
 private fun WorkOrderDetailScreen(
     order: TechnicianWorkOrder,
     busy: Boolean,
+    locationConsent: LocationConsentStatus?,
     onBack: () -> Unit,
+    onLocationGrant: () -> Unit,
+    onLocationSuspend: () -> Unit,
+    onLocationResume: () -> Unit,
+    onLocationWithdraw: () -> Unit,
     onStart: () -> Unit,
     onReport: (ReportDraft) -> Unit,
     onCaptureEvidence: () -> Unit,
@@ -834,6 +936,14 @@ private fun WorkOrderDetailScreen(
         ) {
             Text(stringResource(R.string.back))
         }
+        LocationConsentControls(
+            status = locationConsent,
+            busy = busy,
+            onGrant = onLocationGrant,
+            onSuspend = onLocationSuspend,
+            onResume = onLocationResume,
+            onWithdraw = onLocationWithdraw,
+        )
         Text(
             text = order.requestNo,
             style = MaterialTheme.typography.headlineSmall,
@@ -967,6 +1077,93 @@ private fun WorkOrderDetailScreen(
                 .heightIn(min = 48.dp),
         ) {
             Text(stringResource(R.string.detail_capture_evidence))
+        }
+    }
+}
+
+@Composable
+private fun LocationConsentControls(
+    status: LocationConsentStatus?,
+    busy: Boolean,
+    onGrant: () -> Unit,
+    onSuspend: () -> Unit,
+    onResume: () -> Unit,
+    onWithdraw: () -> Unit,
+) {
+    val state = status?.state ?: LocationConsentState.NO_RECORD
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = MaterialTheme.shapes.small,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = stringResource(R.string.location_consent_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                AssistChip(
+                    onClick = {},
+                    label = { Text(stringResource(state.labelRes())) },
+                )
+            }
+            Text(
+                text = stringResource(
+                    R.string.location_consent_collection_format,
+                    stringResource(if (status?.mayCollect == true) R.string.yes else R.string.no),
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    onClick = onGrant,
+                    enabled = !busy && state != LocationConsentState.GRANTED,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text(
+                        stringResource(
+                            if (state == LocationConsentState.WITHDRAWN) {
+                                R.string.location_consent_regain
+                            } else {
+                                R.string.location_consent_grant
+                            },
+                        ),
+                    )
+                }
+                OutlinedButton(
+                    onClick = onSuspend,
+                    enabled = !busy && state == LocationConsentState.GRANTED,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text(stringResource(R.string.location_consent_suspend))
+                }
+                OutlinedButton(
+                    onClick = onResume,
+                    enabled = !busy && state == LocationConsentState.SUSPENDED,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text(stringResource(R.string.location_consent_resume))
+                }
+                OutlinedButton(
+                    onClick = onWithdraw,
+                    enabled = !busy && (
+                        state == LocationConsentState.GRANTED ||
+                            state == LocationConsentState.SUSPENDED
+                        ),
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text(stringResource(R.string.location_consent_withdraw))
+                }
+            }
         }
     }
 }
