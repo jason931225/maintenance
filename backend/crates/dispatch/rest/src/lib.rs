@@ -17,7 +17,8 @@ use mnt_dispatch_application::{
 };
 use mnt_dispatch_domain::{DispatchResponseKind, DispatchTimerConfig};
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, KernelError, P1DispatchId, TraceContext, UserId, WorkOrderId,
+    BranchId, BranchScope, ErrorKind, KernelError, P1DispatchAlertId, P1DispatchId, TraceContext,
+    UserId, WorkOrderId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
@@ -295,7 +296,7 @@ async fn send_one_fcm(
     };
     match notifier.send_fcm(message).await {
         Ok(provider_id) => {
-            state
+            let lease_held = state
                 .store
                 .mark_alert_sent(
                     alert_id,
@@ -310,9 +311,10 @@ async fn send_one_fcm(
                 )
                 .await
                 .map_err(RestError::from_store)?;
+            warn_if_lease_lost(lease_held, alert_id);
         }
         Err(err) => {
-            state
+            let lease_held = state
                 .store
                 .mark_alert_failed(
                     alert_id,
@@ -323,9 +325,22 @@ async fn send_one_fcm(
                 )
                 .await
                 .map_err(RestError::from_store)?;
+            warn_if_lease_lost(lease_held, alert_id);
         }
     }
     Ok(())
+}
+
+/// Consume the lost-lease signal from a `mark_alert_*` transition. `false` means
+/// the lease was reclaimed elsewhere (e.g. after a crash) and the transition was
+/// a no-op; surface it so the designed double-handling guard is observable.
+fn warn_if_lease_lost(lease_held: bool, alert_id: P1DispatchAlertId) {
+    if !lease_held {
+        tracing::warn!(
+            %alert_id,
+            "alert lease lost before status mark; transition was a no-op (reclaimed elsewhere)"
+        );
+    }
 }
 
 fn provider_failure_reason(err: PushError) -> String {
@@ -449,25 +464,32 @@ impl RestError {
     }
 
     fn from_store(error: PgDispatchError) -> Self {
-        match error.kind() {
-            ErrorKind::Validation => Self::new(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "validation",
-                error.to_string(),
-            ),
-            ErrorKind::Forbidden => {
-                Self::new(StatusCode::FORBIDDEN, "forbidden", error.to_string())
+        match error {
+            // Domain errors carry safe, caller-facing messages.
+            PgDispatchError::Domain(kernel) => Self::from_kernel(kernel),
+            // Db errors must never surface raw sqlx strings / 23505 constraint
+            // names to the client (schema disclosure, OWASP A05). Classify by
+            // kind, log the raw error server-side, return stable generic messages.
+            db_error => {
+                let kind = db_error.kind();
+                tracing::error!(error = %db_error, "dispatch database error");
+                match kind {
+                    ErrorKind::NotFound => {
+                        Self::new(StatusCode::NOT_FOUND, "not_found", "resource not found")
+                    }
+                    ErrorKind::Conflict | ErrorKind::InvalidTransition => {
+                        Self::new(StatusCode::CONFLICT, "conflict", "resource already exists")
+                    }
+                    _ => Self::internal("internal server error"),
+                }
             }
-            ErrorKind::NotFound => Self::new(StatusCode::NOT_FOUND, "not_found", error.to_string()),
-            ErrorKind::Conflict | ErrorKind::InvalidTransition => {
-                Self::new(StatusCode::CONFLICT, "conflict", error.to_string())
-            }
-            ErrorKind::Internal => Self::internal("internal server error"),
         }
     }
 
     fn from_jobs(error: JobQueueError) -> Self {
-        Self::internal(error.to_string())
+        // Job-queue failures are internal; log the detail, return a stable message.
+        tracing::error!(error = %error, "job queue error");
+        Self::internal("internal server error")
     }
 }
 

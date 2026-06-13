@@ -1039,12 +1039,46 @@ pub fn evidence_s3_key(
     )
 }
 
+/// Maximum evidence object size accepted for presign (50 MiB). Caps the
+/// authz-gated storage-exhaustion / cost-amplification vector: a presign for a
+/// larger object is rejected before any URL is issued.
+pub const MAX_EVIDENCE_SIZE_BYTES: i64 = 50 * 1024 * 1024;
+
+/// Content types accepted for evidence uploads. Matched case-insensitively
+/// against the media type (parameters after `;` are ignored). Anything outside
+/// this set — e.g. `text/html`, `image/svg+xml` — is rejected before presign so
+/// an arbitrary content-type can never be stored.
+pub const ALLOWED_EVIDENCE_CONTENT_TYPES: [&str; 4] =
+    ["image/jpeg", "image/png", "image/heic", "application/pdf"];
+
 fn validate_upload_command(command: &EvidenceUploadCommand) -> Result<(), StorageError> {
-    if command.content_type.trim().is_empty() {
+    let content_type = command.content_type.trim();
+    if content_type.is_empty() {
         return Err(KernelError::validation("evidence content_type is required").into());
+    }
+    let media_type = content_type
+        .split(';')
+        .next()
+        .unwrap_or(content_type)
+        .trim()
+        .to_ascii_lowercase();
+    if !ALLOWED_EVIDENCE_CONTENT_TYPES.contains(&media_type.as_str()) {
+        return Err(KernelError::validation(format!(
+            "evidence content_type {:?} is not allowed (permitted: {})",
+            command.content_type,
+            ALLOWED_EVIDENCE_CONTENT_TYPES.join(", ")
+        ))
+        .into());
     }
     if command.size_bytes < 0 {
         return Err(KernelError::validation("evidence size must be non-negative").into());
+    }
+    if command.size_bytes > MAX_EVIDENCE_SIZE_BYTES {
+        return Err(KernelError::validation(format!(
+            "evidence size {} exceeds the maximum of {} bytes",
+            command.size_bytes, MAX_EVIDENCE_SIZE_BYTES
+        ))
+        .into());
     }
     Ok(())
 }
@@ -1745,5 +1779,55 @@ mod tests {
         .fetch_one(pool)
         .await
         .unwrap()
+    }
+
+    fn upload_command(content_type: &str, size_bytes: i64) -> EvidenceUploadCommand {
+        EvidenceUploadCommand {
+            actor: UserId::new(),
+            work_order_id: WorkOrderId::new(),
+            stage: AttachmentStage::After,
+            content_type: content_type.to_owned(),
+            size_bytes,
+            checksum_sha256: None,
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
+        }
+    }
+
+    #[test]
+    fn validate_upload_accepts_allowed_types_and_parameters() {
+        for content_type in ["image/jpeg", "image/png", "image/heic", "application/pdf"] {
+            validate_upload_command(&upload_command(content_type, 1024)).unwrap();
+        }
+        // Parameters and casing are tolerated on the media type.
+        validate_upload_command(&upload_command("image/JPEG; charset=binary", 1024)).unwrap();
+        // Exactly at the limit is allowed.
+        validate_upload_command(&upload_command("image/png", MAX_EVIDENCE_SIZE_BYTES)).unwrap();
+    }
+
+    #[test]
+    fn validate_upload_rejects_disallowed_content_type() {
+        for content_type in ["text/html", "image/svg+xml", "application/octet-stream"] {
+            let err = validate_upload_command(&upload_command(content_type, 1024)).unwrap_err();
+            match err {
+                StorageError::Domain(kernel) => {
+                    assert_eq!(kernel.kind, mnt_kernel_core::ErrorKind::Validation);
+                }
+                other => panic!("expected validation error, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn validate_upload_rejects_oversize() {
+        let err =
+            validate_upload_command(&upload_command("image/jpeg", MAX_EVIDENCE_SIZE_BYTES + 1))
+                .unwrap_err();
+        match err {
+            StorageError::Domain(kernel) => {
+                assert_eq!(kernel.kind, mnt_kernel_core::ErrorKind::Validation);
+            }
+            other => panic!("expected validation error, got {other:?}"),
+        }
     }
 }

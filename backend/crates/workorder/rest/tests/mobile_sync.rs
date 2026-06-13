@@ -277,6 +277,51 @@ async fn duplicate_request_id_in_batch_is_rejected(pool: PgPool) {
     );
 }
 
+// An over-large /sync batch is rejected (422) before any allocation/replay so a
+// single principal cannot monopolize a pooled DB connection.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn oversized_sync_batch_is_rejected(pool: PgPool) {
+    let h = harness(pool).await;
+    let operations: Vec<Value> = (0..201)
+        .map(|i| {
+            json!({
+                "request_id": format!("op-{i}"),
+                "operation": "WORK_ORDER_START",
+                "created_at": created_at_value(datetime!(2026-06-12 09:00:00 UTC)),
+                "payload": { "work_order_id": h.work_order_id }
+            })
+        })
+        .collect();
+    let resp = post_sync(
+        h.service.clone(),
+        &h.token,
+        json!({ "sync_id": "sync-big", "operations": operations }),
+    )
+    .await;
+    assert_eq!(
+        resp.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{:?}",
+        resp.json
+    );
+    assert!(
+        resp.json["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("maximum of 200"),
+        "{:?}",
+        resp.json
+    );
+
+    // Nothing was replayed: no sync rows were created for the oversized batch.
+    let synced: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM offline_sync_requests WHERE sync_id = 'sync-big'")
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+    assert_eq!(synced, 0);
+}
+
 // FIX 2: a crash between the business mutation commit and the completion mark
 // leaves an IN_PROGRESS sync row; a retry must reconcile it to the correct final
 // response without double-mutating.

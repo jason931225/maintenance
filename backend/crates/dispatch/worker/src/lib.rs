@@ -8,7 +8,7 @@ use mnt_dispatch_adapter_postgres::{
     PendingAlimtalkAlert, PendingFcmPush, PgDispatchError, PgDispatchStore,
 };
 use mnt_dispatch_application::ExpireP1DispatchCommand;
-use mnt_kernel_core::TraceContext;
+use mnt_kernel_core::{P1DispatchAlertId, TraceContext};
 use mnt_platform_jobs::{
     BoxFuture, DispatchTimerJob, JobQueueError, PlatformJob, PlatformJobHandler,
 };
@@ -139,18 +139,21 @@ impl DispatchWorker {
         now: time::OffsetDateTime,
     ) -> Result<(), DispatchWorkerError> {
         // When delivery is disabled we must not claim leases for delivery — skip
-        // the still-PENDING alerts directly so they are not transiently SENDING.
+        // the still-PENDING alerts directly (PENDING -> SKIPPED) so they never
+        // transiently enter SENDING.
         let notifier = match (
             self.alimtalk_policy.is_enabled(),
             self.push_notifier.as_ref(),
         ) {
             (true, Some(notifier)) => notifier,
             _ => {
-                let alerts = self
-                    .store
-                    .claim_alimtalk_no_ack_alerts(dispatch_id, now)
-                    .await?;
-                self.skip_alimtalk_alerts(alerts, ALIMTALK_DISABLED_REASON)
+                self.store
+                    .skip_pending_alimtalk_no_ack_alerts(
+                        dispatch_id,
+                        ALIMTALK_DISABLED_REASON,
+                        TraceContext::generate(),
+                        now,
+                    )
                     .await?;
                 return Ok(());
             }
@@ -194,15 +197,18 @@ impl DispatchWorker {
                 )
                 .await?;
             } else {
-                self.store
+                let alert_id = alert.alert_id;
+                let lease_held = self
+                    .store
                     .mark_alert_skipped(
-                        alert.alert_id,
+                        alert_id,
                         Some(alert.lease_token),
                         ALIMTALK_DISABLED_REASON.to_owned(),
                         TraceContext::generate(),
                         time::OffsetDateTime::now_utc(),
                     )
                     .await?;
+                warn_if_lease_lost(lease_held, alert_id);
             }
         }
         Ok(())
@@ -224,28 +230,33 @@ impl DispatchWorker {
             ]),
             idempotency_key: push.idempotency_key,
         };
+        let alert_id = push.alert_id;
         match notifier.send_fcm(message).await {
             Ok(provider_id) => {
-                self.store
+                let lease_held = self
+                    .store
                     .mark_alert_sent(
-                        push.alert_id,
+                        alert_id,
                         push.lease_token,
                         non_empty_provider_id(provider_id.0),
                         TraceContext::generate(),
                         time::OffsetDateTime::now_utc(),
                     )
                     .await?;
+                warn_if_lease_lost(lease_held, alert_id);
             }
             Err(err) => {
-                self.store
+                let lease_held = self
+                    .store
                     .mark_alert_failed(
-                        push.alert_id,
+                        alert_id,
                         push.lease_token,
                         provider_failure_reason(err),
                         TraceContext::generate(),
                         time::OffsetDateTime::now_utc(),
                     )
                     .await?;
+                warn_if_lease_lost(lease_held, alert_id);
             }
         }
         Ok(())
@@ -266,59 +277,47 @@ impl DispatchWorker {
             ]),
             idempotency_key: alert.idempotency_key,
         };
+        let alert_id = alert.alert_id;
         match notifier.send_alimtalk(message).await {
             Ok(provider_id) => {
-                self.store
+                let lease_held = self
+                    .store
                     .mark_alert_sent(
-                        alert.alert_id,
+                        alert_id,
                         alert.lease_token,
                         non_empty_provider_id(provider_id.0),
                         TraceContext::generate(),
                         time::OffsetDateTime::now_utc(),
                     )
                     .await?;
+                warn_if_lease_lost(lease_held, alert_id);
             }
             Err(PushError::Config(message)) => {
-                self.store
+                let lease_held = self
+                    .store
                     .mark_alert_skipped(
-                        alert.alert_id,
+                        alert_id,
                         Some(alert.lease_token),
                         format!("Solapi Alimtalk disabled: {message}"),
                         TraceContext::generate(),
                         time::OffsetDateTime::now_utc(),
                     )
                     .await?;
+                warn_if_lease_lost(lease_held, alert_id);
             }
             Err(err) => {
-                self.store
+                let lease_held = self
+                    .store
                     .mark_alert_failed(
-                        alert.alert_id,
+                        alert_id,
                         alert.lease_token,
                         provider_failure_reason(err),
                         TraceContext::generate(),
                         time::OffsetDateTime::now_utc(),
                     )
                     .await?;
+                warn_if_lease_lost(lease_held, alert_id);
             }
-        }
-        Ok(())
-    }
-
-    async fn skip_alimtalk_alerts(
-        &self,
-        alerts: Vec<PendingAlimtalkAlert>,
-        reason: &str,
-    ) -> Result<(), DispatchWorkerError> {
-        for alert in alerts {
-            self.store
-                .mark_alert_skipped(
-                    alert.alert_id,
-                    Some(alert.lease_token),
-                    reason.to_owned(),
-                    TraceContext::generate(),
-                    time::OffsetDateTime::now_utc(),
-                )
-                .await?;
         }
         Ok(())
     }
@@ -336,6 +335,19 @@ impl PlatformJobHandler for DispatchWorker {
 
 fn non_empty_provider_id(value: String) -> Option<String> {
     if value.is_empty() { None } else { Some(value) }
+}
+
+/// Consume the lost-lease signal from a `mark_alert_*` transition. `false` means
+/// this worker no longer held the lease (it was reclaimed after a crash, e.g.
+/// past the lease TTL) so the transition was a no-op handled elsewhere; surface
+/// it so an operator can see the designed double-handling guard firing.
+fn warn_if_lease_lost(lease_held: bool, alert_id: P1DispatchAlertId) {
+    if !lease_held {
+        tracing::warn!(
+            %alert_id,
+            "alert lease lost before status mark; transition was a no-op (reclaimed elsewhere)"
+        );
+    }
 }
 
 fn provider_failure_reason(err: PushError) -> String {

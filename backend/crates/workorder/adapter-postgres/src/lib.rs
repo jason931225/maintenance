@@ -1575,7 +1575,11 @@ async fn ensure_actor_assignment(
     .fetch_one(tx.as_mut())
     .await?;
 
-    if assigned == 1 || (requirement == AssignmentRequirement::Optional && total == 0) {
+    // `work_order_assignments` has UNIQUE (work_order_id, mechanic_id), so
+    // `assigned` is always 0 or 1; `>= 1` is used (rather than `== 1`) as a
+    // defensive equivalent that stays correct if that constraint were ever
+    // relaxed to allow a mechanic to hold multiple rows (e.g. multiple roles).
+    if assigned >= 1 || (requirement == AssignmentRequirement::Optional && total == 0) {
         return Ok(());
     }
 

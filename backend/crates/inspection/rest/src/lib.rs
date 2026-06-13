@@ -325,10 +325,19 @@ impl RestError {
             DbError::Sqlx(sqlx::Error::Database(error))
                 if error.code().is_some_and(|code| code == "23505") =>
             {
-                Self::from_kernel(KernelError::conflict(error.message().to_owned()))
+                // Log the constraint name server-side; never leak it (schema
+                // disclosure, OWASP A05). Clients get a stable generic message.
+                tracing::error!(error = %error, "database unique-constraint violation");
+                Self::from_kernel(KernelError::conflict("resource already exists"))
             }
-            DbError::Sqlx(error) => Self::internal(error.to_string()),
-            DbError::Serialize(error) => Self::internal(error.to_string()),
+            DbError::Sqlx(error) => {
+                tracing::error!(error = %error, "database error");
+                Self::internal("internal server error")
+            }
+            DbError::Serialize(error) => {
+                tracing::error!(error = %error, "serialization error");
+                Self::internal("internal server error")
+            }
         }
     }
 

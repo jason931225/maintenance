@@ -228,6 +228,108 @@ async fn no_accept_path_escalates_and_manager_force_assigns(pool: PgPool) {
     assert!(actions.contains(&"work_order.assign".to_owned()));
 }
 
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn cross_branch_consented_responder_is_gps_ranked(pool: PgPool) {
+    // Consent is per-user (location_consents UNIQUE (user_id)). A mechanic who
+    // is a valid target in the dispatch branch but whose consent row was recorded
+    // in a *different* branch must still be GPS-ranked, not silently demoted to
+    // schedule fallback (degrading P1 emergency dispatch).
+    let seeded = seed_dispatch_context(&pool).await;
+    let other_branch = seed_branch(&pool).await;
+    let cross_branch =
+        seed_user(&pool, "Cross branch mechanic", "MECHANIC", seeded.branch_id).await;
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+        .bind(*cross_branch.as_uuid())
+        .bind(*other_branch.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    seed_device(&pool, cross_branch).await;
+    // The on-duty ping is in the dispatch branch (so the mechanic is a fanout
+    // target and has a fresh GPS fix near the incident)...
+    seed_raw_ping(
+        &pool,
+        seeded.branch_id,
+        cross_branch,
+        37.5652,
+        126.9896,
+        datetime!(2026-06-12 08:59 UTC),
+    )
+    .await;
+    // ...but their per-user consent row lives in the *other* branch. The old
+    // `lc.branch_id = d.branch_id` join would miss it and demote the mechanic.
+    sqlx::query(
+        r#"
+        INSERT INTO location_consents (user_id, branch_id, status, granted_at, updated_at)
+        VALUES ($1, $2, 'GRANTED', $3, $3)
+        "#,
+    )
+    .bind(*cross_branch.as_uuid())
+    .bind(*other_branch.as_uuid())
+    .bind(datetime!(2026-06-12 08:59 UTC))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let store = PgDispatchStore::new(pool.clone());
+    let now = datetime!(2026-06-12 09:00 UTC);
+    let started = store
+        .start_dispatch(
+            StartP1DispatchCommand {
+                actor: seeded.receptionist,
+                work_order_id: seeded.work_order_id,
+                incident_location: Some(IncidentLocationInput {
+                    latitude: 37.5651,
+                    longitude: 126.9895,
+                }),
+                include_region: false,
+                trace: TraceContext::generate(),
+                occurred_at: now,
+            },
+            DispatchTimerConfig::default(),
+        )
+        .await
+        .unwrap();
+
+    store
+        .record_response(
+            RespondP1DispatchCommand {
+                actor: cross_branch,
+                dispatch_id: started.id,
+                response: DispatchResponseKind::Accept,
+                trace: TraceContext::generate(),
+                occurred_at: now + time::Duration::seconds(30),
+            },
+            DispatchTimerConfig::default(),
+        )
+        .await
+        .unwrap();
+    // A second accept triggers auto-assign, which runs candidate scoring over all
+    // accepters (the path that joins location_consents).
+    store
+        .record_response(
+            RespondP1DispatchCommand {
+                actor: seeded.near_mechanic,
+                dispatch_id: started.id,
+                response: DispatchResponseKind::Accept,
+                trace: TraceContext::generate(),
+                occurred_at: now + time::Duration::seconds(45),
+            },
+            DispatchTimerConfig::default(),
+        )
+        .await
+        .unwrap();
+
+    let response = dispatch_response(&pool, started.id, cross_branch)
+        .await
+        .unwrap();
+    assert!(
+        response.gps_ranked,
+        "cross-branch consented responder must be GPS-ranked"
+    );
+    assert!(response.distance_meters.is_some());
+}
+
 #[derive(Debug)]
 struct SeededDispatchContext {
     branch_id: BranchId,

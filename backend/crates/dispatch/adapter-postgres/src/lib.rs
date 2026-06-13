@@ -559,6 +559,74 @@ impl PgDispatchStore {
             .await
     }
 
+    /// Skip still-PENDING ALIMTALK_NO_ACK alerts directly (PENDING -> SKIPPED)
+    /// without ever transitioning through SENDING. Used when Alimtalk delivery is
+    /// disabled: the alerts are not deliverable, so claiming a delivery lease (and
+    /// transiently entering SENDING) would be incorrect — a crash mid-window must
+    /// not leave a non-deliverable alert reclaimable as deliverable. Returns the
+    /// number of alerts skipped. Each skip emits one audit row.
+    pub async fn skip_pending_alimtalk_no_ack_alerts(
+        &self,
+        dispatch_id: P1DispatchId,
+        reason: &str,
+        trace: TraceContext,
+        occurred_at: OffsetDateTime,
+    ) -> Result<u64, PgDispatchError> {
+        let branch_id = BranchId::from_uuid(
+            sqlx::query_scalar::<_, uuid::Uuid>(
+                "SELECT branch_id FROM p1_dispatches WHERE id = $1",
+            )
+            .bind(*dispatch_id.as_uuid())
+            .fetch_one(&self.pool)
+            .await?,
+        );
+        let reason = reason.to_owned();
+
+        with_audits::<_, u64, PgDispatchError>(&self.pool, |tx| {
+            Box::pin(async move {
+                let rows = sqlx::query(
+                    r#"
+                    UPDATE p1_dispatch_alerts
+                    SET status = 'SKIPPED',
+                        failure_reason = $3,
+                        lease_token = NULL,
+                        lease_expires_at = NULL
+                    WHERE dispatch_id = $1
+                      AND alert_type = 'ALIMTALK_NO_ACK'
+                      AND status = 'PENDING'
+                    RETURNING id
+                    "#,
+                )
+                .bind(*dispatch_id.as_uuid())
+                .bind(occurred_at)
+                .bind(&reason)
+                .fetch_all(tx.as_mut())
+                .await?;
+
+                let mut events = Vec::with_capacity(rows.len());
+                for row in &rows {
+                    let alert_id = P1DispatchAlertId::from_uuid(row.try_get("id")?);
+                    events.push(
+                        AuditEvent::new(
+                            None,
+                            AuditAction::new("p1_dispatch.alert_status")?,
+                            "p1_dispatch_alert",
+                            alert_id.to_string(),
+                            trace.clone(),
+                            occurred_at,
+                        )
+                        .with_branch(branch_id)
+                        .with_snapshots(None, Some(serde_json::json!({ "status": "SKIPPED" }))),
+                    );
+                }
+                let skipped = u64::try_from(rows.len())
+                    .map_err(|_| KernelError::validation("skipped count overflows u64"))?;
+                Ok((skipped, events))
+            })
+        })
+        .await
+    }
+
     /// Atomically claim pending Alimtalk alerts (PENDING -> SENDING + lease) for
     /// recipients with a phone number (FIX 4). Expired leases are reclaimed first.
     async fn claim_alimtalk_alerts(
@@ -1245,12 +1313,15 @@ async fn scored_candidates(
             COALESCE(load.other_count, 0) AS other_count
         FROM p1_dispatch_responses r
         JOIN p1_dispatches d ON d.id = r.dispatch_id
+        -- Consent is per-user (location_consents UNIQUE (user_id)); join on
+        -- user_id only so a multi-branch responder who consented in another
+        -- branch is still GPS-ranked rather than silently demoted to fallback.
         LEFT JOIN location_consents lc
-            ON lc.user_id = r.user_id AND lc.branch_id = d.branch_id
+            ON lc.user_id = r.user_id
         LEFT JOIN LATERAL (
             SELECT latitude, longitude, recorded_at
             FROM location_pings
-            WHERE user_id = r.user_id AND branch_id = d.branch_id
+            WHERE user_id = r.user_id
             ORDER BY recorded_at DESC
             LIMIT 1
         ) lp ON TRUE

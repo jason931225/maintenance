@@ -51,6 +51,12 @@ pub const MOBILE_ROUTE_PATHS: &[&str] = &[
     DEVICES_PATH,
 ];
 
+/// Maximum number of operations accepted in a single `/sync` batch. A larger
+/// batch is rejected (422) before any allocation or replay so a single
+/// principal cannot monopolize a pooled DB connection with a long sequential
+/// replay.
+pub const MAX_SYNC_BATCH_OPERATIONS: usize = 200;
+
 #[derive(Debug, Clone)]
 pub struct WorkOrderRestState {
     store: PgWorkOrderStore,
@@ -631,11 +637,9 @@ impl RestError {
     }
 
     fn from_store(error: PgWorkOrderError) -> Self {
-        let kind = error.kind();
-        Self {
-            status: status_for_error_kind(kind),
-            kind,
-            message: error.to_string(),
+        match error {
+            PgWorkOrderError::Domain(error) => Self::from_kernel(error),
+            PgWorkOrderError::Db(error) => Self::from_db(error),
         }
     }
 
@@ -657,10 +661,19 @@ impl RestError {
             DbError::Sqlx(sqlx::Error::Database(err))
                 if err.code().is_some_and(|code| code == "23505") =>
             {
-                Self::from_kernel(KernelError::conflict(err.message().to_owned()))
+                // Log the constraint name server-side; never leak it (schema
+                // disclosure, OWASP A05). Clients get a stable generic message.
+                tracing::error!(error = %err, "database unique-constraint violation");
+                Self::from_kernel(KernelError::conflict("resource already exists"))
             }
-            DbError::Sqlx(err) => Self::internal(err.to_string()),
-            DbError::Serialize(err) => Self::internal(err.to_string()),
+            DbError::Sqlx(err) => {
+                tracing::error!(error = %err, "database error");
+                Self::internal("internal server error")
+            }
+            DbError::Serialize(err) => {
+                tracing::error!(error = %err, "serialization error");
+                Self::internal("internal server error")
+            }
         }
     }
 
@@ -724,6 +737,14 @@ where
         return Err(RestError::from_kernel(KernelError::validation(
             "sync operations must not be empty",
         )));
+    }
+    // Cap the batch before allocating / replaying: one authenticated principal
+    // must not be able to monopolize a pooled DB connection with an oversized
+    // sequential replay.
+    if body.operations.len() > MAX_SYNC_BATCH_OPERATIONS {
+        return Err(RestError::from_kernel(KernelError::validation(format!(
+            "sync batch exceeds the maximum of {MAX_SYNC_BATCH_OPERATIONS} operations"
+        ))));
     }
 
     // FIX 1: a request_id must be unique within a single batch — a client that

@@ -220,6 +220,51 @@ async fn concurrent_first_pings_for_same_day_share_partition_creation(pool: PgPo
     assert_eq!(count_collection_logs(&pool, user_id).await, 32);
 }
 
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn consented_user_can_ping_a_different_branch(pool: PgPool) {
+    // Consent is per-user (location_consents UNIQUE (user_id)). A multi-branch
+    // mechanic who granted consent in branch A must still be able to ping while
+    // on duty in branch B without a spurious 403.
+    let (user_id, consent_branch) = seed_user_and_branch(&pool, "Multi Branch").await;
+    let other_branch = seed_second_branch(&pool, user_id, "Multi Branch Other").await;
+    let store = PgComplianceStore::new(pool.clone());
+
+    store
+        .transition_consent(command(
+            ConsentTransitionKind::Grant,
+            user_id,
+            consent_branch,
+            datetime!(2026-06-12 08:00:00 UTC),
+        ))
+        .await
+        .unwrap();
+
+    // current_consent for a different branch must succeed (no branch-mismatch 403).
+    store.current_consent(user_id, other_branch).await.unwrap();
+
+    let ping = LocationPing::new(
+        LocationPingId::new(),
+        user_id,
+        other_branch,
+        37.5665,
+        126.9780,
+        Some(5.0),
+        datetime!(2026-06-12 09:00:00 UTC),
+        true,
+    )
+    .unwrap();
+    store.record_location_ping(ping).await.unwrap();
+
+    assert_eq!(count_location_pings(&pool, user_id).await, 1);
+    let stored_branch: uuid::Uuid =
+        sqlx::query_scalar("SELECT branch_id FROM location_pings WHERE user_id = $1")
+            .bind(*user_id.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(stored_branch, *other_branch.as_uuid());
+}
+
 fn command(
     kind: ConsentTransitionKind,
     user_id: UserId,
@@ -276,6 +321,32 @@ async fn seed_user_in_branch(
         .unwrap();
 
     (UserId::from_uuid(user_id), branch_id)
+}
+
+async fn seed_second_branch(pool: &PgPool, user_id: UserId, display_name: &str) -> BranchId {
+    let region_id: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+            .bind(format!("{display_name} Region"))
+            .fetch_one(pool)
+            .await
+            .unwrap();
+
+    let branch_id: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
+            .bind(region_id)
+            .bind(format!("{display_name} Branch"))
+            .fetch_one(pool)
+            .await
+            .unwrap();
+
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+        .bind(*user_id.as_uuid())
+        .bind(branch_id)
+        .execute(pool)
+        .await
+        .unwrap();
+
+    BranchId::from_uuid(branch_id)
 }
 
 async fn count_location_pings(pool: &PgPool, user_id: UserId) -> i64 {

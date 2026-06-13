@@ -15,6 +15,7 @@ mnt-platform-jobs = { workspace = true }
 mnt-platform-push = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 mnt-dispatch-domain = { workspace = true }

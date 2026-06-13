@@ -233,17 +233,16 @@ impl PgFinancialStore {
         command: PrepareExpenditureCommand,
     ) -> Result<PurchaseRequestSummary, PgFinancialError> {
         validate_required(&command.expenditure_no, "expenditure number")?;
-        let purchase = self.purchase_request(command.purchase_request_id).await?;
-        let next = if purchase.amount_won > purchase_threshold(&self.pool, purchase.id).await? {
-            PurchaseStatus::ExecutivePending
-        } else {
-            PurchaseStatus::ReadyToExecute
-        };
+        // The target status is derived under the FOR UPDATE lock inside
+        // `transition_purchase` (it recomputes ExecutivePending vs ReadyToExecute
+        // from the locked row whenever the request set is one of those two), so we
+        // pass either as the requested target and let the in-lock recompute win.
+        // This avoids a redundant unlocked read of the purchase + threshold here.
         self.transition_purchase(
             command.actor,
             command.purchase_request_id,
             "purchase.expenditure.prepare",
-            next,
+            PurchaseStatus::ReadyToExecute,
             Some(command.expenditure_no),
             None,
             command.trace,
@@ -1135,19 +1134,6 @@ fn purchase_from_row(
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
-}
-
-async fn purchase_threshold(
-    pool: &PgPool,
-    purchase_request_id: PurchaseRequestId,
-) -> Result<i64, PgFinancialError> {
-    let threshold: i64 = sqlx::query_scalar(
-        "SELECT executive_threshold_won FROM financial_purchase_requests WHERE id = $1",
-    )
-    .bind(*purchase_request_id.as_uuid())
-    .fetch_one(pool)
-    .await?;
-    Ok(threshold)
 }
 
 #[allow(clippy::too_many_arguments)]

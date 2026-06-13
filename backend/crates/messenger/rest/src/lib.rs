@@ -288,11 +288,16 @@ impl RestError {
     fn from_store(err: PgMessengerError) -> Self {
         match err {
             PgMessengerError::Domain(err) => Self::from_kernel(err),
-            PgMessengerError::Db(err) => Self::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "database",
-                err.to_string(),
-            ),
+            PgMessengerError::Db(err) => {
+                // Log the raw error server-side; never leak sqlx/schema internals
+                // (schema disclosure, OWASP A05). Clients get a stable message.
+                tracing::error!(error = %err, "database error");
+                Self::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal",
+                    "internal server error",
+                )
+            }
         }
     }
 }

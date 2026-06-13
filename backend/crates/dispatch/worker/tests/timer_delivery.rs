@@ -127,6 +127,12 @@ async fn escalation_chain_skips_unconfigured_alimtalk_flags_manual_call_and_clea
         alert_count_without_sent_at(&pool, started.id, "ALIMTALK_NO_ACK", "SKIPPED").await,
         2
     );
+    // FIX 7a: the disabled path skips PENDING -> SKIPPED directly and must never
+    // transiently enter SENDING (no lease is claimed for non-deliverable alerts).
+    assert_eq!(
+        alert_count_without_sent_at(&pool, started.id, "ALIMTALK_NO_ACK", "SENDING").await,
+        0
+    );
     assert_eq!(
         skipped_alert_reason(&pool, started.id, "ALIMTALK_NO_ACK").await,
         "Solapi Alimtalk disabled: approved dispatch template id is not configured"

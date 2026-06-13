@@ -234,6 +234,9 @@ impl PgComplianceStore {
         let user_uuid = *ping.user_id().as_uuid();
         let branch_uuid = *ping.branch_id().as_uuid();
         let ping_uuid = *ping.id().as_uuid();
+        // Consent is per-user (UNIQUE (user_id)); a multi-branch user who granted
+        // consent in one branch may ping while on duty in any branch in scope.
+        // The ping's own branch_id is still recorded below for audit/retention.
         let latitude = ping.latitude();
         let longitude = ping.longitude();
         let accuracy_m = ping.accuracy_m();
@@ -249,11 +252,10 @@ impl PgComplianceStore {
             r#"
             SELECT status
             FROM location_consents
-            WHERE user_id = $1 AND branch_id = $2
+            WHERE user_id = $1
             FOR SHARE
             "#,
             user_uuid,
-            branch_uuid,
         )
         .fetch_optional(tx.as_mut())
         .await?;
@@ -429,12 +431,9 @@ impl PgComplianceStore {
             return Ok(LocationConsent::unrecorded(user_id, branch_id));
         };
 
-        if row.branch_id != *branch_id.as_uuid() {
-            return Err(
-                KernelError::forbidden("location consent belongs to a different branch").into(),
-            );
-        }
-
+        // Consent is per-user (UNIQUE (user_id)); the stored branch is the branch
+        // the user consented in and is preserved as-is. A multi-branch user is not
+        // rejected when the queried branch differs from the consent's branch.
         Ok(LocationConsent::from_persisted(PersistedLocationConsent {
             id: ConsentId::from_uuid(row.id),
             user_id: UserId::from_uuid(row.user_id),
