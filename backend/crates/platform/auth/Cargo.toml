@@ -17,7 +17,10 @@ uuid = { workspace = true }
 time = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }
-webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation"] }
+webauthn-rs = { version = "0.5.5", features = [
+    "danger-allow-state-serialisation",
+    "conditional-ui",
+] }
 jsonwebtoken = { version = "10.4.0", default-features = false, features = ["rust_crypto", "use_pem"] }
 sha2 = "0.11.0"
 url = "2.5.8"

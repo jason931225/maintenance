@@ -5,9 +5,9 @@ use time::{Duration, OffsetDateTime};
 use url::Url;
 use uuid::Uuid;
 use webauthn_rs::prelude::{
-    CreationChallengeResponse, Passkey, PasskeyAuthentication, PasskeyRegistration,
-    PublicKeyCredential, RegisterPublicKeyCredential, RequestChallengeResponse, Webauthn,
-    WebauthnBuilder,
+    CreationChallengeResponse, DiscoverableAuthentication, DiscoverableKey, Passkey,
+    PasskeyRegistration, PublicKeyCredential, RegisterPublicKeyCredential,
+    RequestChallengeResponse, Webauthn, WebauthnBuilder,
 };
 
 use crate::AuthError;
@@ -35,11 +35,6 @@ pub struct PasskeyRegistrationStart {
     pub user_id: Uuid,
     pub username: String,
     pub display_name: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct AuthenticationStart {
-    pub user_id: Uuid,
 }
 
 #[derive(Debug)]
@@ -217,18 +212,17 @@ impl PasskeyService {
         })
     }
 
+    /// Start a usernameless (discoverable) authentication ceremony.
+    ///
+    /// The challenge carries an EMPTY `allowCredentials` list: the client
+    /// discovers the resident credential to use without the server naming a user.
+    /// The persisted ceremony has a NULL `user_id` because the asserting user is
+    /// only known once the client returns the credential at finish time.
     pub async fn start_authentication(
         &self,
         pool: &PgPool,
-        input: AuthenticationStart,
     ) -> Result<AuthenticationCeremony, AuthError> {
-        let passkeys = load_user_passkeys(pool, input.user_id).await?;
-        if passkeys.is_empty() {
-            return Err(AuthError::InvalidStoredData(
-                "user has no registered passkeys".to_owned(),
-            ));
-        }
-        let (challenge, state) = self.webauthn.start_passkey_authentication(&passkeys)?;
+        let (challenge, state) = self.webauthn.start_discoverable_authentication()?;
         let ceremony_id = Uuid::new_v4();
         let now = OffsetDateTime::now_utc();
         let expires_at = now + self.ceremony_ttl;
@@ -236,7 +230,7 @@ impl PasskeyService {
         persist_ceremony(
             pool,
             ceremony_id,
-            Some(input.user_id),
+            None,
             "authentication",
             &challenge,
             &state,
@@ -251,6 +245,14 @@ impl PasskeyService {
         })
     }
 
+    /// Finish a usernameless (discoverable) authentication ceremony.
+    ///
+    /// The user is resolved FROM the asserted credential — by credential id,
+    /// which is unique per credential and always present in the assertion — so no
+    /// `user_id` is required from the client. When the authenticator returns a
+    /// user handle (a true resident key), it is cross-checked against the
+    /// resolved credential's owner. The atomic single-use ceremony claim from the
+    /// harden-1 fix is preserved verbatim, so a replayed ceremony is rejected.
     pub async fn finish_authentication(
         &self,
         pool: &PgPool,
@@ -268,32 +270,52 @@ impl PasskeyService {
             .ok_or_else(|| {
                 AuthError::InvalidStoredData("ceremony not found or already consumed".to_owned())
             })?;
-        let user_id = claim.user_id.ok_or_else(|| {
-            AuthError::InvalidStoredData("authentication ceremony missing user_id".to_owned())
-        })?;
 
-        // Verify the assertion AFTER the atomic claim using the RETURNING state.
-        // A verification failure returns Err and rolls back the claim.
-        let state: PasskeyAuthentication = serde_json::from_value(claim.state_json)?;
-        let result = self
-            .webauthn
-            .finish_passkey_authentication(&credential, &state)?;
-        let credential_id = serialize_to_string(result.cred_id(), "authentication credential id")?;
-
+        // Resolve the asserting user FROM the credential. The credential id is the
+        // stable lookup key (unique in `auth_webauthn_credentials`); it is always
+        // present in the assertion even when the authenticator omits the user
+        // handle. `raw_id` is the same `Base64UrlSafeData` type stored at
+        // registration (`passkey.cred_id()`), so it serializes to the identical
+        // base64url string the credential row is keyed by. If a user handle IS
+        // present we additionally require it to match the credential's owner.
+        let credential_id =
+            serialize_to_string(&credential.raw_id, "authentication credential id")?;
         let row = sqlx::query(
             r#"
-            SELECT id, passkey_json
+            SELECT id, user_id, passkey_json
             FROM auth_webauthn_credentials
-            WHERE user_id = $1 AND credential_id = $2
+            WHERE credential_id = $1
             "#,
         )
-        .bind(user_id)
         .bind(&credential_id)
-        .fetch_one(tx.as_mut())
-        .await?;
+        .fetch_optional(tx.as_mut())
+        .await?
+        .ok_or_else(|| {
+            AuthError::InvalidStoredData("asserted credential is not registered".to_owned())
+        })?;
         let passkey_id: Uuid = row.try_get("id")?;
+        let user_id: Uuid = row.try_get("user_id")?;
         let passkey_json: serde_json::Value = row.try_get("passkey_json")?;
+
+        if let Some(asserted_handle) = credential.get_user_unique_id()
+            && Uuid::from_slice(asserted_handle).ok() != Some(user_id)
+        {
+            return Err(AuthError::InvalidStoredData(
+                "asserted user handle does not match the credential owner".to_owned(),
+            ));
+        }
+
+        // Verify the assertion AFTER the atomic claim using the RETURNING state
+        // and the resolved credential as the single allowed discoverable key. A
+        // verification failure returns Err and rolls back the claim.
+        let state: DiscoverableAuthentication = serde_json::from_value(claim.state_json)?;
         let mut passkey: Passkey = serde_json::from_value(passkey_json)?;
+        let discoverable_key = DiscoverableKey::from(&passkey);
+        let result = self.webauthn.finish_discoverable_authentication(
+            &credential,
+            state,
+            &[discoverable_key],
+        )?;
         let changed = passkey.update_credential(&result).unwrap_or(false);
 
         if changed {

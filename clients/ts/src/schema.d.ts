@@ -656,8 +656,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Start passkey registration
-         * @description Starts registration with either a bootstrap credential or an authenticated bearer session adding a device.
+         * Start passkey registration (authenticated)
+         * @description Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token.
          */
         post: {
             parameters: {
@@ -666,7 +666,7 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            requestBody: {
+            requestBody?: {
                 content: {
                     "application/json": components["schemas"]["PasskeyRegisterStartRequest"];
                 };
@@ -702,8 +702,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Finish passkey registration
-         * @description Finishes a bootstrap-linked registration ceremony or an authenticated add-device ceremony.
+         * Finish passkey registration (authenticated)
+         * @description Finishes a passkey registration ceremony for the authenticated session user.
          */
         post: {
             parameters: {
@@ -746,7 +746,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Start passkey login */
+        /**
+         * Start usernameless passkey login
+         * @description Starts a discoverable (usernameless) authentication ceremony. No request body is required; the challenge has an empty allowCredentials list and the user is resolved from the asserted credential at finish. Rate-limited per client.
+         */
         post: {
             parameters: {
                 query?: never;
@@ -754,11 +757,7 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["PasskeyLoginStartRequest"];
-                };
-            };
+            requestBody?: never;
             responses: {
                 /** @description Authentication ceremony challenge. */
                 200: {
@@ -770,6 +769,7 @@ export interface paths {
                     };
                 };
                 401: components["responses"]["Unauthorized"];
+                429: components["responses"]["TooManyRequests"];
             };
         };
         delete?: never;
@@ -822,6 +822,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/otp/redeem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * First sign-in by redeeming a one-time code
+         * @description First sign-in for a pre-provisioned user. Redeems a single-use, expiring one-time code (admin-issued, or the cold-start secret) and mints a normal session token pair. The code is consumed atomically on success only; a wrong or expired code returns a single generic 401. Rate-limited per client (IP and optional device). `requires_passkey_setup` is true when the user has no passkey yet, so the client should force passkey enrollment in initial settings.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OtpRedeemRequest"];
+                };
+            };
+            responses: {
+                /** @description Session token pair plus passkey-setup flag. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OtpRedeemResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                429: components["responses"]["TooManyRequests"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/admin/otp/issue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue a one-time sign-in code (admin)
+         * @description Issues a single-use, high-entropy 8-character one-time code for a pre-provisioned zero-credential user so they can perform their first sign-in. Authz-gated to ADMIN / SUPER_ADMIN within branch scope. The code is returned once; only its hash is stored. `ttl_seconds` is optional and defaults to 24 hours.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AdminIssueOtpRequest"];
+                };
+            };
+            responses: {
+                /** @description The issued one-time code and its expiry. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminIssueOtpResponse"];
+                    };
+                };
+                400: components["responses"]["ValidationError"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/token/refresh": {
         parameters: {
             query?: never;
@@ -858,6 +950,7 @@ export interface paths {
                     };
                 };
                 401: components["responses"]["Unauthorized"];
+                429: components["responses"]["TooManyRequests"];
             };
         };
         delete?: never;
@@ -1827,9 +1920,8 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        /** @description Optional overrides for the authenticated session user's passkey registration. Both default to the user's stored profile when omitted. */
         PasskeyRegisterStartRequest: {
-            /** @description One-time bootstrap credential for zero-credential users. */
-            bootstrap_token?: string;
             username?: string;
             display_name?: string;
         };
@@ -1851,8 +1943,31 @@ export interface components {
             user_id: components["schemas"]["Uuid"];
             credential_id: string;
         };
-        PasskeyLoginStartRequest: {
+        OtpRedeemRequest: {
+            /** @description The one-time sign-in code (8 characters for admin-issued codes). */
+            otp: string;
+        };
+        OtpRedeemResponse: {
+            access_token: string;
+            refresh_token: string;
+            token_type: string;
+            refresh_expires_at: components["schemas"]["Timestamp"];
+            /** @description True when the signed-in user has no passkey yet and should enroll one in initial settings. */
+            requires_passkey_setup: boolean;
+        };
+        AdminIssueOtpRequest: {
             user_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            /**
+             * Format: int64
+             * @description Optional code lifetime in seconds; defaults to 86400 (24 hours).
+             */
+            ttl_seconds?: number;
+        };
+        AdminIssueOtpResponse: {
+            user_id: components["schemas"]["Uuid"];
+            otp: string;
+            expires_at: components["schemas"]["Timestamp"];
         };
         PasskeyLoginStartResponse: {
             ceremony_id: components["schemas"]["Uuid"];
@@ -2256,6 +2371,15 @@ export interface components {
         };
         /** @description State conflict or illegal transition. */
         Conflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorBody"];
+            };
+        };
+        /** @description Rate limit exceeded for this client; retry later. */
+        TooManyRequests: {
             headers: {
                 [name: string]: unknown;
             };

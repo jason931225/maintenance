@@ -30,6 +30,11 @@ struct RegisterStartResponse {
 }
 
 #[derive(Debug, Deserialize)]
+struct RegisterFinishResponse {
+    credential_id: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct LoginStartResponse {
     ceremony_id: Uuid,
     challenge: RequestChallengeResponse,
@@ -41,8 +46,26 @@ struct TokenPairResponse {
     refresh_token: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct OtpRedeemResponse {
+    access_token: String,
+    refresh_token: String,
+    requires_passkey_setup: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct AdminIssueOtpResponse {
+    otp: String,
+    user_id: Uuid,
+}
+
+/// End-to-end: an admin issues a one-time code; the new user signs in for the
+/// FIRST time by redeeming it (minting a session, flagged for passkey setup),
+/// enrolls a passkey from that authenticated session, and then signs in again
+/// usernamelessly (discoverable) with no user_id. Refresh reuse still revokes the
+/// family.
 #[sqlx::test(migrations = "../crates/platform/db/migrations")]
-async fn passkey_http_flow_issues_tokens_and_refresh_reuse_revokes_family(pool: PgPool) {
+async fn otp_first_signin_then_passkey_enrollment_then_usernameless_login(pool: PgPool) {
     let signing_key = SigningKey::random(&mut OsRng);
     let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
     let public_key_pem = signing_key
@@ -50,19 +73,13 @@ async fn passkey_http_flow_issues_tokens_and_refresh_reuse_revokes_family(pool: 
         .to_public_key_pem(LineEnding::LF)
         .unwrap();
     let branch_id = seed_branch(&pool, "Auth Region", "Auth Branch").await;
-    let user_id =
-        seed_user_with_branch(&pool, "Auth User", "010-4000-0001", "ADMIN", branch_id).await;
+    // The admin who issues codes.
+    let admin_id =
+        seed_user_with_branch(&pool, "Branch Admin", "010-4000-0000", "ADMIN", branch_id).await;
+    // The pre-provisioned new user who will do their first sign-in via OTP.
+    let new_user_id =
+        seed_user_with_branch(&pool, "New User", "010-4000-0001", "MECHANIC", branch_id).await;
     seed_equipment(&pool, branch_id, "290").await;
-
-    let bootstrap = BootstrapCredentialStore
-        .issue_for_zero_credential_user(
-            &pool,
-            *user_id.as_uuid(),
-            OffsetDateTime::now_utc(),
-            Duration::minutes(30),
-        )
-        .await
-        .unwrap();
 
     let service = build_router(
         app_state(
@@ -72,37 +89,58 @@ async fn passkey_http_flow_issues_tokens_and_refresh_reuse_revokes_family(pool: 
         )
         .unwrap(),
     );
-    let mut authenticator = WebauthnAuthenticator::new(SoftPasskey::new(true));
 
-    let registration: RegisterStartResponse = post_json(
+    // The admin first signs in (cold start in this test uses a directly-issued
+    // OTP for the admin) and enrolls a passkey so it can call admin endpoints.
+    let admin_access = admin_session_via_otp(&service, &pool, admin_id).await;
+
+    // Admin issues a one-time code for the new user.
+    let issued: AdminIssueOtpResponse = post_json(
         service.clone(),
-        "/api/v1/auth/passkey/register/start",
-        None,
-        json!({
-            "bootstrap_token": bootstrap.token.as_str(),
-            "username": "auth.user",
-            "display_name": "Auth User"
-        }),
+        "/api/v1/auth/admin/otp/issue",
+        Some(&admin_access),
+        json!({ "user_id": new_user_id.as_uuid(), "branch_id": branch_id }),
         StatusCode::OK,
     )
     .await;
-    let credential = authenticator
-        .do_registration(Url::parse(TEST_ORIGIN).unwrap(), registration.challenge)
-        .unwrap();
+    assert_eq!(&issued.user_id, new_user_id.as_uuid());
+    assert_eq!(issued.otp.chars().count(), 8, "issued OTP must be 8 chars");
 
-    let _: Value = post_json(
+    // FIRST SIGN-IN: the new user redeems the OTP -> session + setup flag.
+    let redeem: OtpRedeemResponse = post_json(
         service.clone(),
-        "/api/v1/auth/passkey/register/finish",
+        "/api/v1/auth/otp/redeem",
         None,
-        json!({
-            "ceremony_id": registration.ceremony_id,
-            "credential": credential
-        }),
-        StatusCode::CREATED,
+        json!({ "otp": issued.otp }),
+        StatusCode::OK,
     )
     .await;
+    assert!(
+        redeem.requires_passkey_setup,
+        "a zero-passkey user must be flagged for passkey setup"
+    );
+    assert!(
+        !redeem.access_token.is_empty() && !redeem.refresh_token.is_empty(),
+        "an OTP redeem is a first sign-in: it must mint a full session (access + refresh tokens)"
+    );
 
-    let first_tokens = login(&service, &mut authenticator, *user_id.as_uuid()).await;
+    // INITIAL SETTINGS: the OTP-signed-in user enrolls a passkey via the
+    // authenticated register path (no bootstrap token).
+    let mut authenticator = WebauthnAuthenticator::new(SoftPasskey::new(true));
+    let credential_id = enroll_passkey(&service, &mut authenticator, &redeem.access_token).await;
+
+    // A second OTP redeem is rejected: single-use.
+    let replay = post_raw(
+        service.clone(),
+        "/api/v1/auth/otp/redeem",
+        None,
+        json!({ "otp": issued.otp }),
+    )
+    .await;
+    assert_eq!(replay.status(), StatusCode::UNAUTHORIZED);
+
+    // USERNAMELESS SIGN-IN: no user_id, discoverable assertion -> token pair.
+    let first_tokens = usernameless_login(&service, &mut authenticator, &credential_id).await;
     let work_order: Value = post_json(
         service.clone(),
         "/api/work-orders",
@@ -117,6 +155,7 @@ async fn passkey_http_flow_issues_tokens_and_refresh_reuse_revokes_family(pool: 
     .await;
     assert_eq!(work_order["status"], "RECEIVED");
 
+    // Refresh rotation + reuse-detection still holds.
     let rotated: TokenPairResponse = post_json(
         service.clone(),
         "/api/v1/auth/token/refresh",
@@ -136,58 +175,241 @@ async fn passkey_http_flow_issues_tokens_and_refresh_reuse_revokes_family(pool: 
     .await;
     assert_eq!(reuse.status(), StatusCode::UNAUTHORIZED);
 
-    let revoked_reuse_families: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM auth_refresh_token_families WHERE user_id = $1 AND revoked_reason = 'reuse_detected'",
-    )
-    .bind(*user_id.as_uuid())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(revoked_reuse_families, 1);
-
-    let logout_tokens = login(&service, &mut authenticator, *user_id.as_uuid()).await;
-    let logout = post_raw(
-        service,
-        "/api/v1/auth/logout",
-        None,
-        json!({ "refresh_token": logout_tokens.refresh_token }),
-    )
-    .await;
-    assert_eq!(logout.status(), StatusCode::NO_CONTENT);
-
-    assert_audit_count(&pool, "auth.login", 2).await;
-    assert_audit_count(&pool, "auth.refresh", 1).await;
-    assert_audit_count(&pool, "auth.logout", 1).await;
+    assert_audit_count(&pool, "auth.otp.signin", 2).await; // admin + new user
+    assert_audit_count(&pool, "auth.login", 1).await; // usernameless login
 }
 
-async fn login(
-    service: &axum::Router,
-    authenticator: &mut WebauthnAuthenticator<SoftPasskey>,
-    user_id: Uuid,
-) -> TokenPairResponse {
-    let start: LoginStartResponse = post_json(
+/// The admin issue-OTP endpoint is authz-gated: a non-admin session is forbidden.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn admin_issue_otp_rejects_non_admin(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_id = seed_branch(&pool, "AZ Region", "AZ Branch").await;
+    let mechanic_id = seed_user_with_branch(
+        &pool,
+        "Plain Mechanic",
+        "010-5000-0001",
+        "MECHANIC",
+        branch_id,
+    )
+    .await;
+    let target_id =
+        seed_user_with_branch(&pool, "Target User", "010-5000-0002", "MECHANIC", branch_id).await;
+
+    let service = build_router(
+        app_state(
+            pool.clone(),
+            private_key_pem.to_string(),
+            public_key_pem.clone(),
+        )
+        .unwrap(),
+    );
+
+    // A mechanic signs in via OTP and tries to issue a code -> 403.
+    let mechanic_access = admin_session_via_otp(&service, &pool, mechanic_id).await;
+    let forbidden = post_raw(
         service.clone(),
-        "/api/v1/auth/passkey/login/start",
+        "/api/v1/auth/admin/otp/issue",
+        Some(&mechanic_access),
+        json!({ "user_id": target_id.as_uuid(), "branch_id": branch_id }),
+    )
+    .await;
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+
+    // No bearer at all -> 401.
+    let unauth = post_raw(
+        service,
+        "/api/v1/auth/admin/otp/issue",
         None,
-        json!({ "user_id": user_id }),
+        json!({ "user_id": target_id.as_uuid(), "branch_id": branch_id }),
+    )
+    .await;
+    assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// The DB-backed per-IP rate limit trips a 429 once the window cap is exceeded,
+/// even with no device id.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn otp_redeem_rate_limit_trips_429_per_ip(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+
+    let service = build_router(
+        app_state(
+            pool.clone(),
+            private_key_pem.to_string(),
+            public_key_pem.clone(),
+        )
+        .unwrap(),
+    );
+
+    // The per-IP cap is 10/min. The 11th request from the same IP is 429,
+    // regardless of OTP validity (wrong OTPs otherwise return 401).
+    let mut saw_429 = false;
+    for i in 0..12 {
+        let response = post_raw_with_ip(
+            service.clone(),
+            "/api/v1/auth/otp/redeem",
+            "203.0.113.7",
+            json!({ "otp": "badcode1" }),
+        )
+        .await;
+        if i < 10 {
+            assert_eq!(
+                response.status(),
+                StatusCode::UNAUTHORIZED,
+                "request {i} should be a normal generic rejection, not rate limited"
+            );
+        } else if response.status() == StatusCode::TOO_MANY_REQUESTS {
+            saw_429 = true;
+        }
+    }
+    assert!(
+        saw_429,
+        "the per-IP rate limit must trip a 429 past the cap"
+    );
+
+    // A DIFFERENT IP is unaffected by the first IP's bucket.
+    let other_ip = post_raw_with_ip(
+        service,
+        "/api/v1/auth/otp/redeem",
+        "203.0.113.99",
+        json!({ "otp": "badcode2" }),
+    )
+    .await;
+    assert_eq!(
+        other_ip.status(),
+        StatusCode::UNAUTHORIZED,
+        "a different IP must have its own bucket"
+    );
+}
+
+// --- helpers ---------------------------------------------------------------
+
+/// Sign a user in via a directly-issued OTP (used to bootstrap an authenticated
+/// session for any role in tests without a pre-existing passkey).
+async fn admin_session_via_otp(service: &axum::Router, pool: &PgPool, user_id: UserId) -> String {
+    let issue = BootstrapCredentialStore
+        .issue_for_zero_credential_user(
+            pool,
+            *user_id.as_uuid(),
+            OffsetDateTime::now_utc(),
+            Duration::hours(24),
+        )
+        .await
+        .unwrap();
+    let redeem: OtpRedeemResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/otp/redeem",
+        None,
+        json!({ "otp": issue.token.as_str() }),
         StatusCode::OK,
     )
     .await;
+    redeem.access_token
+}
+
+/// Enroll a passkey and return its credential id (base64url string).
+async fn enroll_passkey(
+    service: &axum::Router,
+    authenticator: &mut WebauthnAuthenticator<SoftPasskey>,
+    access_token: &str,
+) -> String {
+    let registration: RegisterStartResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/passkey/register/start",
+        Some(access_token),
+        json!({ "username": "new.user", "display_name": "New User" }),
+        StatusCode::OK,
+    )
+    .await;
+    let credential = authenticator
+        .do_registration(Url::parse(TEST_ORIGIN).unwrap(), registration.challenge)
+        .unwrap();
+    let finish: RegisterFinishResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/passkey/register/finish",
+        Some(access_token),
+        json!({ "ceremony_id": registration.ceremony_id, "credential": credential }),
+        StatusCode::CREATED,
+    )
+    .await;
+    finish.credential_id
+}
+
+async fn usernameless_login(
+    service: &axum::Router,
+    authenticator: &mut WebauthnAuthenticator<SoftPasskey>,
+    credential_id: &str,
+) -> TokenPairResponse {
+    // login/start takes NO body and NO user_id; the server returns a discoverable
+    // challenge with an EMPTY allowCredentials list.
+    let start: LoginStartResponse = post_raw(
+        service.clone(),
+        "/api/v1/auth/passkey/login/start",
+        None,
+        json!({}),
+    )
+    .await
+    .into_json(StatusCode::OK)
+    .await;
+
+    // The SoftPasskey harness cannot resolve a resident credential from an empty
+    // allowCredentials (it has no resident-key store), so the test injects the
+    // known credential id to emulate what a real discoverable authenticator does
+    // internally. The SERVER ceremony stays fully discoverable — see the report's
+    // SoftPasskey compromise note. The returned assertion still carries the
+    // credential id, which is what the server resolves the user by.
+    let challenge = inject_allow_credential(start.challenge, credential_id);
     let assertion = authenticator
-        .do_authentication(Url::parse(TEST_ORIGIN).unwrap(), start.challenge)
+        .do_authentication(Url::parse(TEST_ORIGIN).unwrap(), challenge)
         .unwrap();
 
     post_json(
         service.clone(),
         "/api/v1/auth/passkey/login/finish",
         None,
-        json!({
-            "ceremony_id": start.ceremony_id,
-            "credential": assertion
-        }),
+        json!({ "ceremony_id": start.ceremony_id, "credential": assertion }),
         StatusCode::OK,
     )
     .await
+}
+
+/// Inject one `allowCredentials` entry into a discoverable challenge so the
+/// SoftPasskey harness can locate its key. Emulates resident-credential
+/// discovery; production never does this.
+fn inject_allow_credential(
+    challenge: RequestChallengeResponse,
+    credential_id: &str,
+) -> RequestChallengeResponse {
+    let mut value = serde_json::to_value(&challenge).unwrap();
+    let allow = value
+        .get_mut("publicKey")
+        .and_then(|pk| pk.get_mut("allowCredentials"))
+        .and_then(Value::as_array_mut)
+        .expect("discoverable challenge must have an allowCredentials array");
+    allow.push(json!({ "type": "public-key", "id": credential_id }));
+    serde_json::from_value(value).unwrap()
+}
+
+trait ResponseExt {
+    async fn into_json<T: for<'de> Deserialize<'de>>(self, expected: StatusCode) -> T;
+}
+
+impl ResponseExt for http::Response<Body> {
+    async fn into_json<T: for<'de> Deserialize<'de>>(self, expected: StatusCode) -> T {
+        assert_eq!(self.status(), expected);
+        let bytes = to_bytes(self.into_body(), usize::MAX).await.unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
 }
 
 async fn post_json<T>(
@@ -219,6 +441,23 @@ async fn post_raw(
     if let Some(token) = bearer {
         builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
     }
+    service
+        .oneshot(builder.body(Body::from(body.to_string())).unwrap())
+        .await
+        .unwrap()
+}
+
+async fn post_raw_with_ip(
+    service: axum::Router,
+    uri: &str,
+    ip: &str,
+    body: Value,
+) -> http::Response<Body> {
+    let builder = Request::builder()
+        .uri(uri)
+        .method("POST")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header("x-forwarded-for", ip);
     service
         .oneshot(builder.body(Body::from(body.to_string())).unwrap())
         .await

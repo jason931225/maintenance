@@ -210,21 +210,23 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/location-consents/ledger.csv`.
     /// - Remark: Generated from `#/paths//api/v1/location-consents/ledger.csv/get(exportLocationConsentLedgerCsv)`.
     func exportLocationConsentLedgerCsv(_ input: Operations.ExportLocationConsentLedgerCsv.Input) async throws -> Operations.ExportLocationConsentLedgerCsv.Output
-    /// Start passkey registration
+    /// Start passkey registration (authenticated)
     ///
-    /// Starts registration with either a bootstrap credential or an authenticated bearer session adding a device.
+    /// Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token.
     ///
     /// - Remark: HTTP `POST /api/v1/auth/passkey/register/start`.
     /// - Remark: Generated from `#/paths//api/v1/auth/passkey/register/start/post`.
     func postApiV1AuthPasskeyRegisterStart(_ input: Operations.PostApiV1AuthPasskeyRegisterStart.Input) async throws -> Operations.PostApiV1AuthPasskeyRegisterStart.Output
-    /// Finish passkey registration
+    /// Finish passkey registration (authenticated)
     ///
-    /// Finishes a bootstrap-linked registration ceremony or an authenticated add-device ceremony.
+    /// Finishes a passkey registration ceremony for the authenticated session user.
     ///
     /// - Remark: HTTP `POST /api/v1/auth/passkey/register/finish`.
     /// - Remark: Generated from `#/paths//api/v1/auth/passkey/register/finish/post`.
     func postApiV1AuthPasskeyRegisterFinish(_ input: Operations.PostApiV1AuthPasskeyRegisterFinish.Input) async throws -> Operations.PostApiV1AuthPasskeyRegisterFinish.Output
-    /// Start passkey login
+    /// Start usernameless passkey login
+    ///
+    /// Starts a discoverable (usernameless) authentication ceremony. No request body is required; the challenge has an empty allowCredentials list and the user is resolved from the asserted credential at finish. Rate-limited per client.
     ///
     /// - Remark: HTTP `POST /api/v1/auth/passkey/login/start`.
     /// - Remark: Generated from `#/paths//api/v1/auth/passkey/login/start/post`.
@@ -236,6 +238,20 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/auth/passkey/login/finish`.
     /// - Remark: Generated from `#/paths//api/v1/auth/passkey/login/finish/post`.
     func postApiV1AuthPasskeyLoginFinish(_ input: Operations.PostApiV1AuthPasskeyLoginFinish.Input) async throws -> Operations.PostApiV1AuthPasskeyLoginFinish.Output
+    /// First sign-in by redeeming a one-time code
+    ///
+    /// First sign-in for a pre-provisioned user. Redeems a single-use, expiring one-time code (admin-issued, or the cold-start secret) and mints a normal session token pair. The code is consumed atomically on success only; a wrong or expired code returns a single generic 401. Rate-limited per client (IP and optional device). `requires_passkey_setup` is true when the user has no passkey yet, so the client should force passkey enrollment in initial settings.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/otp/redeem`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/otp/redeem/post`.
+    func postApiV1AuthOtpRedeem(_ input: Operations.PostApiV1AuthOtpRedeem.Input) async throws -> Operations.PostApiV1AuthOtpRedeem.Output
+    /// Issue a one-time sign-in code (admin)
+    ///
+    /// Issues a single-use, high-entropy 8-character one-time code for a pre-provisioned zero-credential user so they can perform their first sign-in. Authz-gated to ADMIN / SUPER_ADMIN within branch scope. The code is returned once; only its hash is stored. `ttl_seconds` is optional and defaults to 24 hours.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/admin/otp/issue`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/admin/otp/issue/post`.
+    func postApiV1AuthAdminOtpIssue(_ input: Operations.PostApiV1AuthAdminOtpIssue.Input) async throws -> Operations.PostApiV1AuthAdminOtpIssue.Output
     /// Rotate refresh token
     ///
     /// Rotates an opaque refresh token; reuse of an old token revokes the whole family and returns 401.
@@ -917,24 +933,24 @@ extension APIProtocol {
             headers: headers
         ))
     }
-    /// Start passkey registration
+    /// Start passkey registration (authenticated)
     ///
-    /// Starts registration with either a bootstrap credential or an authenticated bearer session adding a device.
+    /// Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token.
     ///
     /// - Remark: HTTP `POST /api/v1/auth/passkey/register/start`.
     /// - Remark: Generated from `#/paths//api/v1/auth/passkey/register/start/post`.
     public func postApiV1AuthPasskeyRegisterStart(
         headers: Operations.PostApiV1AuthPasskeyRegisterStart.Input.Headers = .init(),
-        body: Operations.PostApiV1AuthPasskeyRegisterStart.Input.Body
+        body: Operations.PostApiV1AuthPasskeyRegisterStart.Input.Body? = nil
     ) async throws -> Operations.PostApiV1AuthPasskeyRegisterStart.Output {
         try await postApiV1AuthPasskeyRegisterStart(Operations.PostApiV1AuthPasskeyRegisterStart.Input(
             headers: headers,
             body: body
         ))
     }
-    /// Finish passkey registration
+    /// Finish passkey registration (authenticated)
     ///
-    /// Finishes a bootstrap-linked registration ceremony or an authenticated add-device ceremony.
+    /// Finishes a passkey registration ceremony for the authenticated session user.
     ///
     /// - Remark: HTTP `POST /api/v1/auth/passkey/register/finish`.
     /// - Remark: Generated from `#/paths//api/v1/auth/passkey/register/finish/post`.
@@ -947,18 +963,14 @@ extension APIProtocol {
             body: body
         ))
     }
-    /// Start passkey login
+    /// Start usernameless passkey login
+    ///
+    /// Starts a discoverable (usernameless) authentication ceremony. No request body is required; the challenge has an empty allowCredentials list and the user is resolved from the asserted credential at finish. Rate-limited per client.
     ///
     /// - Remark: HTTP `POST /api/v1/auth/passkey/login/start`.
     /// - Remark: Generated from `#/paths//api/v1/auth/passkey/login/start/post`.
-    public func postApiV1AuthPasskeyLoginStart(
-        headers: Operations.PostApiV1AuthPasskeyLoginStart.Input.Headers = .init(),
-        body: Operations.PostApiV1AuthPasskeyLoginStart.Input.Body
-    ) async throws -> Operations.PostApiV1AuthPasskeyLoginStart.Output {
-        try await postApiV1AuthPasskeyLoginStart(Operations.PostApiV1AuthPasskeyLoginStart.Input(
-            headers: headers,
-            body: body
-        ))
+    public func postApiV1AuthPasskeyLoginStart(headers: Operations.PostApiV1AuthPasskeyLoginStart.Input.Headers = .init()) async throws -> Operations.PostApiV1AuthPasskeyLoginStart.Output {
+        try await postApiV1AuthPasskeyLoginStart(Operations.PostApiV1AuthPasskeyLoginStart.Input(headers: headers))
     }
     /// Finish passkey login
     ///
@@ -971,6 +983,36 @@ extension APIProtocol {
         body: Operations.PostApiV1AuthPasskeyLoginFinish.Input.Body
     ) async throws -> Operations.PostApiV1AuthPasskeyLoginFinish.Output {
         try await postApiV1AuthPasskeyLoginFinish(Operations.PostApiV1AuthPasskeyLoginFinish.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// First sign-in by redeeming a one-time code
+    ///
+    /// First sign-in for a pre-provisioned user. Redeems a single-use, expiring one-time code (admin-issued, or the cold-start secret) and mints a normal session token pair. The code is consumed atomically on success only; a wrong or expired code returns a single generic 401. Rate-limited per client (IP and optional device). `requires_passkey_setup` is true when the user has no passkey yet, so the client should force passkey enrollment in initial settings.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/otp/redeem`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/otp/redeem/post`.
+    public func postApiV1AuthOtpRedeem(
+        headers: Operations.PostApiV1AuthOtpRedeem.Input.Headers = .init(),
+        body: Operations.PostApiV1AuthOtpRedeem.Input.Body
+    ) async throws -> Operations.PostApiV1AuthOtpRedeem.Output {
+        try await postApiV1AuthOtpRedeem(Operations.PostApiV1AuthOtpRedeem.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Issue a one-time sign-in code (admin)
+    ///
+    /// Issues a single-use, high-entropy 8-character one-time code for a pre-provisioned zero-credential user so they can perform their first sign-in. Authz-gated to ADMIN / SUPER_ADMIN within branch scope. The code is returned once; only its hash is stored. `ttl_seconds` is optional and defaults to 24 hours.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/admin/otp/issue`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/admin/otp/issue/post`.
+    public func postApiV1AuthAdminOtpIssue(
+        headers: Operations.PostApiV1AuthAdminOtpIssue.Input.Headers = .init(),
+        body: Operations.PostApiV1AuthAdminOtpIssue.Input.Body
+    ) async throws -> Operations.PostApiV1AuthAdminOtpIssue.Output {
+        try await postApiV1AuthAdminOtpIssue(Operations.PostApiV1AuthAdminOtpIssue.Input(
             headers: headers,
             body: body
         ))
@@ -3727,12 +3769,10 @@ public enum Components {
                 case total
             }
         }
+        /// Optional overrides for the authenticated session user's passkey registration. Both default to the user's stored profile when omitted.
+        ///
         /// - Remark: Generated from `#/components/schemas/PasskeyRegisterStartRequest`.
         public struct PasskeyRegisterStartRequest: Codable, Hashable, Sendable {
-            /// One-time bootstrap credential for zero-credential users.
-            ///
-            /// - Remark: Generated from `#/components/schemas/PasskeyRegisterStartRequest/bootstrap_token`.
-            public var bootstrapToken: Swift.String?
             /// - Remark: Generated from `#/components/schemas/PasskeyRegisterStartRequest/username`.
             public var username: Swift.String?
             /// - Remark: Generated from `#/components/schemas/PasskeyRegisterStartRequest/display_name`.
@@ -3740,20 +3780,16 @@ public enum Components {
             /// Creates a new `PasskeyRegisterStartRequest`.
             ///
             /// - Parameters:
-            ///   - bootstrapToken: One-time bootstrap credential for zero-credential users.
             ///   - username:
             ///   - displayName:
             public init(
-                bootstrapToken: Swift.String? = nil,
                 username: Swift.String? = nil,
                 displayName: Swift.String? = nil
             ) {
-                self.bootstrapToken = bootstrapToken
                 self.username = username
                 self.displayName = displayName
             }
             public enum CodingKeys: String, CodingKey {
-                case bootstrapToken = "bootstrap_token"
                 case username
                 case displayName = "display_name"
             }
@@ -3875,19 +3911,124 @@ public enum Components {
                 case credentialId = "credential_id"
             }
         }
-        /// - Remark: Generated from `#/components/schemas/PasskeyLoginStartRequest`.
-        public struct PasskeyLoginStartRequest: Codable, Hashable, Sendable {
-            /// - Remark: Generated from `#/components/schemas/PasskeyLoginStartRequest/user_id`.
+        /// - Remark: Generated from `#/components/schemas/OtpRedeemRequest`.
+        public struct OtpRedeemRequest: Codable, Hashable, Sendable {
+            /// The one-time sign-in code (8 characters for admin-issued codes).
+            ///
+            /// - Remark: Generated from `#/components/schemas/OtpRedeemRequest/otp`.
+            public var otp: Swift.String
+            /// Creates a new `OtpRedeemRequest`.
+            ///
+            /// - Parameters:
+            ///   - otp: The one-time sign-in code (8 characters for admin-issued codes).
+            public init(otp: Swift.String) {
+                self.otp = otp
+            }
+            public enum CodingKeys: String, CodingKey {
+                case otp
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/OtpRedeemResponse`.
+        public struct OtpRedeemResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/OtpRedeemResponse/access_token`.
+            public var accessToken: Swift.String
+            /// - Remark: Generated from `#/components/schemas/OtpRedeemResponse/refresh_token`.
+            public var refreshToken: Swift.String
+            /// - Remark: Generated from `#/components/schemas/OtpRedeemResponse/token_type`.
+            public var tokenType: Swift.String
+            /// - Remark: Generated from `#/components/schemas/OtpRedeemResponse/refresh_expires_at`.
+            public var refreshExpiresAt: Components.Schemas.Timestamp
+            /// True when the signed-in user has no passkey yet and should enroll one in initial settings.
+            ///
+            /// - Remark: Generated from `#/components/schemas/OtpRedeemResponse/requires_passkey_setup`.
+            public var requiresPasskeySetup: Swift.Bool
+            /// Creates a new `OtpRedeemResponse`.
+            ///
+            /// - Parameters:
+            ///   - accessToken:
+            ///   - refreshToken:
+            ///   - tokenType:
+            ///   - refreshExpiresAt:
+            ///   - requiresPasskeySetup: True when the signed-in user has no passkey yet and should enroll one in initial settings.
+            public init(
+                accessToken: Swift.String,
+                refreshToken: Swift.String,
+                tokenType: Swift.String,
+                refreshExpiresAt: Components.Schemas.Timestamp,
+                requiresPasskeySetup: Swift.Bool
+            ) {
+                self.accessToken = accessToken
+                self.refreshToken = refreshToken
+                self.tokenType = tokenType
+                self.refreshExpiresAt = refreshExpiresAt
+                self.requiresPasskeySetup = requiresPasskeySetup
+            }
+            public enum CodingKeys: String, CodingKey {
+                case accessToken = "access_token"
+                case refreshToken = "refresh_token"
+                case tokenType = "token_type"
+                case refreshExpiresAt = "refresh_expires_at"
+                case requiresPasskeySetup = "requires_passkey_setup"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AdminIssueOtpRequest`.
+        public struct AdminIssueOtpRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AdminIssueOtpRequest/user_id`.
             public var userId: Components.Schemas.Uuid
-            /// Creates a new `PasskeyLoginStartRequest`.
+            /// - Remark: Generated from `#/components/schemas/AdminIssueOtpRequest/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// Optional code lifetime in seconds; defaults to 86400 (24 hours).
+            ///
+            /// - Remark: Generated from `#/components/schemas/AdminIssueOtpRequest/ttl_seconds`.
+            public var ttlSeconds: Swift.Int64?
+            /// Creates a new `AdminIssueOtpRequest`.
             ///
             /// - Parameters:
             ///   - userId:
-            public init(userId: Components.Schemas.Uuid) {
+            ///   - branchId:
+            ///   - ttlSeconds: Optional code lifetime in seconds; defaults to 86400 (24 hours).
+            public init(
+                userId: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid,
+                ttlSeconds: Swift.Int64? = nil
+            ) {
                 self.userId = userId
+                self.branchId = branchId
+                self.ttlSeconds = ttlSeconds
             }
             public enum CodingKeys: String, CodingKey {
                 case userId = "user_id"
+                case branchId = "branch_id"
+                case ttlSeconds = "ttl_seconds"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AdminIssueOtpResponse`.
+        public struct AdminIssueOtpResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AdminIssueOtpResponse/user_id`.
+            public var userId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/AdminIssueOtpResponse/otp`.
+            public var otp: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AdminIssueOtpResponse/expires_at`.
+            public var expiresAt: Components.Schemas.Timestamp
+            /// Creates a new `AdminIssueOtpResponse`.
+            ///
+            /// - Parameters:
+            ///   - userId:
+            ///   - otp:
+            ///   - expiresAt:
+            public init(
+                userId: Components.Schemas.Uuid,
+                otp: Swift.String,
+                expiresAt: Components.Schemas.Timestamp
+            ) {
+                self.userId = userId
+                self.otp = otp
+                self.expiresAt = expiresAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case userId = "user_id"
+                case otp
+                case expiresAt = "expires_at"
             }
         }
         /// - Remark: Generated from `#/components/schemas/PasskeyLoginStartResponse`.
@@ -5865,6 +6006,34 @@ public enum Components {
             /// - Parameters:
             ///   - body: Received HTTP response body
             public init(body: Components.Responses.Conflict.Body) {
+                self.body = body
+            }
+        }
+        public struct TooManyRequests: Sendable, Hashable {
+            /// - Remark: Generated from `#/components/responses/TooManyRequests/content`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/components/responses/TooManyRequests/content/application\/json`.
+                case json(Components.Schemas.ErrorBody)
+                /// The associated value of the enum case if `self` is `.json`.
+                ///
+                /// - Throws: An error if `self` is not `.json`.
+                /// - SeeAlso: `.json`.
+                public var json: Components.Schemas.ErrorBody {
+                    get throws {
+                        switch self {
+                        case let .json(body):
+                            return body
+                        }
+                    }
+                }
+            }
+            /// Received HTTP response body
+            public var body: Components.Responses.TooManyRequests.Body
+            /// Creates a new `TooManyRequests`.
+            ///
+            /// - Parameters:
+            ///   - body: Received HTTP response body
+            public init(body: Components.Responses.TooManyRequests.Body) {
                 self.body = body
             }
         }
@@ -13023,9 +13192,9 @@ public enum Operations {
             }
         }
     }
-    /// Start passkey registration
+    /// Start passkey registration (authenticated)
     ///
-    /// Starts registration with either a bootstrap credential or an authenticated bearer session adding a device.
+    /// Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token.
     ///
     /// - Remark: HTTP `POST /api/v1/auth/passkey/register/start`.
     /// - Remark: Generated from `#/paths//api/v1/auth/passkey/register/start/post`.
@@ -13049,7 +13218,7 @@ public enum Operations {
                 /// - Remark: Generated from `#/paths/api/v1/auth/passkey/register/start/POST/requestBody/content/application\/json`.
                 case json(Components.Schemas.PasskeyRegisterStartRequest)
             }
-            public var body: Operations.PostApiV1AuthPasskeyRegisterStart.Input.Body
+            public var body: Operations.PostApiV1AuthPasskeyRegisterStart.Input.Body?
             /// Creates a new `Input`.
             ///
             /// - Parameters:
@@ -13057,7 +13226,7 @@ public enum Operations {
             ///   - body:
             public init(
                 headers: Operations.PostApiV1AuthPasskeyRegisterStart.Input.Headers = .init(),
-                body: Operations.PostApiV1AuthPasskeyRegisterStart.Input.Body
+                body: Operations.PostApiV1AuthPasskeyRegisterStart.Input.Body? = nil
             ) {
                 self.headers = headers
                 self.body = body
@@ -13215,9 +13384,9 @@ public enum Operations {
             }
         }
     }
-    /// Finish passkey registration
+    /// Finish passkey registration (authenticated)
     ///
-    /// Finishes a bootstrap-linked registration ceremony or an authenticated add-device ceremony.
+    /// Finishes a passkey registration ceremony for the authenticated session user.
     ///
     /// - Remark: HTTP `POST /api/v1/auth/passkey/register/finish`.
     /// - Remark: Generated from `#/paths//api/v1/auth/passkey/register/finish/post`.
@@ -13384,7 +13553,9 @@ public enum Operations {
             }
         }
     }
-    /// Start passkey login
+    /// Start usernameless passkey login
+    ///
+    /// Starts a discoverable (usernameless) authentication ceremony. No request body is required; the challenge has an empty allowCredentials list and the user is resolved from the asserted credential at finish. Rate-limited per client.
     ///
     /// - Remark: HTTP `POST /api/v1/auth/passkey/login/start`.
     /// - Remark: Generated from `#/paths//api/v1/auth/passkey/login/start/post`.
@@ -13403,23 +13574,12 @@ public enum Operations {
                 }
             }
             public var headers: Operations.PostApiV1AuthPasskeyLoginStart.Input.Headers
-            /// - Remark: Generated from `#/paths/api/v1/auth/passkey/login/start/POST/requestBody`.
-            @frozen public enum Body: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/api/v1/auth/passkey/login/start/POST/requestBody/content/application\/json`.
-                case json(Components.Schemas.PasskeyLoginStartRequest)
-            }
-            public var body: Operations.PostApiV1AuthPasskeyLoginStart.Input.Body
             /// Creates a new `Input`.
             ///
             /// - Parameters:
             ///   - headers:
-            ///   - body:
-            public init(
-                headers: Operations.PostApiV1AuthPasskeyLoginStart.Input.Headers = .init(),
-                body: Operations.PostApiV1AuthPasskeyLoginStart.Input.Body
-            ) {
+            public init(headers: Operations.PostApiV1AuthPasskeyLoginStart.Input.Headers = .init()) {
                 self.headers = headers
-                self.body = body
             }
         }
         @frozen public enum Output: Sendable, Hashable {
@@ -13492,6 +13652,29 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Rate limit exceeded for this client; retry later.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/passkey/login/start/post/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Components.Responses.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            public var tooManyRequests: Components.Responses.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
                             response: self
                         )
                     }
@@ -13674,6 +13857,390 @@ public enum Operations {
             }
         }
     }
+    /// First sign-in by redeeming a one-time code
+    ///
+    /// First sign-in for a pre-provisioned user. Redeems a single-use, expiring one-time code (admin-issued, or the cold-start secret) and mints a normal session token pair. The code is consumed atomically on success only; a wrong or expired code returns a single generic 401. Rate-limited per client (IP and optional device). `requires_passkey_setup` is true when the user has no passkey yet, so the client should force passkey enrollment in initial settings.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/otp/redeem`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/otp/redeem/post`.
+    public enum PostApiV1AuthOtpRedeem {
+        public static let id: Swift.String = "post/api/v1/auth/otp/redeem"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/auth/otp/redeem/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PostApiV1AuthOtpRedeem.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PostApiV1AuthOtpRedeem.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.PostApiV1AuthOtpRedeem.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/auth/otp/redeem/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/otp/redeem/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.OtpRedeemRequest)
+            }
+            public var body: Operations.PostApiV1AuthOtpRedeem.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.PostApiV1AuthOtpRedeem.Input.Headers = .init(),
+                body: Operations.PostApiV1AuthOtpRedeem.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/otp/redeem/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/auth/otp/redeem/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.OtpRedeemResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.OtpRedeemResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PostApiV1AuthOtpRedeem.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PostApiV1AuthOtpRedeem.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Session token pair plus passkey-setup flag.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/otp/redeem/post/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.PostApiV1AuthOtpRedeem.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.PostApiV1AuthOtpRedeem.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/otp/redeem/post/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Rate limit exceeded for this client; retry later.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/otp/redeem/post/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Components.Responses.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            public var tooManyRequests: Components.Responses.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Issue a one-time sign-in code (admin)
+    ///
+    /// Issues a single-use, high-entropy 8-character one-time code for a pre-provisioned zero-credential user so they can perform their first sign-in. Authz-gated to ADMIN / SUPER_ADMIN within branch scope. The code is returned once; only its hash is stored. `ttl_seconds` is optional and defaults to 24 hours.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/admin/otp/issue`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/admin/otp/issue/post`.
+    public enum PostApiV1AuthAdminOtpIssue {
+        public static let id: Swift.String = "post/api/v1/auth/admin/otp/issue"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/auth/admin/otp/issue/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PostApiV1AuthAdminOtpIssue.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PostApiV1AuthAdminOtpIssue.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.PostApiV1AuthAdminOtpIssue.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/auth/admin/otp/issue/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/admin/otp/issue/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.AdminIssueOtpRequest)
+            }
+            public var body: Operations.PostApiV1AuthAdminOtpIssue.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.PostApiV1AuthAdminOtpIssue.Input.Headers = .init(),
+                body: Operations.PostApiV1AuthAdminOtpIssue.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/admin/otp/issue/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/auth/admin/otp/issue/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.AdminIssueOtpResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.AdminIssueOtpResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PostApiV1AuthAdminOtpIssue.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PostApiV1AuthAdminOtpIssue.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The issued one-time code and its expiry.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/admin/otp/issue/post/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.PostApiV1AuthAdminOtpIssue.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.PostApiV1AuthAdminOtpIssue.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/admin/otp/issue/post/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/admin/otp/issue/post/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/admin/otp/issue/post/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/admin/otp/issue/post/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// Rotate refresh token
     ///
     /// Rotates an opaque refresh token; reuse of an old token revokes the whole family and returns 401.
@@ -13784,6 +14351,29 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Rate limit exceeded for this client; retry later.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/token/refresh/post/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Components.Responses.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            public var tooManyRequests: Components.Responses.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
                             response: self
                         )
                     }

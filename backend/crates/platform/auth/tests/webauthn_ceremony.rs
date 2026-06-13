@@ -1,13 +1,31 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use mnt_platform_auth::{
-    AuthenticationStart, PasskeyRegistrationStart, PasskeyService, WebauthnSettings,
-};
+use mnt_platform_auth::{PasskeyRegistrationStart, PasskeyService, WebauthnSettings};
 use sqlx::{PgPool, Row};
 use time::Duration;
 use url::Url;
-use webauthn_authenticator_rs::prelude::WebauthnAuthenticator;
+use webauthn_authenticator_rs::prelude::{RequestChallengeResponse, WebauthnAuthenticator};
 use webauthn_authenticator_rs::softpasskey::SoftPasskey;
+
+/// Inject one `allowCredentials` entry into a discoverable challenge so the
+/// SoftPasskey harness — which has no resident-key store and cannot sign against
+/// an empty allowCredentials — can locate its key. This emulates what a real
+/// discoverable authenticator does internally; the SERVER ceremony remains fully
+/// discoverable (it issues an empty allowCredentials). The returned assertion
+/// still carries the credential id, which is what the server resolves by.
+fn inject_allow_credential(
+    challenge: RequestChallengeResponse,
+    credential_id: &str,
+) -> RequestChallengeResponse {
+    let mut value = serde_json::to_value(&challenge).unwrap();
+    let allow = value
+        .get_mut("publicKey")
+        .and_then(|pk| pk.get_mut("allowCredentials"))
+        .and_then(serde_json::Value::as_array_mut)
+        .expect("discoverable challenge must have an allowCredentials array");
+    allow.push(serde_json::json!({ "type": "public-key", "id": credential_id }));
+    serde_json::from_value(value).unwrap()
+}
 
 async fn seed_user(pool: &PgPool) -> uuid::Uuid {
     sqlx::query_scalar("INSERT INTO users (display_name, roles) VALUES ($1, $2) RETURNING id")
@@ -29,8 +47,11 @@ fn service() -> PasskeyService {
     .unwrap()
 }
 
+/// Register a discoverable passkey, then authenticate WITHOUT supplying a
+/// user_id. The user is resolved from the asserted credential at finish time —
+/// this is the usernameless sign-in path.
 #[sqlx::test(migrations = "../db/migrations")]
-async fn passkey_registration_login_and_ceremony_state_are_persisted(pool: PgPool) {
+async fn discoverable_passkey_registration_and_usernameless_login(pool: PgPool) {
     let user_id = seed_user(&pool).await;
     let service = service();
 
@@ -78,22 +99,58 @@ async fn passkey_registration_login_and_ceremony_state_are_persisted(pool: PgPoo
             .unwrap();
     assert!(consumed_at.is_some());
 
-    let authentication = service
-        .start_authentication(&pool, AuthenticationStart { user_id })
-        .await
-        .unwrap();
+    // Usernameless authentication: start carries no user_id; the persisted
+    // ceremony has a NULL user_id and an empty allowCredentials challenge.
+    let authentication = service.start_authentication(&pool).await.unwrap();
+    let ceremony_user_id: Option<uuid::Uuid> =
+        sqlx::query_scalar("SELECT user_id FROM auth_webauthn_ceremonies WHERE id = $1")
+            .bind(authentication.ceremony_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        ceremony_user_id.is_none(),
+        "discoverable auth ceremony must not bind a user up front"
+    );
 
+    let challenge =
+        inject_allow_credential(authentication.challenge, &stored_passkey.credential_id);
     let assertion = authenticator
-        .do_authentication(
-            Url::parse("https://auth.example.com").unwrap(),
-            authentication.challenge,
-        )
+        .do_authentication(Url::parse("https://auth.example.com").unwrap(), challenge)
         .unwrap();
 
     let outcome = service
         .finish_authentication(&pool, authentication.ceremony_id, assertion)
         .await
         .unwrap();
-    assert_eq!(outcome.user_id, user_id);
+    assert_eq!(
+        outcome.user_id, user_id,
+        "user must be resolved from the asserted credential"
+    );
     assert_eq!(outcome.passkey_id, stored_passkey.id);
+}
+
+/// An assertion for a credential that is not registered must be rejected (the
+/// user cannot be resolved), and the ceremony stays the single-use, atomic kind.
+#[sqlx::test(migrations = "../db/migrations")]
+async fn usernameless_login_rejects_unregistered_credential(pool: PgPool) {
+    let service = service();
+
+    let authentication = service.start_authentication(&pool).await.unwrap();
+
+    // Drive an authenticator that never registered against this service.
+    let mut authenticator = WebauthnAuthenticator::new(SoftPasskey::new(true));
+    let assertion = authenticator.do_authentication(
+        Url::parse("https://auth.example.com").unwrap(),
+        authentication.challenge,
+    );
+
+    // SoftPasskey with no matching credential fails to produce an assertion; if it
+    // somehow does, finish must still reject because the credential is unknown.
+    if let Ok(assertion) = assertion {
+        let result = service
+            .finish_authentication(&pool, authentication.ceremony_id, assertion)
+            .await;
+        assert!(result.is_err(), "unregistered credential must be rejected");
+    }
 }

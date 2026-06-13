@@ -1056,14 +1056,14 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/auth/passkey/register/start:
     post:
-      summary: Start passkey registration
-      description: Starts registration with either a bootstrap credential or an authenticated bearer session
-        adding a device.
+      summary: Start passkey registration (authenticated)
+      description: Starts a passkey registration ceremony for the authenticated session user.
+        Used during initial-settings passkey enrollment after an OTP first sign-in, or to add
+        a device later. Requires a bearer token.
       security:
       - bearerAuth: []
-      - {}
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -1083,11 +1083,10 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/auth/passkey/register/finish:
     post:
-      summary: Finish passkey registration
-      description: Finishes a bootstrap-linked registration ceremony or an authenticated add-device ceremony.
+      summary: Finish passkey registration (authenticated)
+      description: Finishes a passkey registration ceremony for the authenticated session user.
       security:
       - bearerAuth: []
-      - {}
       requestBody:
         required: true
         content:
@@ -1107,13 +1106,10 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/auth/passkey/login/start:
     post:
-      summary: Start passkey login
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PasskeyLoginStartRequest'
+      summary: Start usernameless passkey login
+      description: Starts a discoverable (usernameless) authentication ceremony. No request
+        body is required; the challenge has an empty allowCredentials list and the user is
+        resolved from the asserted credential at finish. Rate-limited per client.
       responses:
         '200':
           description: Authentication ceremony challenge.
@@ -1123,6 +1119,8 @@ paths:
                 $ref: '#/components/schemas/PasskeyLoginStartResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/v1/auth/passkey/login/finish:
     post:
       summary: Finish passkey login
@@ -1143,6 +1141,62 @@ paths:
                 $ref: '#/components/schemas/TokenPairResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/otp/redeem:
+    post:
+      summary: First sign-in by redeeming a one-time code
+      description: First sign-in for a pre-provisioned user. Redeems a single-use,
+        expiring one-time code (admin-issued, or the cold-start secret) and mints a normal
+        session token pair. The code is consumed atomically on success only; a wrong or
+        expired code returns a single generic 401. Rate-limited per client (IP and optional
+        device). `requires_passkey_setup` is true when the user has no passkey yet, so the
+        client should force passkey enrollment in initial settings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OtpRedeemRequest'
+      responses:
+        '200':
+          description: Session token pair plus passkey-setup flag.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtpRedeemResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/auth/admin/otp/issue:
+    post:
+      summary: Issue a one-time sign-in code (admin)
+      description: Issues a single-use, high-entropy 8-character one-time code for a
+        pre-provisioned zero-credential user so they can perform their first sign-in. Authz-gated
+        to ADMIN / SUPER_ADMIN within branch scope. The code is returned once; only its hash is
+        stored. `ttl_seconds` is optional and defaults to 24 hours.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminIssueOtpRequest'
+      responses:
+        '200':
+          description: The issued one-time code and its expiry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminIssueOtpResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /api/v1/auth/token/refresh:
     post:
       summary: Rotate refresh token
@@ -1163,6 +1217,8 @@ paths:
                 $ref: '#/components/schemas/TokenPairResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/v1/auth/logout:
     post:
       summary: Logout and revoke refresh-token family
@@ -2105,6 +2161,12 @@ components:
             $ref: '#/components/schemas/ErrorBody'
     Conflict:
       description: State conflict or illegal transition.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    TooManyRequests:
+      description: Rate limit exceeded for this client; retry later.
       content:
         application/json:
           schema:
@@ -3388,10 +3450,9 @@ components:
           format: int64
     PasskeyRegisterStartRequest:
       type: object
+      description: Optional overrides for the authenticated session user's passkey
+        registration. Both default to the user's stored profile when omitted.
       properties:
-        bootstrap_token:
-          type: string
-          description: One-time bootstrap credential for zero-credential users.
         username:
           type: string
         display_name:
@@ -3434,13 +3495,62 @@ components:
           $ref: '#/components/schemas/Uuid'
         credential_id:
           type: string
-    PasskeyLoginStartRequest:
+    OtpRedeemRequest:
+      type: object
+      required:
+      - otp
+      properties:
+        otp:
+          type: string
+          description: The one-time sign-in code (8 characters for admin-issued codes).
+    OtpRedeemResponse:
+      type: object
+      required:
+      - access_token
+      - refresh_token
+      - token_type
+      - refresh_expires_at
+      - requires_passkey_setup
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+        refresh_expires_at:
+          $ref: '#/components/schemas/Timestamp'
+        requires_passkey_setup:
+          type: boolean
+          description: True when the signed-in user has no passkey yet and should enroll one
+            in initial settings.
+    AdminIssueOtpRequest:
       type: object
       required:
       - user_id
+      - branch_id
       properties:
         user_id:
           $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        ttl_seconds:
+          type: integer
+          format: int64
+          description: Optional code lifetime in seconds; defaults to 86400 (24 hours).
+    AdminIssueOtpResponse:
+      type: object
+      required:
+      - user_id
+      - otp
+      - expires_at
+      properties:
+        user_id:
+          $ref: '#/components/schemas/Uuid'
+        otp:
+          type: string
+        expires_at:
+          $ref: '#/components/schemas/Timestamp'
     PasskeyLoginStartResponse:
       type: object
       required:

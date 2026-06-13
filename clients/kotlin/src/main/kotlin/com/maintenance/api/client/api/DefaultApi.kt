@@ -27,6 +27,8 @@ import java.io.IOException
 import okhttp3.Call
 import okhttp3.HttpUrl
 
+import com.maintenance.api.client.model.AdminIssueOtpRequest
+import com.maintenance.api.client.model.AdminIssueOtpResponse
 import com.maintenance.api.client.model.AppendManualCostLedgerRequest
 import com.maintenance.api.client.model.AssignWorkOrderRequest
 import com.maintenance.api.client.model.CompleteInspectionRoundRequest
@@ -64,10 +66,11 @@ import com.maintenance.api.client.model.MessengerMessageSummary
 import com.maintenance.api.client.model.MessengerReadReceiptSummary
 import com.maintenance.api.client.model.MessengerThreadListResponse
 import com.maintenance.api.client.model.MessengerThreadSummary
+import com.maintenance.api.client.model.OtpRedeemRequest
+import com.maintenance.api.client.model.OtpRedeemResponse
 import com.maintenance.api.client.model.OutsourceWorkSummary
 import com.maintenance.api.client.model.P1DispatchSummary
 import com.maintenance.api.client.model.PasskeyLoginFinishRequest
-import com.maintenance.api.client.model.PasskeyLoginStartRequest
 import com.maintenance.api.client.model.PasskeyLoginStartResponse
 import com.maintenance.api.client.model.PasskeyRegisterFinishRequest
 import com.maintenance.api.client.model.PasskeyRegisterFinishResponse
@@ -127,6 +130,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         val defaultBasePath: String by lazy {
             System.getProperties().getProperty(ApiClient.BASE_URL_KEY, "http://localhost")
         }
+    }
+
+    /**
+     * POST /api/v1/auth/admin/otp/issue
+     * Issue a one-time sign-in code (admin)
+     * Issues a single-use, high-entropy 8-character one-time code for a pre-provisioned zero-credential user so they can perform their first sign-in. Authz-gated to ADMIN / SUPER_ADMIN within branch scope. The code is returned once; only its hash is stored. &#x60;ttl_seconds&#x60; is optional and defaults to 24 hours.
+     * @param adminIssueOtpRequest
+     * @return AdminIssueOtpResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun apiV1AuthAdminOtpIssuePost(adminIssueOtpRequest: AdminIssueOtpRequest) : AdminIssueOtpResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = apiV1AuthAdminOtpIssuePostWithHttpInfo(adminIssueOtpRequest = adminIssueOtpRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as AdminIssueOtpResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/admin/otp/issue
+     * Issue a one-time sign-in code (admin)
+     * Issues a single-use, high-entropy 8-character one-time code for a pre-provisioned zero-credential user so they can perform their first sign-in. Authz-gated to ADMIN / SUPER_ADMIN within branch scope. The code is returned once; only its hash is stored. &#x60;ttl_seconds&#x60; is optional and defaults to 24 hours.
+     * @param adminIssueOtpRequest
+     * @return ApiResponse<AdminIssueOtpResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun apiV1AuthAdminOtpIssuePostWithHttpInfo(adminIssueOtpRequest: AdminIssueOtpRequest) : ApiResponse<AdminIssueOtpResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = apiV1AuthAdminOtpIssuePostRequestConfig(adminIssueOtpRequest = adminIssueOtpRequest)
+
+        return@withContext request<AdminIssueOtpRequest, AdminIssueOtpResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation apiV1AuthAdminOtpIssuePost
+     *
+     * @param adminIssueOtpRequest
+     * @return RequestConfig
+     */
+    fun apiV1AuthAdminOtpIssuePostRequestConfig(adminIssueOtpRequest: AdminIssueOtpRequest) : RequestConfig<AdminIssueOtpRequest> {
+        val localVariableBody = adminIssueOtpRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/admin/otp/issue",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
     }
 
     /**
@@ -194,6 +271,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/auth/logout",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/auth/otp/redeem
+     * First sign-in by redeeming a one-time code
+     * First sign-in for a pre-provisioned user. Redeems a single-use, expiring one-time code (admin-issued, or the cold-start secret) and mints a normal session token pair. The code is consumed atomically on success only; a wrong or expired code returns a single generic 401. Rate-limited per client (IP and optional device). &#x60;requires_passkey_setup&#x60; is true when the user has no passkey yet, so the client should force passkey enrollment in initial settings.
+     * @param otpRedeemRequest
+     * @return OtpRedeemResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun apiV1AuthOtpRedeemPost(otpRedeemRequest: OtpRedeemRequest) : OtpRedeemResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = apiV1AuthOtpRedeemPostWithHttpInfo(otpRedeemRequest = otpRedeemRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as OtpRedeemResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/otp/redeem
+     * First sign-in by redeeming a one-time code
+     * First sign-in for a pre-provisioned user. Redeems a single-use, expiring one-time code (admin-issued, or the cold-start secret) and mints a normal session token pair. The code is consumed atomically on success only; a wrong or expired code returns a single generic 401. Rate-limited per client (IP and optional device). &#x60;requires_passkey_setup&#x60; is true when the user has no passkey yet, so the client should force passkey enrollment in initial settings.
+     * @param otpRedeemRequest
+     * @return ApiResponse<OtpRedeemResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun apiV1AuthOtpRedeemPostWithHttpInfo(otpRedeemRequest: OtpRedeemRequest) : ApiResponse<OtpRedeemResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = apiV1AuthOtpRedeemPostRequestConfig(otpRedeemRequest = otpRedeemRequest)
+
+        return@withContext request<OtpRedeemRequest, OtpRedeemResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation apiV1AuthOtpRedeemPost
+     *
+     * @param otpRedeemRequest
+     * @return RequestConfig
+     */
+    fun apiV1AuthOtpRedeemPostRequestConfig(otpRedeemRequest: OtpRedeemRequest) : RequestConfig<OtpRedeemRequest> {
+        val localVariableBody = otpRedeemRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/otp/redeem",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,
@@ -277,9 +428,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
 
     /**
      * POST /api/v1/auth/passkey/login/start
-     * Start passkey login
-     *
-     * @param passkeyLoginStartRequest
+     * Start usernameless passkey login
+     * Starts a discoverable (usernameless) authentication ceremony. No request body is required; the challenge has an empty allowCredentials list and the user is resolved from the asserted credential at finish. Rate-limited per client.
      * @return PasskeyLoginStartResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -289,8 +439,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun apiV1AuthPasskeyLoginStartPost(passkeyLoginStartRequest: PasskeyLoginStartRequest) : PasskeyLoginStartResponse = withContext(Dispatchers.IO) {
-        val localVarResponse = apiV1AuthPasskeyLoginStartPostWithHttpInfo(passkeyLoginStartRequest = passkeyLoginStartRequest)
+    suspend fun apiV1AuthPasskeyLoginStartPost() : PasskeyLoginStartResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = apiV1AuthPasskeyLoginStartPostWithHttpInfo()
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as PasskeyLoginStartResponse
@@ -309,19 +459,18 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
 
     /**
      * POST /api/v1/auth/passkey/login/start
-     * Start passkey login
-     *
-     * @param passkeyLoginStartRequest
+     * Start usernameless passkey login
+     * Starts a discoverable (usernameless) authentication ceremony. No request body is required; the challenge has an empty allowCredentials list and the user is resolved from the asserted credential at finish. Rate-limited per client.
      * @return ApiResponse<PasskeyLoginStartResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun apiV1AuthPasskeyLoginStartPostWithHttpInfo(passkeyLoginStartRequest: PasskeyLoginStartRequest) : ApiResponse<PasskeyLoginStartResponse?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = apiV1AuthPasskeyLoginStartPostRequestConfig(passkeyLoginStartRequest = passkeyLoginStartRequest)
+    suspend fun apiV1AuthPasskeyLoginStartPostWithHttpInfo() : ApiResponse<PasskeyLoginStartResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = apiV1AuthPasskeyLoginStartPostRequestConfig()
 
-        return@withContext request<PasskeyLoginStartRequest, PasskeyLoginStartResponse>(
+        return@withContext request<Unit, PasskeyLoginStartResponse>(
             localVariableConfig
         )
     }
@@ -329,14 +478,12 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     /**
      * To obtain the request config of the operation apiV1AuthPasskeyLoginStartPost
      *
-     * @param passkeyLoginStartRequest
      * @return RequestConfig
      */
-    fun apiV1AuthPasskeyLoginStartPostRequestConfig(passkeyLoginStartRequest: PasskeyLoginStartRequest) : RequestConfig<PasskeyLoginStartRequest> {
-        val localVariableBody = passkeyLoginStartRequest
+    fun apiV1AuthPasskeyLoginStartPostRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
-        localVariableHeaders["Content-Type"] = "application/json"
         localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
@@ -351,8 +498,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
 
     /**
      * POST /api/v1/auth/passkey/register/finish
-     * Finish passkey registration
-     * Finishes a bootstrap-linked registration ceremony or an authenticated add-device ceremony.
+     * Finish passkey registration (authenticated)
+     * Finishes a passkey registration ceremony for the authenticated session user.
      * @param passkeyRegisterFinishRequest
      * @return PasskeyRegisterFinishResponse
      * @throws IllegalStateException If the request is not correctly configured
@@ -383,8 +530,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
 
     /**
      * POST /api/v1/auth/passkey/register/finish
-     * Finish passkey registration
-     * Finishes a bootstrap-linked registration ceremony or an authenticated add-device ceremony.
+     * Finish passkey registration (authenticated)
+     * Finishes a passkey registration ceremony for the authenticated session user.
      * @param passkeyRegisterFinishRequest
      * @return ApiResponse<PasskeyRegisterFinishResponse?>
      * @throws IllegalStateException If the request is not correctly configured
@@ -425,9 +572,9 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
 
     /**
      * POST /api/v1/auth/passkey/register/start
-     * Start passkey registration
-     * Starts registration with either a bootstrap credential or an authenticated bearer session adding a device.
-     * @param passkeyRegisterStartRequest
+     * Start passkey registration (authenticated)
+     * Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token.
+     * @param passkeyRegisterStartRequest  (optional)
      * @return PasskeyRegisterStartResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -437,7 +584,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun apiV1AuthPasskeyRegisterStartPost(passkeyRegisterStartRequest: PasskeyRegisterStartRequest) : PasskeyRegisterStartResponse = withContext(Dispatchers.IO) {
+    suspend fun apiV1AuthPasskeyRegisterStartPost(passkeyRegisterStartRequest: PasskeyRegisterStartRequest? = null) : PasskeyRegisterStartResponse = withContext(Dispatchers.IO) {
         val localVarResponse = apiV1AuthPasskeyRegisterStartPostWithHttpInfo(passkeyRegisterStartRequest = passkeyRegisterStartRequest)
 
         return@withContext when (localVarResponse.responseType) {
@@ -457,16 +604,16 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
 
     /**
      * POST /api/v1/auth/passkey/register/start
-     * Start passkey registration
-     * Starts registration with either a bootstrap credential or an authenticated bearer session adding a device.
-     * @param passkeyRegisterStartRequest
+     * Start passkey registration (authenticated)
+     * Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token.
+     * @param passkeyRegisterStartRequest  (optional)
      * @return ApiResponse<PasskeyRegisterStartResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun apiV1AuthPasskeyRegisterStartPostWithHttpInfo(passkeyRegisterStartRequest: PasskeyRegisterStartRequest) : ApiResponse<PasskeyRegisterStartResponse?> = withContext(Dispatchers.IO) {
+    suspend fun apiV1AuthPasskeyRegisterStartPostWithHttpInfo(passkeyRegisterStartRequest: PasskeyRegisterStartRequest?) : ApiResponse<PasskeyRegisterStartResponse?> = withContext(Dispatchers.IO) {
         val localVariableConfig = apiV1AuthPasskeyRegisterStartPostRequestConfig(passkeyRegisterStartRequest = passkeyRegisterStartRequest)
 
         return@withContext request<PasskeyRegisterStartRequest, PasskeyRegisterStartResponse>(
@@ -477,10 +624,10 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     /**
      * To obtain the request config of the operation apiV1AuthPasskeyRegisterStartPost
      *
-     * @param passkeyRegisterStartRequest
+     * @param passkeyRegisterStartRequest  (optional)
      * @return RequestConfig
      */
-    fun apiV1AuthPasskeyRegisterStartPostRequestConfig(passkeyRegisterStartRequest: PasskeyRegisterStartRequest) : RequestConfig<PasskeyRegisterStartRequest> {
+    fun apiV1AuthPasskeyRegisterStartPostRequestConfig(passkeyRegisterStartRequest: PasskeyRegisterStartRequest?) : RequestConfig<PasskeyRegisterStartRequest> {
         val localVariableBody = passkeyRegisterStartRequest
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()

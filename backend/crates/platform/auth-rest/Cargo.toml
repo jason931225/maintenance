@@ -12,6 +12,7 @@ axum = { workspace = true }
 http = { workspace = true }
 mnt-kernel-core = { workspace = true }
 mnt-platform-auth = { path = "../auth" }
+mnt-platform-authz = { path = "../authz" }
 mnt-platform-db = { workspace = true }
 mnt-platform-provisioning = { path = "../provisioning" }
 serde = { workspace = true }

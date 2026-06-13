@@ -32,13 +32,21 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param userId
+ * @param otp
+ * @param expiresAt
  */
 @Serializable
 
-data class PasskeyLoginStartRequest (
+data class AdminIssueOtpResponse (
 
     @Contextual @SerialName(value = "user_id")
-    val userId: java.util.UUID
+    val userId: java.util.UUID,
+
+    @SerialName(value = "otp")
+    val otp: kotlin.String,
+
+    @Contextual @SerialName(value = "expires_at")
+    val expiresAt: java.time.OffsetDateTime
 
 ) {
 

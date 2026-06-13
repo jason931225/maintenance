@@ -14,10 +14,11 @@ use axum::routing::post;
 use axum::{Json, Router};
 use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, TraceContext, UserId};
 use mnt_platform_auth::{
-    AccessClaims, AccessTokenInput, AuthenticationStart, JwtIssuer, JwtSettings, JwtVerifier,
+    AccessClaims, AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier,
     PasskeyAuthenticationCredential, PasskeyRegistrationCredential, PasskeyRegistrationStart,
     PasskeyService, RefreshTokenIssue, RefreshTokenStore, RefreshTokenUseError, WebauthnSettings,
 };
+use mnt_platform_authz::{Action, Feature, Principal, Role, authorize, resolve_branch_scope};
 use mnt_platform_db::{DbError, with_audit};
 use mnt_platform_provisioning::{BootstrapCredentialStore, ProvisioningError};
 use serde::{Deserialize, Serialize};
@@ -31,6 +32,8 @@ pub const PASSKEY_REGISTER_START_PATH: &str = "/api/v1/auth/passkey/register/sta
 pub const PASSKEY_REGISTER_FINISH_PATH: &str = "/api/v1/auth/passkey/register/finish";
 pub const PASSKEY_LOGIN_START_PATH: &str = "/api/v1/auth/passkey/login/start";
 pub const PASSKEY_LOGIN_FINISH_PATH: &str = "/api/v1/auth/passkey/login/finish";
+pub const OTP_REDEEM_PATH: &str = "/api/v1/auth/otp/redeem";
+pub const ADMIN_OTP_ISSUE_PATH: &str = "/api/v1/auth/admin/otp/issue";
 pub const TOKEN_REFRESH_PATH: &str = "/api/v1/auth/token/refresh";
 pub const LOGOUT_PATH: &str = "/api/v1/auth/logout";
 pub const AUTH_ROUTE_PATHS: &[&str] = &[
@@ -38,9 +41,26 @@ pub const AUTH_ROUTE_PATHS: &[&str] = &[
     PASSKEY_REGISTER_FINISH_PATH,
     PASSKEY_LOGIN_START_PATH,
     PASSKEY_LOGIN_FINISH_PATH,
+    OTP_REDEEM_PATH,
+    ADMIN_OTP_ISSUE_PATH,
     TOKEN_REFRESH_PATH,
     LOGOUT_PATH,
 ];
+
+/// Default admin-issued OTP lifetime when the issuer omits a TTL.
+const DEFAULT_OTP_TTL: Duration = Duration::hours(24);
+/// Upper bound on a caller-specified OTP TTL; rejects absurd values.
+const MAX_OTP_TTL: Duration = Duration::days(30);
+
+/// Fixed-window length for the DB-backed unauthenticated-endpoint rate limiter.
+const RATE_LIMIT_WINDOW: Duration = Duration::minutes(1);
+/// Per-client-IP cap per window on unauthenticated auth endpoints.
+const RATE_LIMIT_PER_IP: i64 = 10;
+/// Per-device cap per window (device id is optional and client-controlled).
+const RATE_LIMIT_PER_DEVICE: i64 = 10;
+/// Global per-endpoint cap per window — defense-in-depth against distributed
+/// guessing across many IPs/devices.
+const RATE_LIMIT_GLOBAL: i64 = 100;
 
 #[derive(Debug, Clone)]
 pub struct AuthRestConfig {
@@ -139,6 +159,8 @@ pub fn router(state: AuthRestState) -> Router {
         .route(PASSKEY_REGISTER_FINISH_PATH, post(finish_registration))
         .route(PASSKEY_LOGIN_START_PATH, post(start_login))
         .route(PASSKEY_LOGIN_FINISH_PATH, post(finish_login))
+        .route(OTP_REDEEM_PATH, post(redeem_otp))
+        .route(ADMIN_OTP_ISSUE_PATH, post(issue_admin_otp))
         .route(TOKEN_REFRESH_PATH, post(refresh_token))
         .route(LOGOUT_PATH, post(logout))
         .with_state(state)
@@ -146,7 +168,6 @@ pub fn router(state: AuthRestState) -> Router {
 
 #[derive(Debug, Deserialize)]
 struct RegisterStartRequest {
-    bootstrap_token: Option<String>,
     username: Option<String>,
     display_name: Option<String>,
 }
@@ -171,11 +192,6 @@ struct RegisterFinishResponse {
     credential_id: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct LoginStartRequest {
-    user_id: Uuid,
-}
-
 #[derive(Debug, Serialize)]
 struct LoginStartResponse {
     ceremony_id: Uuid,
@@ -187,6 +203,42 @@ struct LoginStartResponse {
 struct LoginFinishRequest {
     ceremony_id: Uuid,
     credential: PasskeyAuthenticationCredential,
+}
+
+/// First sign-in via a one-time admin-issued (or cold-start) OTP. The body
+/// carries only the OTP; the user is resolved from the consumed credential.
+#[derive(Debug, Deserialize)]
+struct OtpRedeemRequest {
+    otp: String,
+}
+
+/// OTP first sign-in result: a normal session token pair plus a flag telling the
+/// frontend to force passkey enrollment in initial settings.
+#[derive(Debug, Serialize)]
+struct OtpRedeemResponse {
+    access_token: String,
+    refresh_token: String,
+    token_type: &'static str,
+    refresh_expires_at: OffsetDateTime,
+    requires_passkey_setup: bool,
+}
+
+/// Admin request to issue a one-time sign-in OTP for a pre-provisioned,
+/// zero-credential user. `ttl_seconds` is optional and defaults to 24h.
+#[derive(Debug, Deserialize)]
+struct AdminIssueOtpRequest {
+    user_id: Uuid,
+    branch_id: Uuid,
+    ttl_seconds: Option<i64>,
+}
+
+/// The issued one-time OTP (returned once, never stored in plaintext) and its
+/// expiry. The caller relays this to the new user out-of-band.
+#[derive(Debug, Serialize)]
+struct AdminIssueOtpResponse {
+    user_id: Uuid,
+    otp: String,
+    expires_at: OffsetDateTime,
 }
 
 #[derive(Debug, Serialize)]
@@ -258,6 +310,22 @@ impl RestError {
         }
     }
 
+    fn forbidden(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            code: "forbidden",
+            message: message.into(),
+        }
+    }
+
+    fn too_many_requests() -> Self {
+        Self {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            code: "too_many_requests",
+            message: "too many requests; please retry later".to_owned(),
+        }
+    }
+
     fn internal(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -278,14 +346,12 @@ impl RestError {
 
     fn from_provisioning(error: ProvisioningError) -> Self {
         match error {
-            ProvisioningError::InvalidBootstrapCredential
-            | ProvisioningError::BootstrapCredentialExpired
-            | ProvisioningError::BootstrapCredentialUsed
-            | ProvisioningError::BootstrapCredentialRevoked => {
-                Self::unauthorized(error.to_string())
+            // Generic, non-revealing message for any OTP-redeem rejection so the
+            // client cannot distinguish unknown vs expired vs already-used.
+            ProvisioningError::InvalidBootstrapCredential => {
+                Self::unauthorized("invalid or expired one-time code")
             }
-            ProvisioningError::BootstrapRegistrationAlreadyStarted
-            | ProvisioningError::UserAlreadyHasPasskey
+            ProvisioningError::UserAlreadyHasPasskey
             | ProvisioningError::ActiveBootstrapCredentialExists => {
                 Self::conflict(error.to_string())
             }
@@ -321,42 +387,32 @@ impl IntoResponse for RestError {
     }
 }
 
+/// Start passkey registration for the AUTHENTICATED session user.
+///
+/// Registration is always an authenticated action now (initial-settings passkey
+/// enrollment after an OTP first sign-in, or adding a device later). The
+/// usernameless first sign-in goes through `/auth/otp/redeem`, not here, so this
+/// path no longer accepts a bootstrap token.
 async fn start_registration(
     State(state): State<AuthRestState>,
     headers: HeaderMap,
     Json(body): Json<RegisterStartRequest>,
 ) -> Result<Json<RegisterStartResponse>, RestError> {
     let services = state.services()?;
-    let ceremony = if let Some(token) = body.bootstrap_token {
-        let username = required_field(body.username, "username")?;
-        let display_name = required_field(body.display_name, "display_name")?;
-        services
-            .bootstrap_credentials
-            .start_passkey_registration(
-                &state.pool,
-                &services.passkeys,
-                &token,
-                username,
-                display_name,
-            )
-            .await
-            .map_err(RestError::from_provisioning)?
-    } else {
-        let user_id = authenticated_user_id(services, &headers)?;
-        let user = load_user_auth_context(&state.pool, user_id).await?;
-        services
-            .passkeys
-            .start_registration(
-                &state.pool,
-                PasskeyRegistrationStart {
-                    user_id,
-                    username: body.username.unwrap_or(user.username),
-                    display_name: body.display_name.unwrap_or(user.display_name),
-                },
-            )
-            .await
-            .map_err(|err| RestError::internal(err.to_string()))?
-    };
+    let user_id = authenticated_user_id(services, &headers)?;
+    let user = load_user_auth_context(&state.pool, user_id).await?;
+    let ceremony = services
+        .passkeys
+        .start_registration(
+            &state.pool,
+            PasskeyRegistrationStart {
+                user_id,
+                username: body.username.unwrap_or(user.username),
+                display_name: body.display_name.unwrap_or(user.display_name),
+            },
+        )
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
 
     Ok(Json(RegisterStartResponse {
         ceremony_id: ceremony.ceremony_id,
@@ -366,32 +422,20 @@ async fn start_registration(
     }))
 }
 
+/// Finish passkey registration for the AUTHENTICATED session user.
 async fn finish_registration(
     State(state): State<AuthRestState>,
     headers: HeaderMap,
     Json(body): Json<RegisterFinishRequest>,
 ) -> Result<(StatusCode, Json<RegisterFinishResponse>), RestError> {
     let services = state.services()?;
-    let passkey = if bootstrap_ceremony_exists(&state.pool, body.ceremony_id).await? {
-        services
-            .bootstrap_credentials
-            .finish_passkey_registration(
-                &state.pool,
-                &services.passkeys,
-                body.ceremony_id,
-                body.credential,
-            )
-            .await
-            .map_err(RestError::from_provisioning)?
-    } else {
-        let user_id = authenticated_user_id(services, &headers)?;
-        ensure_registration_ceremony_owner(&state.pool, body.ceremony_id, user_id).await?;
-        services
-            .passkeys
-            .finish_registration(&state.pool, body.ceremony_id, body.credential)
-            .await
-            .map_err(|err| RestError::internal(err.to_string()))?
-    };
+    let user_id = authenticated_user_id(services, &headers)?;
+    ensure_registration_ceremony_owner(&state.pool, body.ceremony_id, user_id).await?;
+    let passkey = services
+        .passkeys
+        .finish_registration(&state.pool, body.ceremony_id, body.credential)
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
 
     Ok((
         StatusCode::CREATED,
@@ -405,17 +449,22 @@ async fn finish_registration(
 
 async fn start_login(
     State(state): State<AuthRestState>,
-    Json(body): Json<LoginStartRequest>,
+    headers: HeaderMap,
 ) -> Result<Json<LoginStartResponse>, RestError> {
     let services = state.services()?;
+    rate_limit(
+        &state.pool,
+        &headers,
+        RateLimitEndpoint::LoginStart,
+        OffsetDateTime::now_utc(),
+    )
+    .await?;
+    // Usernameless discoverable authentication: the challenge has an empty
+    // allowCredentials and the user is resolved at finish from the asserted
+    // credential. No user_id is taken from the client.
     let ceremony = services
         .passkeys
-        .start_authentication(
-            &state.pool,
-            AuthenticationStart {
-                user_id: body.user_id,
-            },
-        )
+        .start_authentication(&state.pool)
         .await
         .map_err(|err| RestError::unauthorized(err.to_string()))?;
 
@@ -452,12 +501,104 @@ async fn finish_login(
     Ok(Json(tokens.into_response()))
 }
 
+/// Redeem a one-time OTP as a FIRST SIGN-IN.
+///
+/// Unauthenticated and rate-limited. On success the OTP is consumed atomically
+/// and a normal session token pair is minted for the OTP's pre-provisioned user;
+/// `requires_passkey_setup` tells the frontend to force passkey enrollment in
+/// initial settings. A wrong/expired/used OTP returns a single generic 401.
+async fn redeem_otp(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+    Json(body): Json<OtpRedeemRequest>,
+) -> Result<Json<OtpRedeemResponse>, RestError> {
+    let services = state.services()?;
+    let now = OffsetDateTime::now_utc();
+    rate_limit(&state.pool, &headers, RateLimitEndpoint::OtpRedeem, now).await?;
+
+    let redemption = match services
+        .bootstrap_credentials
+        .redeem_otp(&state.pool, body.otp.trim(), now)
+        .await
+    {
+        Ok(redemption) => redemption,
+        Err(err) => {
+            // Audit the failed attempt WITHOUT the OTP value or any PII.
+            record_anonymous_auth_audit(
+                &state.pool,
+                "auth.otp.redeem_failed",
+                serde_json::json!({ "outcome": "rejected" }),
+            )
+            .await
+            .ok();
+            return Err(RestError::from_provisioning(err));
+        }
+    };
+
+    let user = load_user_auth_context(&state.pool, redemption.user_id).await?;
+    let tokens = issue_token_pair(&state.pool, services, &user).await?;
+    record_auth_audit(
+        &state.pool,
+        redemption.user_id,
+        "auth.otp.signin",
+        serde_json::json!({
+            "refresh_family_id": tokens.family_id,
+            "requires_passkey_setup": redemption.requires_passkey_setup,
+        }),
+    )
+    .await?;
+    Ok(Json(OtpRedeemResponse {
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        token_type: "Bearer",
+        refresh_expires_at: tokens.refresh_expires_at,
+        requires_passkey_setup: redemption.requires_passkey_setup,
+    }))
+}
+
+/// Issue a one-time sign-in OTP for a pre-provisioned zero-credential user.
+///
+/// AUTHZ-gated: only ADMIN / SUPER_ADMIN (branch-scoped) may call it, via the
+/// `SubordinateUserCreate` feature. The issuance is audited inside
+/// `issue_for_zero_credential_user`. The returned OTP is shown once.
+async fn issue_admin_otp(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+    Json(body): Json<AdminIssueOtpRequest>,
+) -> Result<Json<AdminIssueOtpResponse>, RestError> {
+    let services = state.services()?;
+    let principal = principal_from_headers(&state.pool, services, &headers).await?;
+    let branch_id = BranchId::from_uuid(body.branch_id);
+    authorize(
+        &principal,
+        Action::limited(Feature::SubordinateUserCreate),
+        branch_id,
+    )
+    .map_err(|_| RestError::forbidden("not allowed to issue sign-in codes"))?;
+
+    let ttl = resolve_otp_ttl(body.ttl_seconds)?;
+    let now = OffsetDateTime::now_utc();
+    let issue = services
+        .bootstrap_credentials
+        .issue_for_zero_credential_user(&state.pool, body.user_id, now, ttl)
+        .await
+        .map_err(RestError::from_provisioning)?;
+
+    Ok(Json(AdminIssueOtpResponse {
+        user_id: issue.user_id,
+        otp: issue.token.as_str().to_owned(),
+        expires_at: issue.expires_at,
+    }))
+}
+
 async fn refresh_token(
     State(state): State<AuthRestState>,
+    headers: HeaderMap,
     Json(body): Json<RefreshTokenRequest>,
 ) -> Result<Json<TokenPairResponse>, RestError> {
     let services = state.services()?;
     let now = OffsetDateTime::now_utc();
+    rate_limit(&state.pool, &headers, RateLimitEndpoint::Refresh, now).await?;
     let issue = services
         .refresh_tokens
         .rotate(
@@ -644,17 +785,6 @@ async fn load_user_auth_context(
     })
 }
 
-async fn bootstrap_ceremony_exists(pool: &PgPool, ceremony_id: Uuid) -> Result<bool, RestError> {
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM auth_bootstrap_credentials WHERE registration_ceremony_id = $1",
-    )
-    .bind(ceremony_id)
-    .fetch_one(pool)
-    .await
-    .map_err(|err| RestError::internal(err.to_string()))?;
-    Ok(count > 0)
-}
-
 async fn ensure_registration_ceremony_owner(
     pool: &PgPool,
     ceremony_id: Uuid,
@@ -712,12 +842,6 @@ fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {
         .ok_or_else(|| RestError::unauthorized("authorization header must use Bearer scheme"))
 }
 
-fn required_field(value: Option<String>, field: &'static str) -> Result<String, RestError> {
-    value
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| RestError::bad_request(format!("{field} is required")))
-}
-
 async fn record_auth_audit(
     pool: &PgPool,
     user_id: Uuid,
@@ -735,4 +859,197 @@ async fn record_auth_audit(
     .with_snapshots(None, Some(after));
 
     with_audit::<_, (), RestError>(pool, event, |_tx| Box::pin(async move { Ok(()) })).await
+}
+
+/// Audit a failed unauthenticated attempt with no actor and no PII (no OTP value,
+/// no client IP) so the `pii-no-logs` gate and audit policy both hold.
+async fn record_anonymous_auth_audit(
+    pool: &PgPool,
+    action: &str,
+    after: serde_json::Value,
+) -> Result<(), RestError> {
+    let event = AuditEvent::new(
+        None,
+        AuditAction::new(action).map_err(|err| RestError::internal(err.to_string()))?,
+        "auth_bootstrap_credential",
+        "redeem",
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_snapshots(None, Some(after));
+
+    with_audit::<_, (), RestError>(pool, event, |_tx| Box::pin(async move { Ok(()) })).await
+}
+
+/// Resolve the admin-supplied OTP TTL, defaulting to 24h and rejecting
+/// non-positive or absurdly large values.
+fn resolve_otp_ttl(ttl_seconds: Option<i64>) -> Result<Duration, RestError> {
+    let Some(secs) = ttl_seconds else {
+        return Ok(DEFAULT_OTP_TTL);
+    };
+    if secs <= 0 {
+        return Err(RestError::bad_request("ttl_seconds must be positive"));
+    }
+    let ttl = Duration::seconds(secs);
+    if ttl > MAX_OTP_TTL {
+        return Err(RestError::bad_request(
+            "ttl_seconds exceeds the maximum allowed lifetime",
+        ));
+    }
+    Ok(ttl)
+}
+
+// ---------------------------------------------------------------------------
+// Authorization principal (for the admin issue-OTP endpoint).
+// ---------------------------------------------------------------------------
+
+async fn principal_from_headers(
+    pool: &PgPool,
+    services: &AuthServices,
+    headers: &HeaderMap,
+) -> Result<Principal, RestError> {
+    let token = bearer_token(headers)?;
+    let claims = services
+        .jwt_verifier
+        .verify_access_token(token)
+        .map_err(|_| RestError::unauthorized("invalid bearer token"))?;
+    let user_id = UserId::from_str(&claims.sub)
+        .map_err(|_| RestError::unauthorized("token subject is invalid"))?;
+    let roles = claims
+        .roles
+        .iter()
+        .map(|role| {
+            Role::from_str(role).map_err(|_| RestError::unauthorized("token contains unknown role"))
+        })
+        .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+    let role_vec = roles.iter().copied().collect::<Vec<_>>();
+    // Resolve the live branch scope from the database rather than trusting the
+    // token's branch claim, matching the authz model's branch-membership gate.
+    let branch_scope = resolve_branch_scope(pool, user_id, &role_vec)
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
+    Ok(Principal::new(user_id, roles, branch_scope))
+}
+
+// ---------------------------------------------------------------------------
+// DB-backed cross-instance rate limiter.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy)]
+enum RateLimitEndpoint {
+    OtpRedeem,
+    LoginStart,
+    Refresh,
+}
+
+impl RateLimitEndpoint {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::OtpRedeem => "otp_redeem",
+            Self::LoginStart => "login_start",
+            Self::Refresh => "refresh",
+        }
+    }
+}
+
+/// Enforce per-IP, per-device, and global fixed-window caps on an unauthenticated
+/// auth endpoint, returning `429` when any bucket is exceeded.
+///
+/// The deployment is multi-instance, so the counters live in Postgres
+/// (`auth_rate_limit`) and every instance increments the same row. The device id
+/// is an OPTIONAL, client-controlled `X-Device-Id` header: when absent or
+/// malformed the per-device bucket is skipped, so the per-IP and global caps
+/// always still apply. Because a device id can be rotated freely, the per-IP cap
+/// is the real adversarial bound; the per-device cap only adds granularity for
+/// legitimate shared-IP situations.
+async fn rate_limit(
+    pool: &PgPool,
+    headers: &HeaderMap,
+    endpoint: RateLimitEndpoint,
+    now: OffsetDateTime,
+) -> Result<(), RestError> {
+    let window_start = floor_to_window(now);
+    let endpoint_str = endpoint.as_str();
+
+    let mut buckets: Vec<(String, i64)> = Vec::with_capacity(3);
+    if let Some(ip) = client_ip(headers) {
+        buckets.push((format!("ip:{ip}"), RATE_LIMIT_PER_IP));
+    }
+    if let Some(device) = client_device_id(headers) {
+        buckets.push((format!("dev:{device}"), RATE_LIMIT_PER_DEVICE));
+    }
+    buckets.push(("global".to_owned(), RATE_LIMIT_GLOBAL));
+
+    for (client_key, cap) in buckets {
+        let attempts = increment_rate_bucket(pool, &client_key, endpoint_str, window_start).await?;
+        if attempts > cap {
+            return Err(RestError::too_many_requests());
+        }
+    }
+    Ok(())
+}
+
+/// Atomically increment (or insert) the fixed-window counter for one bucket and
+/// return the new attempt count. The UPSERT makes the increment correct across
+/// concurrent requests and across app instances.
+async fn increment_rate_bucket(
+    pool: &PgPool,
+    client_key: &str,
+    endpoint: &str,
+    window_start: OffsetDateTime,
+) -> Result<i64, RestError> {
+    let attempts: i32 = sqlx::query_scalar(
+        r#"
+        INSERT INTO auth_rate_limit (client_key, endpoint, window_start, attempts)
+        VALUES ($1, $2, $3, 1)
+        ON CONFLICT (client_key, endpoint, window_start)
+        DO UPDATE SET attempts = auth_rate_limit.attempts + 1
+        RETURNING attempts
+        "#,
+    )
+    .bind(client_key)
+    .bind(endpoint)
+    .bind(window_start)
+    .fetch_one(pool)
+    .await
+    .map_err(|err| RestError::internal(err.to_string()))?;
+    Ok(i64::from(attempts))
+}
+
+/// Floor a timestamp to the start of its fixed rate-limit window.
+fn floor_to_window(now: OffsetDateTime) -> OffsetDateTime {
+    let window_secs = RATE_LIMIT_WINDOW.whole_seconds().max(1);
+    let unix = now.unix_timestamp();
+    let floored = unix - unix.rem_euclid(window_secs);
+    OffsetDateTime::from_unix_timestamp(floored).unwrap_or(now)
+}
+
+/// Derive the client IP, trusting `X-Forwarded-For` only because the app sits
+/// behind the Traefik proxy that sets it. The left-most entry is the originating
+/// client. The value is used only as an opaque rate-limit key and is never
+/// logged.
+fn client_ip(headers: &HeaderMap) -> Option<String> {
+    let forwarded = headers.get("x-forwarded-for")?.to_str().ok()?;
+    let first = forwarded.split(',').next()?.trim();
+    if first.is_empty() {
+        None
+    } else {
+        Some(first.to_owned())
+    }
+}
+
+/// Read the optional, client-controlled `X-Device-Id` header. Bounded length and
+/// a restricted charset reject malformed/oversized values; on rejection the
+/// caller falls back to per-IP limiting alone.
+fn client_device_id(headers: &HeaderMap) -> Option<String> {
+    let value = headers.get("x-device-id")?.to_str().ok()?.trim();
+    if value.is_empty()
+        || value.len() > 128
+        || !value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        return None;
+    }
+    Some(value.to_owned())
 }

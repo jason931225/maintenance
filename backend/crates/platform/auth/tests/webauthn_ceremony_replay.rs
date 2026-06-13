@@ -4,21 +4,38 @@
 //! ceremony must result in EXACTLY one committed success; any racing request
 //! must be rejected because the consuming transaction claims the ceremony
 //! atomically (`UPDATE ... WHERE consumed_at IS NULL ... RETURNING`). This
-//! proves the auth replay/race (HIGH) finding is fixed — consumption is no
-//! longer a read-then-write on the pool.
+//! proves the auth replay/race (HIGH) finding stays fixed for the discoverable
+//! (usernameless) authentication path — consumption is not a read-then-write on
+//! the pool.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::sync::Arc;
 
-use mnt_platform_auth::{
-    AuthenticationStart, PasskeyRegistrationStart, PasskeyService, WebauthnSettings,
-};
+use mnt_platform_auth::{PasskeyRegistrationStart, PasskeyService, WebauthnSettings};
 use sqlx::PgPool;
 use time::Duration;
 use tokio::sync::Barrier;
 use url::Url;
-use webauthn_authenticator_rs::prelude::WebauthnAuthenticator;
+use webauthn_authenticator_rs::prelude::{RequestChallengeResponse, WebauthnAuthenticator};
 use webauthn_authenticator_rs::softpasskey::SoftPasskey;
+
+/// Inject one `allowCredentials` entry into a discoverable challenge so the
+/// SoftPasskey harness can locate its key (it has no resident-key store). The
+/// server ceremony stays fully discoverable; the assertion still carries the
+/// credential id the server resolves by.
+fn inject_allow_credential(
+    challenge: RequestChallengeResponse,
+    credential_id: &str,
+) -> RequestChallengeResponse {
+    let mut value = serde_json::to_value(&challenge).unwrap();
+    let allow = value
+        .get_mut("publicKey")
+        .and_then(|pk| pk.get_mut("allowCredentials"))
+        .and_then(serde_json::Value::as_array_mut)
+        .expect("discoverable challenge must have an allowCredentials array");
+    allow.push(serde_json::json!({ "type": "public-key", "id": credential_id }));
+    serde_json::from_value(value).unwrap()
+}
 
 /// Number of times to replay the race. The unfixed (non-atomic) consume has a
 /// window between the pool read and the unguarded UPDATE; iterating makes the
@@ -127,17 +144,20 @@ async fn concurrent_finish_registration_consumes_ceremony_exactly_once(pool: PgP
     assert!(consumed.is_some(), "ceremony must be marked consumed");
 }
 
-/// Two concurrent `finish_authentication` calls for the same ceremony must
-/// yield exactly one successful outcome (one token-pair-eligible result). The
-/// authentication finish has no UNIQUE row to mask the race, so the unfixed
-/// non-atomic consume lets BOTH callers succeed — a replay that mints two token
-/// pairs from one ceremony. Repeating the race makes the defect deterministic.
+/// Two concurrent discoverable `finish_authentication` calls for the same
+/// ceremony must yield exactly one successful outcome (one token-pair-eligible
+/// result). The authentication finish has no UNIQUE row to mask the race, so the
+/// unfixed non-atomic consume lets BOTH callers succeed — a replay that mints two
+/// token pairs from one usernameless ceremony. Repeating the race makes the
+/// defect deterministic.
 #[sqlx::test(migrations = "../db/migrations")]
-async fn concurrent_finish_authentication_consumes_ceremony_exactly_once(pool: PgPool) {
+async fn concurrent_discoverable_finish_authentication_consumes_ceremony_exactly_once(
+    pool: PgPool,
+) {
     let user_id = seed_user(&pool).await;
     let service = Arc::new(service());
 
-    // Register a passkey once.
+    // Register a discoverable passkey once.
     let registration = service
         .start_registration(
             &pool,
@@ -156,22 +176,18 @@ async fn concurrent_finish_authentication_consumes_ceremony_exactly_once(pool: P
             registration.challenge,
         )
         .unwrap();
-    service
+    let stored = service
         .finish_registration(&pool, registration.ceremony_id, credential)
         .await
         .unwrap();
 
     for iteration in 0..RACE_ITERATIONS {
-        let authentication = service
-            .start_authentication(&pool, AuthenticationStart { user_id })
-            .await
-            .unwrap();
+        // Usernameless start: no user_id supplied.
+        let authentication = service.start_authentication(&pool).await.unwrap();
         let ceremony_id = authentication.ceremony_id;
+        let challenge = inject_allow_credential(authentication.challenge, &stored.credential_id);
         let assertion = authenticator
-            .do_authentication(
-                Url::parse("https://auth.example.com").unwrap(),
-                authentication.challenge,
-            )
+            .do_authentication(Url::parse("https://auth.example.com").unwrap(), challenge)
             .unwrap();
 
         let barrier = Arc::new(Barrier::new(2));

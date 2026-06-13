@@ -29,20 +29,17 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Contextual
 
 /**
- * Optional overrides for the authenticated session user's passkey registration. Both default to the user's stored profile when omitted.
  *
- * @param username
- * @param displayName
+ *
+ * @param otp The one-time sign-in code (8 characters for admin-issued codes).
  */
 @Serializable
 
-data class PasskeyRegisterStartRequest (
+data class OtpRedeemRequest (
 
-    @SerialName(value = "username")
-    val username: kotlin.String? = null,
-
-    @SerialName(value = "display_name")
-    val displayName: kotlin.String? = null
+    /* The one-time sign-in code (8 characters for admin-issued codes). */
+    @SerialName(value = "otp")
+    val otp: kotlin.String
 
 ) {
 

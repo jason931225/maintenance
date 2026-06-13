@@ -29,6 +29,8 @@ src/main/kotlin/com/maintenance/api/client/infrastructure/StringBuilderAdapter.k
 src/main/kotlin/com/maintenance/api/client/infrastructure/URIAdapter.kt
 src/main/kotlin/com/maintenance/api/client/infrastructure/URLAdapter.kt
 src/main/kotlin/com/maintenance/api/client/infrastructure/UUIDAdapter.kt
+src/main/kotlin/com/maintenance/api/client/model/AdminIssueOtpRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/AdminIssueOtpResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/AppendManualCostLedgerRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ApprovalStepSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/AssignWorkOrderRequest.kt
@@ -96,10 +98,11 @@ src/main/kotlin/com/maintenance/api/client/model/MessengerThreadKind.kt
 src/main/kotlin/com/maintenance/api/client/model/MessengerThreadListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/MessengerThreadSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/NamedEntity.kt
+src/main/kotlin/com/maintenance/api/client/model/OtpRedeemRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/OtpRedeemResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/OutsourceWorkSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/P1DispatchSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyLoginFinishRequest.kt
-src/main/kotlin/com/maintenance/api/client/model/PasskeyLoginStartRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyLoginStartResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyRegisterFinishRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyRegisterFinishResponse.kt

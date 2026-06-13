@@ -5,10 +5,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use mnt_kernel_core::{AuditAction, AuditEvent, KernelError, TraceContext, UserId};
-use mnt_platform_auth::{
-    PasskeyRegistrationCredential, PasskeyRegistrationStart, PasskeyService, RegistrationCeremony,
-    StoredPasskey,
-};
 use mnt_platform_db::{insert_audit_event, with_audit};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -52,20 +48,11 @@ pub enum ProvisioningError {
         branch: String,
     },
 
+    /// Generic OTP-redeem failure. Unknown, expired, revoked, and
+    /// already-consumed all collapse to this single variant so the REST layer can
+    /// surface one "invalid or expired" message without revealing which it was.
     #[error("invalid bootstrap credential")]
     InvalidBootstrapCredential,
-
-    #[error("bootstrap credential expired")]
-    BootstrapCredentialExpired,
-
-    #[error("bootstrap credential has already been used")]
-    BootstrapCredentialUsed,
-
-    #[error("bootstrap credential was revoked")]
-    BootstrapCredentialRevoked,
-
-    #[error("bootstrap registration already started")]
-    BootstrapRegistrationAlreadyStarted,
 
     #[error("user already has a registered passkey")]
     UserAlreadyHasPasskey,
@@ -195,64 +182,70 @@ impl BootstrapCredentialStore {
         .await
     }
 
-    pub async fn start_passkey_registration(
+    /// Redeem a one-time OTP (bootstrap token) as a FIRST SIGN-IN.
+    ///
+    /// This is a sign-in, not signup: the user row was pre-provisioned by the
+    /// admin who issued the OTP (or seeded for the cold-start admin). On success
+    /// the OTP is consumed atomically and the redeeming user's id is returned so
+    /// the caller can mint a session. Passkey enrollment is NOT bundled here — the
+    /// user adds a passkey afterwards from authenticated initial settings.
+    ///
+    /// Security properties:
+    /// * Single-use ON SUCCESS only. The consume uses the harden-1 atomic pattern
+    ///   (`UPDATE ... WHERE id=$1 AND consumed_at IS NULL AND expires_at > now()
+    ///   RETURNING`); a racing or replayed redeem matches 0 rows and is rejected.
+    /// * A WRONG guess never consumes or invalidates a credential — an unknown
+    ///   token simply finds no row. There is deliberately no per-OTP attempt cap
+    ///   (that would let an attacker burn a victim's OTP); brute-force is bounded
+    ///   by the caller's per-client rate limit plus the short TTL.
+    /// * Expiry is enforced inside the same atomic claim, so an expired OTP cannot
+    ///   mint a session.
+    ///
+    /// All failure modes collapse to [`ProvisioningError::InvalidBootstrapCredential`]
+    /// so the caller can return a single generic "invalid or expired" message
+    /// without revealing whether the token was unknown, expired, or already used.
+    pub async fn redeem_otp(
         &self,
         pool: &PgPool,
-        passkeys: &PasskeyService,
         token: &str,
-        username: String,
-        display_name: String,
-    ) -> Result<RegistrationCeremony, ProvisioningError> {
+        now: OffsetDateTime,
+    ) -> Result<OtpRedemption, ProvisioningError> {
         let token_hash = hash_token(token);
-        let row = sqlx::query(
+
+        // Atomic single-use claim + expiry check in one statement. RETURNING the
+        // owning user only when the row was still unconsumed, unrevoked, and
+        // unexpired — exactly the harden-1 invariant, so a redeemed OTP can never
+        // be replayed.
+        let mut tx = pool.begin().await?;
+        let claimed = sqlx::query(
             r#"
-            SELECT id, user_id, expires_at, consumed_at, revoked_at, registration_ceremony_id
-            FROM auth_bootstrap_credentials
+            UPDATE auth_bootstrap_credentials
+            SET consumed_at = $2
             WHERE token_hash = $1
+              AND consumed_at IS NULL
+              AND revoked_at IS NULL
+              AND expires_at > $2
+            RETURNING id, user_id
             "#,
         )
-        .bind(token_hash)
-        .fetch_optional(pool)
-        .await?
-        .ok_or(ProvisioningError::InvalidBootstrapCredential)?;
+        .bind(&token_hash)
+        .bind(now)
+        .fetch_optional(tx.as_mut())
+        .await?;
 
+        let Some(row) = claimed else {
+            // Unknown, expired, revoked, or already-consumed: single generic error.
+            tx.rollback().await?;
+            return Err(ProvisioningError::InvalidBootstrapCredential);
+        };
         let credential_id: Uuid = row.try_get("id")?;
         let user_id: Uuid = row.try_get("user_id")?;
-        let expires_at: OffsetDateTime = row.try_get("expires_at")?;
-        let consumed_at: Option<OffsetDateTime> = row.try_get("consumed_at")?;
-        let revoked_at: Option<OffsetDateTime> = row.try_get("revoked_at")?;
-        let registration_ceremony_id: Option<Uuid> = row.try_get("registration_ceremony_id")?;
 
-        validate_bootstrap_state(
-            expires_at,
-            consumed_at,
-            revoked_at,
-            OffsetDateTime::now_utc(),
-        )?;
-        if registration_ceremony_id.is_some() {
-            return Err(ProvisioningError::BootstrapRegistrationAlreadyStarted);
-        }
+        let requires_passkey_setup = count_user_passkeys_tx(&mut tx, user_id).await? == 0;
 
-        let passkey_count = count_user_passkeys(pool, user_id).await?;
-        if passkey_count > 0 {
-            return Err(ProvisioningError::UserAlreadyHasPasskey);
-        }
-
-        let registration = passkeys
-            .start_registration(
-                pool,
-                PasskeyRegistrationStart {
-                    user_id,
-                    username,
-                    display_name,
-                },
-            )
-            .await?;
-
-        let now = OffsetDateTime::now_utc();
         let audit = AuditEvent::new(
             Some(UserId::from_uuid(user_id)),
-            AuditAction::new("auth.bootstrap.start_registration")?,
+            AuditAction::new("auth.otp.redeem")?,
             "auth_bootstrap_credential",
             credential_id.to_string(),
             TraceContext::generate(),
@@ -262,119 +255,29 @@ impl BootstrapCredentialStore {
             None,
             Some(serde_json::json!({
                 "user_id": user_id,
-                "ceremony_id": registration.ceremony_id,
-            })),
-        );
-
-        with_audit::<_, (), ProvisioningError>(pool, audit, |tx| {
-            Box::pin(async move {
-                let affected = sqlx::query(
-                    r#"
-                    UPDATE auth_bootstrap_credentials
-                    SET registration_ceremony_id = $1, registration_started_at = $2
-                    WHERE id = $3
-                      AND consumed_at IS NULL
-                      AND revoked_at IS NULL
-                      AND registration_ceremony_id IS NULL
-                    "#,
-                )
-                .bind(registration.ceremony_id)
-                .bind(now)
-                .bind(credential_id)
-                .execute(tx.as_mut())
-                .await?
-                .rows_affected();
-
-                if affected == 1 {
-                    Ok(())
-                } else {
-                    Err(ProvisioningError::BootstrapRegistrationAlreadyStarted)
-                }
-            })
-        })
-        .await?;
-
-        Ok(registration)
-    }
-
-    pub async fn finish_passkey_registration(
-        &self,
-        pool: &PgPool,
-        passkeys: &PasskeyService,
-        ceremony_id: Uuid,
-        credential: PasskeyRegistrationCredential,
-    ) -> Result<StoredPasskey, ProvisioningError> {
-        let row = sqlx::query(
-            r#"
-            SELECT id, user_id, expires_at, consumed_at, revoked_at
-            FROM auth_bootstrap_credentials
-            WHERE registration_ceremony_id = $1
-            "#,
-        )
-        .bind(ceremony_id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or(ProvisioningError::InvalidBootstrapCredential)?;
-
-        let bootstrap_id: Uuid = row.try_get("id")?;
-        let user_id: Uuid = row.try_get("user_id")?;
-        let expires_at: OffsetDateTime = row.try_get("expires_at")?;
-        let consumed_at: Option<OffsetDateTime> = row.try_get("consumed_at")?;
-        let revoked_at: Option<OffsetDateTime> = row.try_get("revoked_at")?;
-        let now = OffsetDateTime::now_utc();
-        validate_bootstrap_state(expires_at, consumed_at, revoked_at, now)?;
-
-        // Single transaction: the passkey registration (which atomically claims
-        // the WebAuthn ceremony) and the single-use bootstrap-credential consume
-        // commit or roll back together, so a passkey can never be created without
-        // atomically consuming the bootstrap credential that authorized it.
-        let mut tx = pool.begin().await?;
-
-        let stored_passkey = passkeys
-            .finish_registration_in_tx(&mut tx, ceremony_id, credential, now)
-            .await?;
-
-        let affected = sqlx::query(
-            r#"
-            UPDATE auth_bootstrap_credentials
-            SET consumed_at = $1
-            WHERE id = $2
-              AND consumed_at IS NULL
-              AND revoked_at IS NULL
-            "#,
-        )
-        .bind(now)
-        .bind(bootstrap_id)
-        .execute(tx.as_mut())
-        .await?
-        .rows_affected();
-
-        if affected != 1 {
-            // Rolls back the passkey insert as well: no orphan enrollment.
-            return Err(ProvisioningError::BootstrapCredentialUsed);
-        }
-
-        let audit = AuditEvent::new(
-            Some(UserId::from_uuid(user_id)),
-            AuditAction::new("auth.bootstrap.consume")?,
-            "auth_bootstrap_credential",
-            bootstrap_id.to_string(),
-            TraceContext::generate(),
-            now,
-        )
-        .with_snapshots(
-            None,
-            Some(serde_json::json!({
-                "user_id": user_id,
-                "passkey_id": stored_passkey.id,
+                "requires_passkey_setup": requires_passkey_setup,
             })),
         );
         insert_audit_event(&mut tx, &audit).await?;
 
         tx.commit().await?;
 
-        Ok(stored_passkey)
+        Ok(OtpRedemption {
+            user_id,
+            requires_passkey_setup,
+        })
     }
+}
+
+/// Outcome of a successful OTP first sign-in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OtpRedemption {
+    /// The pre-provisioned user the OTP belonged to; the caller mints a session
+    /// for this user.
+    pub user_id: Uuid,
+    /// True when the user has no registered passkey yet, so the frontend should
+    /// force passkey enrollment during initial settings.
+    pub requires_passkey_setup: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -735,50 +638,57 @@ async fn issue_bootstrap_if_needed_tx(
     }))
 }
 
-async fn count_user_passkeys(pool: &PgPool, user_id: Uuid) -> Result<i64, ProvisioningError> {
+async fn count_user_passkeys_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: Uuid,
+) -> Result<i64, ProvisioningError> {
     Ok(
         sqlx::query_scalar("SELECT COUNT(*) FROM auth_webauthn_credentials WHERE user_id = $1")
             .bind(user_id)
-            .fetch_one(pool)
+            .fetch_one(tx.as_mut())
             .await?,
     )
 }
 
-fn validate_bootstrap_state(
-    expires_at: OffsetDateTime,
-    consumed_at: Option<OffsetDateTime>,
-    revoked_at: Option<OffsetDateTime>,
-    now: OffsetDateTime,
-) -> Result<(), ProvisioningError> {
-    if consumed_at.is_some() {
-        return Err(ProvisioningError::BootstrapCredentialUsed);
+/// Admin-issued OTP length and alphabet.
+///
+/// 8 characters over a 72-symbol copy-paste-safe alphabet: A-Z, a-z, 0-9 and the
+/// special set `!@#$%^&*-_`. That is 72^8 ≈ 2^49.3 of entropy. Eight characters
+/// is the product's explicit choice; the brute-force guarantee therefore rests on
+/// the per-client rate limit plus the short (default 24h, configurable) TTL and
+/// single-use-on-success consume, NOT on the token length alone.
+const OTP_LEN: usize = 8;
+const OTP_ALPHABET: &[u8] =
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*-_";
+
+/// Generate a cryptographically-random 8-character OTP using rejection sampling
+/// over [`OTP_ALPHABET`] so every symbol is equiprobable (no modulo bias).
+fn generate_bootstrap_token() -> BootstrapToken {
+    let alphabet_len = OTP_ALPHABET.len();
+    // Largest multiple of the alphabet length that fits in a byte; bytes at or
+    // above this are rejected to keep the distribution uniform.
+    let limit = (256 / alphabet_len) * alphabet_len;
+    let mut out = String::with_capacity(OTP_LEN);
+    while out.len() < OTP_LEN {
+        for &byte in fill_random().iter() {
+            if (byte as usize) < limit {
+                out.push(OTP_ALPHABET[byte as usize % alphabet_len] as char);
+                if out.len() == OTP_LEN {
+                    break;
+                }
+            }
+        }
     }
-    if revoked_at.is_some() {
-        return Err(ProvisioningError::BootstrapCredentialRevoked);
-    }
-    if expires_at <= now {
-        return Err(ProvisioningError::BootstrapCredentialExpired);
-    }
-    Ok(())
+    BootstrapToken(out)
 }
 
-fn generate_bootstrap_token() -> BootstrapToken {
-    let mut bytes = [0u8; 32];
-    bytes[..16].copy_from_slice(Uuid::new_v4().as_bytes());
-    bytes[16..].copy_from_slice(Uuid::new_v4().as_bytes());
-    BootstrapToken(format!("mnt_boot_{}", hex_encode(&bytes)))
+/// 16 cryptographically-random bytes. `Uuid::new_v4` draws from the OS CSPRNG via
+/// `getrandom`, so this reuses the project's existing randomness source without a
+/// new dependency.
+fn fill_random() -> [u8; 16] {
+    *Uuid::new_v4().as_bytes()
 }
 
 fn hash_token(token: &str) -> Vec<u8> {
     Sha256::digest(token.as_bytes()).to_vec()
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(HEX[(byte >> 4) as usize] as char);
-        out.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    out
 }

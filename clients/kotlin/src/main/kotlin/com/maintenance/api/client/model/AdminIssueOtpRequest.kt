@@ -29,20 +29,25 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Contextual
 
 /**
- * Optional overrides for the authenticated session user's passkey registration. Both default to the user's stored profile when omitted.
  *
- * @param username
- * @param displayName
+ *
+ * @param userId
+ * @param branchId
+ * @param ttlSeconds Optional code lifetime in seconds; defaults to 86400 (24 hours).
  */
 @Serializable
 
-data class PasskeyRegisterStartRequest (
+data class AdminIssueOtpRequest (
 
-    @SerialName(value = "username")
-    val username: kotlin.String? = null,
+    @Contextual @SerialName(value = "user_id")
+    val userId: java.util.UUID,
 
-    @SerialName(value = "display_name")
-    val displayName: kotlin.String? = null
+    @Contextual @SerialName(value = "branch_id")
+    val branchId: java.util.UUID,
+
+    /* Optional code lifetime in seconds; defaults to 86400 (24 hours). */
+    @SerialName(value = "ttl_seconds")
+    val ttlSeconds: kotlin.Long? = null
 
 ) {
 
