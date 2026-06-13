@@ -2,8 +2,8 @@ name: mnt-prod
 
 x-app-image: &app-image
   build:
-    context: ../backend
-    dockerfile: Dockerfile
+    context: ..
+    dockerfile: backend/Dockerfile
   image: mnt-app:local
 
 x-app-env: &app-env

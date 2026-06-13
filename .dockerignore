@@ -1,0 +1,22 @@
+# The image build context is the repo root (ops/compose.yml) only so the
+# reporting crate's include_bytes!(".../docs/reference/*.xlsx") golden templates
+# are reachable at compile time. Everything else must be excluded — notably
+# .claude/worktrees (hundreds of GB) and backend/target (tens of GB) — or the
+# context transfer is catastrophic.
+#
+# Strategy: ignore everything, then re-include only the build inputs.
+*
+
+!backend
+!docs
+
+# Prune heavy / irrelevant paths back out of the re-included trees.
+backend/target
+backend/.sqlx/query-*.tmp
+docs/evidence
+**/.DS_Store
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+**/.git
