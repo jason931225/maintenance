@@ -14,6 +14,7 @@ struct MaintenanceFieldCoreBehaviorTests {
         try messengerMappersAndReducerMirrorAndroidModels()
         try await offlineComposedMessagesQueueAndReplayDirectly()
         try messengerRealtimeRequestUsesBearerHeaderAndResumeCursor()
+        try await keychainSessionStorePersistsTokensOutsideUserDefaults()
         print("MaintenanceFieldCoreBehaviorTests passed")
     }
 
@@ -212,7 +213,7 @@ struct MaintenanceFieldCoreBehaviorTests {
 
         let loaded = reducer.reduce(
             MessengerState(),
-            action: .messagesPageLoaded(
+            .messagesPageLoaded(
                 threadID: messengerThreadID,
                 page: MessengerMessagePage(
                     items: [second.toMessengerMessage(), first.toMessengerMessage()],
@@ -227,7 +228,7 @@ struct MaintenanceFieldCoreBehaviorTests {
                 nextCursorByThread: loaded.nextCursorByThread,
                 lastMessageIDByThread: loaded.lastMessageIDByThread
             ),
-            action: .liveMessageReceived(second.toMessengerMessage())
+            .liveMessageReceived(second.toMessengerMessage())
         )
 
         try expectEqual(thread.toMessengerThread().displayTitle, "팀 채널")
@@ -264,9 +265,35 @@ struct MaintenanceFieldCoreBehaviorTests {
         let summary = try await repository.replayPending()
 
         try expectEqual(summary, MessengerReplaySummary(attempted: 1, sent: 1, failed: 0))
-        try expectEqual(await store.get("chat-request-1")?.isSynced, true)
+        try expectEqual(await store.get(requestID: "chat-request-1")?.isSynced, true)
         try expectEqual(gateway.sentBodies, ["오프라인 작성", "오프라인 작성"])
         try expect(gateway.syncReplayRequests.isEmpty, "chat sends must not use /sync replay")
+    }
+
+    private static func keychainSessionStorePersistsTokensOutsideUserDefaults() async throws {
+        let keychain = InMemoryKeychainAccess()
+        let provider = CurrentTokenProvider()
+        let store = KeychainSessionTokenStore(tokenProvider: provider, keychain: keychain)
+
+        try expectEqual(await store.load(), nil)
+
+        let tokens = AuthTokens(accessToken: "access.jwt", refreshToken: "refresh-token-30d")
+        await store.save(tokens)
+
+        try expectEqual(provider.get(), "access.jwt")
+        try expectEqual(await store.load(), tokens)
+
+        // The refresh token must live only in the Keychain blob, never as a plaintext value.
+        let storedValues = keychain.allStoredStrings()
+        try expect(
+            storedValues.contains { $0.contains("refresh-token-30d") },
+            "tokens should be persisted through the keychain"
+        )
+
+        await store.clear()
+        try expectEqual(await store.load(), nil)
+        try expectEqual(provider.get(), nil)
+        try expect(keychain.isEmpty(), "clear should remove the keychain item")
     }
 
     private static func messengerRealtimeRequestUsesBearerHeaderAndResumeCursor() throws {
@@ -456,6 +483,41 @@ private final class RecordingMessengerGateway: MessengerGateway, @unchecked Send
 
     func search(query: String, limit: Int64) async throws -> [MessengerMessage] {
         []
+    }
+}
+
+private final class InMemoryKeychainAccess: KeychainAccess, @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String: Data] = [:]
+
+    func read(service: String, account: String) -> Data? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage["\(service).\(account)"]
+    }
+
+    func write(_ data: Data, service: String, account: String) {
+        lock.lock()
+        storage["\(service).\(account)"] = data
+        lock.unlock()
+    }
+
+    func delete(service: String, account: String) {
+        lock.lock()
+        storage["\(service).\(account)"] = nil
+        lock.unlock()
+    }
+
+    func allStoredStrings() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage.values.compactMap { String(data: $0, encoding: .utf8) }
+    }
+
+    func isEmpty() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage.isEmpty
     }
 }
 

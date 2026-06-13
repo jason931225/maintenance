@@ -1,6 +1,7 @@
 import CoreData
 import Foundation
 import MaintenanceAPIClient
+import Security
 
 public final class CurrentTokenProvider: @unchecked Sendable {
     private let lock = NSLock()
@@ -39,46 +40,108 @@ public protocol SessionTokenStore: Sendable {
     func clear() async
 }
 
-public actor UserDefaultsSessionTokenStore: SessionTokenStore {
-    private let userDefaults: UserDefaults
+/// Stores the access/refresh token pair in the Keychain rather than UserDefaults.
+///
+/// The 30-day refresh token must not live in a UserDefaults plist (those are included
+/// in iCloud/Finder backups). Both tokens are persisted as a single JSON-encoded
+/// generic-password item with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, so the
+/// item is reachable only while the device is unlocked and never leaves the device.
+public actor KeychainSessionTokenStore: SessionTokenStore {
     private let tokenProvider: CurrentTokenProvider
-    private let accessKey: String
-    private let refreshKey: String
+    private let service: String
+    private let account: String
+    private let keychain: any KeychainAccess
 
     public init(
-        userDefaults: UserDefaults = .standard,
         tokenProvider: CurrentTokenProvider,
-        namespace: String = "maintenance.field"
+        namespace: String = "maintenance.field",
+        keychain: any KeychainAccess = SecKeychainAccess()
     ) {
-        self.userDefaults = userDefaults
         self.tokenProvider = tokenProvider
-        self.accessKey = "\(namespace).accessToken"
-        self.refreshKey = "\(namespace).refreshToken"
-        tokenProvider.set(userDefaults.string(forKey: accessKey))
+        self.service = namespace
+        self.account = "\(namespace).session"
+        self.keychain = keychain
+        tokenProvider.set(Self.decode(keychain.read(service: service, account: account))?.accessToken)
     }
 
     public func load() -> AuthTokens? {
-        guard
-            let accessToken = userDefaults.string(forKey: accessKey),
-            let refreshToken = userDefaults.string(forKey: refreshKey)
-        else {
+        guard let tokens = Self.decode(keychain.read(service: service, account: account)) else {
             tokenProvider.set(nil)
             return nil
         }
-        tokenProvider.set(accessToken)
-        return AuthTokens(accessToken: accessToken, refreshToken: refreshToken)
+        tokenProvider.set(tokens.accessToken)
+        return tokens
     }
 
     public func save(_ tokens: AuthTokens) {
-        userDefaults.set(tokens.accessToken, forKey: accessKey)
-        userDefaults.set(tokens.refreshToken, forKey: refreshKey)
+        if let data = try? JSONEncoder().encode(tokens) {
+            keychain.write(data, service: service, account: account)
+        }
         tokenProvider.set(tokens.accessToken)
     }
 
     public func clear() {
-        userDefaults.removeObject(forKey: accessKey)
-        userDefaults.removeObject(forKey: refreshKey)
+        keychain.delete(service: service, account: account)
         tokenProvider.set(nil)
+    }
+
+    private static func decode(_ data: Data?) -> AuthTokens? {
+        guard let data else { return nil }
+        return try? JSONDecoder().decode(AuthTokens.self, from: data)
+    }
+}
+
+/// Abstraction over the Keychain so the session store is unit-testable without a
+/// provisioned Keychain (the real `SecItem` APIs fail outside a signed app bundle).
+public protocol KeychainAccess: Sendable {
+    func read(service: String, account: String) -> Data?
+    func write(_ data: Data, service: String, account: String)
+    func delete(service: String, account: String)
+}
+
+public struct SecKeychainAccess: KeychainAccess {
+    public init() {}
+
+    public func read(service: String, account: String) -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else {
+            return nil
+        }
+        return result as? Data
+    }
+
+    public func write(_ data: Data, service: String, account: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+        ]
+        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            var insert = query
+            insert.merge(attributes) { _, new in new }
+            SecItemAdd(insert as CFDictionary, nil)
+        }
+    }
+
+    public func delete(service: String, account: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(query as CFDictionary)
     }
 }
 

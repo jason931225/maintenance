@@ -10,7 +10,7 @@ struct FieldAppContainer {
 
     static func live() -> FieldAppContainer {
         let tokenProvider = CurrentTokenProvider()
-        let sessionStore = UserDefaultsSessionTokenStore(tokenProvider: tokenProvider)
+        let sessionStore = KeychainSessionTokenStore(tokenProvider: tokenProvider)
         let deviceIDStore = UserDefaultsDeviceIDStore()
         let serverURL = URL(string: ProcessInfo.processInfo.environment["MAINTENANCE_API_BASE_URL"] ?? "http://localhost:8080")!
         let gateway = GeneratedMaintenanceAPIGateway(serverURL: serverURL, tokenProvider: tokenProvider)

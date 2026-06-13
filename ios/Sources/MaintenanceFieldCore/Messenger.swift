@@ -174,10 +174,6 @@ public struct MessengerReducer: Sendable {
         }
     }
 
-    public func reduce(_ state: MessengerState, action: MessengerAction) -> MessengerState {
-        reduce(state, action)
-    }
-
     private func upsert(message: MessengerMessage, into state: MessengerState) -> MessengerState {
         var next = state
         next.messagesByThread[message.threadID] = mergeMessages(
@@ -318,10 +314,6 @@ public actor InMemoryMessengerOutboxStore: MessengerOutboxStore {
     }
 
     public func get(requestID: String) -> QueuedMessengerMessage? {
-        messages[requestID]
-    }
-
-    public func get(_ requestID: String) -> QueuedMessengerMessage? {
         messages[requestID]
     }
 

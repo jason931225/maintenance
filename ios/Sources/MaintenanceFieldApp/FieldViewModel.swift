@@ -18,6 +18,7 @@ final class FieldViewModel: ObservableObject {
     @Published var messengerState = MessengerState()
     @Published var messengerDraft = ""
     @Published var messengerSearchQuery = ""
+    @Published var messengerHasSearched = false
     @Published var locationConsent: Components.Schemas.LocationConsentStatus?
 
     private let authRepository: PasskeyAuthRepository
@@ -51,12 +52,17 @@ final class FieldViewModel: ObservableObject {
     }
 
     func login() async {
-        guard userID.trimmedForSubmission.isEmpty == false else {
+        let trimmedUserID = userID.trimmedForSubmission
+        guard trimmedUserID.isEmpty == false else {
             messageKey = "error_required"
             return
         }
+        guard UUID(uuidString: trimmedUserID) != nil else {
+            messageKey = "error_invalid_user_id"
+            return
+        }
         isLoading = true
-        loginState = await authRepository.login(userID: userID.trimmedForSubmission)
+        loginState = await authRepository.login(userID: trimmedUserID)
         isLoading = false
         switch loginState {
         case .authenticated:
@@ -160,6 +166,10 @@ final class FieldViewModel: ObservableObject {
         isLoading = false
     }
 
+    func cameraCaptureFailed() {
+        messageKey = "operation_failed"
+    }
+
     func evidenceCaptured(fileURL: URL) async {
         guard let selectedWorkOrder else { return }
         do {
@@ -201,12 +211,14 @@ final class FieldViewModel: ObservableObject {
     func searchMessengerMessages() async {
         let query = messengerSearchQuery.trimmedForSubmission
         guard query.isEmpty == false else {
+            messengerHasSearched = false
             messengerState = messengerReducer.reduce(messengerState, .searchResultsLoaded([]))
             return
         }
         do {
             let messages = try await messengerRepository.search(query: query)
             messengerState = messengerReducer.reduce(messengerState, .searchResultsLoaded(messages))
+            messengerHasSearched = true
             messageKey = nil
         } catch {
             messageKey = "error_network"

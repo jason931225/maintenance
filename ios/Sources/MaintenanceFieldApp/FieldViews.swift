@@ -28,6 +28,9 @@ struct FieldRootView: View {
                 }
             } onCancel: {
                 viewModel.isCameraPresented = false
+            } onError: {
+                viewModel.cameraCaptureFailed()
+                viewModel.isCameraPresented = false
             }
         }
     }
@@ -57,7 +60,10 @@ struct LoginView: View {
         Form {
             Section {
                 TextField(String(localized: "user_id"), text: $viewModel.userID)
-                    .textContentType(.username)
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
                 Button {
                     Task { await viewModel.login() }
                 } label: {
@@ -138,6 +144,9 @@ struct MessengerTabView: View {
                     ForEach(viewModel.messengerState.searchResults) { message in
                         MessengerMessageRow(message: message)
                     }
+                } else if viewModel.messengerHasSearched {
+                    Text("messenger_search_no_results")
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -253,7 +262,7 @@ struct MessengerMessageRow: View {
             Text(message.body)
                 .font(.body)
             HStack {
-                Text(message.sentAt.formatted(date: .omitted, time: .shortened))
+                Text(message.sentAt.formatted(date: .abbreviated, time: .shortened))
                 if message.attachmentEvidenceIDs.isEmpty == false {
                     FieldChip(key: "messenger_attachment")
                 }
@@ -275,7 +284,7 @@ struct WorkOrderRow: View {
                 Spacer()
                 FieldChip(key: workOrder.priority.fieldLabelKey)
             }
-            Text(workOrder.customerName)
+            Text(localizedString("site_format", workOrder.customerName, workOrder.siteName))
                 .font(.subheadline)
             Text(localizedString("equipment_format", workOrder.managementNo, workOrder.modelName))
                 .font(.footnote)
@@ -307,6 +316,12 @@ struct WorkOrderDetailView: View {
                         LabeledContent("site", value: workOrder.siteName)
                         if let symptom = workOrder.symptom {
                             LabeledContent("symptom", value: symptom)
+                        }
+                        if let targetDueAt = workOrder.targetDueAt {
+                            LabeledContent(
+                                "target_due",
+                                value: targetDueAt.formatted(date: .abbreviated, time: .shortened)
+                            )
                         }
                         HStack {
                             FieldChip(key: workOrder.priority.fieldLabelKey)
