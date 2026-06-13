@@ -1255,7 +1255,25 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
         state.push_notifier.clone(),
         alimtalk_policy,
     );
-    run_apalis_worker_until_shutdown(
+
+    // The worker exposes no API surface, but orchestrators (Compose/K8s) still
+    // need a liveness/readiness probe. Serve /healthz + /readyz on the same
+    // address the API role uses, concurrently with the apalis worker.
+    let health_listener = tokio::net::TcpListener::bind(config.http_addr)
+        .await
+        .map_err(AppError::Io)?;
+    tracing::info!(addr = %config.http_addr, "worker health server listening");
+    let health_router = Router::new()
+        .route("/healthz", get(healthz))
+        .route("/readyz", get(readyz))
+        .with_state(state.clone());
+    let health_server = tokio::spawn(async move {
+        if let Err(err) = axum::serve(health_listener, health_router).await {
+            tracing::warn!(error = %err, "worker health server stopped");
+        }
+    });
+
+    let result = run_apalis_worker_until_shutdown(
         database_url,
         "mnt.dispatch",
         format!("{}-dispatch-worker", config.service_name),
@@ -1263,7 +1281,10 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
         shutdown_signal(config.shutdown_timeout, state.clone()),
     )
     .await
-    .map_err(|err| AppError::Worker(err.to_string()))
+    .map_err(|err| AppError::Worker(err.to_string()));
+
+    health_server.abort();
+    result
 }
 
 async fn shutdown_signal(timeout: Duration, state: AppState) {
