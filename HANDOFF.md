@@ -4,15 +4,19 @@
 
 ## 0. TL;DR — current state
 
-- **Phase:** **G003/M2 + G004/M3 + G005/M4 + G006/M5 lanes in parallel** (ultragoal 2/8 — **G001/M0 + G002/M1 BOTH complete & checkpointed 2026-06-12**, main `2fe6c81`+)
+- **Phase:** **M0–M6 CODE-COMPLETE + review→harden→fix DONE** (main `2347285`+). Ultragoal: G001–G007 done (checkpointing in progress); **G008 rollout BLOCKED on operator** (OCI VM, prod secrets, KCC 신고, Kakao templates, pilot seeding — see [docs/GO-LIVE-CHECKLIST.md](docs/GO-LIVE-CHECKLIST.md)).
 - **Plan:** `.omc/plans/fsm-maintenance-plan.md` (consensus-APPROVED 2026-06-12, ralplan iteration 3) — task IDs T0.x–T6.x are stable, ledger references them
 - **Spec:** `.omc/specs/deep-interview-fsm-maintenance.md` (interview-locked user decisions — do not relitigate)
-- **M0 (13/13):** kernel · layer gate · schema+with_audit · 3 safety gates · auth (SoftPasskey-proven) · authz (4-level 22-feature matrix) · Compose stack + mnt-app · observability (/api/audit self-auditing, OpenSLO) · backup/restore drill · Excel spike PASS · compliance (destruction proven) · provisioning · DR/PITR (lead-verified arbitrary-timestamp drill; VM-down rehearsal evidence)
-- **M1 (10+2 gap-fixes merged):** T1.1 registry+importer · T1.2 FSM(256-cell) · T1.3 spine · T1.3b auth-REST · T1.3c mobile surface (/sync idempotent, evidence presign, devices) · T1.3d read surface · T1.4 evidence/WORM (lead-reproduced retention test) · T1.5+T1.5b web console (complete slice) · T1.9 tri-client codegen+drift gates · T1.10 apalis soak PASS×2 (M2 gate SATISFIED)
-- **In flight:** T1.6 Android. **Then:** T1.7 iOS → T1.8 parity → T1.11 distribution (Apple/Play accounts READY) → T1.12 i18n → G002 checkpoint
-- **Main:** 86 green suites / 0 failed; 4/4 gates; 24 crates; migrations 0001–0010; contract↔app stable; tri-client drift green
-- **Ops lessons (persisted to memory):** never pipe codex exec stdout (stalls); grep -c exits 1 on zero; sqlx prepare needs -- --all-targets; union-resolve Cargo.toml member/dep conflicts via python not Edit-tool (race)
-- **Local env:** Rust stable 1.96.0 pinned; Homebrew Postgres 18.4 (latest stable, live-verified); Docker 29.5.2 via colima; Node 24
+- **M0 (13/13):** kernel · layer gate · schema+with_audit · 3 safety gates · auth · authz · Compose stack · observability/OpenSLO · backup/restore · Excel spike · compliance · provisioning · DR/PITR
+- **M1 (12+gap-fixes):** registry+importer (445 units) · WO FSM (256-cell) · auth-REST · mobile surface · evidence/WORM · web+Android+iOS slice · tri-client codegen+drift · apalis soak ×2 · distribution pipeline · i18n
+- **M2 (G003):** consent UI ×3 (T2.2) · dispatch P1 broadcast-accept FSM + GPS scoring + escalation timers (T2.4/T2.5, E2E sim proven). T2.3 KCC 신고 + T2.6 Alimtalk templates = **business actions (operator)**; code skips un-templated Alimtalk gracefully.
+- **M3 (G004):** full messenger (T3.1/3.2/3.3) — persist-before-fanout, IDs-only LISTEN/NOTIFY <8000B, read receipts, FTS, tri-client.
+- **M4 (G005):** Excel exports (일일현황/업무일지 golden-file), KPI 7종 + executive dashboard/kiosk (T4.1–4.5).
+- **M5 (G006):** substitute matching (T5.1) · rental quote w/ negative-잔존가 flooring (T5.2) · cost ledger recompute (T5.3) · purchase/expenditure FSM (T5.4).
+- **M6 (G007):** oyatie AI port (T6.1) · Bitween identity port (T6.2) · CI-GATES.md (T6.3) · inspection domain (T6.4) · GO-LIVE-CHECKLIST.md (T6.5). Review→harden→fix: 7 confirmed findings fixed+verified (2 security in `ffc8081`, 5 correctness in `258f622`); reports in `.omc/review/`.
+- **Main:** 159 green suites / 240 tests / 0 failed; 4/4 gates; 49 crates; migrations 0001–0019; contract↔app stable; tri-client drift green; web/Android/iOS build+test green.
+- **Ops lessons (persisted to memory):** never pipe codex exec stdout (stalls — confirmed again: both harden codex workers zombie-stalled 5h@0%CPU and were replaced by Claude executors); grep -c exits 1 on zero; sqlx prepare needs -- --all-targets; union-resolve shared-trailing-delimiter conflicts carefully (a union-strip dropped a Swift `}` + a ctor comma in the T2.2 merge — builds caught both).
+- **Local env:** Rust stable pinned; Homebrew Postgres 18.4 (live-verified); Docker via colima; Node 24
 
 ## 1. Hard guardrails (persist)
 
@@ -45,8 +49,15 @@
 
 ## 4. Next up (dependency order)
 
-T0.8 (observability + audit-read API) → M0 wrap → G002/M1.
+All engineering milestones (M0–M6) are code-complete + reviewed/hardened. The
+only remaining work is **operator/business-owned** and gates pilot rollout
+(G008): provision OCI VM + TLS, install prod secrets (`docs/release/SECRETS.md`),
+file KCC LBS 신고, submit Kakao Alimtalk templates, seed branch/region + pilot
+roster, distribute a signed pilot build, run the restore drill on the real VM.
+See [docs/GO-LIVE-CHECKLIST.md](docs/GO-LIVE-CHECKLIST.md). No further engineering
+is required to start the pilot once those are in place.
 
 ## 5. Next-free resources (parallel-wave coordination)
-- Next migration number: **0018**
-- Crate families merged: kernel, platform/{auth,auth-rest,authz,db,storage,push,jobs,realtime,excel}, workorder, registry, compliance, messenger, dispatch, reporting, financial, identity; ports: intelligence(T6.1)/identity(T6.2)
+- Next migration number: **0020** (0019 = `0019_harden_worm_and_alert_leases.sql`, harden wave 2)
+- Crate families merged: kernel, platform/{auth,auth-rest,authz,db,storage,push,jobs,realtime,excel,provisioning}, workorder, registry, compliance, messenger, dispatch, reporting, financial, inspection, identity; ports: intelligence/AiAssistantPort(T6.1), identity/IdentityProviderPort(T6.2)
+- Review findings: all 7 fixed+verified; finding #6 (reporting nullable branch_id) RESOLVED-AS-INTENDED (company/region rollup; scope_key authoritative).

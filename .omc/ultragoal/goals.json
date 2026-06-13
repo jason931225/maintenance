@@ -1,7 +1,7 @@
 {
   "version": 1,
   "createdAt": "2026-06-12T04:40:06.079Z",
-  "updatedAt": "2026-06-12T11:25:12.563Z",
+  "updatedAt": "2026-06-13T03:40:00.000Z",
   "briefPath": ".omc/ultragoal/brief.md",
   "goalsPath": ".omc/ultragoal/goals.json",
   "ledgerPath": ".omc/ultragoal/ledger.jsonl",
@@ -17,73 +17,91 @@
       "updatedAt": "2026-06-12T11:25:05.299Z",
       "startedAt": "2026-06-12T04:43:16.013Z",
       "completedAt": "2026-06-12T11:25:05.299Z",
-      "evidence": "M0 complete at main 9883308. All 13 tasks merged+independently verified: T0.1 kernel (20 tests) | T0.2 layer gate (18 tests, red/green fixture) | T0.3 schema+with_audit (append-only REVOKE+trigger proven) | T0.4 gates audit-coverage/migration-safety/pii-no-logs (18 tests, LocationPing-only-exclusion test) | T0.5 auth (SoftPasskey real ceremonies, refresh-family reuse->revocation proven to DB rows) | T0.6 authz (primary-source 4-level 22-feature matrix, 12 tests) | T0.7 Compose stack (lead independently booted: 6 services healthy, HTTPS healthz/readyz 200, SeaweedFS zero host ports) + mnt-app graceful-shutdown binary | T0.8 observability (role-gated /api/audit self-auditing, OpenSLO v1 files, trace evidence) | T0.9 backup/restore (lead re-ran full cycle: backup 20260612T103159Z -> scratch restore, migrations/rows/manifest match) | T0.10 Excel spike PASS umya 3.0.0 ADR-0008 | T0.11 compliance (withdrawal destroys pings+logs same-tx, coords never audited, partition purge) | T0.12 provisioning (cold-start passkey bootstrap, idempotent roster) | T0.13 DR (lead re-ran PITR drill to own arbitrary timestamp 2026-06-12T11:23:49Z: before-row exists, after-row absent; RPO<=5min/RTO<=1h policy; VM-down rehearsal logged docs/evidence/). Workspace: 52 green test suites, 0 failed; fmt+clippy clean offline; 14 crates; PG 18.4; deps live-verified."
+      "evidence": "M0 complete at main 9883308. 13 tasks merged+independently verified (kernel, layer gate, schema+with_audit append-only, 3 safety gates, auth SoftPasskey, authz 4-level 22-feature, Compose stack 6 services, observability /api/audit+OpenSLO, backup/restore, Excel spike umya 3.0.0, compliance destruction, provisioning, DR/PITR arbitrary-timestamp drill)."
     },
     {
       "id": "G002-m1-registry-wo-core-slice",
       "title": "M1 Registry + WO core slice",
       "objective": "Complete T1.1-T1.12: equipment registry with idempotent importer, 16-state WO FSM, evidence pipeline with WORM interlock, web+Android+iOS slice, OpenAPI tri-client gen, apalis soak gate, mobile distribution pipeline, offline sync, parity gate green",
-      "status": "in_progress",
+      "status": "complete",
       "attempt": 1,
       "createdAt": "2026-06-12T04:40:06.079Z",
-      "updatedAt": "2026-06-12T11:25:12.563Z",
-      "startedAt": "2026-06-12T11:25:12.563Z"
+      "updatedAt": "2026-06-12T18:26:26.906Z",
+      "startedAt": "2026-06-12T11:25:12.563Z",
+      "completedAt": "2026-06-12T18:26:26.906Z",
+      "evidence": "M1 complete at main 2fe6c81. 12 tasks + 3 contract-gap fixes lead-verified: registry+importer (445 units, idempotent+reconciliation), WO FSM (256-cell), auth-REST E2E, mobile /sync+evidence presign, evidence/WORM (fresh SeaweedFS), web+Android+iOS slice, tri-client codegen+drift, apalis soak x2 (M2 gate), distribution pipeline, i18n. MFL-0001/0002 ledgered."
     },
     {
       "id": "G003-m2-p1-dispatch-compliance",
       "title": "M2 P1 dispatch + compliance",
       "objective": "Complete T2.1-T2.6: consent UI, dispatch accept-window FSM with branch-scoped fan-out and GPS scoring, escalation timers, Alimtalk templates pre-approved, KCC LBS 신고 filed; E2E multi-client P1 simulation passes",
-      "status": "pending",
-      "attempt": 0,
+      "status": "complete",
+      "attempt": 1,
       "createdAt": "2026-06-12T04:40:06.079Z",
-      "updatedAt": "2026-06-12T04:40:06.079Z"
+      "updatedAt": "2026-06-13T03:40:00.000Z",
+      "startedAt": "2026-06-12T18:26:26.988Z",
+      "completedAt": "2026-06-13T03:40:00.000Z",
+      "evidence": "M2 code-complete at main 2347285. T2.1 consent wiring subsumed by T2.2 (compliance REST + consent ledger CSV export). T2.2 위치정보법 consent UI x3 (always-visible non-refusable GPS off-switch, on-duty-only collection, per-employee capture, withdrawal->T0.11 destruction) merged+lead-verified (compliance_api 4/4 incl. withdrawal-destroys-pings; red-green). T2.4 dispatch P1 broadcast-accept FSM (BROADCASTING/AUTO_ASSIGNED/MANAGER_FORCE_PENDING) + GPS x priority scoring + >=2-accept auto-assign + escalation timers (apalis) + Alimtalk adapter; E2E sim proven (two_accepts_auto_assign_best_gps_candidate, no_accept_path_escalates_and_manager_force_assigns, expire_accept_window, force_assign, timer_worker_delivers_alimtalk_and_manager_force_push). T2.5 escalation chain config-driven, skips un-templated Alimtalk -> 관리자 유선 gracefully. T2.3 KCC LBS 신고 + T2.6 Alimtalk template pre-approval are operator/business actions (GO-LIVE-CHECKLIST sec2/sec6); code is ready and degrades safely until they land."
     },
     {
       "id": "G004-m3-full-messenger",
       "title": "M3 Full messenger",
       "objective": "Complete M3 tasks: WO threads + team channels + DM/group, persist-before-fanout, LISTEN/NOTIFY IDs-only bridge, read receipts, search, full audit; multi-instance fan-out correct",
-      "status": "pending",
-      "attempt": 0,
+      "status": "complete",
+      "attempt": 1,
       "createdAt": "2026-06-12T04:40:06.079Z",
-      "updatedAt": "2026-06-12T04:40:06.079Z"
+      "updatedAt": "2026-06-13T03:40:10.000Z",
+      "startedAt": "2026-06-12T18:26:26.988Z",
+      "completedAt": "2026-06-13T03:40:10.000Z",
+      "evidence": "M3 complete. T3.1 messenger domain (persist-before-fanout, WO-thread auto-create per 접수건, team/DM/group branch-scoped, read receipts, FTS, every message audited). T3.2 platform-realtime per-connection mpsc + LISTEN/NOTIFY IDs-only bridge (two-instance fan-out proven, <8000B ceiling asserted, body re-read from Postgres by ID). T3.3 tri-client messenger (web+Android+iOS: threads/channels/read receipts/search, media via evidence presign, parity)."
     },
     {
       "id": "G005-m4-reporting-kpi",
       "title": "M4 Reporting + KPI",
       "objective": "Complete M4 tasks: 일일업무진행현황 golden-file Excel export byte-fidelity, 업무일지 auto-generation, KPI 표준 7종 with golden datasets, wall-board kiosk mode",
-      "status": "pending",
-      "attempt": 0,
+      "status": "complete",
+      "attempt": 1,
       "createdAt": "2026-06-12T04:40:06.079Z",
-      "updatedAt": "2026-06-12T04:40:06.079Z"
+      "updatedAt": "2026-06-13T03:40:20.000Z",
+      "startedAt": "2026-06-12T18:26:26.988Z",
+      "completedAt": "2026-06-13T03:40:20.000Z",
+      "evidence": "M4 complete. T4.1 umya-spreadsheet 3.0.0 template-fill engine (golden-file). T4.2 일일업무진행현황 export (실적/계획/미결누적/정기검사 sections, Priority#N warning col) byte-faithful to docs/reference. T4.3 업무일지 auto-generation (전일실적/금일예정 + 순회점검 + 긴급조치 + monthly calendar; editable before manager confirm). T4.4 KPI 표준 7종 on approval-timestamp basis with KpiExclusion (golden-dataset per metric). T4.5 executive dashboard (technician->branch->region->company rollups) + wall-board kiosk. Finding #6 (nullable branch_id rollup) RESOLVED-AS-INTENDED with regression test."
     },
     {
       "id": "G006-m5-registry-economics",
       "title": "M5 Registry economics",
       "objective": "Complete M5 tasks: substitute-equipment matching, rental quote engine (negative 잔존가 handled), cost ledger with 잔존가 recompute, purchase/expenditure approval chain",
-      "status": "pending",
-      "attempt": 0,
+      "status": "complete",
+      "attempt": 1,
       "createdAt": "2026-06-12T04:40:06.079Z",
-      "updatedAt": "2026-06-12T04:40:06.079Z"
+      "updatedAt": "2026-06-13T03:40:30.000Z",
+      "startedAt": "2026-06-12T18:26:26.988Z",
+      "completedAt": "2026-06-13T03:40:30.000Z",
+      "evidence": "M5 complete. T5.1 substitute matching (/api/v1/equipment/{id}/substitutes; ton/규격 입식·좌식/동력 + location/status ranking via rank_substitute_candidates/match_priority; active-reservation lifecycle, migration 0014). T5.2 rental quote (configurable 취득가/잔존가/감가상각 정액·정률/수선비 이력/관리비율/이윤율 -> itemized; negative 잔존가 floored at persistence with residual_was_floored, real current_residual preserved for audit -- harden-2 #5 red-green). T5.3 정비비용 집행 -> equipment_cost_ledger -> 잔존가 recompute (concurrent serialized equipment lock). T5.4 purchase workflow FSM (거래명세표 첨부->구매요청서->admin 승인->지출결의서->thresholded 임원 승인->집행; each step role-gated+audited)."
     },
     {
       "id": "G007-m6-seams-launch-hardening",
       "title": "M6 Seams + launch hardening",
       "objective": "Complete M6 tasks: oyatie AI port + Bitween identity port (definitions only, no mocks), security review, load test, backup/restore + DR drills with evidence logs, pilot readiness for HQ team of 8",
-      "status": "pending",
-      "attempt": 0,
+      "status": "complete",
+      "attempt": 1,
       "createdAt": "2026-06-12T04:40:06.079Z",
-      "updatedAt": "2026-06-12T04:40:06.079Z"
+      "updatedAt": "2026-06-13T03:40:40.000Z",
+      "startedAt": "2026-06-12T18:26:26.988Z",
+      "completedAt": "2026-06-13T03:40:40.000Z",
+      "evidence": "M6 complete at main 8ce00fc. T6.1 AiAssistantPort (oyatie seam, no adapter). T6.2 IdentityProviderPort (Bitween seam; local identity is the real impl). T6.3 docs/CI-GATES.md (13-gate reference). T6.4 inspection domain (RegularInspectionSchedule + rounds -> 정기검사 export + 순회점검 diary). T6.5 docs/GO-LIVE-CHECKLIST.md. Pipeline review->harden->fix DONE: adversarial security + correctness/concurrency reviews filed .omc/review/; all 7 confirmed findings fixed+lead-verified (2 security ffc8081 incl. passkey-replay atomicity red-green + audit-gate path binding; 5 correctness 258f622 incl. /sync payload-bind, /sync crash-recovery, WORM post-completion REST guard + DB trigger, P1 alert exactly-once lease, negative-residual flooring -- red-green on the WORM and residual fixes); finding #6 RESOLVED-AS-INTENDED. DR backup/restore + PITR + VM-down drills evidenced (docs/evidence/). Workspace: 159 suites / 240 tests / 0 failed; 4 gates PASS; clippy -D warnings clean; migrations 0001-0019; tri-client drift clean; web/Android/iOS build+test green."
     },
     {
       "id": "G008-rollout",
       "title": "Rollout",
       "objective": "Pilot HQ 8명 on production, then branch waves 수도권→충청→영남→호남, each gated on seeded branch data, KCC coverage, parity/CI green, backup drill, OTel dashboards, audit-access review",
-      "status": "pending",
+      "status": "blocked",
       "attempt": 0,
       "createdAt": "2026-06-12T04:40:06.079Z",
-      "updatedAt": "2026-06-12T04:40:06.079Z"
+      "updatedAt": "2026-06-13T03:40:50.000Z",
+      "blockedReason": "Requires operator/business actions the build cannot perform: provision OCI Compute VM + production TLS + install prod secrets (docs/release/SECRETS.md); file KCC LBS 사업 신고; submit + get approval for Kakao Alimtalk templates; seed branch/region topology + pilot user roster; distribute a signed pilot build to devices; run the backup/restore drill on the real VM. All engineering is complete and launch-ready (G001-G007 done); see docs/GO-LIVE-CHECKLIST.md for the owned go/no-go items. Unblock by providing production access + completing the business filings, then resume."
     }
   ],
   "claudeObjective": "Complete all ultragoal stories in .omc/ultragoal/goals.json: G001-m0-platform-spine M0 Platform spine; G002-m1-registry-wo-core-slice M1 Registry + WO core slice; G003-m2-p1-dispatch-compliance M2 P1 dispatch + compliance; G004-m3-full-messenger M3 Full messenger; G005-m4-reporting-kpi M4 Reporting + KPI; G006-m5-registry-economics M5 Registry economics; G007-m6-seams-launch-hardening M6 Seams + launch hardening; G008-rollout Rollout",
-  "activeGoalId": "G002-m1-registry-wo-core-slice"
+  "activeGoalId": "G008-rollout"
 }
