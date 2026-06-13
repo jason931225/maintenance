@@ -732,6 +732,11 @@ where
         )?;
         let media = with_audit::<_, EvidenceMedia, StorageError>(&self.pool, event, |tx| {
             Box::pin(async move {
+                // FIX 3: lock the parent work-order row and reject AFTER/REPORT
+                // completion evidence once the work order is terminal, so the
+                // WORM completion invariant cannot be invalidated post-closure.
+                ensure_work_order_accepts_evidence_tx(tx, command.work_order_id, command.stage)
+                    .await?;
                 insert_evidence_media_tx(
                     tx,
                     NewEvidenceMedia {
@@ -1078,6 +1083,37 @@ struct NewEvidenceMedia<'a> {
     checksum_sha256: Option<&'a str>,
     uploaded_by: UserId,
     occurred_at: Timestamp,
+}
+
+/// FIX 3: lock the parent work-order row and reject AFTER/REPORT completion
+/// evidence when the work order has reached a terminal status. Only the two
+/// completion stages feed the `evidence_verified` interlock, so other stages
+/// (REQUEST/BEFORE/DURING/OUTSOURCE_RESULT) are left insertable.
+async fn ensure_work_order_accepts_evidence_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    work_order_id: WorkOrderId,
+    stage: AttachmentStage,
+) -> Result<(), StorageError> {
+    if !matches!(stage, AttachmentStage::After | AttachmentStage::Report) {
+        return Ok(());
+    }
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM work_orders WHERE id = $1 FOR UPDATE")
+            .bind(*work_order_id.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?
+            .ok_or_else(|| KernelError::not_found("work order was not found"))?;
+    if matches!(
+        status.as_str(),
+        "FINAL_COMPLETED" | "ARCHIVED" | "CANCELLED"
+    ) {
+        return Err(KernelError::conflict(format!(
+            "cannot attach {} evidence to a work order in terminal status {status}",
+            stage.as_db_str()
+        ))
+        .into());
+    }
+    Ok(())
 }
 
 async fn insert_evidence_media_tx(
@@ -1477,6 +1513,104 @@ mod tests {
         assert_eq!(queued, 1);
     }
 
+    // FIX 3 (storage layer): AFTER/REPORT evidence must be rejected for a work
+    // order in a terminal status — the WORM completion invariant cannot be
+    // invalidated after FINAL_COMPLETED.
+    #[sqlx::test(migrations = "../db/migrations")]
+    async fn presign_rejected_for_after_evidence_on_terminal_work_order(pool: PgPool) {
+        let seeded = seed_work_order_with_status(&pool, "FINAL_COMPLETED").await;
+        let service = EvidenceService::new(
+            pool.clone(),
+            StaticObjectStore::ok(),
+            "primary".to_owned(),
+            "replica".to_owned(),
+        );
+
+        let err = service
+            .issue_presigned_upload(EvidenceUploadCommand {
+                actor: seeded.uploaded_by,
+                work_order_id: seeded.work_order_id,
+                stage: AttachmentStage::After,
+                content_type: "image/jpeg".to_owned(),
+                size_bytes: 1024,
+                checksum_sha256: None,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("terminal"),
+            "expected terminal-status rejection, got: {err}"
+        );
+
+        // No evidence row and no audit row should have been written.
+        let media_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM evidence_media WHERE work_order_id = $1")
+                .bind(*seeded.work_order_id.as_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(media_count, 0);
+        let audit_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM audit_events WHERE action = 'evidence.upload'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(audit_count, 0);
+    }
+
+    // FIX 3 (DB trigger layer): a direct INSERT of AFTER/REPORT evidence on a
+    // terminal work order must be rejected by the migration-0019 trigger even
+    // when the REST/storage guard is bypassed.
+    #[sqlx::test(migrations = "../db/migrations")]
+    async fn db_trigger_rejects_after_evidence_insert_on_terminal_work_order(pool: PgPool) {
+        let seeded = seed_work_order_with_status(&pool, "ARCHIVED").await;
+        let result = sqlx::query(
+            r#"
+            INSERT INTO evidence_media (
+                work_order_id, stage, s3_key, content_type, size_bytes,
+                uploaded_by, worm_replica_status, retry_count
+            )
+            VALUES ($1, 'REPORT', $2, 'image/jpeg', 1024, $3, 'PENDING', 0)
+            "#,
+        )
+        .bind(*seeded.work_order_id.as_uuid())
+        .bind(format!(
+            "work-orders/{}/REPORT/direct",
+            seeded.work_order_id
+        ))
+        .bind(*seeded.uploaded_by.as_uuid())
+        .execute(&pool)
+        .await;
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("terminal"),
+            "expected DB trigger terminal rejection, got: {err}"
+        );
+
+        // A non-completion stage (BEFORE) remains insertable on a terminal WO.
+        sqlx::query(
+            r#"
+            INSERT INTO evidence_media (
+                work_order_id, stage, s3_key, content_type, size_bytes,
+                uploaded_by, worm_replica_status, retry_count
+            )
+            VALUES ($1, 'BEFORE', $2, 'image/jpeg', 1024, $3, 'PENDING', 0)
+            "#,
+        )
+        .bind(*seeded.work_order_id.as_uuid())
+        .bind(format!(
+            "work-orders/{}/BEFORE/direct",
+            seeded.work_order_id
+        ))
+        .bind(*seeded.uploaded_by.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
     #[test]
     fn retry_delay_is_bounded_exponential() {
         let config = ReplicationConfig {
@@ -1499,6 +1633,10 @@ mod tests {
     }
 
     async fn seed_work_order(pool: &PgPool) -> SeededEvidenceContext {
+        seed_work_order_with_status(pool, "REPORT_SUBMITTED").await
+    }
+
+    async fn seed_work_order_with_status(pool: &PgPool, status: &str) -> SeededEvidenceContext {
         let branch_id = seed_branch(pool).await;
         let uploaded_by = seed_user(pool, "Evidence Uploader", "MECHANIC", branch_id).await;
         let requested_by = seed_user(pool, "Reception", "RECEPTIONIST", branch_id).await;
@@ -1510,8 +1648,8 @@ mod tests {
                 id, request_no, branch_id, equipment_id, customer_id, site_id,
                 requested_by, status, priority, symptom, result_type
             )
-            SELECT $1, '20260612-901', $2, e.id, e.customer_id, e.site_id,
-                   $3, 'REPORT_SUBMITTED', $4, 'Evidence fixture', 'COMPLETED'
+            SELECT $1, $6, $2, e.id, e.customer_id, e.site_id,
+                   $3, $7, $4, 'Evidence fixture', 'COMPLETED'
             FROM registry_equipment e
             WHERE e.id = $5
             "#,
@@ -1521,6 +1659,11 @@ mod tests {
         .bind(*requested_by.as_uuid())
         .bind(PriorityLevel::Unset.as_db_str())
         .bind(equipment_id)
+        .bind(format!(
+            "20260612-{:03}",
+            (work_order_id.as_uuid().as_u128() % 1000) as u16
+        ))
+        .bind(status)
         .execute(pool)
         .await
         .unwrap();

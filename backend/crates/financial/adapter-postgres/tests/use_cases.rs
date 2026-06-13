@@ -181,6 +181,55 @@ async fn quote_ledger_and_purchase_chain_are_audited_and_feed_residuals(pool: Pg
     assert!(actions.contains(&"purchase.execute".to_owned()));
 }
 
+// FIX 5 regression: a unit with a genuinely negative current residual must
+// persist a quote even when the flooring flag is disabled. The persisted
+// effective_residual_value_won is floored to 0 (DB CHECK >= 0) with
+// residual_was_floored=true, while current_residual_value_won keeps the real
+// negative value for audit.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn negative_residual_quote_persists_with_flooring_disabled(pool: PgPool) {
+    let seeded = seed_financial_context(&pool).await;
+    let store = PgFinancialStore::new(pool.clone());
+    let occurred_at = datetime!(2026-06-12 12:00 UTC);
+
+    let quote = store
+        .create_rental_quote(CreateRentalQuoteCommand {
+            actor: seeded.receptionist,
+            branch_id: seeded.branch_id,
+            equipment_id: seeded.negative_residual_equipment,
+            config: financial_config_no_floor(),
+            trace: TraceContext::generate(),
+            occurred_at,
+        })
+        .await
+        .unwrap();
+
+    // The persisted effective residual is floored to 0 and flagged, even
+    // though the flooring config flag is false.
+    assert!(quote.residual_was_floored);
+    assert_eq!(quote.effective_residual_value.amount(), 0);
+    assert!(quote.monthly_total.amount() > 0);
+
+    let row: (i64, i64, bool, bool) = sqlx::query_as(
+        r#"
+        SELECT current_residual_value_won, effective_residual_value_won,
+               residual_was_floored, floor_negative_quote_residual
+        FROM financial_rental_quotes
+        WHERE id = $1
+        "#,
+    )
+    .bind(*quote.id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    // Real negative residual preserved for audit (no >=0 check on this column).
+    assert_eq!(row.0, -1_250_000);
+    // Persisted effective residual floored to 0 (DB CHECK >= 0).
+    assert_eq!(row.1, 0);
+    assert!(row.2, "residual_was_floored must be true");
+    assert!(!row.3, "flooring config flag was disabled");
+}
+
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn financial_inputs_reject_cross_scope_evidence_and_work_orders(pool: PgPool) {
     let seeded = seed_financial_context(&pool).await;
@@ -496,6 +545,13 @@ fn financial_config() -> FinancialConfigSnapshot {
         profit_rate_bps: 500,
         floor_negative_quote_residual: true,
         executive_approval_threshold_won: 2_000_000,
+    }
+}
+
+fn financial_config_no_floor() -> FinancialConfigSnapshot {
+    FinancialConfigSnapshot {
+        floor_negative_quote_residual: false,
+        ..financial_config()
     }
 }
 

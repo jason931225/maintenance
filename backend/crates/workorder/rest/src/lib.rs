@@ -726,14 +726,67 @@ where
         )));
     }
 
+    // FIX 1: a request_id must be unique within a single batch — a client that
+    // reuses one for two distinct operations would otherwise have one silently
+    // dropped by the idempotency cache.
+    let mut seen_request_ids = BTreeSet::new();
     let mut results = Vec::with_capacity(body.operations.len());
     for operation in body.operations {
+        let request_id = normalize_non_empty(operation.request_id.clone(), "request_id")?;
+        if !seen_request_ids.insert(request_id.clone()) {
+            results.push(SyncOperationResult {
+                request_id,
+                operation: operation.operation,
+                status: SyncOperationStatus::Failed,
+                http_status: StatusCode::CONFLICT.as_u16(),
+                result: None,
+                error: Some(SyncErrorPayload {
+                    code: "conflict".to_owned(),
+                    message: "duplicate request_id within sync batch".to_owned(),
+                }),
+                replayed: false,
+            });
+            continue;
+        }
         results.push(
-            replay_sync_operation(&state, &principal, &device_hash, &sync_id, operation).await?,
+            replay_sync_operation(
+                &state,
+                &principal,
+                &device_hash,
+                &sync_id,
+                request_id,
+                operation,
+            )
+            .await?,
         );
     }
 
     Ok(Json(SyncBatchResponse { sync_id, results }))
+}
+
+/// FIX 1: build the canonical, order-stable sha256 hash that binds an
+/// idempotency record to its operation content. `serde_json` sorts object keys
+/// (no `preserve_order` feature), so re-serializing the envelope is canonical.
+fn sync_payload_hash(
+    user_id: UserId,
+    sync_id: &str,
+    operation: SyncOperationKind,
+    client_created_at: time::OffsetDateTime,
+    payload: &serde_json::Value,
+) -> Result<(String, serde_json::Value), RestError> {
+    let created_at = client_created_at
+        .format(&Rfc3339)
+        .map_err(|err| RestError::internal(format!("invalid client_created_at: {err}")))?;
+    let envelope = serde_json::json!({
+        "user_id": user_id.to_string(),
+        "sync_id": sync_id,
+        "operation_type": operation.as_db_str(),
+        "client_created_at": created_at,
+        "payload": payload,
+    });
+    let canonical = serde_json::to_vec(&envelope)?;
+    let hash = hex::encode(Sha256::digest(&canonical));
+    Ok((hash, envelope))
 }
 
 async fn replay_sync_operation<S>(
@@ -741,12 +794,19 @@ async fn replay_sync_operation<S>(
     principal: &Principal,
     device_hash: &str,
     sync_id: &str,
+    request_id: String,
     operation: SyncOperationRequest,
 ) -> Result<SyncOperationResult, RestError>
 where
     S: S3ObjectStore + Clone + Send + Sync + 'static,
 {
-    let request_id = normalize_non_empty(operation.request_id.clone(), "request_id")?;
+    let (payload_hash, payload_envelope) = sync_payload_hash(
+        principal.user_id,
+        sync_id,
+        operation.operation,
+        operation.created_at,
+        &operation.payload,
+    )?;
     match claim_sync_request(
         &state.pool,
         principal.user_id,
@@ -755,6 +815,8 @@ where
         &request_id,
         operation.operation,
         operation.created_at,
+        &payload_hash,
+        &payload_envelope,
     )
     .await?
     {
@@ -762,7 +824,7 @@ where
             cached.replayed = true;
             Ok(cached)
         }
-        SyncClaim::InProgress => Ok(SyncOperationResult {
+        SyncClaim::PayloadMismatch => Ok(SyncOperationResult {
             request_id,
             operation: operation.operation,
             status: SyncOperationStatus::Failed,
@@ -770,13 +832,26 @@ where
             result: None,
             error: Some(SyncErrorPayload {
                 code: "conflict".to_owned(),
-                message: "sync operation is already in progress".to_owned(),
+                message: "request_id reused with different operation content".to_owned(),
             }),
             replayed: true,
         }),
         SyncClaim::Claimed(sync_request_id) => {
             let outcome = execute_sync_operation(state, principal, operation).await;
             complete_sync_request(&state.pool, sync_request_id, principal.user_id, outcome).await
+        }
+        // FIX 2: a previously-claimed-but-never-completed row (worker crash
+        // between the mutation commit and the completion mark). Re-run the
+        // operation; `execute_sync_operation` is idempotent — if the mutation
+        // already applied it re-derives the response from the current
+        // work-order state instead of double-mutating — then finalize the row.
+        SyncClaim::Stale(sync_request_id) => {
+            let outcome = execute_sync_operation(state, principal, operation).await;
+            let mut result =
+                complete_sync_request(&state.pool, sync_request_id, principal.user_id, outcome)
+                    .await?;
+            result.replayed = true;
+            Ok(result)
         }
     }
 }
@@ -817,7 +892,7 @@ where
                     work_order.branch_id,
                 )
                 .map_err(RestError::from_kernel)?;
-                let summary = state
+                let summary = match state
                     .store
                     .start_work(WorkOrderStartCommand {
                         actor: principal.user_id,
@@ -826,7 +901,24 @@ where
                         occurred_at: time::OffsetDateTime::now_utc(),
                     })
                     .await
-                    .map_err(RestError::from_store)?;
+                {
+                    Ok(summary) => summary,
+                    // FIX 2 reconciliation: if the start already applied (a crash
+                    // re-runs this), the transition guard rejects the re-run; the
+                    // current state IS the result, so re-derive it idempotently.
+                    Err(err) => {
+                        let current = state
+                            .store
+                            .work_order(payload.work_order_id)
+                            .await
+                            .map_err(RestError::from_store)?;
+                        if current.status == WorkOrderStatus::InProgress {
+                            current
+                        } else {
+                            return Err(RestError::from_store(err));
+                        }
+                    }
+                };
                 Ok(summary)
             }
             .await;
@@ -876,7 +968,7 @@ where
                     work_order.branch_id,
                 )
                 .map_err(RestError::from_kernel)?;
-                let summary = state
+                let summary = match state
                     .store
                     .submit_report(SubmitReportCommand {
                         actor: principal.user_id,
@@ -888,7 +980,24 @@ where
                         occurred_at: time::OffsetDateTime::now_utc(),
                     })
                     .await
-                    .map_err(RestError::from_store)?;
+                {
+                    Ok(summary) => summary,
+                    // FIX 2 reconciliation: if the report already applied (a
+                    // crash re-runs this), re-derive the current state instead of
+                    // double-mutating.
+                    Err(err) => {
+                        let current = state
+                            .store
+                            .work_order(work_order_id)
+                            .await
+                            .map_err(RestError::from_store)?;
+                        if current.status == WorkOrderStatus::ReportSubmitted {
+                            current
+                        } else {
+                            return Err(RestError::from_store(err));
+                        }
+                    }
+                };
                 Ok(summary)
             }
             .await;
@@ -912,9 +1021,15 @@ where
 }
 
 enum SyncClaim {
+    /// Fresh claim — run the operation, then complete the row.
     Claimed(uuid::Uuid),
+    /// Already completed with a matching payload — return the cached response.
     Cached(SyncOperationResult),
-    InProgress,
+    /// Claimed but never completed (worker crash). Reconcile against the target
+    /// work-order state and finalize the row (FIX 2).
+    Stale(uuid::Uuid),
+    /// Same (device_hash, request_id) replayed with a DIFFERENT payload (FIX 1).
+    PayloadMismatch,
 }
 
 struct PendingSyncOutcome {
@@ -974,6 +1089,7 @@ impl PendingSyncOutcome {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn claim_sync_request(
     pool: &PgPool,
     actor: UserId,
@@ -982,6 +1098,8 @@ async fn claim_sync_request(
     request_id: &str,
     operation: SyncOperationKind,
     client_created_at: time::OffsetDateTime,
+    payload_hash: &str,
+    payload_envelope: &serde_json::Value,
 ) -> Result<SyncClaim, RestError> {
     let event: AuditEvent = AuditEvent::new(
         Some(actor),
@@ -997,6 +1115,7 @@ async fn claim_sync_request(
             "request_id": request_id,
             "sync_id": sync_id,
             "operation": operation.as_db_str(),
+            "payload_hash": payload_hash,
         })),
     );
 
@@ -1004,15 +1123,51 @@ async fn claim_sync_request(
         let device_hash = device_hash.to_owned();
         let sync_id = sync_id.to_owned();
         let request_id = request_id.to_owned();
+        let payload_hash = payload_hash.to_owned();
+        let payload_envelope = payload_envelope.clone();
         Box::pin(async move {
-            let inserted: Option<uuid::Uuid> = sqlx::query_scalar(
+            // Lock the existing row (if any) so a concurrent claim of the same
+            // (device_hash, request_id) is serialized.
+            let existing = sqlx::query(
+                r#"
+                SELECT id, status, payload_hash, response_body
+                FROM offline_sync_requests
+                WHERE device_hash = $1 AND request_id = $2
+                FOR UPDATE
+                "#,
+            )
+            .bind(&device_hash)
+            .bind(&request_id)
+            .fetch_optional(tx.as_mut())
+            .await?;
+
+            if let Some(row) = existing {
+                let existing_hash: Option<String> = row.try_get("payload_hash")?;
+                // FIX 1: same idempotency key, different content → reject.
+                if existing_hash.as_deref() != Some(payload_hash.as_str()) {
+                    return Ok(SyncClaim::PayloadMismatch);
+                }
+                let status: String = row.try_get("status")?;
+                let response: Option<serde_json::Value> = row.try_get("response_body")?;
+                let id: uuid::Uuid = row.try_get("id")?;
+                return match (status.as_str(), response) {
+                    // Completed with a matching payload → cached idempotent reply.
+                    (_, Some(value)) => Ok(SyncClaim::Cached(serde_json::from_value(value)?)),
+                    // Claimed but never completed → reconcile (FIX 2).
+                    ("IN_PROGRESS", None) => Ok(SyncClaim::Stale(id)),
+                    // APPLIED/FAILED with no body should not happen; treat as
+                    // reconcilable rather than returning an empty response.
+                    (_, None) => Ok(SyncClaim::Stale(id)),
+                };
+            }
+
+            let id: uuid::Uuid = sqlx::query_scalar(
                 r#"
                 INSERT INTO offline_sync_requests (
                     user_id, device_hash, request_id, sync_id, operation_type,
-                    client_created_at, status
+                    client_created_at, status, payload_hash, request_payload
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, 'IN_PROGRESS')
-                ON CONFLICT (device_hash, request_id) DO NOTHING
+                VALUES ($1, $2, $3, $4, $5, $6, 'IN_PROGRESS', $7, $8)
                 RETURNING id
                 "#,
             )
@@ -1022,29 +1177,11 @@ async fn claim_sync_request(
             .bind(&sync_id)
             .bind(operation.as_db_str())
             .bind(client_created_at)
-            .fetch_optional(tx.as_mut())
-            .await?;
-
-            if let Some(id) = inserted {
-                return Ok(SyncClaim::Claimed(id));
-            }
-
-            let row = sqlx::query(
-                r#"
-                SELECT response_body
-                FROM offline_sync_requests
-                WHERE device_hash = $1 AND request_id = $2
-                "#,
-            )
-            .bind(&device_hash)
-            .bind(&request_id)
+            .bind(&payload_hash)
+            .bind(&payload_envelope)
             .fetch_one(tx.as_mut())
             .await?;
-            let response: Option<serde_json::Value> = row.try_get("response_body")?;
-            match response {
-                Some(value) => Ok(SyncClaim::Cached(serde_json::from_value(value)?)),
-                None => Ok(SyncClaim::InProgress),
-            }
+            Ok(SyncClaim::Claimed(id))
         })
     })
     .await
@@ -1182,6 +1319,18 @@ where
         .await
         .map_err(RestError::from_store)?;
     authorize_evidence_access(&state, &principal, body.work_order_id, work_order.branch_id).await?;
+    // FIX 3: reject AFTER/REPORT completion evidence for terminal work orders at
+    // the REST boundary, before issuing a presigned upload URL. The storage
+    // adapter re-checks under a row lock and the DB trigger is the final barrier.
+    if matches!(body.stage, AttachmentStage::After | AttachmentStage::Report)
+        && is_terminal_work_order_status(work_order.status)
+    {
+        return Err(RestError::from_kernel(KernelError::conflict(format!(
+            "cannot attach {} evidence to a work order in terminal status {}",
+            body.stage.as_db_str(),
+            work_order.status.as_db_str()
+        ))));
+    }
     let service = state.evidence_service.as_ref().ok_or_else(|| {
         RestError::unavailable("evidence storage is not configured for mobile API")
     })?;
@@ -1312,6 +1461,15 @@ fn is_admin_like(principal: &Principal) -> bool {
         .roles
         .iter()
         .any(|role| matches!(role, Role::Admin | Role::SuperAdmin))
+}
+
+/// Work orders in these statuses are closed: their completion evidence set is
+/// frozen and must not accept further AFTER/REPORT attachments (FIX 3).
+fn is_terminal_work_order_status(status: WorkOrderStatus) -> bool {
+    matches!(
+        status,
+        WorkOrderStatus::FinalCompleted | WorkOrderStatus::Archived | WorkOrderStatus::Cancelled
+    )
 }
 
 async fn record_evidence_presign_audit(

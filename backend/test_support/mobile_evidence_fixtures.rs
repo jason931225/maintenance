@@ -1,6 +1,56 @@
 use mnt_kernel_core::{BranchId, UserId, WorkOrderId};
 use sqlx::PgPool;
 
+/// Seed a sync row that was claimed (IN_PROGRESS) but never completed — the
+/// state a worker crash between the business-mutation commit and the
+/// completion mark leaves behind. The stored payload_hash matches what the REST
+/// layer computes (sha256 of the canonical envelope with an RFC3339
+/// client_created_at), so a retry of the same operation reconciles it.
+#[allow(clippy::too_many_arguments)]
+pub async fn seed_crashed_sync_request(
+    pool: &PgPool,
+    user_id: UserId,
+    device_hash: &str,
+    request_id: &str,
+    sync_id: &str,
+    operation_type: &str,
+    client_created_at: time::OffsetDateTime,
+    payload: &serde_json::Value,
+) {
+    use sha2::{Digest, Sha256};
+    use time::format_description::well_known::Rfc3339;
+
+    let created_at_rfc = client_created_at.format(&Rfc3339).unwrap();
+    let envelope = serde_json::json!({
+        "user_id": user_id.to_string(),
+        "sync_id": sync_id,
+        "operation_type": operation_type,
+        "client_created_at": created_at_rfc,
+        "payload": payload,
+    });
+    let payload_hash = hex::encode(Sha256::digest(serde_json::to_vec(&envelope).unwrap()));
+    sqlx::query(
+        r#"
+        INSERT INTO offline_sync_requests (
+            user_id, device_hash, request_id, sync_id, operation_type,
+            client_created_at, status, payload_hash, request_payload
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'IN_PROGRESS', $7, $8)
+        "#,
+    )
+    .bind(*user_id.as_uuid())
+    .bind(device_hash)
+    .bind(request_id)
+    .bind(sync_id)
+    .bind(operation_type)
+    .bind(client_created_at)
+    .bind(&payload_hash)
+    .bind(&envelope)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 pub async fn seed_branch(pool: &PgPool, region_name: &str, branch_name: &str) -> BranchId {
     let region_id: uuid::Uuid =
         sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
@@ -87,6 +137,48 @@ pub async fn seed_assigned_work_order(
     receptionist: UserId,
     mechanic: UserId,
 ) -> WorkOrderId {
+    seed_work_order_with_status(
+        pool,
+        branch_id,
+        equipment_id,
+        receptionist,
+        mechanic,
+        "20260612-802",
+        "ASSIGNED",
+    )
+    .await
+}
+
+pub async fn seed_terminal_work_order(
+    pool: &PgPool,
+    branch_id: BranchId,
+    equipment_id: uuid::Uuid,
+    receptionist: UserId,
+    mechanic: UserId,
+    status: &str,
+) -> WorkOrderId {
+    seed_work_order_with_status(
+        pool,
+        branch_id,
+        equipment_id,
+        receptionist,
+        mechanic,
+        "20260612-803",
+        status,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn seed_work_order_with_status(
+    pool: &PgPool,
+    branch_id: BranchId,
+    equipment_id: uuid::Uuid,
+    receptionist: UserId,
+    mechanic: UserId,
+    request_no: &str,
+    status: &str,
+) -> WorkOrderId {
     let work_order_id = WorkOrderId::new();
     sqlx::query(
         r#"
@@ -94,8 +186,8 @@ pub async fn seed_assigned_work_order(
             id, request_no, branch_id, equipment_id, customer_id, site_id,
             requested_by, status, priority, symptom
         )
-        SELECT $1, '20260612-802', $2, e.id, e.customer_id, e.site_id,
-               $3, 'ASSIGNED', 'UNSET', 'Evidence mobile fixture'
+        SELECT $1, $5, $2, e.id, e.customer_id, e.site_id,
+               $3, $6, 'UNSET', 'Evidence mobile fixture'
         FROM registry_equipment e
         WHERE e.id = $4
         "#,
@@ -104,6 +196,8 @@ pub async fn seed_assigned_work_order(
     .bind(*branch_id.as_uuid())
     .bind(*receptionist.as_uuid())
     .bind(equipment_id)
+    .bind(request_no)
+    .bind(status)
     .execute(pool)
     .await
     .unwrap();

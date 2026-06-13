@@ -95,7 +95,8 @@ impl DispatchWorker {
                 occurred_at: job.scheduled_for,
             })
             .await?;
-        self.deliver_manager_force_alerts(job.dispatch_id).await?;
+        self.deliver_manager_force_alerts(job.dispatch_id, job.scheduled_for)
+            .await?;
         Ok(())
     }
 
@@ -110,7 +111,8 @@ impl DispatchWorker {
                 occurred_at: job.scheduled_for,
             })
             .await?;
-        self.deliver_alimtalk_no_ack_alerts(job.dispatch_id).await?;
+        self.deliver_alimtalk_no_ack_alerts_at(job.dispatch_id, job.scheduled_for)
+            .await?;
         Ok(())
     }
 
@@ -128,27 +130,35 @@ impl DispatchWorker {
         Ok(())
     }
 
-    async fn deliver_alimtalk_no_ack_alerts(
+    /// Deliver pending ALIMTALK_NO_ACK alerts, claiming a lease per alert at the
+    /// supplied logical `now` (also used to reclaim crashed leases). Exposed for
+    /// deterministic crash-recovery testing.
+    pub async fn deliver_alimtalk_no_ack_alerts_at(
         &self,
         dispatch_id: mnt_kernel_core::P1DispatchId,
+        now: time::OffsetDateTime,
     ) -> Result<(), DispatchWorkerError> {
+        // When delivery is disabled we must not claim leases for delivery — skip
+        // the still-PENDING alerts directly so they are not transiently SENDING.
+        let notifier = match (
+            self.alimtalk_policy.is_enabled(),
+            self.push_notifier.as_ref(),
+        ) {
+            (true, Some(notifier)) => notifier,
+            _ => {
+                let alerts = self
+                    .store
+                    .claim_alimtalk_no_ack_alerts(dispatch_id, now)
+                    .await?;
+                self.skip_alimtalk_alerts(alerts, ALIMTALK_DISABLED_REASON)
+                    .await?;
+                return Ok(());
+            }
+        };
         let alerts = self
             .store
-            .pending_alimtalk_no_ack_alerts(dispatch_id)
+            .claim_alimtalk_no_ack_alerts(dispatch_id, now)
             .await?;
-        if alerts.is_empty() {
-            return Ok(());
-        }
-        if !self.alimtalk_policy.is_enabled() {
-            self.skip_alimtalk_alerts(alerts, ALIMTALK_DISABLED_REASON)
-                .await?;
-            return Ok(());
-        }
-        let Some(notifier) = self.push_notifier.as_ref() else {
-            self.skip_alimtalk_alerts(alerts, ALIMTALK_DISABLED_REASON)
-                .await?;
-            return Ok(());
-        };
         for alert in alerts {
             self.send_alimtalk(notifier.as_ref(), alert, "P1 emergency dispatch")
                 .await?;
@@ -159,17 +169,21 @@ impl DispatchWorker {
     async fn deliver_manager_force_alerts(
         &self,
         dispatch_id: mnt_kernel_core::P1DispatchId,
+        now: time::OffsetDateTime,
     ) -> Result<(), DispatchWorkerError> {
         let Some(notifier) = self.push_notifier.as_ref() else {
             return Ok(());
         };
-        let pushes = self.store.pending_manager_force_pushes(dispatch_id).await?;
+        let pushes = self
+            .store
+            .claim_fcm_pushes(dispatch_id, "MANAGER_FORCE_ASSIGN", now)
+            .await?;
         for push in pushes {
             self.send_manager_push(notifier.as_ref(), push).await?;
         }
         let fallback_alerts = self
             .store
-            .pending_manager_force_alimtalks(dispatch_id)
+            .claim_manager_force_alimtalks(dispatch_id, now)
             .await?;
         for alert in fallback_alerts {
             if self.alimtalk_policy.is_enabled() {
@@ -183,6 +197,7 @@ impl DispatchWorker {
                 self.store
                     .mark_alert_skipped(
                         alert.alert_id,
+                        Some(alert.lease_token),
                         ALIMTALK_DISABLED_REASON.to_owned(),
                         TraceContext::generate(),
                         time::OffsetDateTime::now_utc(),
@@ -207,12 +222,14 @@ impl DispatchWorker {
                 ("dispatch_id".to_owned(), push.dispatch_id.to_string()),
                 ("work_order_id".to_owned(), push.work_order_id.to_string()),
             ]),
+            idempotency_key: push.idempotency_key,
         };
         match notifier.send_fcm(message).await {
             Ok(provider_id) => {
                 self.store
                     .mark_alert_sent(
                         push.alert_id,
+                        push.lease_token,
                         non_empty_provider_id(provider_id.0),
                         TraceContext::generate(),
                         time::OffsetDateTime::now_utc(),
@@ -223,6 +240,7 @@ impl DispatchWorker {
                 self.store
                     .mark_alert_failed(
                         push.alert_id,
+                        push.lease_token,
                         provider_failure_reason(err),
                         TraceContext::generate(),
                         time::OffsetDateTime::now_utc(),
@@ -246,12 +264,14 @@ impl DispatchWorker {
                 ("dispatch_id".to_owned(), alert.dispatch_id.to_string()),
                 ("work_order_id".to_owned(), alert.work_order_id.to_string()),
             ]),
+            idempotency_key: alert.idempotency_key,
         };
         match notifier.send_alimtalk(message).await {
             Ok(provider_id) => {
                 self.store
                     .mark_alert_sent(
                         alert.alert_id,
+                        alert.lease_token,
                         non_empty_provider_id(provider_id.0),
                         TraceContext::generate(),
                         time::OffsetDateTime::now_utc(),
@@ -262,6 +282,7 @@ impl DispatchWorker {
                 self.store
                     .mark_alert_skipped(
                         alert.alert_id,
+                        Some(alert.lease_token),
                         format!("Solapi Alimtalk disabled: {message}"),
                         TraceContext::generate(),
                         time::OffsetDateTime::now_utc(),
@@ -272,6 +293,7 @@ impl DispatchWorker {
                 self.store
                     .mark_alert_failed(
                         alert.alert_id,
+                        alert.lease_token,
                         provider_failure_reason(err),
                         TraceContext::generate(),
                         time::OffsetDateTime::now_utc(),
@@ -291,6 +313,7 @@ impl DispatchWorker {
             self.store
                 .mark_alert_skipped(
                     alert.alert_id,
+                    Some(alert.lease_token),
                     reason.to_owned(),
                     TraceContext::generate(),
                     time::OffsetDateTime::now_utc(),

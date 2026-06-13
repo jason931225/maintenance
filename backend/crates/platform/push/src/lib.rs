@@ -80,12 +80,17 @@ pub struct FcmPushMessage {
     pub title: String,
     pub body: String,
     pub data: BTreeMap<String, String>,
+    /// Stable provider idempotency key (dispatch_id:alert_id). Carried into the
+    /// FCM `data` payload so a retried delivery dedupes provider/client-side.
+    pub idempotency_key: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AlimtalkMessage {
     pub to: String,
     pub variables: BTreeMap<String, String>,
+    /// Stable provider idempotency key (dispatch_id:alert_id).
+    pub idempotency_key: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -176,6 +181,10 @@ impl FcmHttpV1Client {
             "https://fcm.googleapis.com/v1/projects/{}/messages:send",
             self.config.project_id
         );
+        // Carry the stable idempotency key into the data payload so a retried
+        // delivery (e.g. after a worker crash) is deduplicated client-side.
+        let mut data = message.data;
+        data.insert("idempotency_key".to_owned(), message.idempotency_key);
         let body = serde_json::json!({
             "message": {
                 "token": message.token,
@@ -183,7 +192,7 @@ impl FcmHttpV1Client {
                     "title": message.title,
                     "body": message.body,
                 },
-                "data": message.data,
+                "data": data,
             }
         });
         let bytes =
@@ -278,6 +287,10 @@ impl SolapiAlimtalkClient {
             "{}/messages/v4/send-many",
             self.config.base_url.trim_end_matches('/')
         );
+        // Carry the stable idempotency key into the template variables so a
+        // retried delivery is deduplicated on the provider side.
+        let mut variables = message.variables;
+        variables.insert("#{idempotency_key}".to_owned(), message.idempotency_key);
         let body = serde_json::json!({
             "messages": [{
                 "to": message.to,
@@ -285,7 +298,7 @@ impl SolapiAlimtalkClient {
                 "kakaoOptions": {
                     "pfId": self.config.pf_id,
                     "templateId": self.config.template_id,
-                    "variables": message.variables,
+                    "variables": variables,
                 }
             }]
         });

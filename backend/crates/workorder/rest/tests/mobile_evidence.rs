@@ -22,10 +22,12 @@ use time::{Duration, OffsetDateTime};
 use tower::ServiceExt;
 
 #[path = "../../../../test_support/mobile_evidence_fixtures.rs"]
+#[allow(dead_code)]
 mod mobile_evidence_fixtures;
 
 use mobile_evidence_fixtures::{
-    seed_assigned_work_order, seed_branch, seed_equipment, seed_user_with_branch,
+    seed_assigned_work_order, seed_branch, seed_equipment, seed_terminal_work_order,
+    seed_user_with_branch,
 };
 
 const TEST_ISSUER: &str = "mnt-platform-auth";
@@ -171,6 +173,93 @@ async fn evidence_presign_confirm_flow_is_authorized_and_audited(pool: PgPool) {
             .await
             .unwrap();
     assert!(confirmed_at.is_some());
+}
+
+// FIX 3 (REST layer): a presign request for AFTER evidence on a terminal work
+// order is rejected with a 409-class error and no evidence/audit rows persist.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn presign_after_evidence_rejected_on_final_completed_work_order(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_id = seed_branch(&pool, "Terminal WORM Region", "Terminal WORM Branch").await;
+    let mechanic = UserId::new();
+    let receptionist = UserId::new();
+    seed_user_with_branch(&pool, mechanic, "MECHANIC", branch_id).await;
+    seed_user_with_branch(&pool, receptionist, "RECEPTIONIST", branch_id).await;
+    let equipment_id = seed_equipment(&pool, branch_id, "292").await;
+    let work_order_id = seed_terminal_work_order(
+        &pool,
+        branch_id,
+        equipment_id,
+        receptionist,
+        mechanic,
+        "FINAL_COMPLETED",
+    )
+    .await;
+    let token = issue_token(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        mechanic,
+        vec!["MECHANIC".to_owned()],
+        vec![branch_id],
+    )
+    .unwrap();
+    let verifier = JwtVerifier::from_es256_public_pem(
+        JwtSettings {
+            issuer: TEST_ISSUER.to_owned(),
+            audience: TEST_AUDIENCE.to_owned(),
+            access_token_ttl: Duration::minutes(15),
+        },
+        public_key_pem.as_bytes(),
+    )
+    .unwrap();
+    let evidence = EvidenceService::new(
+        pool.clone(),
+        StaticObjectStore,
+        "primary".to_owned(),
+        "replica".to_owned(),
+    );
+    let service = mobile_router(MobileRestState::new(
+        pool.clone(),
+        PgWorkOrderStore::new(pool.clone()),
+        Some(verifier),
+        Some(evidence),
+    ));
+
+    let presign = post_json(
+        service,
+        "/api/v1/evidence/presign",
+        &token,
+        json!({
+            "work_order_id": work_order_id,
+            "stage": "AFTER",
+            "content_type": "image/jpeg",
+            "size_bytes": 1024
+        }),
+    )
+    .await;
+    assert_eq!(presign.status, StatusCode::CONFLICT, "{:?}", presign.json);
+    assert_eq!(presign.json["error"]["code"], "conflict");
+    assert!(
+        presign.json["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("terminal"),
+        "{:?}",
+        presign.json
+    );
+
+    let media_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM evidence_media WHERE work_order_id = $1")
+            .bind(*work_order_id.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(media_count, 0);
 }
 
 struct JsonResponse {
