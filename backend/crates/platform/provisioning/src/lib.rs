@@ -9,7 +9,7 @@ use mnt_platform_auth::{
     PasskeyRegistrationCredential, PasskeyRegistrationStart, PasskeyService, RegistrationCeremony,
     StoredPasskey,
 };
-use mnt_platform_db::with_audit;
+use mnt_platform_db::{insert_audit_event, with_audit};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -324,9 +324,35 @@ impl BootstrapCredentialStore {
         let now = OffsetDateTime::now_utc();
         validate_bootstrap_state(expires_at, consumed_at, revoked_at, now)?;
 
+        // Single transaction: the passkey registration (which atomically claims
+        // the WebAuthn ceremony) and the single-use bootstrap-credential consume
+        // commit or roll back together, so a passkey can never be created without
+        // atomically consuming the bootstrap credential that authorized it.
+        let mut tx = pool.begin().await?;
+
         let stored_passkey = passkeys
-            .finish_registration(pool, ceremony_id, credential)
+            .finish_registration_in_tx(&mut tx, ceremony_id, credential, now)
             .await?;
+
+        let affected = sqlx::query(
+            r#"
+            UPDATE auth_bootstrap_credentials
+            SET consumed_at = $1
+            WHERE id = $2
+              AND consumed_at IS NULL
+              AND revoked_at IS NULL
+            "#,
+        )
+        .bind(now)
+        .bind(bootstrap_id)
+        .execute(tx.as_mut())
+        .await?
+        .rows_affected();
+
+        if affected != 1 {
+            // Rolls back the passkey insert as well: no orphan enrollment.
+            return Err(ProvisioningError::BootstrapCredentialUsed);
+        }
 
         let audit = AuditEvent::new(
             Some(UserId::from_uuid(user_id)),
@@ -343,32 +369,9 @@ impl BootstrapCredentialStore {
                 "passkey_id": stored_passkey.id,
             })),
         );
+        insert_audit_event(&mut tx, &audit).await?;
 
-        with_audit::<_, (), ProvisioningError>(pool, audit, |tx| {
-            Box::pin(async move {
-                let affected = sqlx::query(
-                    r#"
-                    UPDATE auth_bootstrap_credentials
-                    SET consumed_at = $1
-                    WHERE id = $2
-                      AND consumed_at IS NULL
-                      AND revoked_at IS NULL
-                    "#,
-                )
-                .bind(now)
-                .bind(bootstrap_id)
-                .execute(tx.as_mut())
-                .await?
-                .rows_affected();
-
-                if affected == 1 {
-                    Ok(())
-                } else {
-                    Err(ProvisioningError::BootstrapCredentialUsed)
-                }
-            })
-        })
-        .await?;
+        tx.commit().await?;
 
         Ok(stored_passkey)
     }

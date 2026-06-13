@@ -24,6 +24,7 @@ url = "2.5.8"
 
 [dev-dependencies]
 p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8", "pem"] }
+tokio = { workspace = true, features = ["sync"] }
 webauthn-authenticator-rs = { version = "0.5.5", features = ["softpasskey"] }
 
 [lints]

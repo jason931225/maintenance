@@ -20,6 +20,7 @@ time = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["sync", "time"] }
 url = "2.5.8"
 webauthn-authenticator-rs = { version = "0.5.5", features = ["softpasskey"] }
 

@@ -25,7 +25,14 @@ fn allowed_exclusion_set_contains_only_location_ping_ingestion() {
     let exclusions = allowed_audit_exclusions();
     assert_eq!(exclusions.len(), 1);
     assert_eq!(exclusions[0].reason, "location_ping_ingestion");
-    assert_eq!(exclusions[0].path, "LocationPing ingestion path");
+    // The exemption is bound to the REAL ping writer: repo-relative file +
+    // function. This is what prevents the carve-out from silently applying to
+    // the wrong handler (ADR-0014 "exactly one path" invariant).
+    assert_eq!(
+        exclusions[0].file,
+        "crates/compliance/adapter-postgres/src/lib.rs"
+    );
+    assert_eq!(exclusions[0].function, "record_location_ping");
 }
 
 #[test]
@@ -157,11 +164,11 @@ pub async fn approve_work_order(pool: &PgPool) {
 fn gate_allows_exactly_one_location_ping_exemption() -> Result<(), Box<dyn std::error::Error>> {
     let ws = temp_workspace("location-exemption")?;
     write_file(
-        &ws.join("crates/compliance/rest/src/lib.rs"),
+        &ws.join("crates/compliance/adapter-postgres/src/lib.rs"),
         r#"
 // mnt-gate: state-changing-handler
 // mnt-gate: audit-exempt location_ping_ingestion
-pub async fn ingest_location_ping(pool: &PgPool, ping: LocationPing) {
+pub async fn record_location_ping(pool: &PgPool, ping: LocationPing) {
     sqlx::query!("INSERT INTO location_pings (user_id, lat, lon) VALUES ($1, $2, $3)")
         .execute(pool)
         .await;
@@ -179,6 +186,83 @@ pub async fn ingest_location_ping(pool: &PgPool, ping: LocationPing) {
     assert_eq!(
         result.observed_exclusions[0].reason,
         "location_ping_ingestion"
+    );
+    Ok(())
+}
+
+#[test]
+fn gate_rejects_location_exemption_on_a_different_handler() -> Result<(), Box<dyn std::error::Error>>
+{
+    // The location_ping_ingestion reason is path-bound: applying it to ANY other
+    // handler (here a work-order REST handler) must be rejected, proving the
+    // carve-out cannot silently migrate to the wrong writer.
+    let ws = temp_workspace("misbound-location-exemption")?;
+    write_file(
+        &ws.join("crates/workorder/rest/src/lib.rs"),
+        r#"
+// mnt-gate: state-changing-handler
+// mnt-gate: audit-exempt location_ping_ingestion
+pub async fn approve_work_order(pool: &PgPool, id: WorkOrderId) {
+    sqlx::query!("UPDATE work_orders SET status = 'APPROVED' WHERE id = $1", id)
+        .execute(pool)
+        .await;
+}
+"#,
+    )?;
+
+    let result = check_source_tree(&ws);
+    assert!(
+        !result.passed(),
+        "expected the misbound location exemption to be rejected"
+    );
+    assert!(
+        result
+            .violations
+            .iter()
+            .any(|v| v.kind == ViolationKind::MisboundAuditExclusion),
+        "expected MisboundAuditExclusion, got {:#?}",
+        result.violations
+    );
+    assert!(
+        result.observed_exclusions.is_empty(),
+        "a misbound exemption must not count as an observed exclusion, got {:#?}",
+        result.observed_exclusions
+    );
+    Ok(())
+}
+
+#[test]
+fn gate_rejects_location_exemption_on_wrong_function_in_bound_file()
+-> Result<(), Box<dyn std::error::Error>> {
+    // Even inside the bound adapter-postgres file, the exemption only applies to
+    // the bound `record_location_ping` function. A different function in the same
+    // file must be rejected.
+    let ws = temp_workspace("wrong-fn-location-exemption")?;
+    write_file(
+        &ws.join("crates/compliance/adapter-postgres/src/lib.rs"),
+        r#"
+// mnt-gate: state-changing-handler
+// mnt-gate: audit-exempt location_ping_ingestion
+pub async fn delete_location_ping(pool: &PgPool, id: PingId) {
+    sqlx::query!("DELETE FROM location_pings WHERE id = $1", id)
+        .execute(pool)
+        .await;
+}
+"#,
+    )?;
+
+    let result = check_source_tree(&ws);
+    assert!(
+        !result.passed(),
+        "expected the exemption on the wrong function to be rejected"
+    );
+    assert!(
+        result
+            .violations
+            .iter()
+            .any(|v| v.kind == ViolationKind::MisboundAuditExclusion),
+        "expected MisboundAuditExclusion, got {:#?}",
+        result.violations
     );
     Ok(())
 }

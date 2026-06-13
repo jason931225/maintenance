@@ -1,5 +1,5 @@
 use mnt_kernel_core::{AuditAction, AuditEvent, TraceContext, UserId};
-use mnt_platform_db::with_audit;
+use mnt_platform_db::insert_audit_event;
 use sqlx::{PgPool, Row};
 use time::{Duration, OffsetDateTime};
 use url::Url;
@@ -132,18 +132,66 @@ impl PasskeyService {
         ceremony_id: Uuid,
         credential: RegisterPublicKeyCredential,
     ) -> Result<StoredPasskey, AuthError> {
-        let row = load_ceremony(pool, ceremony_id, "registration").await?;
-        let user_id = row.user_id.ok_or_else(|| {
+        let now = OffsetDateTime::now_utc();
+        let mut tx = pool.begin().await?;
+        let stored = self
+            .finish_registration_in_tx(&mut tx, ceremony_id, credential, now)
+            .await?;
+        tx.commit().await?;
+        Ok(stored)
+    }
+
+    /// Finish a passkey registration inside a caller-provided transaction.
+    ///
+    /// Performs the atomic ceremony claim, verifies the credential against the
+    /// claimed state, inserts the passkey, and appends the audit row — all in the
+    /// caller's transaction. The bootstrap cold-start path uses this so the
+    /// passkey insert and the single-use bootstrap-credential consume commit (or
+    /// roll back) atomically together. The caller owns the `commit`.
+    pub async fn finish_registration_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        ceremony_id: Uuid,
+        credential: RegisterPublicKeyCredential,
+        now: OffsetDateTime,
+    ) -> Result<StoredPasskey, AuthError> {
+        // Claim the ceremony atomically: the UPDATE marks it consumed only if it
+        // is still unconsumed and unexpired. A racing finish sees 0 rows and is
+        // rejected, so one ceremony can never mint two passkeys.
+        let claim = claim_ceremony_tx(tx, ceremony_id, "registration", now)
+            .await?
+            .ok_or_else(|| {
+                AuthError::InvalidStoredData("ceremony not found or already consumed".to_owned())
+            })?;
+        let user_id = claim.user_id.ok_or_else(|| {
             AuthError::InvalidStoredData("registration ceremony missing user_id".to_owned())
         })?;
-        let state: PasskeyRegistration = serde_json::from_value(row.state_json)?;
+
+        // Verify the assertion AFTER the atomic claim using the RETURNING state.
+        // On verification failure we return Err, so the transaction rolls back and
+        // the claim is undone — a legitimate retry stays possible.
+        let state: PasskeyRegistration = serde_json::from_value(claim.state_json)?;
         let passkey = self
             .webauthn
             .finish_passkey_registration(&credential, &state)?;
         let passkey_json = serde_json::to_value(&passkey)?;
         let credential_id = serialize_to_string(passkey.cred_id(), "passkey credential id")?;
         let passkey_id = Uuid::new_v4();
-        let now = OffsetDateTime::now_utc();
+
+        sqlx::query(
+            r#"
+            INSERT INTO auth_webauthn_credentials (
+                id, user_id, credential_id, passkey_json, created_at
+            ) VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(passkey_id)
+        .bind(user_id)
+        .bind(&credential_id)
+        .bind(passkey_json)
+        .bind(now)
+        .execute(tx.as_mut())
+        .await?;
 
         let audit = AuditEvent::new(
             Some(UserId::from_uuid(user_id)),
@@ -160,30 +208,7 @@ impl PasskeyService {
                 "user_id": user_id,
             })),
         );
-        let credential_id_for_insert = credential_id.clone();
-
-        with_audit::<_, (), AuthError>(pool, audit, |tx| {
-            Box::pin(async move {
-                sqlx::query(
-                    r#"
-                    INSERT INTO auth_webauthn_credentials (
-                        id, user_id, credential_id, passkey_json, created_at
-                    ) VALUES ($1, $2, $3, $4, $5)
-                    "#,
-                )
-                .bind(passkey_id)
-                .bind(user_id)
-                .bind(&credential_id_for_insert)
-                .bind(passkey_json)
-                .bind(now)
-                .execute(tx.as_mut())
-                .await?;
-
-                consume_ceremony_tx(tx, ceremony_id, now).await?;
-                Ok(())
-            })
-        })
-        .await?;
+        insert_audit_event(tx, &audit).await?;
 
         Ok(StoredPasskey {
             id: passkey_id,
@@ -232,11 +257,24 @@ impl PasskeyService {
         ceremony_id: Uuid,
         credential: PublicKeyCredential,
     ) -> Result<AuthenticationOutcome, AuthError> {
-        let row = load_ceremony(pool, ceremony_id, "authentication").await?;
-        let user_id = row.user_id.ok_or_else(|| {
+        let now = OffsetDateTime::now_utc();
+        let mut tx = pool.begin().await?;
+
+        // Claim the ceremony atomically inside the consuming transaction. A racing
+        // finish sees 0 rows and is rejected, so one authentication ceremony can
+        // never mint two token pairs.
+        let claim = claim_ceremony_tx(&mut tx, ceremony_id, "authentication", now)
+            .await?
+            .ok_or_else(|| {
+                AuthError::InvalidStoredData("ceremony not found or already consumed".to_owned())
+            })?;
+        let user_id = claim.user_id.ok_or_else(|| {
             AuthError::InvalidStoredData("authentication ceremony missing user_id".to_owned())
         })?;
-        let state: PasskeyAuthentication = serde_json::from_value(row.state_json)?;
+
+        // Verify the assertion AFTER the atomic claim using the RETURNING state.
+        // A verification failure returns Err and rolls back the claim.
+        let state: PasskeyAuthentication = serde_json::from_value(claim.state_json)?;
         let result = self
             .webauthn
             .finish_passkey_authentication(&credential, &state)?;
@@ -251,21 +289,14 @@ impl PasskeyService {
         )
         .bind(user_id)
         .bind(&credential_id)
-        .fetch_one(pool)
+        .fetch_one(tx.as_mut())
         .await?;
         let passkey_id: Uuid = row.try_get("id")?;
         let passkey_json: serde_json::Value = row.try_get("passkey_json")?;
         let mut passkey: Passkey = serde_json::from_value(passkey_json)?;
         let changed = passkey.update_credential(&result).unwrap_or(false);
-        let updated_passkey_json = if changed {
-            Some(serde_json::to_value(&passkey)?)
-        } else {
-            None
-        };
-        let now = OffsetDateTime::now_utc();
 
-        let mut tx = pool.begin().await?;
-        if let Some(updated_passkey_json) = updated_passkey_json {
+        if changed {
             sqlx::query(
                 r#"
                 UPDATE auth_webauthn_credentials
@@ -273,7 +304,7 @@ impl PasskeyService {
                 WHERE id = $3
                 "#,
             )
-            .bind(updated_passkey_json)
+            .bind(serde_json::to_value(&passkey)?)
             .bind(now)
             .bind(passkey_id)
             .execute(tx.as_mut())
@@ -285,7 +316,7 @@ impl PasskeyService {
                 .execute(tx.as_mut())
                 .await?;
         }
-        consume_ceremony_tx(&mut tx, ceremony_id, now).await?;
+
         tx.commit().await?;
 
         Ok(AuthenticationOutcome {
@@ -331,40 +362,46 @@ where
     Ok(())
 }
 
-async fn load_ceremony(pool: &PgPool, id: Uuid, kind: &str) -> Result<CeremonyRow, AuthError> {
+/// Atomically claim a ceremony inside the consuming transaction.
+///
+/// The `UPDATE ... WHERE consumed_at IS NULL AND expires_at > now() RETURNING`
+/// both checks the single-use/expiry invariant and marks the ceremony consumed
+/// in one statement. Concurrent finish requests race on this row: exactly one
+/// matches and consumes it; the loser matches 0 rows and gets `Ok(None)`, which
+/// callers translate into a rejection. Because the claim lives in the caller's
+/// transaction, returning `Err` later (e.g. on assertion-verification failure)
+/// rolls the claim back, so a committed success is the only permanent consume.
+async fn claim_ceremony_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: Uuid,
+    kind: &str,
+    now: OffsetDateTime,
+) -> Result<Option<CeremonyRow>, AuthError> {
     let row = sqlx::query(
         r#"
-        SELECT user_id, state_json
-        FROM auth_webauthn_ceremonies
+        UPDATE auth_webauthn_ceremonies
+        SET consumed_at = $3
         WHERE id = $1
           AND ceremony_kind = $2
           AND consumed_at IS NULL
           AND expires_at > now()
+        RETURNING user_id, state_json
         "#,
     )
     .bind(id)
     .bind(kind)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| AuthError::InvalidStoredData("ceremony not found or expired".to_owned()))?;
+    .bind(now)
+    .fetch_optional(tx.as_mut())
+    .await?;
 
-    Ok(CeremonyRow {
+    let Some(row) = row else {
+        return Ok(None);
+    };
+
+    Ok(Some(CeremonyRow {
         user_id: row.try_get("user_id")?,
         state_json: row.try_get("state_json")?,
-    })
-}
-
-async fn consume_ceremony_tx(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    id: Uuid,
-    now: OffsetDateTime,
-) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE auth_webauthn_ceremonies SET consumed_at = $1 WHERE id = $2")
-        .bind(now)
-        .bind(id)
-        .execute(tx.as_mut())
-        .await?;
-    Ok(())
+    }))
 }
 
 async fn load_user_passkeys(pool: &PgPool, user_id: Uuid) -> Result<Vec<Passkey>, AuthError> {

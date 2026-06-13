@@ -192,8 +192,9 @@ async fn transition_consent(
     Ok(Json(status_response(consent)))
 }
 
-// mnt-gate: state-changing-handler
-// mnt-gate: audit-exempt location_ping_ingestion
+// The HTTP surface only validates input and delegates; the audit carve-out is
+// bound to the REAL writer (compliance adapter-postgres `record_location_ping`),
+// so this handler carries no audit-exempt marker.
 async fn record_location_ping(
     State(state): State<ComplianceRestState>,
     headers: HeaderMap,
