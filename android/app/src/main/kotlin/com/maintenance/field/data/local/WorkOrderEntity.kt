@@ -21,6 +21,7 @@ data class WorkOrderEntity(
     val prioritySort: Int,
     val status: String,
     val targetDueAt: String?,
+    val symptom: String?,
     val syncState: String,
     val assigneeNames: String,
 )
@@ -36,6 +37,7 @@ fun TechnicianWorkOrder.toEntity(): WorkOrderEntity = WorkOrderEntity(
     prioritySort = prioritySort,
     status = status.value,
     targetDueAt = targetDueAt?.toString(),
+    symptom = symptom,
     syncState = syncState.name,
     assigneeNames = assigneeNames.joinToString(separator = "\n"),
 )
@@ -51,6 +53,7 @@ fun WorkOrderEntity.toDomain(): TechnicianWorkOrder = TechnicianWorkOrder(
     prioritySort = prioritySort,
     status = requireNotNull(WorkOrderStatus.decode(status)),
     targetDueAt = targetDueAt?.let(OffsetDateTime::parse),
+    symptom = symptom,
     syncState = SyncState.valueOf(syncState),
     assigneeNames = assigneeNames.takeIf { it.isNotBlank() }?.split('\n').orEmpty(),
 )

@@ -17,6 +17,7 @@ fun WorkOrderListItem.toTechnicianWorkOrder(syncState: SyncState = SyncState.SYN
         prioritySort = priority.sortOrder,
         status = status,
         targetDueAt = targetDueAt,
+        symptom = null,
         syncState = syncState,
         assigneeNames = assignments.map { it.mechanicName },
     )
@@ -33,6 +34,7 @@ fun WorkOrderDetail.toTechnicianWorkOrder(syncState: SyncState = SyncState.SYNCE
         prioritySort = priority.sortOrder,
         status = status,
         targetDueAt = targetDueAt,
+        symptom = symptom,
         syncState = syncState,
         assigneeNames = assignments.map { it.mechanicName },
     )

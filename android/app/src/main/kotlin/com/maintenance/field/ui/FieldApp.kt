@@ -31,6 +31,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -71,9 +72,14 @@ import com.maintenance.field.data.messenger.MessengerReducer
 import com.maintenance.field.data.messenger.MessengerSendState
 import com.maintenance.field.data.messenger.MessengerState
 import com.maintenance.field.data.messenger.MessengerThread
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import java.util.UUID
 import kotlinx.coroutines.launch
+
+private val messengerTimestampFormatter: DateTimeFormatter =
+    DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).withZone(ZoneId.systemDefault())
 
 @Composable
 fun FieldApp(container: AppContainer) {
@@ -159,6 +165,9 @@ fun FieldApp(container: AppContainer) {
                 color = MaterialTheme.colorScheme.background,
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
+                    if (busy) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
                     LocationConsentControls(
                         status = locationConsent,
                         busy = busy,
@@ -529,6 +538,9 @@ private fun TodayScreen(
     Column(
         modifier = modifier.fillMaxSize(),
     ) {
+        if (busy) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -612,6 +624,9 @@ private fun MessengerScreen(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
+        if (busy) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -822,7 +837,7 @@ private fun MessengerMessageRow(message: MessengerMessage) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = message.sentAt.format(DateTimeFormatter.ISO_LOCAL_TIME),
+                    text = message.sentAt.format(messengerTimestampFormatter),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 if (message.attachmentEvidenceIds.isNotEmpty()) {
@@ -930,6 +945,9 @@ private fun WorkOrderDetailScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        if (busy) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
         OutlinedButton(
             onClick = onBack,
             modifier = Modifier.heightIn(min = 48.dp),
@@ -956,6 +974,12 @@ private fun WorkOrderDetailScreen(
             text = stringResource(R.string.site_format, order.customerName, order.siteName),
             style = MaterialTheme.typography.bodyLarge,
         )
+        order.symptom?.takeIf { it.isNotBlank() }?.let {
+            Text(
+                text = stringResource(R.string.symptom_format, it),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
         order.targetDueAt?.let {
             Text(
                 text = stringResource(R.string.due_format, it.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)),

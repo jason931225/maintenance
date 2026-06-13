@@ -33,6 +33,7 @@ class WorkOrderMappersTest {
         assertEquals(PriorityLevel.P1, mapped.priority)
         assertEquals(0, mapped.prioritySort)
         assertEquals(WorkOrderStatus.ASSIGNED, mapped.status)
+        assertEquals(null, mapped.symptom)
         assertEquals(SyncState.PENDING, mapped.syncState)
         assertEquals("김정비", mapped.assigneeNames.single())
     }

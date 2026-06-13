@@ -17,6 +17,7 @@ data class TechnicianWorkOrder(
     val prioritySort: Int,
     val status: WorkOrderStatus,
     val targetDueAt: OffsetDateTime?,
+    val symptom: String?,
     val syncState: SyncState,
     val assigneeNames: List<String>,
 )
