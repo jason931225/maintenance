@@ -116,6 +116,7 @@ function makeAuthContext(session: AuthSession | undefined): AuthContextValue {
     logout: async () => {},
     refresh: async () => {},
     acceptTokens: () => {},
+    clearPasskeySetup: () => {},
     api,
   };
 }
@@ -227,7 +228,7 @@ describe("routing", () => {
       await screen.findByRole("heading", { name: "일일현황 월보드" }),
     ).toBeVisible();
     expect(
-      screen.queryByRole("heading", { name: "패스키 로그인" }),
+      screen.queryByRole("heading", { name: "로그인" }),
     ).not.toBeInTheDocument();
   });
 

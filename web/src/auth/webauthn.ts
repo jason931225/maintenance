@@ -10,6 +10,7 @@ type RegisterStartResponse =
   components["schemas"]["PasskeyRegisterStartResponse"];
 type RegisterFinishResponse =
   components["schemas"]["PasskeyRegisterFinishResponse"];
+type OtpRedeemResponse = components["schemas"]["OtpRedeemResponse"];
 
 export interface WebAuthnApi {
   POST: ConsoleApiClient["POST"];
@@ -25,18 +26,48 @@ export interface RegisterCeremony {
   publicKey: PublicKeyCredentialCreationOptions;
 }
 
+/**
+ * Starts a usernameless (discoverable) passkey login. The backend takes no
+ * request body and returns a challenge with an empty `allowCredentials`, so the
+ * browser shows its native passkey picker and the user is resolved from the
+ * asserted credential at finish.
+ */
 export async function startPasskeyLogin(
   api: WebAuthnApi,
-  userId: string,
 ): Promise<LoginCeremony> {
-  const result = await api.POST("/api/v1/auth/passkey/login/start", {
-    body: { user_id: userId },
-  });
+  const result = await api.POST("/api/v1/auth/passkey/login/start", {});
   const data = requireData<LoginStartResponse>(result.data);
   return {
     ceremonyId: data.ceremony_id,
     publicKey: toRequestOptions(data.challenge),
   };
+}
+
+/**
+ * First sign-in for a pre-provisioned user: redeems a single-use one-time code
+ * for a session token pair. `requires_passkey_setup` is true when the user has
+ * no passkey yet and must enroll one in initial settings.
+ */
+export class OtpRedeemError extends Error {
+  readonly status: number | undefined;
+  constructor(status: number | undefined) {
+    super(`OTP redeem failed with status ${String(status)}`);
+    this.name = "OtpRedeemError";
+    this.status = status;
+  }
+}
+
+export async function redeemOtp(
+  api: WebAuthnApi,
+  otp: string,
+): Promise<OtpRedeemResponse> {
+  const result = await api.POST("/api/v1/auth/otp/redeem", {
+    body: { otp: otp.trim() },
+  });
+  if (result.data === undefined) {
+    throw new OtpRedeemError(result.response.status);
+  }
+  return result.data;
 }
 
 export async function finishPasskeyLogin(
@@ -51,6 +82,21 @@ export async function finishPasskeyLogin(
     },
   });
   return requireData<LoginFinishResponse>(result.data);
+}
+
+type AdminIssueOtpRequest = components["schemas"]["AdminIssueOtpRequest"];
+type AdminIssueOtpResponse = components["schemas"]["AdminIssueOtpResponse"];
+
+/**
+ * Admin-only: issue a single-use sign-in code for a pre-provisioned user so they
+ * can complete their first sign-in. Authz-gated to ADMIN / SUPER_ADMIN server-side.
+ */
+export async function issueAdminOtp(
+  api: WebAuthnApi,
+  body: AdminIssueOtpRequest,
+): Promise<AdminIssueOtpResponse> {
+  const result = await api.POST("/api/v1/auth/admin/otp/issue", { body });
+  return requireData<AdminIssueOtpResponse>(result.data);
 }
 
 export async function startPasskeyRegistration(
