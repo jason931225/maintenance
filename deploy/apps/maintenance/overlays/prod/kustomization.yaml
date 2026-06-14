@@ -1,0 +1,43 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Production overlay. The operator sets three things here: the GHCR owner, the
+# released image tag (release-please bumps it), and the public host + OCI
+# object-storage namespace.
+resources:
+  - ../../base
+
+images:
+  - name: mnt-app
+    newName: ghcr.io/OWNER/mnt-app # replace OWNER
+    newTag: 0.1.0
+  - name: mnt-web
+    newName: ghcr.io/OWNER/mnt-web # replace OWNER
+    newTag: 0.1.0
+
+patches:
+  # Public host (WebAuthn rp id/origin must equal the served origin) + the OCI
+  # object-storage namespace for evidence + DB backups.
+  - target: { kind: ConfigMap, name: mnt-config }
+    patch: |-
+      - op: replace
+        path: /data/MNT_WEBAUTHN_RP_ID
+        value: fsm.example.com
+      - op: replace
+        path: /data/MNT_WEBAUTHN_RP_ORIGIN
+        value: https://fsm.example.com
+      - op: replace
+        path: /data/MNT_S3_ENDPOINT_URL
+        value: https://NAMESPACE.compat.objectstorage.ap-chuncheon-1.oraclecloud.com
+  - target: { kind: Ingress, name: mnt }
+    patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: fsm.example.com
+      - op: replace
+        path: /spec/rules/0/host
+        value: fsm.example.com
+  - target: { kind: ObjectStore, name: mnt-backups }
+    patch: |-
+      - op: replace
+        path: /spec/configuration/endpointURL
+        value: https://NAMESPACE.compat.objectstorage.ap-chuncheon-1.oraclecloud.com

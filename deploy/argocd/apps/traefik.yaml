@@ -1,0 +1,43 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: maintenance
+  source:
+    repoURL: https://traefik.github.io/charts
+    chart: traefik
+    targetRevision: 40.3.0 # renovate: datasource=helm depName=traefik
+    helm:
+      releaseName: traefik
+      valuesObject:
+        # Single node: bind 80/443 straight onto the node (hostPort) instead of
+        # provisioning the OCI load balancer. The node's public IP is the entry
+        # point; no LB cost, fits Always Free.
+        service:
+          enabled: false
+        deployment:
+          kind: DaemonSet
+        ports:
+          web:
+            port: 8000
+            hostPort: 80
+            redirections:
+              entryPoint:
+                to: websecure
+                scheme: https
+          websecure:
+            port: 8443
+            hostPort: 443
+        resources:
+          requests: { cpu: 50m, memory: 64Mi }
+          limits: { memory: 192Mi }
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]

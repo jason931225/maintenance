@@ -1,0 +1,52 @@
+# Default-deny ingress for the namespace, then the minimum allows. Egress is
+# left open (Postgres needs OCI Object Storage 443; the app needs ACME, FCM,
+# Solapi and DNS) — restricting it by destination IP is impractical here.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: maintenance
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-web-tier-from-traefik
+  namespace: maintenance
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app, operator: In, values: [mnt-app, mnt-web] }
+  policyTypes: [Ingress]
+  ingress:
+    # From the Traefik ingress controller.
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: traefik }
+      ports:
+        - { protocol: TCP, port: 8080 }
+    # From within the namespace (the blue/green smoke-test job hits the preview
+    # Service; the active/preview Services share the app pods).
+    - from:
+        - podSelector: {}
+      ports:
+        - { protocol: TCP, port: 8080 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres-from-app
+  namespace: maintenance
+spec:
+  podSelector:
+    matchLabels: { cnpg.io/cluster: mnt-db }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - { key: app, operator: In, values: [mnt-app, mnt-worker] }
+      ports:
+        - { protocol: TCP, port: 5432 }

@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mnt-worker
+  namespace: maintenance
+  labels: { app: mnt-worker }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: mnt-worker }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  template:
+    metadata:
+      labels: { app: mnt-worker }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: mnt-worker
+          image: mnt-app # same binary as the api, MNT_APP_ROLE switches the role
+          ports:
+            - { name: health, containerPort: 8080 }
+          envFrom:
+            - configMapRef: { name: mnt-config }
+            - secretRef: { name: mnt-secrets }
+          env:
+            - name: MNT_APP_ROLE
+              value: "worker"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: { name: mnt-db-app, key: uri }
+          readinessProbe:
+            httpGet: { path: /healthz, port: health }
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet: { path: /healthz, port: health }
+            periodSeconds: 15
+            timeoutSeconds: 2
+          resources:
+            requests: { cpu: 100m, memory: 192Mi }
+            limits: { memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}

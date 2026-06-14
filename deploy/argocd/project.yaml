@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: maintenance
+  namespace: argocd
+spec:
+  description: Forklift FSM platform + application
+  sourceRepos:
+    - https://github.com/OWNER/maintenance.git # replace OWNER (see deploy/README.md)
+    - https://charts.jetstack.io
+    - https://argoproj.github.io/argo-helm
+    - https://traefik.github.io/charts
+    - https://raw.githubusercontent.com/cloudnative-pg/*
+    - https://github.com/cloudnative-pg/*
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "*"
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"

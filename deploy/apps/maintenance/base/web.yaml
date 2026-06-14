@@ -1,0 +1,82 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: mnt-web
+  namespace: maintenance
+  labels: { app: mnt-web }
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels: { app: mnt-web }
+  strategy:
+    blueGreen:
+      activeService: mnt-web
+      previewService: mnt-web-preview
+      autoPromotionEnabled: true
+      scaleDownDelaySeconds: 30
+      prePromotionAnalysis:
+        templates:
+          - templateName: smoke-http
+        args:
+          - name: health-url
+            value: http://mnt-web-preview.maintenance.svc:8080/healthz
+  template:
+    metadata:
+      labels: { app: mnt-web }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101 # nginx-unprivileged
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: mnt-web
+          image: mnt-web # registry + tag set by the prod overlay
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 15
+            timeoutSeconds: 2
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 96Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mnt-web
+  namespace: maintenance
+  labels: { app: mnt-web }
+spec:
+  selector: { app: mnt-web }
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mnt-web-preview
+  namespace: maintenance
+  labels: { app: mnt-web }
+spec:
+  selector: { app: mnt-web }
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mnt-web
+  namespace: maintenance
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: mnt-web }

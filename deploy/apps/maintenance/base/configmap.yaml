@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mnt-config
+  namespace: maintenance
+# Non-secret runtime config shared by the api + worker workloads (consumed via
+# envFrom). Secrets (JWT PEMs, S3 keys, notification creds) live in the
+# mnt-secrets Secret — see deploy/SECRETS.md. DATABASE_URL is injected from the
+# CNPG-generated mnt-db-app secret. Host-specific values (RP id/origin) are
+# overridden in overlays/prod.
+data:
+  MNT_HTTP_ADDR: "0.0.0.0:8080"
+  MNT_JWT_ISSUER: "mnt-platform-auth"
+  MNT_JWT_AUDIENCE: "mnt-api"
+  MNT_WEBAUTHN_RP_NAME: "MNT 정비 콘솔"
+  MNT_WEBAUTHN_RP_ID: "fsm.example.com" # overridden in overlays/prod
+  MNT_WEBAUTHN_RP_ORIGIN: "https://fsm.example.com" # overridden in overlays/prod
+  # Evidence object storage — OCI Object Storage (S3-compatible), Chuncheon.
+  MNT_S3_ENDPOINT_URL: "https://NAMESPACE.compat.objectstorage.ap-chuncheon-1.oraclecloud.com"
+  MNT_S3_REGION: "ap-chuncheon-1"
+  MNT_S3_PRIMARY_BUCKET: "mnt-evidence"
+  MNT_S3_FORCE_PATH_STYLE: "true"

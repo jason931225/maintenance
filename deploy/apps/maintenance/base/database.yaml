@@ -1,0 +1,72 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: mnt-db
+  namespace: maintenance
+spec:
+  instances: 1 # single node on free tier; HA replica would need a second A1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.4
+  primaryUpdateStrategy: unsupervised
+  storage:
+    size: 5Gi
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { memory: 1Gi }
+  postgresql:
+    parameters:
+      # Deliberate sizing for the shared A1 node rather than container defaults.
+      shared_buffers: 256MB
+      effective_cache_size: 768MB
+      work_mem: 16MB
+      max_connections: "60"
+  bootstrap:
+    initdb:
+      database: maintenance
+      owner: mnt_app
+  # Continuous WAL archiving + base backups via the Barman Cloud Plugin.
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: mnt-backups
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: mnt-backups
+  namespace: maintenance
+spec:
+  retentionPolicy: "30d"
+  configuration:
+    # OCI Object Storage, S3-compatible API, Chuncheon. NAMESPACE = the tenancy
+    # object-storage namespace (oci os ns get); bucket pre-created out of band.
+    destinationPath: s3://mnt-db-backups/
+    endpointURL: https://NAMESPACE.compat.objectstorage.ap-chuncheon-1.oraclecloud.com
+    s3Credentials:
+      accessKeyId:
+        name: oci-objectstore-creds
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: oci-objectstore-creds
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+      maxParallel: 1 # one WAL PUT stream — keeps requests under the 50k/mo free cap
+    data:
+      compression: gzip
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: mnt-db-daily
+  namespace: maintenance
+spec:
+  # 6-field cron (CNPG uses seconds). 03:00 UTC = 12:00 KST daily base backup;
+  # continuous WAL archiving gives point-in-time recovery between base backups.
+  schedule: "0 0 3 * * *"
+  backupOwnerReference: self
+  cluster:
+    name: mnt-db
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io

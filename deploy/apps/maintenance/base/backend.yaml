@@ -1,0 +1,105 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: mnt-app
+  namespace: maintenance
+  labels: { app: mnt-app }
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels: { app: mnt-app }
+  strategy:
+    blueGreen:
+      activeService: mnt-app
+      previewService: mnt-app-preview
+      # Promote automatically once the preview passes the smoke analysis;
+      # a failed analysis leaves the active (old) version serving = automatic
+      # rollback. Keep the old ReplicaSet warm briefly for instant manual revert.
+      autoPromotionEnabled: true
+      scaleDownDelaySeconds: 30
+      prePromotionAnalysis:
+        templates:
+          - templateName: smoke-http
+        args:
+          - name: health-url
+            value: http://mnt-app-preview.maintenance.svc:8080/readyz
+  template:
+    metadata:
+      labels: { app: mnt-app }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: mnt-app
+          image: mnt-app # registry + tag set by the prod overlay
+          ports:
+            - { name: http, containerPort: 8080 }
+          envFrom:
+            - configMapRef: { name: mnt-config }
+            - secretRef: { name: mnt-secrets }
+          env:
+            - name: MNT_APP_ROLE
+              value: "api"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: { name: mnt-db-app, key: uri }
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            failureThreshold: 30
+            periodSeconds: 2
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 15
+            timeoutSeconds: 2
+          resources:
+            requests: { cpu: 100m, memory: 192Mi }
+            limits: { memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mnt-app
+  namespace: maintenance
+  labels: { app: mnt-app }
+spec:
+  selector: { app: mnt-app } # Argo Rollouts appends the pod-template-hash for blue/green
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mnt-app-preview
+  namespace: maintenance
+  labels: { app: mnt-app }
+spec:
+  selector: { app: mnt-app }
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mnt-app
+  namespace: maintenance
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: mnt-app }

@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: maintenance
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1" # after platform operators + issuer
+spec:
+  project: maintenance
+  source:
+    repoURL: https://github.com/OWNER/maintenance.git # replace OWNER
+    targetRevision: main
+    path: deploy/apps/maintenance/overlays/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: maintenance
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+    # The CNPG Cluster spins up Postgres asynchronously; give dependent objects
+    # room before Argo reports degraded.
+    retry:
+      limit: 5
+      backoff: { duration: 15s, factor: 2, maxDuration: 5m }
