@@ -35,6 +35,8 @@ services:
       timeout: 5s
       retries: 6
       start_period: 10s
+    mem_limit: 256m
+    cpus: 0.5
     restart: unless-stopped
 
   postgres:
@@ -57,6 +59,14 @@ services:
       - archive_timeout=300s
       - -c
       - archive_command=test ! -f /var/lib/postgresql/wal-archive/%f && cp %p /var/lib/postgresql/wal-archive/%f
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=1536MB
+      - -c
+      - work_mem=16MB
+      - -c
+      - max_connections=60
     environment:
       POSTGRES_DB: ${MNT_POSTGRES_DB:-mnt_prod}
       POSTGRES_USER: ${MNT_POSTGRES_USER:-mnt_app}
@@ -74,6 +84,8 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
+    mem_limit: 3g
+    cpus: 2.0
     restart: unless-stopped
 
   seaweedfs:
@@ -95,13 +107,15 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
+    mem_limit: 2g
+    cpus: 1.0
     restart: unless-stopped
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.154.0
-    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    image: otel/opentelemetry-collector:0.154.0
+    command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
-      - ./otel-collector-config.yml:/etc/otelcol-contrib/config.yaml:ro
+      - ./otel-collector-config.yml:/etc/otelcol/config.yaml:ro
     expose:
       - "4317"
       - "4318"
@@ -110,14 +124,16 @@ services:
       test:
         [
           "CMD",
-          "/otelcol-contrib",
+          "/otelcol",
           "validate",
-          "--config=/etc/otelcol-contrib/config.yaml",
+          "--config=/etc/otelcol/config.yaml",
         ]
       interval: 10s
       timeout: 5s
       retries: 6
       start_period: 10s
+    mem_limit: 512m
+    cpus: 0.5
     restart: unless-stopped
 
   app:
@@ -137,13 +153,17 @@ services:
       traefik.http.routers.mnt-app.rule: Host(`${MNT_APP_HOST:-mnt.localhost}`)
       traefik.http.routers.mnt-app.entrypoints: websecure
       traefik.http.routers.mnt-app.tls: "true"
+      traefik.http.routers.mnt-app.middlewares: gzip@docker
       traefik.http.services.mnt-app.loadbalancer.server.port: "8080"
+      traefik.http.middlewares.gzip.compress: "true"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/readyz"]
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 10s
+    mem_limit: 2g
+    cpus: 2.0
     restart: unless-stopped
 
   worker:
@@ -164,6 +184,8 @@ services:
       timeout: 5s
       retries: 12
       start_period: 10s
+    mem_limit: 2g
+    cpus: 2.0
     restart: unless-stopped
 
 volumes:
