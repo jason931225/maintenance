@@ -126,7 +126,7 @@ describe("LoginPage sign-in", () => {
 });
 
 describe("requires_passkey_setup routing", () => {
-  it("forces an OTP-first session into /onboarding", () => {
+  it("forces an OTP-first session into /onboarding", async () => {
     const session: AuthSession = {
       access_token: "a",
       refresh_token: "r",
@@ -135,7 +135,7 @@ describe("requires_passkey_setup routing", () => {
     renderApp("/dispatch", makeAuthContext({ session }));
 
     expect(
-      screen.getByRole("heading", { name: "패스키 등록", level: 1 }),
+      await screen.findByRole("heading", { name: "패스키 등록", level: 1 }),
     ).toBeVisible();
   });
 });
@@ -156,7 +156,7 @@ describe("admin security page gating", () => {
     });
   });
 
-  it("renders the admin OTP issue form for an admin", () => {
+  it("renders the admin OTP issue form for an admin", async () => {
     const session: AuthSession = {
       access_token: "a",
       refresh_token: "r",
@@ -166,7 +166,7 @@ describe("admin security page gating", () => {
     renderApp("/settings/security", makeAuthContext({ session }));
 
     expect(
-      screen.getByRole("heading", { name: "일회용 로그인 코드 발급", level: 2 }),
+      await screen.findByRole("heading", { name: "일회용 로그인 코드 발급", level: 2 }),
     ).toBeVisible();
   });
 });
@@ -222,7 +222,7 @@ describe("OnboardingPage enrollment", () => {
 
     renderApp("/onboarding", makeAuthContext({ session, clearPasskeySetup }));
 
-    await user.click(screen.getByRole("button", { name: /이 데스크톱/ }));
+    await user.click(await screen.findByRole("button", { name: /이 데스크톱/ }));
 
     await waitFor(() => {
       expect(clearPasskeySetup).toHaveBeenCalledTimes(1);
@@ -237,7 +237,7 @@ describe("OnboardingPage enrollment", () => {
     expect(selection?.residentKey).toBe("required");
   });
 
-  it("offers desktop, mobile, and QR cross-device passkey methods", () => {
+  it("offers desktop, mobile, and QR cross-device passkey methods", async () => {
     renderApp(
       "/onboarding",
       makeAuthContext({
@@ -248,7 +248,9 @@ describe("OnboardingPage enrollment", () => {
         },
       }),
     );
-    expect(screen.getByRole("button", { name: /이 데스크톱/ })).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: /이 데스크톱/ }),
+    ).toBeTruthy();
     expect(screen.getByRole("button", { name: /휴대폰에 패스키/ })).toBeTruthy();
     expect(
       screen.getByRole("button", { name: /데스크톱 \+ 휴대폰/ }),

@@ -113,7 +113,10 @@ export function EquipmentPage() {
             </p>
           ) : null}
           {lookupState.status === "notFound" ? (
-            <p className="rounded-md border border-dashed border-red-300 bg-red-50 p-3 text-sm font-medium text-red-800">
+            <p
+              aria-live="assertive"
+              className="rounded-md border border-dashed border-red-300 bg-red-50 p-3 text-sm font-medium text-red-800"
+            >
               {ko.intake.lookupNotFound}
             </p>
           ) : null}

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 
 import { useAuth } from "../../context/auth";
 import { TitleProvider } from "../../context/title";
 import { ko } from "../../i18n/ko";
+import { PageSpinner } from "../states/PageSpinner";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
@@ -47,7 +48,11 @@ export function AppShell() {
             className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8 focus:outline-none"
             tabIndex={-1}
           >
-            <Outlet />
+            {/* Routed pages are code-split; keep the shell mounted and show the
+                shared spinner while a page chunk loads. */}
+            <Suspense fallback={<PageSpinner />}>
+              <Outlet />
+            </Suspense>
           </main>
         </div>
       </div>

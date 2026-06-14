@@ -1,21 +1,51 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppShell } from "./components/shell/AppShell";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { RequireAdminRoute } from "./components/RequireAdminRoute";
+import { PageSpinner } from "./components/states/PageSpinner";
 import { LoginPage } from "./pages/LoginPage";
-import { OnboardingPage } from "./pages/OnboardingPage";
 import { WallBoardPage } from "./pages/WallBoardPage";
-import { DispatchPage } from "./pages/DispatchPage";
-import { IntakePage } from "./pages/IntakePage";
-import { ApprovalsPage } from "./pages/ApprovalsPage";
-import { KpiPage } from "./pages/KpiPage";
-import { MessengerPage } from "./pages/MessengerPage";
-import { SupportPage } from "./pages/SupportPage";
 import { CustomerIntakePage } from "./pages/CustomerIntakePage";
-import { EquipmentPage } from "./pages/EquipmentPage";
-import { LocationSettingsPage } from "./pages/LocationSettingsPage";
-import { AdminSettingsPage } from "./pages/AdminSettingsPage";
+
+// Authenticated-shell pages are code-split so the login / wallboard / public
+// intake fast paths don't pay for them. Each module uses a named export, so we
+// re-map it to the `default` shape React.lazy expects.
+const OnboardingPage = lazy(() =>
+  import("./pages/OnboardingPage").then((m) => ({ default: m.OnboardingPage })),
+);
+const DispatchPage = lazy(() =>
+  import("./pages/DispatchPage").then((m) => ({ default: m.DispatchPage })),
+);
+const IntakePage = lazy(() =>
+  import("./pages/IntakePage").then((m) => ({ default: m.IntakePage })),
+);
+const ApprovalsPage = lazy(() =>
+  import("./pages/ApprovalsPage").then((m) => ({ default: m.ApprovalsPage })),
+);
+const KpiPage = lazy(() =>
+  import("./pages/KpiPage").then((m) => ({ default: m.KpiPage })),
+);
+const MessengerPage = lazy(() =>
+  import("./pages/MessengerPage").then((m) => ({ default: m.MessengerPage })),
+);
+const SupportPage = lazy(() =>
+  import("./pages/SupportPage").then((m) => ({ default: m.SupportPage })),
+);
+const EquipmentPage = lazy(() =>
+  import("./pages/EquipmentPage").then((m) => ({ default: m.EquipmentPage })),
+);
+const LocationSettingsPage = lazy(() =>
+  import("./pages/LocationSettingsPage").then((m) => ({
+    default: m.LocationSettingsPage,
+  })),
+);
+const AdminSettingsPage = lazy(() =>
+  import("./pages/AdminSettingsPage").then((m) => ({
+    default: m.AdminSettingsPage,
+  })),
+);
 
 export function AppRouter() {
   return (
@@ -29,7 +59,14 @@ export function AppRouter() {
       {/* Auth guard — redirects to /login when unauthenticated */}
       <Route element={<ProtectedRoute />}>
         {/* Shell-less initial-settings passkey enrollment (first OTP sign-in) */}
-        <Route path="/onboarding" element={<OnboardingPage />} />
+        <Route
+          path="/onboarding"
+          element={
+            <Suspense fallback={<PageSpinner />}>
+              <OnboardingPage />
+            </Suspense>
+          }
+        />
 
         {/* App shell layout */}
         <Route element={<AppShell />}>

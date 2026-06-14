@@ -1,8 +1,44 @@
-@import "@fontsource/pretendard/400.css";
-@import "@fontsource/pretendard/500.css";
-@import "@fontsource/pretendard/600.css";
-@import "@fontsource/pretendard/700.css";
 @import "tailwindcss";
+
+/*
+ * Pretendard, woff2-only. The @fontsource/pretendard CSS entrypoints ship both
+ * woff2 and a legacy .woff per weight (~2x the bytes); every browser we target
+ * supports woff2, so we declare the faces ourselves and reference only the woff2
+ * files. (@fontsource-variable/pretendard is not published, so the static
+ * package stays — but at half the font payload.)
+ */
+@font-face {
+  font-family: "Pretendard";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("@fontsource/pretendard/files/pretendard-latin-400-normal.woff2")
+    format("woff2");
+}
+@font-face {
+  font-family: "Pretendard";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("@fontsource/pretendard/files/pretendard-latin-500-normal.woff2")
+    format("woff2");
+}
+@font-face {
+  font-family: "Pretendard";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("@fontsource/pretendard/files/pretendard-latin-600-normal.woff2")
+    format("woff2");
+}
+@font-face {
+  font-family: "Pretendard";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url("@fontsource/pretendard/files/pretendard-latin-700-normal.woff2")
+    format("woff2");
+}
 
 :root {
   color-scheme: light;
