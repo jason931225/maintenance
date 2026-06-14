@@ -1,0 +1,65 @@
+name: Security
+
+# Supply-chain + configuration scanning, separate from the build gates in ci.yml
+# so it can also run on a schedule (catches newly-disclosed CVEs in dependencies
+# and base images that were clean at merge time).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "23 4 * * 1" # Mondays 04:23 UTC — weekly drift sweep
+
+permissions:
+  contents: read
+
+jobs:
+  filesystem:
+    name: Trivy — dependencies + secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy filesystem scan (vuln + secret)
+        uses: aquasecurity/trivy-action@0.29.0
+        with:
+          scan-type: fs
+          scanners: vuln,secret
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+  iac:
+    name: Trivy — IaC / manifest misconfig
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy config scan (Dockerfiles + k8s manifests)
+        uses: aquasecurity/trivy-action@0.29.0
+        with:
+          scan-type: config
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+  rust-advisories:
+    name: cargo audit (RUSTSEC)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: backend
+
+  node-advisories:
+    name: npm audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      # High/critical advisories fail the job; moderate are reported only.
+      - run: npm audit --audit-level=high

@@ -1,0 +1,136 @@
+name: Image Release
+
+# Builds, scans, signs and publishes the server (mnt-app) and web console
+# (mnt-web) container images to GHCR. Multi-arch (linux/amd64 + linux/arm64 —
+# arm64 is what the Oracle Ampere A1 cluster runs). The Trivy scan is a BLOCKING
+# gate: the image is pushed by digest, but it is only cosign-signed + attested
+# after the scan passes, so the deploy-time signature policy refuses any image
+# that did not clear scanning.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push to GHCR
+  id-token: write        # cosign keyless (Fulcio/Rekor) + provenance attest
+  attestations: write    # SLSA build provenance
+
+concurrency:
+  group: image-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  images:
+    name: ${{ matrix.image }} — build / scan / sign / push
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: mnt-app
+            dockerfile: backend/Dockerfile
+          - image: mnt-web
+            dockerfile: web/Dockerfile
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Deterministic build timestamps — rewrite layer/image mtimes to the
+      # commit time so the same source produces a bit-reproducible image.
+      - name: Set SOURCE_DATE_EPOCH from commit
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
+
+      - name: Set up QEMU (arm64 emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags + labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=branch
+            type=sha,format=long
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.image }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Build and push (by digest, multi-arch)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .                       # repo root: backend embeds docs/, web is a workspace
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max             # SLSA provenance attestation in the image index
+          sbom: true                       # in-toto SPDX SBOM attestation
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
+
+      # BLOCKING vulnerability gate. Runs against the pushed digest; failing here
+      # fails the job BEFORE the signing step, so nothing vulnerable is signed.
+      - name: Trivy scan (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.29.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      # Keyless signature over the immutable digest (OIDC → Fulcio → Rekor).
+      - name: Sign the image (keyless)
+        run: cosign sign --yes "${IMAGE_NAME}@${DIGEST}"
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Summary
+        run: |
+          {
+            echo "### ${{ matrix.image }}"
+            echo ""
+            echo "- digest: \`${{ steps.build.outputs.digest }}\`"
+            echo "- tags:"
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+            echo "- scanned (HIGH/CRITICAL gate), SBOM + provenance attested, cosign-signed."
+          } >> "$GITHUB_STEP_SUMMARY"

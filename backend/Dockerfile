@@ -1,6 +1,12 @@
 # syntax=docker/dockerfile:1
 
-FROM rust:1.96-bookworm AS builder
+# Base images pinned to their multi-arch index digest for reproducible builds;
+# Renovate (docker:pinDigests) keeps the digest current behind the tag.
+FROM rust:1.96-bookworm@sha256:19817ead3289c8c631c73df281e18b59b172f6a31f4f563290f69cddd06c30e9 AS builder
+
+# Deterministic timestamps: BuildKit clamps image/layer mtimes to this epoch
+# (passed by CI from the commit time). Harmless when unset for local builds.
+ARG SOURCE_DATE_EPOCH
 
 WORKDIR /workspace/backend
 
@@ -19,7 +25,7 @@ ENV SQLX_OFFLINE=true
 
 RUN cargo build --locked --release -p mnt-app
 
-FROM debian:bookworm-slim AS runtime
+FROM debian:bookworm-slim@sha256:96e378d7e6531ac9a15ad505478fcc2e69f371b10f5cdf87857c4b8188404716 AS runtime
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \

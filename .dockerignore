@@ -10,10 +10,19 @@
 !backend
 !docs
 
+# Web console image inputs (web/Dockerfile): the npm workspace root + its two
+# member packages. api-client-ts is consumed as TS source by the web build.
+!package.json
+!package-lock.json
+!web
+!clients/ts
+
 # Prune heavy / irrelevant paths back out of the re-included trees.
 backend/target
 backend/.sqlx/query-*.tmp
 docs/evidence
+web/dist
+**/*.tsbuildinfo
 **/.DS_Store
 **/.env
 **/.env.*
