@@ -69,4 +69,31 @@ describe("SupportTicketList", () => {
     );
     expect(screen.queryByText(ko.support.overdue)).toBeNull();
   });
+
+  it("shows '더 보기' only when hasMore and calls onLoadMore", async () => {
+    const user = userEvent.setup();
+    const onLoadMore = vi.fn();
+    const { rerender } = render(
+      <SupportTicketList
+        tickets={[ticket()]}
+        nowMs={NOW}
+        onSelect={vi.fn()}
+        onLoadMore={onLoadMore}
+      />,
+    );
+    // hasMore defaults false → no button.
+    expect(screen.queryByRole("button", { name: ko.support.loadMore })).toBeNull();
+
+    rerender(
+      <SupportTicketList
+        tickets={[ticket()]}
+        nowMs={NOW}
+        onSelect={vi.fn()}
+        hasMore
+        onLoadMore={onLoadMore}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: ko.support.loadMore }));
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
+  });
 });

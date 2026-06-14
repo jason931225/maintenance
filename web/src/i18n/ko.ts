@@ -303,6 +303,8 @@ export const ko = {
     detailTitle: "티켓 상세",
     empty: "표시할 티켓이 없습니다.",
     selectPrompt: "왼쪽 목록에서 티켓을 선택하세요.",
+    loadMore: "더 보기",
+    loadingMore: "불러오는 중",
     requester: "요청자",
     assignee: "담당자",
     assignSelf: "담당 맡기",

@@ -170,4 +170,37 @@ describe("SupportTicketDetail", () => {
       screen.queryByRole("button", { name: ko.support.assignSelf }),
     ).toBeNull();
   });
+
+  it("shows the busy label only on the in-flight transition button", async () => {
+    const user = userEvent.setup();
+    // A pending transition keeps pendingTo set so we can inspect the labels.
+    let release: () => void = () => {};
+    const onTransition = vi.fn().mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    render(
+      <SupportTicketDetail
+        detail={detail()} // IN_PROGRESS → offers 보류 (ON_HOLD) + 해결 (RESOLVED)
+        currentUserId={ME}
+        onTransition={onTransition}
+        onAddComment={vi.fn()}
+        onAssignSelf={vi.fn()}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: ko.support.transition.to_RESOLVED }),
+    );
+    // Only the clicked (RESOLVED) button flips to 변경 중; the other keeps its label.
+    expect(
+      await screen.findByRole("button", { name: ko.support.transition.changing }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: ko.support.transition.to_ON_HOLD }),
+    ).toBeVisible();
+    release();
+  });
 });

@@ -33,6 +33,8 @@ import {
 import { ko } from "../i18n/ko";
 
 const defaultBranchId = "00000000-0000-4000-8000-000000000001";
+// Mirrors the server-side default list cap; a full page implies more rows.
+const PAGE_SIZE = 50;
 
 interface Filters {
   status: SupportTicketStatus | "";
@@ -69,34 +71,66 @@ export function SupportPage() {
   // Wall-clock stamped each time the list loads, so SLA badges are computed
   // against a stable value rather than an impure call during render.
   const [nowMs, setNowMs] = useState(0);
+  // A full page means there may be more rows behind the server-side cap.
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const queryFilters = useCallback(
+    () => ({
+      status: filters.status || undefined,
+      priority: filters.priority || undefined,
+      category: filters.category || undefined,
+      origin: filters.origin || undefined,
+      include_untriaged: filters.includeUntriaged,
+      limit: PAGE_SIZE,
+    }),
+    [filters],
+  );
 
   const loadTickets = useCallback(async () => {
     setListState("loading");
     const response = await api
-      .GET("/api/v1/support/tickets", {
-        params: {
-          query: {
-            status: filters.status || undefined,
-            priority: filters.priority || undefined,
-            category: filters.category || undefined,
-            origin: filters.origin || undefined,
-            include_untriaged: filters.includeUntriaged,
-          },
-        },
-      })
+      .GET("/api/v1/support/tickets", { params: { query: queryFilters() } })
       .catch(() => undefined);
     if (!response?.data) {
       setListState("error");
       return;
     }
     setTickets(response.data);
+    setHasMore(response.data.length === PAGE_SIZE);
     setNowMs(Date.now());
     setListState("idle");
-  }, [api, filters]);
+  }, [api, queryFilters]);
+
+  // Append the next keyset page (cursor = the last loaded ticket id).
+  const loadMore = useCallback(async () => {
+    setLoadingMore(true);
+    const cursor = tickets.at(-1)?.id;
+    const response = await api
+      .GET("/api/v1/support/tickets", {
+        params: { query: { ...queryFilters(), cursor } },
+      })
+      .catch(() => undefined);
+    setLoadingMore(false);
+    if (!response?.data) return;
+    setTickets((prev) => [...prev, ...response.data]);
+    setHasMore(response.data.length === PAGE_SIZE);
+  }, [api, queryFilters, tickets]);
 
   useEffect(() => {
     void Promise.resolve().then(loadTickets);
   }, [loadTickets]);
+
+  // Keep SLA (overdue / due-soon) badges honest on an always-open ops board by
+  // re-stamping the clock periodically (the load-time stamp would go stale).
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 60_000);
+    return () => {
+      window.clearInterval(id);
+    };
+  }, []);
 
   const loadDetail = useCallback(
     async (id: string) => {
@@ -218,6 +252,11 @@ export function SupportPage() {
             isLoading={listState === "loading"}
             nowMs={nowMs}
             onSelect={setSelectedId}
+            hasMore={hasMore}
+            isLoadingMore={loadingMore}
+            onLoadMore={() => {
+              void loadMore();
+            }}
           />
         </div>
 

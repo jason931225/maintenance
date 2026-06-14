@@ -43,21 +43,24 @@ export function SupportTicketDetail({
   const { ticket, comments } = detail;
   const transitions = allowedTransitions(ticket.status);
 
-  const [transitionState, setTransitionState] = useState<"idle" | "busy" | "error">(
-    "idle",
-  );
+  // Track WHICH transition is in flight so only its button shows the busy
+  // label (a single shared flag made every button show "changing" at once).
+  const [pendingTo, setPendingTo] = useState<SupportTicketStatus | null>(null);
+  const [transitionFailed, setTransitionFailed] = useState(false);
   const [assignState, setAssignState] = useState<"idle" | "busy" | "error">("idle");
 
   const alreadyMine =
     currentUserId !== undefined && ticket.assignee_user_id === currentUserId;
 
   async function handleTransition(to: SupportTicketStatus) {
-    setTransitionState("busy");
+    setPendingTo(to);
+    setTransitionFailed(false);
     try {
       await onTransition(to);
-      setTransitionState("idle");
     } catch {
-      setTransitionState("error");
+      setTransitionFailed(true);
+    } finally {
+      setPendingTo(null);
     }
   }
 
@@ -127,12 +130,12 @@ export function SupportTicketDetail({
                 type="button"
                 variant="secondary"
                 size="sm"
-                disabled={transitionState === "busy"}
+                disabled={pendingTo !== null}
                 onClick={() => {
                   void handleTransition(to);
                 }}
               >
-                {transitionState === "busy"
+                {pendingTo === to
                   ? ko.support.transition.changing
                   : transitionActionLabel(ticket.status, to)}
               </Button>
@@ -155,7 +158,7 @@ export function SupportTicketDetail({
             </Button>
           ) : null}
         </div>
-        {transitionState === "error" ? (
+        {transitionFailed ? (
           <p role="alert" className="text-sm font-semibold text-red-700">
             {ko.support.transition.failed}
           </p>

@@ -1,5 +1,6 @@
 import type { SupportTicketSummary } from "../../api/types";
 import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { ko } from "../../i18n/ko";
 import {
@@ -20,6 +21,10 @@ interface SupportTicketListProps {
   /** Epoch millis used to classify SLA posture; injected for deterministic tests. */
   nowMs: number;
   onSelect: (id: string) => void;
+  /** True when a full page was returned, so more rows may exist behind the cap. */
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 export function SupportTicketList({
@@ -28,6 +33,9 @@ export function SupportTicketList({
   isLoading = false,
   nowMs,
   onSelect,
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
 }: SupportTicketListProps) {
   return (
     <Card className="grid gap-4">
@@ -97,6 +105,18 @@ export function SupportTicketList({
           })}
         </ul>
       )}
+
+      {hasMore && onLoadMore ? (
+        <Button
+          type="button"
+          variant="secondary"
+          className="justify-self-center"
+          disabled={isLoadingMore}
+          onClick={onLoadMore}
+        >
+          {isLoadingMore ? ko.support.loadingMore : ko.support.loadMore}
+        </Button>
+      ) : null}
     </Card>
   );
 }
