@@ -118,7 +118,10 @@ async fn concurrent_consume_burns_the_otp_exactly_once(pool: PgPool) {
 
     // A subsequent redeem is rejected: the code is dead.
     assert!(
-        store.redeem_otp(&pool, issue.token.as_str(), now).await.is_err(),
+        store
+            .redeem_otp(&pool, issue.token.as_str(), now)
+            .await
+            .is_err(),
         "a consumed code must not redeem again"
     );
 }

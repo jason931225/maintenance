@@ -15,6 +15,12 @@ services:
       MNT_WEBAUTHN_RP_ID: localhost
       MNT_WEBAUTHN_RP_ORIGIN: http://localhost:5173
       MNT_WEBAUTHN_RP_NAME: "정비 콘솔 (dev)"
+      # DEV-ONLY cold-start OTP. The fixed "coss0000" secret was removed from
+      # migration 0021 (a committed SUPER_ADMIN OTP); cold-start is now seeded at
+      # app boot from this env var so local dev keeps the coss0000 first-sign-in UX
+      # without baking the secret into version control. NEVER set this in prod —
+      # prod injects a per-deploy secret per docs/release/SECRETS.md.
+      MNT_COLDSTART_OTP: coss0000
 
   worker:
     ports:

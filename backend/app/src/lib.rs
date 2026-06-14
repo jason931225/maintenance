@@ -38,6 +38,7 @@ use mnt_platform_auth_rest::{AuthRestConfig, AuthRestState};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
 use mnt_platform_db::{DbError, with_audit};
 use mnt_platform_jobs::{ApalisPostgresJobQueue, JobQueue, run_apalis_worker_until_shutdown};
+use mnt_platform_provisioning::BootstrapCredentialStore;
 use mnt_platform_push::{
     FcmConfig, FcmHttpV1Client, ProviderPushNotifier, PushNotifier, SolapiAlimtalkClient,
     SolapiConfig,
@@ -62,6 +63,8 @@ use opentelemetry_sdk::trace::SdkTracerProvider;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Postgres, QueryBuilder};
+use tower_http::limit::RequestBodyLimitLayer;
+use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use tracing::Instrument;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -77,6 +80,7 @@ const DEFAULT_JWT_AUDIENCE: &str = "mnt-api";
 const DEFAULT_WEBAUTHN_RP_NAME: &str = "MNT Maintenance";
 const DEFAULT_AUTH_CEREMONY_TTL_SECS: u64 = 300;
 const DEFAULT_REFRESH_TOKEN_TTL_SECS: u64 = 60 * 60 * 24 * 30;
+const DEFAULT_COLDSTART_OTP_TTL_SECS: u64 = 3600;
 const DEFAULT_DISPATCH_ACCEPT_WINDOW_SECS: u64 = 5 * 60;
 const DEFAULT_DISPATCH_FORCE_ASSIGN_ALERT_SECS: u64 = 10 * 60;
 const DEFAULT_DISPATCH_ALIMTALK_NO_ACK_SECS: u64 = 2 * 60;
@@ -86,6 +90,13 @@ const DEFAULT_FCM_SCOPE: &str = "https://www.googleapis.com/auth/firebase.messag
 const DEFAULT_SOLAPI_BASE_URL: &str = "https://api.solapi.com";
 const DEFAULT_AUDIT_LIMIT: i64 = 50;
 const MAX_AUDIT_LIMIT: i64 = 200;
+/// Global request-body cap. Modest by design: the JSON APIs here carry small
+/// payloads, and large evidence uploads go straight to object storage via
+/// presigned URLs rather than through this process. Bounds memory per request.
+const MAX_REQUEST_BODY_BYTES: usize = 2 * 1024 * 1024;
+/// Global per-request timeout; sheds requests that hang on a slow upstream or DB
+/// so a stuck handler cannot pin a connection indefinitely.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const OPENAPI_YAML: &str = include_str!("../../openapi/openapi.yaml");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -134,6 +145,13 @@ pub struct AppConfig {
     pub solapi: Option<SolapiConfig>,
     pub solapi_disabled_reason: Option<String>,
     pub shutdown_timeout: Duration,
+    /// Deploy-time cold-start OTP for the cold-start SUPER_ADMIN, supplied
+    /// out-of-band via `MNT_COLDSTART_OTP`. `None` (or empty) means no
+    /// cold-start OTP is seeded at boot — the normal state once an admin exists.
+    pub coldstart_otp: Option<String>,
+    /// Lifetime of a boot-seeded cold-start OTP (`MNT_COLDSTART_OTP_TTL_SECS`,
+    /// default 3600s).
+    pub coldstart_otp_ttl: time::Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -225,6 +243,12 @@ impl AppConfig {
             })?,
             None => Duration::from_secs(DEFAULT_SHUTDOWN_TIMEOUT_SECS),
         };
+        let coldstart_otp = non_empty(vars.get("MNT_COLDSTART_OTP"));
+        let coldstart_otp_ttl = parse_time_duration_secs(
+            vars.get("MNT_COLDSTART_OTP_TTL_SECS"),
+            DEFAULT_COLDSTART_OTP_TTL_SECS,
+            "MNT_COLDSTART_OTP_TTL_SECS",
+        )?;
 
         Ok(Self {
             role,
@@ -241,6 +265,8 @@ impl AppConfig {
             solapi,
             solapi_disabled_reason,
             shutdown_timeout,
+            coldstart_otp,
+            coldstart_otp_ttl,
         })
     }
 }
@@ -286,7 +312,22 @@ fn auth_rest_config_from_vars(
             DEFAULT_REFRESH_TOKEN_TTL_SECS,
             "MNT_REFRESH_TOKEN_TTL_SECS",
         )?,
+        trusted_proxy_count: parse_trusted_proxy_count(vars.get("MNT_TRUSTED_PROXY_COUNT"))?,
     }))
+}
+
+/// Number of trusted reverse proxies in front of the auth service (default 1).
+/// Drives the `X-Forwarded-For` client-IP derivation in the rate limiter: the
+/// real client is the Nth-from-the-right XFF entry. A value of 0 is treated as 1
+/// (there is always at least the ingress proxy), so the leftmost entry is never
+/// blindly trusted.
+fn parse_trusted_proxy_count(raw: Option<&String>) -> Result<usize, AppError> {
+    match raw {
+        Some(raw) => raw
+            .parse::<usize>()
+            .map_err(|err| AppError::Config(format!("invalid MNT_TRUSTED_PROXY_COUNT: {err}"))),
+        None => Ok(1),
+    }
 }
 
 fn storage_config_from_vars(
@@ -686,6 +727,13 @@ pub fn build_router(state: AppState) -> Router {
                     },
                 ),
         )
+        // Defense-in-depth: bound every request's body size and total duration so a
+        // single oversized or hung request cannot exhaust memory or pin a worker.
+        .layer(RequestBodyLimitLayer::new(MAX_REQUEST_BODY_BYTES))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            REQUEST_TIMEOUT,
+        ))
         .with_state(state.clone());
 
     match &state.database {
@@ -1218,6 +1266,8 @@ pub async fn serve(config: AppConfig, state: AppState) -> Result<(), AppError> {
 }
 
 async fn serve_api(config: AppConfig, state: AppState) -> Result<(), AppError> {
+    seed_cold_start_otp(&config, &state).await?;
+
     let listener = tokio::net::TcpListener::bind(config.http_addr)
         .await
         .map_err(AppError::Io)?;
@@ -1232,6 +1282,47 @@ async fn serve_api(config: AppConfig, state: AppState) -> Result<(), AppError> {
         .with_graceful_shutdown(shutdown_signal(config.shutdown_timeout, state))
         .await
         .map_err(AppError::Io)
+}
+
+/// Seed the cold-start admin's bootstrap OTP at API boot, after migrations have
+/// been applied to the database.
+///
+/// Runs only for the API role with a configured `MNT_COLDSTART_OTP` and a live
+/// database. The seeding itself is idempotent and race-safe in the provisioning
+/// crate: it inserts a credential only when the cold-start admin has neither a
+/// passkey nor an open credential. The OTP value is NEVER logged — only whether a
+/// credential was seeded or skipped.
+async fn seed_cold_start_otp(config: &AppConfig, state: &AppState) -> Result<(), AppError> {
+    let Some(otp) = config.coldstart_otp.as_deref() else {
+        tracing::info!(
+            "no cold-start OTP configured; skipping cold-start seed (normal once admins exist)"
+        );
+        return Ok(());
+    };
+    let DatabaseDependency::Postgres(pool) = &state.database else {
+        tracing::info!(
+            "cold-start OTP configured but no database is wired; skipping cold-start seed"
+        );
+        return Ok(());
+    };
+
+    let seeded = BootstrapCredentialStore
+        .seed_cold_start_credential(
+            pool,
+            otp,
+            config.coldstart_otp_ttl,
+            time::OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(|err| AppError::Internal(format!("cold-start seed failed: {err}")))?;
+    if seeded {
+        tracing::info!("cold-start OTP seeded for the cold-start admin");
+    } else {
+        tracing::info!(
+            "cold-start OTP not seeded (admin already has a passkey or an open credential)"
+        );
+    }
+    Ok(())
 }
 
 async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), AppError> {

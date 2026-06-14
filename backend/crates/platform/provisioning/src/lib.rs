@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use mnt_kernel_core::{AuditAction, AuditEvent, KernelError, TraceContext, UserId};
-use mnt_platform_db::{insert_audit_event, with_audit};
+use mnt_platform_db::{insert_audit_event, with_audit, with_audits};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -185,21 +185,25 @@ impl BootstrapCredentialStore {
     /// Redeem a one-time OTP (bootstrap token) as a FIRST SIGN-IN.
     ///
     /// This is a sign-in, not signup: the user row was pre-provisioned by the
-    /// admin who issued the OTP (or seeded for the cold-start admin). On success
-    /// the OTP is consumed atomically and the redeeming user's id is returned so
-    /// the caller can mint a session. Passkey enrollment is NOT bundled here — the
-    /// user adds a passkey afterwards from authenticated initial settings.
+    /// admin who issued the OTP (or seeded for the cold-start admin). The
+    /// redeeming user's id is returned so the caller can mint a session. Passkey
+    /// enrollment is NOT bundled here — the user adds a passkey afterwards from
+    /// authenticated initial settings.
     ///
     /// Security properties:
-    /// * Single-use ON SUCCESS only. The consume uses the harden-1 atomic pattern
-    ///   (`UPDATE ... WHERE id=$1 AND consumed_at IS NULL AND expires_at > now()
-    ///   RETURNING`); a racing or replayed redeem matches 0 rows and is rejected.
+    /// * VERIFY-ONLY: a redeem mints a session but does NOT consume the code.
+    ///   Single-use is enforced at passkey REGISTRATION by
+    ///   [`Self::consume_open_credentials_tx`], which burns the code atomically
+    ///   with the passkey insert (the harden-1 pattern). An incomplete or
+    ///   cancelled enrollment therefore never burns the code — the user can
+    ///   re-redeem until a passkey actually sticks; once a passkey exists the code
+    ///   is dead and can never mint another session.
     /// * A WRONG guess never consumes or invalidates a credential — an unknown
     ///   token simply finds no row. There is deliberately no per-OTP attempt cap
     ///   (that would let an attacker burn a victim's OTP); brute-force is bounded
     ///   by the caller's per-client rate limit plus the short TTL.
-    /// * Expiry is enforced inside the same atomic claim, so an expired OTP cannot
-    ///   mint a session.
+    /// * Expiry and revocation are still enforced here, so an expired or revoked
+    ///   OTP cannot mint a session.
     ///
     /// All failure modes collapse to [`ProvisioningError::InvalidBootstrapCredential`]
     /// so the caller can return a single generic "invalid or expired" message
@@ -292,6 +296,7 @@ impl BootstrapCredentialStore {
             WHERE user_id = $1
               AND consumed_at IS NULL
               AND revoked_at IS NULL
+              AND expires_at > $2
             RETURNING id
             "#,
         )
@@ -314,6 +319,55 @@ impl BootstrapCredentialStore {
             insert_audit_event(tx, &audit).await?;
         }
         Ok(())
+    }
+
+    /// Seed a deploy-time cold-start OTP for the cold-start SUPER_ADMIN at app boot.
+    ///
+    /// The fixed first-boot constant was removed from the migration; the operator
+    /// now supplies the secret out-of-band (`MNT_COLDSTART_OTP`). This finds the
+    /// "Cold Start Admin" SUPER_ADMIN and, ONLY IF that admin has neither a
+    /// registered passkey nor an already-open bootstrap credential, inserts a
+    /// single bootstrap credential whose `token_hash = hash_token(otp)` and that
+    /// expires at `now + ttl`. The insert is audited via [`with_audit`] (action
+    /// `auth.coldstart.seed`, target = the admin user id); the OTP value is NEVER
+    /// written to the audit snapshot or any log.
+    ///
+    /// Returns `Ok(true)` when a credential was seeded and `Ok(false)` when it was
+    /// skipped (no cold-start admin, or the admin already has a passkey or an open
+    /// credential). Idempotent and race-safe: the existence checks and the insert
+    /// run inside one transaction with `FOR UPDATE` on the admin row, exactly like
+    /// [`issue_bootstrap_if_needed_tx`], so two concurrent boots cannot double-seed.
+    pub async fn seed_cold_start_credential(
+        &self,
+        pool: &PgPool,
+        otp: &str,
+        ttl: Duration,
+        now: OffsetDateTime,
+    ) -> Result<bool, ProvisioningError> {
+        let token_hash = hash_token(otp);
+
+        with_audits::<_, bool, ProvisioningError>(pool, |tx| {
+            Box::pin(async move {
+                match seed_cold_start_if_needed_tx(tx, &token_hash, now, ttl).await? {
+                    Some((admin_id, credential_id)) => {
+                        // The OTP value is NEVER placed in the audit trail; only the
+                        // admin id and the new credential id are recorded.
+                        let event = AuditEvent::new(
+                            Some(UserId::from_uuid(admin_id)),
+                            AuditAction::new("auth.coldstart.seed")?,
+                            "auth_bootstrap_credential",
+                            credential_id.to_string(),
+                            TraceContext::generate(),
+                            now,
+                        )
+                        .with_snapshots(None, Some(serde_json::json!({ "user_id": admin_id })));
+                        Ok((true, vec![event]))
+                    }
+                    None => Ok((false, Vec::new())),
+                }
+            })
+        })
+        .await
     }
 }
 
@@ -684,6 +738,106 @@ async fn issue_bootstrap_if_needed_tx(
         token,
         expires_at,
     }))
+}
+
+/// Seed the cold-start admin's bootstrap credential inside the caller's
+/// transaction, if and only if it is needed.
+///
+/// Returns `Some((admin_id, credential_id))` when a credential was opened and
+/// `None` when seeding was skipped (no cold-start admin row, the admin already
+/// has a passkey or an open bootstrap credential, or the supplied OTP hash is
+/// already in use by another row that cannot be revived). The admin row is locked
+/// `FOR UPDATE` so concurrent boots serialize on it and cannot double-seed.
+///
+/// `token_hash` is globally UNIQUE on `auth_bootstrap_credentials`. On an
+/// environment that ran migration 0021 and then 0023, a REVOKED row with the
+/// fixed `coss0000` hash still exists; re-seeding the same OTP would collide. The
+/// insert is therefore an UPSERT that REVIVES a previously-revoked, unconsumed row
+/// owned by this same admin (clearing `revoked_at`/`consumed_at` and refreshing
+/// the expiry) instead of inserting a duplicate. A conflicting row owned by a
+/// different user, or one already consumed, is left untouched and seeding is
+/// reported as skipped.
+async fn seed_cold_start_if_needed_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    token_hash: &[u8],
+    now: OffsetDateTime,
+    ttl: Duration,
+) -> Result<Option<(Uuid, Uuid)>, ProvisioningError> {
+    let admin_id: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT id
+        FROM users
+        WHERE display_name = 'Cold Start Admin'
+          AND roles @> ARRAY['SUPER_ADMIN']::TEXT[]
+        ORDER BY id
+        LIMIT 1
+        FOR UPDATE
+        "#,
+    )
+    .fetch_optional(tx.as_mut())
+    .await?;
+    let Some(admin_id) = admin_id else {
+        return Ok(None);
+    };
+
+    let passkey_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM auth_webauthn_credentials WHERE user_id = $1")
+            .bind(admin_id)
+            .fetch_one(tx.as_mut())
+            .await?;
+    if passkey_count > 0 {
+        return Ok(None);
+    }
+
+    let existing_open: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT id
+        FROM auth_bootstrap_credentials
+        WHERE user_id = $1
+          AND consumed_at IS NULL
+          AND revoked_at IS NULL
+        LIMIT 1
+        "#,
+    )
+    .bind(admin_id)
+    .fetch_optional(tx.as_mut())
+    .await?;
+    if existing_open.is_some() {
+        return Ok(None);
+    }
+
+    let credential_id = Uuid::new_v4();
+    let expires_at = now + ttl;
+    // UPSERT on the globally-unique token_hash: a fresh OTP inserts; a previously
+    // REVOKED, unconsumed row owned by THIS admin (e.g. the migration-0021/0023
+    // coss0000 row) is revived. Any other conflict (different user, or consumed)
+    // fails the WHERE, updates nothing, and returns no row -> reported as skipped.
+    let opened_id: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        INSERT INTO auth_bootstrap_credentials (
+            id, user_id, token_hash, issued_at, expires_at
+        ) VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (token_hash) DO UPDATE
+            SET issued_at = EXCLUDED.issued_at,
+                expires_at = EXCLUDED.expires_at,
+                revoked_at = NULL,
+                revoked_reason = NULL,
+                consumed_at = NULL
+            WHERE auth_bootstrap_credentials.user_id = EXCLUDED.user_id
+              AND auth_bootstrap_credentials.revoked_at IS NOT NULL
+              AND auth_bootstrap_credentials.consumed_at IS NULL
+        RETURNING id
+        "#,
+    )
+    .bind(credential_id)
+    .bind(admin_id)
+    .bind(token_hash)
+    .bind(now)
+    .bind(expires_at)
+    .fetch_optional(tx.as_mut())
+    .await?;
+
+    Ok(opened_id.map(|credential_id| (admin_id, credential_id)))
 }
 
 async fn count_user_passkeys_tx(

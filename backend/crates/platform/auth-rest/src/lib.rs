@@ -12,7 +12,7 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
-use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, TraceContext, UserId};
+use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, BranchScope, TraceContext, UserId};
 use mnt_platform_auth::{
     AccessClaims, AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier,
     PasskeyAuthenticationCredential, PasskeyRegistrationCredential, PasskeyRegistrationStart,
@@ -73,12 +73,18 @@ pub struct AuthRestConfig {
     pub jwt_private_key_pem: String,
     pub jwt_public_key_pem: String,
     pub refresh_token_ttl: Duration,
+    /// Number of trusted reverse proxies in front of this service. The client IP
+    /// used for rate limiting is the Nth-from-the-right `X-Forwarded-For` entry
+    /// (the rightmost entry is appended by the closest proxy). Assumes the ingress
+    /// proxy sets/strips XFF so the left-most entries cannot be spoofed past it.
+    pub trusted_proxy_count: usize,
 }
 
 #[derive(Clone)]
 pub struct AuthRestState {
     pool: PgPool,
     services: Option<AuthServices>,
+    trusted_proxy_count: usize,
 }
 
 impl std::fmt::Debug for AuthRestState {
@@ -105,6 +111,9 @@ impl AuthRestState {
         Self {
             pool,
             services: None,
+            // Conservative default; never reached for rate limiting (no routes
+            // are served when auth is disabled), but keeps the field well-defined.
+            trusted_proxy_count: 1,
         }
     }
 
@@ -140,6 +149,7 @@ impl AuthRestState {
                 bootstrap_credentials: BootstrapCredentialStore,
                 refresh_token_ttl: config.refresh_token_ttl,
             }),
+            trusted_proxy_count: config.trusted_proxy_count.max(1),
         })
     }
 }
@@ -474,6 +484,7 @@ async fn start_login(
     rate_limit(
         &state.pool,
         &headers,
+        state.trusted_proxy_count,
         RateLimitEndpoint::LoginStart,
         OffsetDateTime::now_utc(),
     )
@@ -533,7 +544,14 @@ async fn redeem_otp(
 ) -> Result<Json<OtpRedeemResponse>, RestError> {
     let services = state.services()?;
     let now = OffsetDateTime::now_utc();
-    rate_limit(&state.pool, &headers, RateLimitEndpoint::OtpRedeem, now).await?;
+    rate_limit(
+        &state.pool,
+        &headers,
+        state.trusted_proxy_count,
+        RateLimitEndpoint::OtpRedeem,
+        now,
+    )
+    .await?;
 
     let redemption = match services
         .bootstrap_credentials
@@ -580,6 +598,13 @@ async fn redeem_otp(
 /// AUTHZ-gated: only ADMIN / SUPER_ADMIN (branch-scoped) may call it, via the
 /// `SubordinateUserCreate` feature. The issuance is audited inside
 /// `issue_for_zero_credential_user`. The returned OTP is shown once.
+///
+/// IDOR hardening: authorization is bound to the TARGET user's real branch/role
+/// resolved from the database, NOT to the client-supplied `body.branch_id`. The
+/// caller must be authorized for `SubordinateUserCreate` against EVERY branch the
+/// target belongs to, and a non-SUPER_ADMIN caller can never mint a code for an
+/// EXECUTIVE or SUPER_ADMIN target. This stops a branch-A admin from minting a
+/// sign-in OTP for a privileged user or for a user who lives in branch B.
 async fn issue_admin_otp(
     State(state): State<AuthRestState>,
     headers: HeaderMap,
@@ -587,13 +612,59 @@ async fn issue_admin_otp(
 ) -> Result<Json<AdminIssueOtpResponse>, RestError> {
     let services = state.services()?;
     let principal = principal_from_headers(&state.pool, services, &headers).await?;
-    let branch_id = BranchId::from_uuid(body.branch_id);
-    authorize(
-        &principal,
-        Action::limited(Feature::SubordinateUserCreate),
-        branch_id,
-    )
-    .map_err(|_| RestError::forbidden("not allowed to issue sign-in codes"))?;
+
+    // Resolve the TARGET's real roles. A missing or inactive target is a 403 here
+    // (the caller is authenticated; it is the requested target that is invalid),
+    // not the 401 the sign-in paths use.
+    let target = load_user_auth_context(&state.pool, body.user_id)
+        .await
+        .map_err(forbidden_if_unauthorized)?;
+    let target_roles = parse_roles(&target.roles)?;
+
+    let caller_is_super_admin = principal.roles.contains(&Role::SuperAdmin);
+
+    // A non-SUPER_ADMIN caller may never issue a code for a privileged target.
+    let target_is_privileged = target_roles
+        .iter()
+        .any(|role| matches!(role, Role::Executive | Role::SuperAdmin));
+    if target_is_privileged && !caller_is_super_admin {
+        return Err(RestError::forbidden(
+            "not allowed to issue sign-in codes for a privileged user",
+        ));
+    }
+
+    // Resolve the target's REAL branch scope and require the caller to be
+    // authorized against every one of the target's branches. A target with All
+    // scope (SUPER_ADMIN/EXECUTIVE) or no branches cannot be issued for here.
+    let target_scope = resolve_branch_scope(&state.pool, target.user_id, &target_roles)
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
+    let target_branches = match target_scope {
+        BranchScope::Branches(branches) if !branches.is_empty() => branches,
+        _ => {
+            return Err(RestError::forbidden(
+                "target user has no issuable branch scope",
+            ));
+        }
+    };
+
+    // `body.branch_id` is still accepted for API stability but no longer grants
+    // access: it must be one of the target's real branches, never the authz basis.
+    let requested_branch = BranchId::from_uuid(body.branch_id);
+    if !target_branches.contains(&requested_branch) {
+        return Err(RestError::forbidden(
+            "branch_id does not belong to the target user",
+        ));
+    }
+
+    for branch_id in &target_branches {
+        authorize(
+            &principal,
+            Action::limited(Feature::SubordinateUserCreate),
+            *branch_id,
+        )
+        .map_err(|_| RestError::forbidden("not allowed to issue sign-in codes"))?;
+    }
 
     let ttl = resolve_otp_ttl(body.ttl_seconds)?;
     let now = OffsetDateTime::now_utc();
@@ -610,6 +681,28 @@ async fn issue_admin_otp(
     }))
 }
 
+/// Remap the `401` that `load_user_auth_context` returns for a missing/inactive
+/// user into a `403` for the admin issue-OTP path, where the CALLER is
+/// authenticated and it is the requested TARGET that is invalid. Other statuses
+/// (e.g. internal DB errors) pass through unchanged.
+fn forbidden_if_unauthorized(err: RestError) -> RestError {
+    if err.status == StatusCode::UNAUTHORIZED {
+        RestError::forbidden("target user is not eligible for a sign-in code")
+    } else {
+        err
+    }
+}
+
+/// Parse a target's stored role strings into [`Role`]s, rejecting unknown codes.
+fn parse_roles(roles: &[String]) -> Result<Vec<Role>, RestError> {
+    roles
+        .iter()
+        .map(|role| {
+            Role::from_str(role).map_err(|_| RestError::internal("target has an unknown role"))
+        })
+        .collect()
+}
+
 async fn refresh_token(
     State(state): State<AuthRestState>,
     headers: HeaderMap,
@@ -617,7 +710,14 @@ async fn refresh_token(
 ) -> Result<Json<TokenPairResponse>, RestError> {
     let services = state.services()?;
     let now = OffsetDateTime::now_utc();
-    rate_limit(&state.pool, &headers, RateLimitEndpoint::Refresh, now).await?;
+    rate_limit(
+        &state.pool,
+        &headers,
+        state.trusted_proxy_count,
+        RateLimitEndpoint::Refresh,
+        now,
+    )
+    .await?;
     let issue = services
         .refresh_tokens
         .rotate(
@@ -984,6 +1084,7 @@ impl RateLimitEndpoint {
 async fn rate_limit(
     pool: &PgPool,
     headers: &HeaderMap,
+    trusted_proxy_count: usize,
     endpoint: RateLimitEndpoint,
     now: OffsetDateTime,
 ) -> Result<(), RestError> {
@@ -991,7 +1092,7 @@ async fn rate_limit(
     let endpoint_str = endpoint.as_str();
 
     let mut buckets: Vec<(String, i64)> = Vec::with_capacity(3);
-    if let Some(ip) = client_ip(headers) {
+    if let Some(ip) = client_ip(headers, trusted_proxy_count) {
         buckets.push((format!("ip:{ip}"), RATE_LIMIT_PER_IP));
     }
     if let Some(device) = client_device_id(headers) {
@@ -1043,18 +1144,32 @@ fn floor_to_window(now: OffsetDateTime) -> OffsetDateTime {
     OffsetDateTime::from_unix_timestamp(floored).unwrap_or(now)
 }
 
-/// Derive the client IP, trusting `X-Forwarded-For` only because the app sits
-/// behind the Traefik proxy that sets it. The left-most entry is the originating
-/// client. The value is used only as an opaque rate-limit key and is never
-/// logged.
-fn client_ip(headers: &HeaderMap) -> Option<String> {
+/// Derive the rate-limit client IP from `X-Forwarded-For`.
+///
+/// XFF is appended left-to-right, so the RIGHTMOST entry is the address the
+/// closest trusted proxy observed and the leftmost entries are attacker-spoofable
+/// (a client can prepend arbitrary values). With `trusted_proxy_count` proxies in
+/// front of this service, the real client is the Nth-from-the-right entry: index
+/// `len - trusted_proxy_count`. Anything left of that is untrusted and ignored.
+///
+/// This assumes the ingress proxy sets/strips XFF so the chain to the right of
+/// the client entry is genuine. The value is used only as an opaque rate-limit
+/// key and is never logged.
+fn client_ip(headers: &HeaderMap, trusted_proxy_count: usize) -> Option<String> {
     let forwarded = headers.get("x-forwarded-for")?.to_str().ok()?;
-    let first = forwarded.split(',').next()?.trim();
-    if first.is_empty() {
-        None
-    } else {
-        Some(first.to_owned())
+    let entries: Vec<&str> = forwarded
+        .split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .collect();
+    if entries.is_empty() {
+        return None;
     }
+    // Nth-from-the-right; clamp so a shorter-than-expected chain still yields the
+    // left-most (oldest) entry we have rather than underflowing.
+    let hops = trusted_proxy_count.max(1);
+    let index = entries.len().saturating_sub(hops);
+    entries.get(index).map(|ip| (*ip).to_owned())
 }
 
 /// Read the optional, client-controlled `X-Device-Id` header. Bounded length and
@@ -1071,4 +1186,58 @@ fn client_device_id(headers: &HeaderMap) -> Option<String> {
         return None;
     }
     Some(value.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::client_ip;
+    use axum::http::HeaderMap;
+
+    fn headers_with_xff(value: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", value.parse().unwrap());
+        headers
+    }
+
+    #[test]
+    fn client_ip_uses_nth_from_right_with_one_trusted_proxy() {
+        // With one trusted proxy, the rightmost entry is the proxy's view of the
+        // client, and any prepended (spoofed) entries to the left are ignored.
+        let headers = headers_with_xff("9.9.9.9, 8.8.8.8, 203.0.113.7");
+        assert_eq!(client_ip(&headers, 1).as_deref(), Some("203.0.113.7"));
+    }
+
+    #[test]
+    fn client_ip_honors_higher_trusted_proxy_count() {
+        // Spec: the client IP is the Nth-from-the-right entry (rightmost is the
+        // closest proxy). Chain [client, edge-proxy, app-proxy]: with 2 trusted
+        // proxies the 2nd-from-right (the edge proxy's observed source) is taken,
+        // and the spoofable left-most entry is ignored.
+        let headers = headers_with_xff("1.2.3.4, 203.0.113.7, 10.0.0.2");
+        assert_eq!(client_ip(&headers, 2).as_deref(), Some("203.0.113.7"));
+        assert_ne!(client_ip(&headers, 2).as_deref(), Some("1.2.3.4"));
+    }
+
+    #[test]
+    fn client_ip_ignores_left_most_spoofed_entry() {
+        // A single-hop deployment must NOT trust the attacker-controlled left-most
+        // entry; it takes the rightmost real entry instead.
+        let headers = headers_with_xff("1.2.3.4, 203.0.113.7");
+        assert_ne!(client_ip(&headers, 1).as_deref(), Some("1.2.3.4"));
+        assert_eq!(client_ip(&headers, 1).as_deref(), Some("203.0.113.7"));
+    }
+
+    #[test]
+    fn client_ip_clamps_when_chain_shorter_than_expected() {
+        // A misconfigured/short chain yields the left-most available entry rather
+        // than underflowing or panicking.
+        let headers = headers_with_xff("203.0.113.7");
+        assert_eq!(client_ip(&headers, 3).as_deref(), Some("203.0.113.7"));
+    }
+
+    #[test]
+    fn client_ip_none_without_header() {
+        assert_eq!(client_ip(&HeaderMap::new(), 1), None);
+        assert_eq!(client_ip(&headers_with_xff("  ,  "), 1), None);
+    }
 }

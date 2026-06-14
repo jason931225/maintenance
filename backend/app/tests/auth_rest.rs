@@ -194,8 +194,14 @@ async fn otp_is_consumed_on_passkey_registration_not_on_redeem(pool: PgPool) {
     let branch_id = seed_branch(&pool, "OTP Region", "OTP Branch").await;
     let admin_id =
         seed_user_with_branch(&pool, "Issuer Admin", "010-4100-0000", "ADMIN", branch_id).await;
-    let new_user_id =
-        seed_user_with_branch(&pool, "Pending User", "010-4100-0001", "MECHANIC", branch_id).await;
+    let new_user_id = seed_user_with_branch(
+        &pool,
+        "Pending User",
+        "010-4100-0001",
+        "MECHANIC",
+        branch_id,
+    )
+    .await;
     let service = build_router(
         app_state(
             pool.clone(),
@@ -322,6 +328,158 @@ async fn admin_issue_otp_rejects_non_admin(pool: PgPool) {
     )
     .await;
     assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// IDOR: a branch-A admin must NOT be able to mint a sign-in OTP for a user who
+/// belongs only to branch B. Authorization is bound to the TARGET's real branch
+/// scope, not the client-supplied branch_id.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn admin_issue_otp_rejects_cross_branch_target(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_a = seed_branch(&pool, "Region A", "Branch A").await;
+    let branch_b = seed_branch(&pool, "Region B", "Branch B").await;
+    let admin_a = seed_user_with_branch(&pool, "Admin A", "010-6000-0000", "ADMIN", branch_a).await;
+    // The target belongs ONLY to branch B.
+    let target_b =
+        seed_user_with_branch(&pool, "User B", "010-6000-0001", "MECHANIC", branch_b).await;
+
+    let service = build_router(
+        app_state(
+            pool.clone(),
+            private_key_pem.to_string(),
+            public_key_pem.clone(),
+        )
+        .unwrap(),
+    );
+
+    let admin_access = admin_session_via_otp(&service, &pool, admin_a).await;
+
+    // Even when the admin lies and passes its own branch_a as branch_id, the
+    // target's REAL scope (branch B) is what is authorized against -> 403.
+    let forbidden = post_raw(
+        service.clone(),
+        "/api/v1/auth/admin/otp/issue",
+        Some(&admin_access),
+        json!({ "user_id": target_b.as_uuid(), "branch_id": branch_a }),
+    )
+    .await;
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+
+    // Passing the target's real branch_b also fails — admin A has no authority there.
+    let forbidden_real_branch = post_raw(
+        service,
+        "/api/v1/auth/admin/otp/issue",
+        Some(&admin_access),
+        json!({ "user_id": target_b.as_uuid(), "branch_id": branch_b }),
+    )
+    .await;
+    assert_eq!(forbidden_real_branch.status(), StatusCode::FORBIDDEN);
+}
+
+/// IDOR: a branch admin must NOT be able to mint a sign-in OTP for a privileged
+/// (SUPER_ADMIN or EXECUTIVE) target. Only a SUPER_ADMIN caller may do so.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn admin_issue_otp_rejects_privileged_target(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_id = seed_branch(&pool, "Priv Region", "Priv Branch").await;
+    let admin_id =
+        seed_user_with_branch(&pool, "Branch Admin", "010-6100-0000", "ADMIN", branch_id).await;
+    // A SUPER_ADMIN target that also (incidentally) belongs to the admin's branch.
+    let super_admin_target = seed_user_with_branch(
+        &pool,
+        "Super Admin Target",
+        "010-6100-0001",
+        "SUPER_ADMIN",
+        branch_id,
+    )
+    .await;
+    // An EXECUTIVE target in the same branch.
+    let executive_target = seed_user_with_branch(
+        &pool,
+        "Executive Target",
+        "010-6100-0002",
+        "EXECUTIVE",
+        branch_id,
+    )
+    .await;
+
+    let service = build_router(
+        app_state(
+            pool.clone(),
+            private_key_pem.to_string(),
+            public_key_pem.clone(),
+        )
+        .unwrap(),
+    );
+
+    let admin_access = admin_session_via_otp(&service, &pool, admin_id).await;
+
+    let super_admin_forbidden = post_raw(
+        service.clone(),
+        "/api/v1/auth/admin/otp/issue",
+        Some(&admin_access),
+        json!({ "user_id": super_admin_target.as_uuid(), "branch_id": branch_id }),
+    )
+    .await;
+    assert_eq!(super_admin_forbidden.status(), StatusCode::FORBIDDEN);
+
+    let executive_forbidden = post_raw(
+        service,
+        "/api/v1/auth/admin/otp/issue",
+        Some(&admin_access),
+        json!({ "user_id": executive_target.as_uuid(), "branch_id": branch_id }),
+    )
+    .await;
+    assert_eq!(executive_forbidden.status(), StatusCode::FORBIDDEN);
+}
+
+/// The happy path still works: a branch admin issues a code for an in-branch
+/// subordinate (a non-privileged user whose only branch is the admin's).
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn admin_issue_otp_allows_in_branch_subordinate(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_id = seed_branch(&pool, "Sub Region", "Sub Branch").await;
+    let admin_id =
+        seed_user_with_branch(&pool, "Branch Admin", "010-6200-0000", "ADMIN", branch_id).await;
+    let subordinate =
+        seed_user_with_branch(&pool, "Subordinate", "010-6200-0001", "MECHANIC", branch_id).await;
+
+    let service = build_router(
+        app_state(
+            pool.clone(),
+            private_key_pem.to_string(),
+            public_key_pem.clone(),
+        )
+        .unwrap(),
+    );
+
+    let admin_access = admin_session_via_otp(&service, &pool, admin_id).await;
+
+    let issued: AdminIssueOtpResponse = post_json(
+        service,
+        "/api/v1/auth/admin/otp/issue",
+        Some(&admin_access),
+        json!({ "user_id": subordinate.as_uuid(), "branch_id": branch_id }),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(&issued.user_id, subordinate.as_uuid());
+    assert_eq!(issued.otp.chars().count(), 8);
 }
 
 /// The DB-backed per-IP rate limit trips a 429 once the window cap is exceeded,

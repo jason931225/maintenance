@@ -215,22 +215,39 @@ async fn otp_expiry_is_enforced_on_redeem(pool: PgPool) {
     );
 }
 
-/// The cold-start fixed secret "coss0000" is seeded for the SUPER_ADMIN cold admin
-/// and signs that admin in. A redeem does not consume it (so a failed first-boot
-/// enrollment can't brick cold start); it is consumed — and dead — once the admin
-/// registers a passkey.
+/// The cold-start OTP is no longer a committed constant: migration 0023 revoked
+/// the fixed "coss0000" seed, so right after migrations there is NO open
+/// cold-start credential. The OTP is now seeded at app boot via
+/// `seed_cold_start_credential`. Once seeded it signs the cold admin in; a redeem
+/// does not consume it (so a failed first-boot enrollment can't brick cold start);
+/// it is consumed — and dead — once the admin registers a passkey.
 #[sqlx::test(migrations = "../db/migrations")]
-async fn cold_start_coss0000_signs_in_then_dies_on_passkey_registration(pool: PgPool) {
+async fn cold_start_otp_seeded_at_boot_signs_in_then_dies_on_passkey_registration(pool: PgPool) {
     let store = BootstrapCredentialStore;
     let now = OffsetDateTime::now_utc();
 
-    // The migration seeded a Cold Start Admin (SUPER_ADMIN) + the coss0000 OTP.
+    // The migration keeps the Cold Start Admin (SUPER_ADMIN) user row...
     let admin_id: uuid::Uuid = sqlx::query_scalar(
         "SELECT id FROM users WHERE display_name = 'Cold Start Admin' AND roles @> ARRAY['SUPER_ADMIN']::text[]",
     )
     .fetch_one(&pool)
     .await
     .unwrap();
+    // ...but the fixed seed is revoked: coss0000 must NOT redeem until re-seeded.
+    assert!(
+        store.redeem_otp(&pool, "coss0000", now).await.is_err(),
+        "the committed coss0000 seed must be revoked by migration 0023"
+    );
+
+    // Boot-time seeding with the deploy-time secret.
+    let seeded = store
+        .seed_cold_start_credential(&pool, "coss0000", Duration::hours(1), now)
+        .await
+        .unwrap();
+    assert!(
+        seeded,
+        "the cold admin has no passkey/open credential -> seeded"
+    );
 
     let redemption = store.redeem_otp(&pool, "coss0000", now).await.unwrap();
     assert_eq!(redemption.user_id, admin_id);
@@ -253,4 +270,85 @@ async fn cold_start_coss0000_signs_in_then_dies_on_passkey_registration(pool: Pg
         store.redeem_otp(&pool, "coss0000", now).await.is_err(),
         "coss0000 is dead once the admin has a passkey"
     );
+}
+
+/// `seed_cold_start_credential` is idempotent and gated: it seeds only when the
+/// cold admin has neither a passkey nor an open credential, returns the seeded OTP
+/// as redeemable, and skips (returns false) once a credential is already open or a
+/// passkey exists.
+#[sqlx::test(migrations = "../db/migrations")]
+async fn seed_cold_start_credential_is_gated_and_idempotent(pool: PgPool) {
+    let store = BootstrapCredentialStore;
+    let now = OffsetDateTime::now_utc();
+
+    let admin_id: uuid::Uuid = sqlx::query_scalar(
+        "SELECT id FROM users WHERE display_name = 'Cold Start Admin' AND roles @> ARRAY['SUPER_ADMIN']::text[]",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    // First seed succeeds (no passkey, no open credential after 0023's revoke).
+    let first = store
+        .seed_cold_start_credential(&pool, "secret-otp", Duration::hours(1), now)
+        .await
+        .unwrap();
+    assert!(first, "first seed must insert a credential");
+
+    // The seeded token redeems via redeem_otp for the cold admin.
+    let redemption = store.redeem_otp(&pool, "secret-otp", now).await.unwrap();
+    assert_eq!(redemption.user_id, admin_id);
+
+    // A second seed is a no-op: an open credential already exists.
+    let second = store
+        .seed_cold_start_credential(&pool, "another-otp", Duration::hours(1), now)
+        .await
+        .unwrap();
+    assert!(!second, "a second seed must skip when a credential is open");
+
+    // The audit trail records exactly one coldstart seed and never the OTP value.
+    let seed_audits: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_events WHERE action = 'auth.coldstart.seed'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(seed_audits, 1, "exactly one coldstart seed must be audited");
+    let leaked: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_events \
+         WHERE action = 'auth.coldstart.seed' AND after_snap::text LIKE '%secret-otp%'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        leaked, 0,
+        "the OTP value must never appear in the audit snapshot"
+    );
+
+    // Consume the open credential (simulating passkey registration), then a seed
+    // still skips because the admin now has a passkey.
+    let mut tx = pool.begin().await.unwrap();
+    store
+        .consume_open_credentials_tx(&mut tx, admin_id, now)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    // Give the admin a passkey so the no-passkey gate is exercised.
+    sqlx::query(
+        "INSERT INTO auth_webauthn_credentials \
+         (user_id, credential_id, passkey_json) \
+         VALUES ($1, $2, $3)",
+    )
+    .bind(admin_id)
+    .bind("cred-id")
+    .bind(serde_json::json!({}))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let third = store
+        .seed_cold_start_credential(&pool, "third-otp", Duration::hours(1), now)
+        .await
+        .unwrap();
+    assert!(!third, "a seed must skip once the admin has a passkey");
 }
