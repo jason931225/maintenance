@@ -39,6 +39,31 @@ export type LocationConsentState =
   components["schemas"]["LocationConsentState"];
 export type LocationConsentStatus =
   components["schemas"]["LocationConsentStatus"];
+export type SupportTicketStatus =
+  components["schemas"]["SupportTicketStatus"];
+export type SupportTicketPriority =
+  components["schemas"]["SupportTicketPriority"];
+export type SupportTicketCategory =
+  components["schemas"]["SupportTicketCategory"];
+export type SupportTicketOrigin =
+  components["schemas"]["SupportTicketOrigin"];
+export type SupportTicketSummary =
+  components["schemas"]["SupportTicketSummary"];
+export type SupportTicketComment =
+  components["schemas"]["SupportTicketComment"];
+export type SupportTicketDetail =
+  components["schemas"]["SupportTicketDetail"];
+export type CreateInternalTicketRequest =
+  components["schemas"]["CreateInternalTicketRequest"];
+export type CustomerIntakeRequest =
+  components["schemas"]["CustomerIntakeRequest"];
+export type AssignTicketRequest =
+  components["schemas"]["AssignTicketRequest"];
+export type TransitionTicketRequest =
+  components["schemas"]["TransitionTicketRequest"];
+export type AddCommentRequest =
+  components["schemas"]["AddCommentRequest"];
+export type SupportIntakeAck = components["schemas"]["SupportIntakeAck"];
 
 export interface EquipmentLookupResult {
   managementNo: string;

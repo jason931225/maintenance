@@ -3,6 +3,7 @@ import {
   CheckSquare,
   ClipboardList,
   FilePlus,
+  LifeBuoy,
   MapPin,
   MessageSquare,
   Wrench,
@@ -17,6 +18,7 @@ export const NAV_GROUPS = [
       { key: "intake",    href: "/intake",    labelKey: "nav.intake",    Icon: FilePlus },
       { key: "approvals", href: "/approvals", labelKey: "nav.approvals", Icon: CheckSquare },
       { key: "messenger", href: "/messenger", labelKey: "nav.messenger", Icon: MessageSquare },
+      { key: "support",   href: "/support",   labelKey: "nav.support",   Icon: LifeBuoy },
     ],
   },
   {
