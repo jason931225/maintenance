@@ -752,11 +752,11 @@ async fn issue_bootstrap_if_needed_tx(
 /// `token_hash` is globally UNIQUE on `auth_bootstrap_credentials`. On an
 /// environment that ran migration 0021 and then 0023, a REVOKED row with the
 /// fixed `coss0000` hash still exists; re-seeding the same OTP would collide. The
-/// insert is therefore an UPSERT that REVIVES a previously-revoked, unconsumed row
-/// owned by this same admin (clearing `revoked_at`/`consumed_at` and refreshing
-/// the expiry) instead of inserting a duplicate. A conflicting row owned by a
-/// different user, or one already consumed, is left untouched and seeding is
-/// reported as skipped.
+/// insert is therefore an UPSERT that REVIVES a previously revoked-OR-expired,
+/// unconsumed row owned by this same admin (clearing `revoked_at`/`consumed_at`
+/// and refreshing the expiry) instead of inserting a duplicate. A conflicting row
+/// owned by a different user, one already consumed, or one still valid is left
+/// untouched and seeding is reported as skipped.
 async fn seed_cold_start_if_needed_tx(
     tx: &mut Transaction<'_, Postgres>,
     token_hash: &[u8],
@@ -789,6 +789,10 @@ async fn seed_cold_start_if_needed_tx(
         return Ok(None);
     }
 
+    // Only a still-VALID (unexpired, unconsumed, unrevoked) credential blocks
+    // re-seeding. An EXPIRED open row must not wedge cold-start forever: once the
+    // short TTL lapses the operator needs a fresh window on the next boot, and the
+    // UPSERT below revives that expired row.
     let existing_open: Option<Uuid> = sqlx::query_scalar(
         r#"
         SELECT id
@@ -796,10 +800,12 @@ async fn seed_cold_start_if_needed_tx(
         WHERE user_id = $1
           AND consumed_at IS NULL
           AND revoked_at IS NULL
+          AND expires_at > $2
         LIMIT 1
         "#,
     )
     .bind(admin_id)
+    .bind(now)
     .fetch_optional(tx.as_mut())
     .await?;
     if existing_open.is_some() {
@@ -824,8 +830,9 @@ async fn seed_cold_start_if_needed_tx(
                 revoked_reason = NULL,
                 consumed_at = NULL
             WHERE auth_bootstrap_credentials.user_id = EXCLUDED.user_id
-              AND auth_bootstrap_credentials.revoked_at IS NOT NULL
               AND auth_bootstrap_credentials.consumed_at IS NULL
+              AND (auth_bootstrap_credentials.revoked_at IS NOT NULL
+                   OR auth_bootstrap_credentials.expires_at <= EXCLUDED.issued_at)
         RETURNING id
         "#,
     )

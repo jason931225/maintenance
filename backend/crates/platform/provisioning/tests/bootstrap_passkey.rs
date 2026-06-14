@@ -352,3 +352,52 @@ async fn seed_cold_start_credential_is_gated_and_idempotent(pool: PgPool) {
         .unwrap();
     assert!(!third, "a seed must skip once the admin has a passkey");
 }
+
+/// An EXPIRED open cold-start credential must not wedge cold-start: a later boot
+/// re-seeds (revives the expired row) so the operator gets a fresh redeemable
+/// window. Regression for the seeder's expiry-blind "open credential" gate.
+#[sqlx::test(migrations = "../db/migrations")]
+async fn seed_cold_start_credential_reseeds_after_expiry(pool: PgPool) {
+    let store = BootstrapCredentialStore;
+    let now = OffsetDateTime::now_utc();
+
+    // Seed a short-lived credential.
+    let first = store
+        .seed_cold_start_credential(&pool, "expiring-otp", Duration::hours(1), now)
+        .await
+        .unwrap();
+    assert!(first, "first seed must insert");
+
+    // Past its TTL the same OTP no longer redeems.
+    let later = now + Duration::hours(2);
+    assert!(
+        store
+            .redeem_otp(&pool, "expiring-otp", later)
+            .await
+            .is_err(),
+        "the credential must be expired at `later`"
+    );
+
+    // A boot at `later` must RE-SEED (revive the expired row), not skip.
+    let reseeded = store
+        .seed_cold_start_credential(&pool, "expiring-otp", Duration::hours(1), later)
+        .await
+        .unwrap();
+    assert!(
+        reseeded,
+        "an expired open credential must not block re-seeding"
+    );
+
+    // ...and the refreshed credential redeems again at `later`.
+    let redemption = store
+        .redeem_otp(&pool, "expiring-otp", later)
+        .await
+        .unwrap();
+    let admin_id: uuid::Uuid = sqlx::query_scalar(
+        "SELECT id FROM users WHERE display_name = 'Cold Start Admin' AND roles @> ARRAY['SUPER_ADMIN']::text[]",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(redemption.user_id, admin_id);
+}
