@@ -50,6 +50,8 @@ use mnt_registry_adapter_postgres::PgRegistryStore;
 use mnt_registry_rest::RegistryRestState;
 use mnt_reporting_adapter_postgres::PgKpiRepository;
 use mnt_reporting_rest::KpiRestState;
+use mnt_support_adapter_postgres::PgSupportStore;
+use mnt_support_rest::SupportRestState;
 use mnt_workorder_adapter_postgres::PgWorkOrderStore;
 use mnt_workorder_rest::{MobileRestState, WorkOrderRestState};
 use opentelemetry::global;
@@ -700,6 +702,7 @@ pub fn build_router(state: AppState) -> Router {
             let inspection_store = PgInspectionStore::new(pool.clone());
             let compliance_store = PgComplianceStore::new(pool.clone());
             let dispatch_store = PgDispatchStore::new(pool.clone());
+            let support_store = PgSupportStore::new(pool.clone());
             let work_order_store = PgWorkOrderStore::new(pool.clone())
                 .with_created_listener(Arc::new(messenger_store.clone()));
             let router = router
@@ -717,6 +720,11 @@ pub fn build_router(state: AppState) -> Router {
                 .merge(mnt_inspection_rest::router(InspectionRestState::new(
                     inspection_store,
                     state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_support_rest::router(SupportRestState::new(
+                    support_store,
+                    state.jwt_verifier.clone(),
+                    state.push_notifier.clone(),
                 )))
                 .merge(mnt_compliance_rest::router(ComplianceRestState::new(
                     compliance_store,

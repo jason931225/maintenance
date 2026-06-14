@@ -405,6 +405,112 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/support/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List branch-scoped support tickets with optional filters */
+        get: operations["listSupportTickets"];
+        put?: never;
+        /** Open an internal support ticket as authenticated staff */
+        post: operations["createInternalSupportTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/support/tickets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a support ticket with its comments (staff view) */
+        get: operations["getSupportTicket"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/support/tickets/{id}/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Assign or reassign a support ticket (triages untriaged intake) */
+        post: operations["assignSupportTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/support/tickets/{id}/transition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Drive the support ticket status FSM */
+        post: operations["transitionSupportTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/support/tickets/{id}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append a comment or internal note to a support ticket */
+        post: operations["addSupportTicketComment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/support/intake": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit a support request from the unauthenticated customer channel
+         * @description Unauthenticated, rate-limited customer intake. Generic validation errors are returned; the customer contact is treated as PII and never echoed or logged.
+         */
+        post: operations["submitSupportIntake"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/equipment/lookup": {
         parameters: {
             query?: never;
@@ -1685,6 +1791,75 @@ export interface components {
             findings: string;
             note: string | null;
             completed_at: components["schemas"]["Timestamp"];
+        };
+        /** @enum {string} */
+        SupportTicketStatus: "OPEN" | "IN_PROGRESS" | "ON_HOLD" | "RESOLVED" | "CLOSED";
+        /** @enum {string} */
+        SupportTicketOrigin: "INTERNAL" | "CUSTOMER";
+        /** @enum {string} */
+        SupportTicketCategory: "SYSTEM_BUG" | "ACCESS_REQUEST" | "OPERATIONAL" | "EQUIPMENT_INQUIRY" | "COMPLAINT" | "OTHER";
+        /** @enum {string} */
+        SupportTicketPriority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+        CreateInternalTicketRequest: {
+            branch_id: components["schemas"]["Uuid"];
+            category: components["schemas"]["SupportTicketCategory"];
+            priority: components["schemas"]["SupportTicketPriority"];
+            title: string;
+            body: string;
+        };
+        CustomerIntakeRequest: {
+            category: components["schemas"]["SupportTicketCategory"];
+            priority: components["schemas"]["SupportTicketPriority"];
+            title: string;
+            body: string;
+            requester_name: string;
+            requester_contact: string;
+        };
+        AssignTicketRequest: {
+            assignee_user_id: components["schemas"]["Uuid"];
+            branch_id?: components["schemas"]["Uuid"];
+        };
+        TransitionTicketRequest: {
+            to_status: components["schemas"]["SupportTicketStatus"];
+        };
+        AddCommentRequest: {
+            body: string;
+            is_internal_note?: boolean;
+        };
+        SupportIntakeAck: {
+            status: string;
+        };
+        SupportTicketSummary: {
+            id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            origin: components["schemas"]["SupportTicketOrigin"];
+            category: components["schemas"]["SupportTicketCategory"];
+            priority: components["schemas"]["SupportTicketPriority"];
+            status: components["schemas"]["SupportTicketStatus"];
+            title: string;
+            requester_user_id: components["schemas"]["Uuid"];
+            requester_name: string | null;
+            assignee_user_id: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            due_at: string | null;
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+            /** Format: date-time */
+            resolved_at: string | null;
+            /** Format: date-time */
+            closed_at: string | null;
+        };
+        SupportTicketComment: {
+            id: components["schemas"]["Uuid"];
+            ticket_id: components["schemas"]["Uuid"];
+            author_user_id: components["schemas"]["Uuid"];
+            body: string;
+            is_internal_note: boolean;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        SupportTicketDetail: {
+            ticket: components["schemas"]["SupportTicketSummary"];
+            comments: components["schemas"]["SupportTicketComment"][];
         };
         EquipmentAutocompletePage: {
             items: components["schemas"]["EquipmentLookupResponse"][];
@@ -3072,6 +3247,259 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+        };
+    };
+    listSupportTickets: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["SupportTicketStatus"];
+                priority?: components["schemas"]["SupportTicketPriority"];
+                category?: components["schemas"]["SupportTicketCategory"];
+                origin?: components["schemas"]["SupportTicketOrigin"];
+                assignee_user_id?: components["schemas"]["Uuid"];
+                include_untriaged?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Support tickets visible in the principal's branch scope. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportTicketSummary"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    createInternalSupportTicket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateInternalTicketRequest"];
+            };
+        };
+        responses: {
+            /** @description Support ticket created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportTicketSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getSupportTicket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Support ticket detail including internal notes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportTicketDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    assignSupportTicket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignTicketRequest"];
+            };
+        };
+        responses: {
+            /** @description Support ticket assigned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportTicketSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    transitionSupportTicket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransitionTicketRequest"];
+            };
+        };
+        responses: {
+            /** @description Support ticket status changed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportTicketSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    addSupportTicketComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddCommentRequest"];
+            };
+        };
+        responses: {
+            /** @description Comment added. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportTicketComment"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    submitSupportIntake: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomerIntakeRequest"];
+            };
+        };
+        responses: {
+            /** @description Support request received. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportIntakeAck"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            422: components["responses"]["ValidationError"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     lookupEquipment: {

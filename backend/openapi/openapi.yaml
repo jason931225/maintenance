@@ -627,6 +627,270 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /api/v1/support/tickets:
+    get:
+      operationId: listSupportTickets
+      summary: List branch-scoped support tickets with optional filters
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/SupportTicketStatus'
+      - name: priority
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/SupportTicketPriority'
+      - name: category
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/SupportTicketCategory'
+      - name: origin
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/SupportTicketOrigin'
+      - name: assignee_user_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: include_untriaged
+        in: query
+        required: false
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: Support tickets visible in the principal's branch scope.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SupportTicketSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+    post:
+      operationId: createInternalSupportTicket
+      summary: Open an internal support ticket as authenticated staff
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInternalTicketRequest'
+      responses:
+        '201':
+          description: Support ticket created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportTicketSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/support/tickets/{id}:
+    get:
+      operationId: getSupportTicket
+      summary: Get a support ticket with its comments (staff view)
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Support ticket detail including internal notes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportTicketDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/support/tickets/{id}/assign:
+    post:
+      operationId: assignSupportTicket
+      summary: Assign or reassign a support ticket (triages untriaged intake)
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignTicketRequest'
+      responses:
+        '200':
+          description: Support ticket assigned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportTicketSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/support/tickets/{id}/transition:
+    post:
+      operationId: transitionSupportTicket
+      summary: Drive the support ticket status FSM
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransitionTicketRequest'
+      responses:
+        '200':
+          description: Support ticket status changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportTicketSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/support/tickets/{id}/comments:
+    post:
+      operationId: addSupportTicketComment
+      summary: Append a comment or internal note to a support ticket
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCommentRequest'
+      responses:
+        '201':
+          description: Comment added.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportTicketComment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/support/intake:
+    post:
+      operationId: submitSupportIntake
+      summary: Submit a support request from the unauthenticated customer channel
+      description: 'Unauthenticated, rate-limited customer intake. Generic validation
+        errors are returned; the customer contact is treated as PII and never
+        echoed or logged.
+
+        '
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomerIntakeRequest'
+      responses:
+        '202':
+          description: Support request received.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportIntakeAck'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/v1/equipment/lookup:
     get:
       operationId: lookupEquipment
@@ -2795,6 +3059,209 @@ components:
           - 'null'
         completed_at:
           $ref: '#/components/schemas/Timestamp'
+    SupportTicketStatus:
+      type: string
+      enum:
+      - OPEN
+      - IN_PROGRESS
+      - ON_HOLD
+      - RESOLVED
+      - CLOSED
+    SupportTicketOrigin:
+      type: string
+      enum:
+      - INTERNAL
+      - CUSTOMER
+    SupportTicketCategory:
+      type: string
+      enum:
+      - SYSTEM_BUG
+      - ACCESS_REQUEST
+      - OPERATIONAL
+      - EQUIPMENT_INQUIRY
+      - COMPLAINT
+      - OTHER
+    SupportTicketPriority:
+      type: string
+      enum:
+      - LOW
+      - MEDIUM
+      - HIGH
+      - URGENT
+    CreateInternalTicketRequest:
+      type: object
+      required:
+      - branch_id
+      - category
+      - priority
+      - title
+      - body
+      properties:
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        category:
+          $ref: '#/components/schemas/SupportTicketCategory'
+        priority:
+          $ref: '#/components/schemas/SupportTicketPriority'
+        title:
+          type: string
+          minLength: 1
+        body:
+          type: string
+          minLength: 1
+    CustomerIntakeRequest:
+      type: object
+      required:
+      - category
+      - priority
+      - title
+      - body
+      - requester_name
+      - requester_contact
+      properties:
+        category:
+          $ref: '#/components/schemas/SupportTicketCategory'
+        priority:
+          $ref: '#/components/schemas/SupportTicketPriority'
+        title:
+          type: string
+          minLength: 1
+        body:
+          type: string
+          minLength: 1
+        requester_name:
+          type: string
+          minLength: 1
+        requester_contact:
+          type: string
+          minLength: 1
+    AssignTicketRequest:
+      type: object
+      required:
+      - assignee_user_id
+      properties:
+        assignee_user_id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+    TransitionTicketRequest:
+      type: object
+      required:
+      - to_status
+      properties:
+        to_status:
+          $ref: '#/components/schemas/SupportTicketStatus'
+    AddCommentRequest:
+      type: object
+      required:
+      - body
+      properties:
+        body:
+          type: string
+          minLength: 1
+        is_internal_note:
+          type: boolean
+    SupportIntakeAck:
+      type: object
+      required:
+      - status
+      properties:
+        status:
+          type: string
+    SupportTicketSummary:
+      type: object
+      required:
+      - id
+      - branch_id
+      - origin
+      - category
+      - priority
+      - status
+      - title
+      - requester_user_id
+      - requester_name
+      - assignee_user_id
+      - due_at
+      - created_at
+      - updated_at
+      - resolved_at
+      - closed_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        origin:
+          $ref: '#/components/schemas/SupportTicketOrigin'
+        category:
+          $ref: '#/components/schemas/SupportTicketCategory'
+        priority:
+          $ref: '#/components/schemas/SupportTicketPriority'
+        status:
+          $ref: '#/components/schemas/SupportTicketStatus'
+        title:
+          type: string
+        requester_user_id:
+          $ref: '#/components/schemas/Uuid'
+        requester_name:
+          type:
+          - string
+          - 'null'
+        assignee_user_id:
+          $ref: '#/components/schemas/Uuid'
+        due_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+        resolved_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        closed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+    SupportTicketComment:
+      type: object
+      required:
+      - id
+      - ticket_id
+      - author_user_id
+      - body
+      - is_internal_note
+      - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        ticket_id:
+          $ref: '#/components/schemas/Uuid'
+        author_user_id:
+          $ref: '#/components/schemas/Uuid'
+        body:
+          type: string
+        is_internal_note:
+          type: boolean
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    SupportTicketDetail:
+      type: object
+      required:
+      - ticket
+      - comments
+      properties:
+        ticket:
+          $ref: '#/components/schemas/SupportTicketSummary'
+        comments:
+          type: array
+          items:
+            $ref: '#/components/schemas/SupportTicketComment'
     EquipmentAutocompletePage:
       type: object
       required:

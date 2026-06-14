@@ -138,6 +138,44 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/inspections/schedules/{schedule_id}/rounds`.
     /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/{schedule_id}/rounds/post(completeInspectionRound)`.
     func completeInspectionRound(_ input: Operations.CompleteInspectionRound.Input) async throws -> Operations.CompleteInspectionRound.Output
+    /// List branch-scoped support tickets with optional filters
+    ///
+    /// - Remark: HTTP `GET /api/v1/support/tickets`.
+    /// - Remark: Generated from `#/paths//api/v1/support/tickets/get(listSupportTickets)`.
+    func listSupportTickets(_ input: Operations.ListSupportTickets.Input) async throws -> Operations.ListSupportTickets.Output
+    /// Open an internal support ticket as authenticated staff
+    ///
+    /// - Remark: HTTP `POST /api/v1/support/tickets`.
+    /// - Remark: Generated from `#/paths//api/v1/support/tickets/post(createInternalSupportTicket)`.
+    func createInternalSupportTicket(_ input: Operations.CreateInternalSupportTicket.Input) async throws -> Operations.CreateInternalSupportTicket.Output
+    /// Get a support ticket with its comments (staff view)
+    ///
+    /// - Remark: HTTP `GET /api/v1/support/tickets/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/get(getSupportTicket)`.
+    func getSupportTicket(_ input: Operations.GetSupportTicket.Input) async throws -> Operations.GetSupportTicket.Output
+    /// Assign or reassign a support ticket (triages untriaged intake)
+    ///
+    /// - Remark: HTTP `POST /api/v1/support/tickets/{id}/assign`.
+    /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/assign/post(assignSupportTicket)`.
+    func assignSupportTicket(_ input: Operations.AssignSupportTicket.Input) async throws -> Operations.AssignSupportTicket.Output
+    /// Drive the support ticket status FSM
+    ///
+    /// - Remark: HTTP `POST /api/v1/support/tickets/{id}/transition`.
+    /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/transition/post(transitionSupportTicket)`.
+    func transitionSupportTicket(_ input: Operations.TransitionSupportTicket.Input) async throws -> Operations.TransitionSupportTicket.Output
+    /// Append a comment or internal note to a support ticket
+    ///
+    /// - Remark: HTTP `POST /api/v1/support/tickets/{id}/comments`.
+    /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/comments/post(addSupportTicketComment)`.
+    func addSupportTicketComment(_ input: Operations.AddSupportTicketComment.Input) async throws -> Operations.AddSupportTicketComment.Output
+    /// Submit a support request from the unauthenticated customer channel
+    ///
+    /// Unauthenticated, rate-limited customer intake. Generic validation errors are returned; the customer contact is treated as PII and never echoed or logged.
+    ///
+    ///
+    /// - Remark: HTTP `POST /api/v1/support/intake`.
+    /// - Remark: Generated from `#/paths//api/v1/support/intake/post(submitSupportIntake)`.
+    func submitSupportIntake(_ input: Operations.SubmitSupportIntake.Input) async throws -> Operations.SubmitSupportIntake.Output
     /// Resolve branch-scoped equipment by management number
     ///
     /// - Remark: HTTP `GET /api/v1/equipment/lookup`.
@@ -745,6 +783,106 @@ extension APIProtocol {
     ) async throws -> Operations.CompleteInspectionRound.Output {
         try await completeInspectionRound(Operations.CompleteInspectionRound.Input(
             path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// List branch-scoped support tickets with optional filters
+    ///
+    /// - Remark: HTTP `GET /api/v1/support/tickets`.
+    /// - Remark: Generated from `#/paths//api/v1/support/tickets/get(listSupportTickets)`.
+    public func listSupportTickets(
+        query: Operations.ListSupportTickets.Input.Query = .init(),
+        headers: Operations.ListSupportTickets.Input.Headers = .init()
+    ) async throws -> Operations.ListSupportTickets.Output {
+        try await listSupportTickets(Operations.ListSupportTickets.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Open an internal support ticket as authenticated staff
+    ///
+    /// - Remark: HTTP `POST /api/v1/support/tickets`.
+    /// - Remark: Generated from `#/paths//api/v1/support/tickets/post(createInternalSupportTicket)`.
+    public func createInternalSupportTicket(
+        headers: Operations.CreateInternalSupportTicket.Input.Headers = .init(),
+        body: Operations.CreateInternalSupportTicket.Input.Body
+    ) async throws -> Operations.CreateInternalSupportTicket.Output {
+        try await createInternalSupportTicket(Operations.CreateInternalSupportTicket.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Get a support ticket with its comments (staff view)
+    ///
+    /// - Remark: HTTP `GET /api/v1/support/tickets/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/get(getSupportTicket)`.
+    public func getSupportTicket(
+        path: Operations.GetSupportTicket.Input.Path,
+        headers: Operations.GetSupportTicket.Input.Headers = .init()
+    ) async throws -> Operations.GetSupportTicket.Output {
+        try await getSupportTicket(Operations.GetSupportTicket.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Assign or reassign a support ticket (triages untriaged intake)
+    ///
+    /// - Remark: HTTP `POST /api/v1/support/tickets/{id}/assign`.
+    /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/assign/post(assignSupportTicket)`.
+    public func assignSupportTicket(
+        path: Operations.AssignSupportTicket.Input.Path,
+        headers: Operations.AssignSupportTicket.Input.Headers = .init(),
+        body: Operations.AssignSupportTicket.Input.Body
+    ) async throws -> Operations.AssignSupportTicket.Output {
+        try await assignSupportTicket(Operations.AssignSupportTicket.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Drive the support ticket status FSM
+    ///
+    /// - Remark: HTTP `POST /api/v1/support/tickets/{id}/transition`.
+    /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/transition/post(transitionSupportTicket)`.
+    public func transitionSupportTicket(
+        path: Operations.TransitionSupportTicket.Input.Path,
+        headers: Operations.TransitionSupportTicket.Input.Headers = .init(),
+        body: Operations.TransitionSupportTicket.Input.Body
+    ) async throws -> Operations.TransitionSupportTicket.Output {
+        try await transitionSupportTicket(Operations.TransitionSupportTicket.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Append a comment or internal note to a support ticket
+    ///
+    /// - Remark: HTTP `POST /api/v1/support/tickets/{id}/comments`.
+    /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/comments/post(addSupportTicketComment)`.
+    public func addSupportTicketComment(
+        path: Operations.AddSupportTicketComment.Input.Path,
+        headers: Operations.AddSupportTicketComment.Input.Headers = .init(),
+        body: Operations.AddSupportTicketComment.Input.Body
+    ) async throws -> Operations.AddSupportTicketComment.Output {
+        try await addSupportTicketComment(Operations.AddSupportTicketComment.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Submit a support request from the unauthenticated customer channel
+    ///
+    /// Unauthenticated, rate-limited customer intake. Generic validation errors are returned; the customer contact is treated as PII and never echoed or logged.
+    ///
+    ///
+    /// - Remark: HTTP `POST /api/v1/support/intake`.
+    /// - Remark: Generated from `#/paths//api/v1/support/intake/post(submitSupportIntake)`.
+    public func submitSupportIntake(
+        headers: Operations.SubmitSupportIntake.Input.Headers = .init(),
+        body: Operations.SubmitSupportIntake.Input.Body
+    ) async throws -> Operations.SubmitSupportIntake.Output {
+        try await submitSupportIntake(Operations.SubmitSupportIntake.Input(
             headers: headers,
             body: body
         ))
@@ -2553,6 +2691,370 @@ public enum Components {
                 case findings
                 case note
                 case completedAt = "completed_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SupportTicketStatus`.
+        @frozen public enum SupportTicketStatus: String, Codable, Hashable, Sendable, CaseIterable {
+            case open = "OPEN"
+            case inProgress = "IN_PROGRESS"
+            case onHold = "ON_HOLD"
+            case resolved = "RESOLVED"
+            case closed = "CLOSED"
+        }
+        /// - Remark: Generated from `#/components/schemas/SupportTicketOrigin`.
+        @frozen public enum SupportTicketOrigin: String, Codable, Hashable, Sendable, CaseIterable {
+            case _internal = "INTERNAL"
+            case customer = "CUSTOMER"
+        }
+        /// - Remark: Generated from `#/components/schemas/SupportTicketCategory`.
+        @frozen public enum SupportTicketCategory: String, Codable, Hashable, Sendable, CaseIterable {
+            case systemBug = "SYSTEM_BUG"
+            case accessRequest = "ACCESS_REQUEST"
+            case operational = "OPERATIONAL"
+            case equipmentInquiry = "EQUIPMENT_INQUIRY"
+            case complaint = "COMPLAINT"
+            case other = "OTHER"
+        }
+        /// - Remark: Generated from `#/components/schemas/SupportTicketPriority`.
+        @frozen public enum SupportTicketPriority: String, Codable, Hashable, Sendable, CaseIterable {
+            case low = "LOW"
+            case medium = "MEDIUM"
+            case high = "HIGH"
+            case urgent = "URGENT"
+        }
+        /// - Remark: Generated from `#/components/schemas/CreateInternalTicketRequest`.
+        public struct CreateInternalTicketRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CreateInternalTicketRequest/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CreateInternalTicketRequest/category`.
+            public var category: Components.Schemas.SupportTicketCategory
+            /// - Remark: Generated from `#/components/schemas/CreateInternalTicketRequest/priority`.
+            public var priority: Components.Schemas.SupportTicketPriority
+            /// - Remark: Generated from `#/components/schemas/CreateInternalTicketRequest/title`.
+            public var title: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CreateInternalTicketRequest/body`.
+            public var body: Swift.String
+            /// Creates a new `CreateInternalTicketRequest`.
+            ///
+            /// - Parameters:
+            ///   - branchId:
+            ///   - category:
+            ///   - priority:
+            ///   - title:
+            ///   - body:
+            public init(
+                branchId: Components.Schemas.Uuid,
+                category: Components.Schemas.SupportTicketCategory,
+                priority: Components.Schemas.SupportTicketPriority,
+                title: Swift.String,
+                body: Swift.String
+            ) {
+                self.branchId = branchId
+                self.category = category
+                self.priority = priority
+                self.title = title
+                self.body = body
+            }
+            public enum CodingKeys: String, CodingKey {
+                case branchId = "branch_id"
+                case category
+                case priority
+                case title
+                case body
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CustomerIntakeRequest`.
+        public struct CustomerIntakeRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CustomerIntakeRequest/category`.
+            public var category: Components.Schemas.SupportTicketCategory
+            /// - Remark: Generated from `#/components/schemas/CustomerIntakeRequest/priority`.
+            public var priority: Components.Schemas.SupportTicketPriority
+            /// - Remark: Generated from `#/components/schemas/CustomerIntakeRequest/title`.
+            public var title: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CustomerIntakeRequest/body`.
+            public var body: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CustomerIntakeRequest/requester_name`.
+            public var requesterName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CustomerIntakeRequest/requester_contact`.
+            public var requesterContact: Swift.String
+            /// Creates a new `CustomerIntakeRequest`.
+            ///
+            /// - Parameters:
+            ///   - category:
+            ///   - priority:
+            ///   - title:
+            ///   - body:
+            ///   - requesterName:
+            ///   - requesterContact:
+            public init(
+                category: Components.Schemas.SupportTicketCategory,
+                priority: Components.Schemas.SupportTicketPriority,
+                title: Swift.String,
+                body: Swift.String,
+                requesterName: Swift.String,
+                requesterContact: Swift.String
+            ) {
+                self.category = category
+                self.priority = priority
+                self.title = title
+                self.body = body
+                self.requesterName = requesterName
+                self.requesterContact = requesterContact
+            }
+            public enum CodingKeys: String, CodingKey {
+                case category
+                case priority
+                case title
+                case body
+                case requesterName = "requester_name"
+                case requesterContact = "requester_contact"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AssignTicketRequest`.
+        public struct AssignTicketRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AssignTicketRequest/assignee_user_id`.
+            public var assigneeUserId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/AssignTicketRequest/branch_id`.
+            public var branchId: Components.Schemas.Uuid?
+            /// Creates a new `AssignTicketRequest`.
+            ///
+            /// - Parameters:
+            ///   - assigneeUserId:
+            ///   - branchId:
+            public init(
+                assigneeUserId: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid? = nil
+            ) {
+                self.assigneeUserId = assigneeUserId
+                self.branchId = branchId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case assigneeUserId = "assignee_user_id"
+                case branchId = "branch_id"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/TransitionTicketRequest`.
+        public struct TransitionTicketRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TransitionTicketRequest/to_status`.
+            public var toStatus: Components.Schemas.SupportTicketStatus
+            /// Creates a new `TransitionTicketRequest`.
+            ///
+            /// - Parameters:
+            ///   - toStatus:
+            public init(toStatus: Components.Schemas.SupportTicketStatus) {
+                self.toStatus = toStatus
+            }
+            public enum CodingKeys: String, CodingKey {
+                case toStatus = "to_status"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AddCommentRequest`.
+        public struct AddCommentRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AddCommentRequest/body`.
+            public var body: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AddCommentRequest/is_internal_note`.
+            public var isInternalNote: Swift.Bool?
+            /// Creates a new `AddCommentRequest`.
+            ///
+            /// - Parameters:
+            ///   - body:
+            ///   - isInternalNote:
+            public init(
+                body: Swift.String,
+                isInternalNote: Swift.Bool? = nil
+            ) {
+                self.body = body
+                self.isInternalNote = isInternalNote
+            }
+            public enum CodingKeys: String, CodingKey {
+                case body
+                case isInternalNote = "is_internal_note"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SupportIntakeAck`.
+        public struct SupportIntakeAck: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SupportIntakeAck/status`.
+            public var status: Swift.String
+            /// Creates a new `SupportIntakeAck`.
+            ///
+            /// - Parameters:
+            ///   - status:
+            public init(status: Swift.String) {
+                self.status = status
+            }
+            public enum CodingKeys: String, CodingKey {
+                case status
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SupportTicketSummary`.
+        public struct SupportTicketSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SupportTicketSummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/SupportTicketSummary/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/SupportTicketSummary/origin`.
+            public var origin: Components.Schemas.SupportTicketOrigin
+            /// - Remark: Generated from `#/components/schemas/SupportTicketSummary/category`.
+            public var category: Components.Schemas.SupportTicketCategory
+            /// - Remark: Generated from `#/components/schemas/SupportTicketSummary/priority`.
+            public var priority: Components.Schemas.SupportTicketPriority
+            /// - Remark: Generated from `#/components/schemas/SupportTicketSummary/status`.
+            public var status: Components.Schemas.SupportTicketStatus
+            /// - Remark: Generated from `#/components/schemas/SupportTicketSummary/title`.
+            public var title: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SupportTicketSummary/requester_user_id`.
+            public var requesterUserId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/SupportTicketSummary/requester_name`.
+            public var requesterName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SupportTicketSummary/assignee_user_id`.
+            public var assigneeUserId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/SupportTicketSummary/due_at`.
+            public var dueAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/SupportTicketSummary/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/SupportTicketSummary/updated_at`.
+            public var updatedAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/SupportTicketSummary/resolved_at`.
+            public var resolvedAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/SupportTicketSummary/closed_at`.
+            public var closedAt: Foundation.Date?
+            /// Creates a new `SupportTicketSummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - branchId:
+            ///   - origin:
+            ///   - category:
+            ///   - priority:
+            ///   - status:
+            ///   - title:
+            ///   - requesterUserId:
+            ///   - requesterName:
+            ///   - assigneeUserId:
+            ///   - dueAt:
+            ///   - createdAt:
+            ///   - updatedAt:
+            ///   - resolvedAt:
+            ///   - closedAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid,
+                origin: Components.Schemas.SupportTicketOrigin,
+                category: Components.Schemas.SupportTicketCategory,
+                priority: Components.Schemas.SupportTicketPriority,
+                status: Components.Schemas.SupportTicketStatus,
+                title: Swift.String,
+                requesterUserId: Components.Schemas.Uuid,
+                requesterName: Swift.String? = nil,
+                assigneeUserId: Components.Schemas.Uuid,
+                dueAt: Foundation.Date? = nil,
+                createdAt: Components.Schemas.Timestamp,
+                updatedAt: Components.Schemas.Timestamp,
+                resolvedAt: Foundation.Date? = nil,
+                closedAt: Foundation.Date? = nil
+            ) {
+                self.id = id
+                self.branchId = branchId
+                self.origin = origin
+                self.category = category
+                self.priority = priority
+                self.status = status
+                self.title = title
+                self.requesterUserId = requesterUserId
+                self.requesterName = requesterName
+                self.assigneeUserId = assigneeUserId
+                self.dueAt = dueAt
+                self.createdAt = createdAt
+                self.updatedAt = updatedAt
+                self.resolvedAt = resolvedAt
+                self.closedAt = closedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case branchId = "branch_id"
+                case origin
+                case category
+                case priority
+                case status
+                case title
+                case requesterUserId = "requester_user_id"
+                case requesterName = "requester_name"
+                case assigneeUserId = "assignee_user_id"
+                case dueAt = "due_at"
+                case createdAt = "created_at"
+                case updatedAt = "updated_at"
+                case resolvedAt = "resolved_at"
+                case closedAt = "closed_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SupportTicketComment`.
+        public struct SupportTicketComment: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SupportTicketComment/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/SupportTicketComment/ticket_id`.
+            public var ticketId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/SupportTicketComment/author_user_id`.
+            public var authorUserId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/SupportTicketComment/body`.
+            public var body: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SupportTicketComment/is_internal_note`.
+            public var isInternalNote: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/SupportTicketComment/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// Creates a new `SupportTicketComment`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - ticketId:
+            ///   - authorUserId:
+            ///   - body:
+            ///   - isInternalNote:
+            ///   - createdAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                ticketId: Components.Schemas.Uuid,
+                authorUserId: Components.Schemas.Uuid,
+                body: Swift.String,
+                isInternalNote: Swift.Bool,
+                createdAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.ticketId = ticketId
+                self.authorUserId = authorUserId
+                self.body = body
+                self.isInternalNote = isInternalNote
+                self.createdAt = createdAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case ticketId = "ticket_id"
+                case authorUserId = "author_user_id"
+                case body
+                case isInternalNote = "is_internal_note"
+                case createdAt = "created_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SupportTicketDetail`.
+        public struct SupportTicketDetail: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SupportTicketDetail/ticket`.
+            public var ticket: Components.Schemas.SupportTicketSummary
+            /// - Remark: Generated from `#/components/schemas/SupportTicketDetail/comments`.
+            public var comments: [Components.Schemas.SupportTicketComment]
+            /// Creates a new `SupportTicketDetail`.
+            ///
+            /// - Parameters:
+            ///   - ticket:
+            ///   - comments:
+            public init(
+                ticket: Components.Schemas.SupportTicketSummary,
+                comments: [Components.Schemas.SupportTicketComment]
+            ) {
+                self.ticket = ticket
+                self.comments = comments
+            }
+            public enum CodingKeys: String, CodingKey {
+                case ticket
+                case comments
             }
         }
         /// - Remark: Generated from `#/components/schemas/EquipmentAutocompletePage`.
@@ -10179,6 +10681,1803 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List branch-scoped support tickets with optional filters
+    ///
+    /// - Remark: HTTP `GET /api/v1/support/tickets`.
+    /// - Remark: Generated from `#/paths//api/v1/support/tickets/get(listSupportTickets)`.
+    public enum ListSupportTickets {
+        public static let id: Swift.String = "listSupportTickets"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/support/tickets/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/GET/query/status`.
+                public var status: Components.Schemas.SupportTicketStatus?
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/GET/query/priority`.
+                public var priority: Components.Schemas.SupportTicketPriority?
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/GET/query/category`.
+                public var category: Components.Schemas.SupportTicketCategory?
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/GET/query/origin`.
+                public var origin: Components.Schemas.SupportTicketOrigin?
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/GET/query/assignee_user_id`.
+                public var assigneeUserId: Components.Schemas.Uuid?
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/GET/query/include_untriaged`.
+                public var includeUntriaged: Swift.Bool?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - status:
+                ///   - priority:
+                ///   - category:
+                ///   - origin:
+                ///   - assigneeUserId:
+                ///   - includeUntriaged:
+                public init(
+                    status: Components.Schemas.SupportTicketStatus? = nil,
+                    priority: Components.Schemas.SupportTicketPriority? = nil,
+                    category: Components.Schemas.SupportTicketCategory? = nil,
+                    origin: Components.Schemas.SupportTicketOrigin? = nil,
+                    assigneeUserId: Components.Schemas.Uuid? = nil,
+                    includeUntriaged: Swift.Bool? = nil
+                ) {
+                    self.status = status
+                    self.priority = priority
+                    self.category = category
+                    self.origin = origin
+                    self.assigneeUserId = assigneeUserId
+                    self.includeUntriaged = includeUntriaged
+                }
+            }
+            public var query: Operations.ListSupportTickets.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/support/tickets/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListSupportTickets.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListSupportTickets.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListSupportTickets.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListSupportTickets.Input.Query = .init(),
+                headers: Operations.ListSupportTickets.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/support/tickets/GET/responses/200/content/application\/json`.
+                    case json([Components.Schemas.SupportTicketSummary])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.SupportTicketSummary] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListSupportTickets.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListSupportTickets.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Support tickets visible in the principal's branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/get(listSupportTickets)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListSupportTickets.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListSupportTickets.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/get(listSupportTickets)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/get(listSupportTickets)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/support/tickets/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListSupportTickets.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListSupportTickets.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/get(listSupportTickets)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ListSupportTickets.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ListSupportTickets.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Open an internal support ticket as authenticated staff
+    ///
+    /// - Remark: HTTP `POST /api/v1/support/tickets`.
+    /// - Remark: Generated from `#/paths//api/v1/support/tickets/post(createInternalSupportTicket)`.
+    public enum CreateInternalSupportTicket {
+        public static let id: Swift.String = "createInternalSupportTicket"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/support/tickets/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateInternalSupportTicket.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateInternalSupportTicket.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CreateInternalSupportTicket.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/support/tickets/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.CreateInternalTicketRequest)
+            }
+            public var body: Operations.CreateInternalSupportTicket.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.CreateInternalSupportTicket.Input.Headers = .init(),
+                body: Operations.CreateInternalSupportTicket.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/support/tickets/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.SupportTicketSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.SupportTicketSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreateInternalSupportTicket.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreateInternalSupportTicket.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Support ticket created.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/post(createInternalSupportTicket)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.CreateInternalSupportTicket.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.CreateInternalSupportTicket.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/post(createInternalSupportTicket)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/post(createInternalSupportTicket)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/post(createInternalSupportTicket)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/support/tickets/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreateInternalSupportTicket.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreateInternalSupportTicket.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/post(createInternalSupportTicket)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.CreateInternalSupportTicket.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.CreateInternalSupportTicket.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Get a support ticket with its comments (staff view)
+    ///
+    /// - Remark: HTTP `GET /api/v1/support/tickets/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/get(getSupportTicket)`.
+    public enum GetSupportTicket {
+        public static let id: Swift.String = "getSupportTicket"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/GET/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.GetSupportTicket.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetSupportTicket.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetSupportTicket.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetSupportTicket.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.GetSupportTicket.Input.Path,
+                headers: Operations.GetSupportTicket.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.SupportTicketDetail)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.SupportTicketDetail {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetSupportTicket.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetSupportTicket.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Support ticket detail including internal notes.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/get(getSupportTicket)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetSupportTicket.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetSupportTicket.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/get(getSupportTicket)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/get(getSupportTicket)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/get(getSupportTicket)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetSupportTicket.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetSupportTicket.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/get(getSupportTicket)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetSupportTicket.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.GetSupportTicket.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Assign or reassign a support ticket (triages untriaged intake)
+    ///
+    /// - Remark: HTTP `POST /api/v1/support/tickets/{id}/assign`.
+    /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/assign/post(assignSupportTicket)`.
+    public enum AssignSupportTicket {
+        public static let id: Swift.String = "assignSupportTicket"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/assign/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/assign/POST/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.AssignSupportTicket.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/assign/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.AssignSupportTicket.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.AssignSupportTicket.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.AssignSupportTicket.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/assign/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/assign/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.AssignTicketRequest)
+            }
+            public var body: Operations.AssignSupportTicket.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.AssignSupportTicket.Input.Path,
+                headers: Operations.AssignSupportTicket.Input.Headers = .init(),
+                body: Operations.AssignSupportTicket.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/assign/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/assign/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.SupportTicketSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.SupportTicketSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.AssignSupportTicket.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.AssignSupportTicket.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Support ticket assigned.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/assign/post(assignSupportTicket)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.AssignSupportTicket.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.AssignSupportTicket.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/assign/post(assignSupportTicket)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/assign/post(assignSupportTicket)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/assign/post(assignSupportTicket)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/assign/post(assignSupportTicket)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/assign/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/assign/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.AssignSupportTicket.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.AssignSupportTicket.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/assign/post(assignSupportTicket)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.AssignSupportTicket.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.AssignSupportTicket.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Drive the support ticket status FSM
+    ///
+    /// - Remark: HTTP `POST /api/v1/support/tickets/{id}/transition`.
+    /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/transition/post(transitionSupportTicket)`.
+    public enum TransitionSupportTicket {
+        public static let id: Swift.String = "transitionSupportTicket"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/transition/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/transition/POST/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.TransitionSupportTicket.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/transition/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.TransitionSupportTicket.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.TransitionSupportTicket.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.TransitionSupportTicket.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/transition/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/transition/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.TransitionTicketRequest)
+            }
+            public var body: Operations.TransitionSupportTicket.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.TransitionSupportTicket.Input.Path,
+                headers: Operations.TransitionSupportTicket.Input.Headers = .init(),
+                body: Operations.TransitionSupportTicket.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/transition/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/transition/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.SupportTicketSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.SupportTicketSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.TransitionSupportTicket.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.TransitionSupportTicket.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Support ticket status changed.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/transition/post(transitionSupportTicket)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.TransitionSupportTicket.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.TransitionSupportTicket.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/transition/post(transitionSupportTicket)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/transition/post(transitionSupportTicket)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/transition/post(transitionSupportTicket)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/transition/post(transitionSupportTicket)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/transition/post(transitionSupportTicket)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/transition/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/transition/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.TransitionSupportTicket.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.TransitionSupportTicket.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/transition/post(transitionSupportTicket)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.TransitionSupportTicket.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.TransitionSupportTicket.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Append a comment or internal note to a support ticket
+    ///
+    /// - Remark: HTTP `POST /api/v1/support/tickets/{id}/comments`.
+    /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/comments/post(addSupportTicketComment)`.
+    public enum AddSupportTicketComment {
+        public static let id: Swift.String = "addSupportTicketComment"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/comments/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/comments/POST/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.AddSupportTicketComment.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/comments/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.AddSupportTicketComment.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.AddSupportTicketComment.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.AddSupportTicketComment.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/comments/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/comments/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.AddCommentRequest)
+            }
+            public var body: Operations.AddSupportTicketComment.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.AddSupportTicketComment.Input.Path,
+                headers: Operations.AddSupportTicketComment.Input.Headers = .init(),
+                body: Operations.AddSupportTicketComment.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/comments/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/comments/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.SupportTicketComment)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.SupportTicketComment {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.AddSupportTicketComment.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.AddSupportTicketComment.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Comment added.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/comments/post(addSupportTicketComment)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.AddSupportTicketComment.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.AddSupportTicketComment.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/comments/post(addSupportTicketComment)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/comments/post(addSupportTicketComment)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/comments/post(addSupportTicketComment)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/comments/post(addSupportTicketComment)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/comments/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/support/tickets/{id}/comments/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.AddSupportTicketComment.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.AddSupportTicketComment.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/tickets/{id}/comments/post(addSupportTicketComment)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.AddSupportTicketComment.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.AddSupportTicketComment.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Submit a support request from the unauthenticated customer channel
+    ///
+    /// Unauthenticated, rate-limited customer intake. Generic validation errors are returned; the customer contact is treated as PII and never echoed or logged.
+    ///
+    ///
+    /// - Remark: HTTP `POST /api/v1/support/intake`.
+    /// - Remark: Generated from `#/paths//api/v1/support/intake/post(submitSupportIntake)`.
+    public enum SubmitSupportIntake {
+        public static let id: Swift.String = "submitSupportIntake"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/support/intake/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SubmitSupportIntake.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SubmitSupportIntake.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.SubmitSupportIntake.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/support/intake/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/intake/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.CustomerIntakeRequest)
+            }
+            public var body: Operations.SubmitSupportIntake.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.SubmitSupportIntake.Input.Headers = .init(),
+                body: Operations.SubmitSupportIntake.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Accepted: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/support/intake/POST/responses/202/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/support/intake/POST/responses/202/content/application\/json`.
+                    case json(Components.Schemas.SupportIntakeAck)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.SupportIntakeAck {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.SubmitSupportIntake.Output.Accepted.Body
+                /// Creates a new `Accepted`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.SubmitSupportIntake.Output.Accepted.Body) {
+                    self.body = body
+                }
+            }
+            /// Support request received.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/intake/post(submitSupportIntake)/responses/202`.
+            ///
+            /// HTTP response code: `202 accepted`.
+            case accepted(Operations.SubmitSupportIntake.Output.Accepted)
+            /// The associated value of the enum case if `self` is `.accepted`.
+            ///
+            /// - Throws: An error if `self` is not `.accepted`.
+            /// - SeeAlso: `.accepted`.
+            public var accepted: Operations.SubmitSupportIntake.Output.Accepted {
+                get throws {
+                    switch self {
+                    case let .accepted(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "accepted",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/intake/post(submitSupportIntake)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/intake/post(submitSupportIntake)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Rate limit exceeded for this client; retry later.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/support/intake/post(submitSupportIntake)/responses/429`.
+            ///
+            /// HTTP response code: `429 tooManyRequests`.
+            case tooManyRequests(Components.Responses.TooManyRequests)
+            /// The associated value of the enum case if `self` is `.tooManyRequests`.
+            ///
+            /// - Throws: An error if `self` is not `.tooManyRequests`.
+            /// - SeeAlso: `.tooManyRequests`.
+            public var tooManyRequests: Components.Responses.TooManyRequests {
+                get throws {
+                    switch self {
+                    case let .tooManyRequests(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "tooManyRequests",
                             response: self
                         )
                     }

@@ -27,9 +27,11 @@ import java.io.IOException
 import okhttp3.Call
 import okhttp3.HttpUrl
 
+import com.maintenance.api.client.model.AddCommentRequest
 import com.maintenance.api.client.model.AdminIssueOtpRequest
 import com.maintenance.api.client.model.AdminIssueOtpResponse
 import com.maintenance.api.client.model.AppendManualCostLedgerRequest
+import com.maintenance.api.client.model.AssignTicketRequest
 import com.maintenance.api.client.model.AssignWorkOrderRequest
 import com.maintenance.api.client.model.CompleteInspectionRoundRequest
 import com.maintenance.api.client.model.ComputeRentalQuoteRequest
@@ -37,11 +39,13 @@ import com.maintenance.api.client.model.ComputedRentalQuote
 import com.maintenance.api.client.model.CostLedgerEntrySummary
 import com.maintenance.api.client.model.CreateDailyPlanRequest
 import com.maintenance.api.client.model.CreateInspectionScheduleRequest
+import com.maintenance.api.client.model.CreateInternalTicketRequest
 import com.maintenance.api.client.model.CreateMessengerThreadRequest
 import com.maintenance.api.client.model.CreateOutsourceWorkRequest
 import com.maintenance.api.client.model.CreatePurchaseRequest
 import com.maintenance.api.client.model.CreateRentalQuoteRequest
 import com.maintenance.api.client.model.CreateWorkOrderRequest
+import com.maintenance.api.client.model.CustomerIntakeRequest
 import com.maintenance.api.client.model.DailyPlanSummary
 import com.maintenance.api.client.model.DeviceRegistrationRequest
 import com.maintenance.api.client.model.DeviceRegistrationResponse
@@ -91,11 +95,20 @@ import com.maintenance.api.client.model.SendMessengerMessageRequest
 import com.maintenance.api.client.model.StartP1DispatchRequest
 import com.maintenance.api.client.model.SubmitReportRequest
 import com.maintenance.api.client.model.SubstituteCandidatePage
+import com.maintenance.api.client.model.SupportIntakeAck
+import com.maintenance.api.client.model.SupportTicketCategory
+import com.maintenance.api.client.model.SupportTicketComment
+import com.maintenance.api.client.model.SupportTicketDetail
+import com.maintenance.api.client.model.SupportTicketOrigin
+import com.maintenance.api.client.model.SupportTicketPriority
+import com.maintenance.api.client.model.SupportTicketStatus
+import com.maintenance.api.client.model.SupportTicketSummary
 import com.maintenance.api.client.model.SyncBatchRequest
 import com.maintenance.api.client.model.SyncBatchResponse
 import com.maintenance.api.client.model.TargetChangeRequest
 import com.maintenance.api.client.model.TargetChangeRequestSummary
 import com.maintenance.api.client.model.TokenPairResponse
+import com.maintenance.api.client.model.TransitionTicketRequest
 import com.maintenance.api.client.model.UpdateWorkOrderPriorityRequest
 import com.maintenance.api.client.model.WorkDiaryDraft
 import com.maintenance.api.client.model.WorkDiaryUpdateRequest
@@ -130,6 +143,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         val defaultBasePath: String by lazy {
             System.getProperties().getProperty(ApiClient.BASE_URL_KEY, "http://localhost")
         }
+    }
+
+    /**
+     * POST /api/v1/support/tickets/{id}/comments
+     * Append a comment or internal note to a support ticket
+     *
+     * @param id
+     * @param addCommentRequest
+     * @return SupportTicketComment
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun addSupportTicketComment(id: java.util.UUID, addCommentRequest: AddCommentRequest) : SupportTicketComment = withContext(Dispatchers.IO) {
+        val localVarResponse = addSupportTicketCommentWithHttpInfo(id = id, addCommentRequest = addCommentRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SupportTicketComment
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/support/tickets/{id}/comments
+     * Append a comment or internal note to a support ticket
+     *
+     * @param id
+     * @param addCommentRequest
+     * @return ApiResponse<SupportTicketComment?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun addSupportTicketCommentWithHttpInfo(id: java.util.UUID, addCommentRequest: AddCommentRequest) : ApiResponse<SupportTicketComment?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = addSupportTicketCommentRequestConfig(id = id, addCommentRequest = addCommentRequest)
+
+        return@withContext request<AddCommentRequest, SupportTicketComment>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation addSupportTicketComment
+     *
+     * @param id
+     * @param addCommentRequest
+     * @return RequestConfig
+     */
+    fun addSupportTicketCommentRequestConfig(id: java.util.UUID, addCommentRequest: AddCommentRequest) : RequestConfig<AddCommentRequest> {
+        val localVariableBody = addCommentRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/support/tickets/{id}/comments".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
     }
 
     /**
@@ -1015,6 +1105,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/support/tickets/{id}/assign
+     * Assign or reassign a support ticket (triages untriaged intake)
+     *
+     * @param id
+     * @param assignTicketRequest
+     * @return SupportTicketSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun assignSupportTicket(id: java.util.UUID, assignTicketRequest: AssignTicketRequest) : SupportTicketSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = assignSupportTicketWithHttpInfo(id = id, assignTicketRequest = assignTicketRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SupportTicketSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/support/tickets/{id}/assign
+     * Assign or reassign a support ticket (triages untriaged intake)
+     *
+     * @param id
+     * @param assignTicketRequest
+     * @return ApiResponse<SupportTicketSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun assignSupportTicketWithHttpInfo(id: java.util.UUID, assignTicketRequest: AssignTicketRequest) : ApiResponse<SupportTicketSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = assignSupportTicketRequestConfig(id = id, assignTicketRequest = assignTicketRequest)
+
+        return@withContext request<AssignTicketRequest, SupportTicketSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation assignSupportTicket
+     *
+     * @param id
+     * @param assignTicketRequest
+     * @return RequestConfig
+     */
+    fun assignSupportTicketRequestConfig(id: java.util.UUID, assignTicketRequest: AssignTicketRequest) : RequestConfig<AssignTicketRequest> {
+        val localVariableBody = assignTicketRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/support/tickets/{id}/assign".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * PUT /api/work-orders/{workOrderId}/assignments
      * Assign mechanics and approval-line approvers
      *
@@ -1763,6 +1930,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/inspections/schedules",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/support/tickets
+     * Open an internal support ticket as authenticated staff
+     *
+     * @param createInternalTicketRequest
+     * @return SupportTicketSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createInternalSupportTicket(createInternalTicketRequest: CreateInternalTicketRequest) : SupportTicketSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = createInternalSupportTicketWithHttpInfo(createInternalTicketRequest = createInternalTicketRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SupportTicketSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/support/tickets
+     * Open an internal support ticket as authenticated staff
+     *
+     * @param createInternalTicketRequest
+     * @return ApiResponse<SupportTicketSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createInternalSupportTicketWithHttpInfo(createInternalTicketRequest: CreateInternalTicketRequest) : ApiResponse<SupportTicketSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createInternalSupportTicketRequestConfig(createInternalTicketRequest = createInternalTicketRequest)
+
+        return@withContext request<CreateInternalTicketRequest, SupportTicketSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createInternalSupportTicket
+     *
+     * @param createInternalTicketRequest
+     * @return RequestConfig
+     */
+    fun createInternalSupportTicketRequestConfig(createInternalTicketRequest: CreateInternalTicketRequest) : RequestConfig<CreateInternalTicketRequest> {
+        val localVariableBody = createInternalTicketRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/support/tickets",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -2845,6 +3086,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/support/tickets/{id}
+     * Get a support ticket with its comments (staff view)
+     *
+     * @param id
+     * @return SupportTicketDetail
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getSupportTicket(id: java.util.UUID) : SupportTicketDetail = withContext(Dispatchers.IO) {
+        val localVarResponse = getSupportTicketWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SupportTicketDetail
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/support/tickets/{id}
+     * Get a support ticket with its comments (staff view)
+     *
+     * @param id
+     * @return ApiResponse<SupportTicketDetail?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getSupportTicketWithHttpInfo(id: java.util.UUID) : ApiResponse<SupportTicketDetail?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getSupportTicketRequestConfig(id = id)
+
+        return@withContext request<Unit, SupportTicketDetail>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getSupportTicket
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun getSupportTicketRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/support/tickets/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/reporting/work-diary
      * Get or generate the editable work-diary draft for a date
      *
@@ -3771,6 +4085,114 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/messenger/threads",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/support/tickets
+     * List branch-scoped support tickets with optional filters
+     *
+     * @param status  (optional)
+     * @param priority  (optional)
+     * @param category  (optional)
+     * @param origin  (optional)
+     * @param assigneeUserId  (optional)
+     * @param includeUntriaged  (optional)
+     * @return kotlin.collections.List<SupportTicketSummary>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listSupportTickets(status: SupportTicketStatus? = null, priority: SupportTicketPriority? = null, category: SupportTicketCategory? = null, origin: SupportTicketOrigin? = null, assigneeUserId: java.util.UUID? = null, includeUntriaged: kotlin.Boolean? = null) : kotlin.collections.List<SupportTicketSummary> = withContext(Dispatchers.IO) {
+        val localVarResponse = listSupportTicketsWithHttpInfo(status = status, priority = priority, category = category, origin = origin, assigneeUserId = assigneeUserId, includeUntriaged = includeUntriaged)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<SupportTicketSummary>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/support/tickets
+     * List branch-scoped support tickets with optional filters
+     *
+     * @param status  (optional)
+     * @param priority  (optional)
+     * @param category  (optional)
+     * @param origin  (optional)
+     * @param assigneeUserId  (optional)
+     * @param includeUntriaged  (optional)
+     * @return ApiResponse<kotlin.collections.List<SupportTicketSummary>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listSupportTicketsWithHttpInfo(status: SupportTicketStatus?, priority: SupportTicketPriority?, category: SupportTicketCategory?, origin: SupportTicketOrigin?, assigneeUserId: java.util.UUID?, includeUntriaged: kotlin.Boolean?) : ApiResponse<kotlin.collections.List<SupportTicketSummary>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listSupportTicketsRequestConfig(status = status, priority = priority, category = category, origin = origin, assigneeUserId = assigneeUserId, includeUntriaged = includeUntriaged)
+
+        return@withContext request<Unit, kotlin.collections.List<SupportTicketSummary>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listSupportTickets
+     *
+     * @param status  (optional)
+     * @param priority  (optional)
+     * @param category  (optional)
+     * @param origin  (optional)
+     * @param assigneeUserId  (optional)
+     * @param includeUntriaged  (optional)
+     * @return RequestConfig
+     */
+    fun listSupportTicketsRequestConfig(status: SupportTicketStatus?, priority: SupportTicketPriority?, category: SupportTicketCategory?, origin: SupportTicketOrigin?, assigneeUserId: java.util.UUID?, includeUntriaged: kotlin.Boolean?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (status != null) {
+                    put("status", listOf(status.toString()))
+                }
+                if (priority != null) {
+                    put("priority", listOf(priority.toString()))
+                }
+                if (category != null) {
+                    put("category", listOf(category.toString()))
+                }
+                if (origin != null) {
+                    put("origin", listOf(origin.toString()))
+                }
+                if (assigneeUserId != null) {
+                    put("assignee_user_id", listOf(assigneeUserId.toString()))
+                }
+                if (includeUntriaged != null) {
+                    put("include_untriaged", listOf(includeUntriaged.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/support/tickets",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -5572,6 +5994,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/support/intake
+     * Submit a support request from the unauthenticated customer channel
+     * Unauthenticated, rate-limited customer intake. Generic validation errors are returned; the customer contact is treated as PII and never echoed or logged.
+     * @param customerIntakeRequest
+     * @return SupportIntakeAck
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun submitSupportIntake(customerIntakeRequest: CustomerIntakeRequest) : SupportIntakeAck = withContext(Dispatchers.IO) {
+        val localVarResponse = submitSupportIntakeWithHttpInfo(customerIntakeRequest = customerIntakeRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SupportIntakeAck
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/support/intake
+     * Submit a support request from the unauthenticated customer channel
+     * Unauthenticated, rate-limited customer intake. Generic validation errors are returned; the customer contact is treated as PII and never echoed or logged.
+     * @param customerIntakeRequest
+     * @return ApiResponse<SupportIntakeAck?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun submitSupportIntakeWithHttpInfo(customerIntakeRequest: CustomerIntakeRequest) : ApiResponse<SupportIntakeAck?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = submitSupportIntakeRequestConfig(customerIntakeRequest = customerIntakeRequest)
+
+        return@withContext request<CustomerIntakeRequest, SupportIntakeAck>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation submitSupportIntake
+     *
+     * @param customerIntakeRequest
+     * @return RequestConfig
+     */
+    fun submitSupportIntakeRequestConfig(customerIntakeRequest: CustomerIntakeRequest) : RequestConfig<CustomerIntakeRequest> {
+        val localVariableBody = customerIntakeRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/support/intake",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/work-orders/{workOrderId}/report
      * Submit a mechanic work report
      *
@@ -5715,6 +6211,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/location-consent/suspend",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/support/tickets/{id}/transition
+     * Drive the support ticket status FSM
+     *
+     * @param id
+     * @param transitionTicketRequest
+     * @return SupportTicketSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun transitionSupportTicket(id: java.util.UUID, transitionTicketRequest: TransitionTicketRequest) : SupportTicketSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = transitionSupportTicketWithHttpInfo(id = id, transitionTicketRequest = transitionTicketRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SupportTicketSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/support/tickets/{id}/transition
+     * Drive the support ticket status FSM
+     *
+     * @param id
+     * @param transitionTicketRequest
+     * @return ApiResponse<SupportTicketSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun transitionSupportTicketWithHttpInfo(id: java.util.UUID, transitionTicketRequest: TransitionTicketRequest) : ApiResponse<SupportTicketSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = transitionSupportTicketRequestConfig(id = id, transitionTicketRequest = transitionTicketRequest)
+
+        return@withContext request<TransitionTicketRequest, SupportTicketSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation transitionSupportTicket
+     *
+     * @param id
+     * @param transitionTicketRequest
+     * @return RequestConfig
+     */
+    fun transitionSupportTicketRequestConfig(id: java.util.UUID, transitionTicketRequest: TransitionTicketRequest) : RequestConfig<TransitionTicketRequest> {
+        val localVariableBody = transitionTicketRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/support/tickets/{id}/transition".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

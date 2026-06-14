@@ -14,6 +14,7 @@ members = [
   "crates/inspection/*",
   "crates/registry/*",
   "crates/reporting/*",
+  "crates/support/*",
   "crates/workorder/*",
   "crates/messenger/*",
   "crates/platform/*",
@@ -93,6 +94,10 @@ mnt-inspection-domain = { path = "crates/inspection/domain" }
 mnt-inspection-application = { path = "crates/inspection/application" }
 mnt-inspection-adapter-postgres = { path = "crates/inspection/adapter-postgres" }
 mnt-inspection-rest = { path = "crates/inspection/rest" }
+mnt-support-domain = { path = "crates/support/domain" }
+mnt-support-application = { path = "crates/support/application" }
+mnt-support-adapter-postgres = { path = "crates/support/adapter-postgres" }
+mnt-support-rest = { path = "crates/support/rest" }
 mnt-registry-domain = { path = "crates/registry/domain" }
 mnt-registry-application = { path = "crates/registry/application" }
 mnt-reporting-domain = { path = "crates/reporting/domain" }
