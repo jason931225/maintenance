@@ -96,6 +96,14 @@ pub struct ListTicketsQuery {
     /// honoured for `BranchScope::All` principals; branch-scoped staff never see
     /// untriaged cross-org intake.
     pub include_untriaged: bool,
+    /// Page size. `None` falls back to the adapter default; the adapter always
+    /// clamps to `1..=100` so an unbounded fetch is impossible even when the
+    /// client sends no limit.
+    pub limit: Option<i64>,
+    /// Keyset cursor: return only tickets ordered strictly after this id on the
+    /// `(created_at DESC, id)` ordering. `None` starts from the first page.
+    /// Mirrors the messenger keyset-pagination pattern.
+    pub cursor: Option<SupportTicketId>,
 }
 
 // ---------------------------------------------------------------------------

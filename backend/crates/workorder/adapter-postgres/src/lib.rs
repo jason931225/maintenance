@@ -1558,22 +1558,23 @@ async fn ensure_actor_assignment(
     actor: UserId,
     requirement: AssignmentRequirement,
 ) -> Result<(), PgWorkOrderError> {
-    let total: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM work_order_assignments WHERE work_order_id = $1")
-            .bind(*work_order_id.as_uuid())
-            .fetch_one(tx.as_mut())
-            .await?;
-    let assigned: i64 = sqlx::query_scalar(
+    // One pass over the work order's assignments: total rows and the subset
+    // assigned to the actor, via a filtered aggregate.
+    let row = sqlx::query(
         r#"
-        SELECT COUNT(*)
+        SELECT
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE mechanic_id = $2) AS assigned
         FROM work_order_assignments
-        WHERE work_order_id = $1 AND mechanic_id = $2
+        WHERE work_order_id = $1
         "#,
     )
     .bind(*work_order_id.as_uuid())
     .bind(*actor.as_uuid())
     .fetch_one(tx.as_mut())
     .await?;
+    let total: i64 = row.try_get("total")?;
+    let assigned: i64 = row.try_get("assigned")?;
 
     // `work_order_assignments` has UNIQUE (work_order_id, mechanic_id), so
     // `assigned` is always 0 or 1; `>= 1` is used (rather than `== 1`) as a

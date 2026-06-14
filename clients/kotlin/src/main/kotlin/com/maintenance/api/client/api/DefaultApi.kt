@@ -4102,6 +4102,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * @param origin  (optional)
      * @param assigneeUserId  (optional)
      * @param includeUntriaged  (optional)
+     * @param limit  (optional, default to 50L)
+     * @param cursor  (optional)
      * @return kotlin.collections.List<SupportTicketSummary>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -4111,8 +4113,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listSupportTickets(status: SupportTicketStatus? = null, priority: SupportTicketPriority? = null, category: SupportTicketCategory? = null, origin: SupportTicketOrigin? = null, assigneeUserId: java.util.UUID? = null, includeUntriaged: kotlin.Boolean? = null) : kotlin.collections.List<SupportTicketSummary> = withContext(Dispatchers.IO) {
-        val localVarResponse = listSupportTicketsWithHttpInfo(status = status, priority = priority, category = category, origin = origin, assigneeUserId = assigneeUserId, includeUntriaged = includeUntriaged)
+    suspend fun listSupportTickets(status: SupportTicketStatus? = null, priority: SupportTicketPriority? = null, category: SupportTicketCategory? = null, origin: SupportTicketOrigin? = null, assigneeUserId: java.util.UUID? = null, includeUntriaged: kotlin.Boolean? = null, limit: kotlin.Long? = 50L, cursor: java.util.UUID? = null) : kotlin.collections.List<SupportTicketSummary> = withContext(Dispatchers.IO) {
+        val localVarResponse = listSupportTicketsWithHttpInfo(status = status, priority = priority, category = category, origin = origin, assigneeUserId = assigneeUserId, includeUntriaged = includeUntriaged, limit = limit, cursor = cursor)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<SupportTicketSummary>
@@ -4139,14 +4141,16 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * @param origin  (optional)
      * @param assigneeUserId  (optional)
      * @param includeUntriaged  (optional)
+     * @param limit  (optional, default to 50L)
+     * @param cursor  (optional)
      * @return ApiResponse<kotlin.collections.List<SupportTicketSummary>?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listSupportTicketsWithHttpInfo(status: SupportTicketStatus?, priority: SupportTicketPriority?, category: SupportTicketCategory?, origin: SupportTicketOrigin?, assigneeUserId: java.util.UUID?, includeUntriaged: kotlin.Boolean?) : ApiResponse<kotlin.collections.List<SupportTicketSummary>?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listSupportTicketsRequestConfig(status = status, priority = priority, category = category, origin = origin, assigneeUserId = assigneeUserId, includeUntriaged = includeUntriaged)
+    suspend fun listSupportTicketsWithHttpInfo(status: SupportTicketStatus?, priority: SupportTicketPriority?, category: SupportTicketCategory?, origin: SupportTicketOrigin?, assigneeUserId: java.util.UUID?, includeUntriaged: kotlin.Boolean?, limit: kotlin.Long?, cursor: java.util.UUID?) : ApiResponse<kotlin.collections.List<SupportTicketSummary>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listSupportTicketsRequestConfig(status = status, priority = priority, category = category, origin = origin, assigneeUserId = assigneeUserId, includeUntriaged = includeUntriaged, limit = limit, cursor = cursor)
 
         return@withContext request<Unit, kotlin.collections.List<SupportTicketSummary>>(
             localVariableConfig
@@ -4162,9 +4166,11 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * @param origin  (optional)
      * @param assigneeUserId  (optional)
      * @param includeUntriaged  (optional)
+     * @param limit  (optional, default to 50L)
+     * @param cursor  (optional)
      * @return RequestConfig
      */
-    fun listSupportTicketsRequestConfig(status: SupportTicketStatus?, priority: SupportTicketPriority?, category: SupportTicketCategory?, origin: SupportTicketOrigin?, assigneeUserId: java.util.UUID?, includeUntriaged: kotlin.Boolean?) : RequestConfig<Unit> {
+    fun listSupportTicketsRequestConfig(status: SupportTicketStatus?, priority: SupportTicketPriority?, category: SupportTicketCategory?, origin: SupportTicketOrigin?, assigneeUserId: java.util.UUID?, includeUntriaged: kotlin.Boolean?, limit: kotlin.Long?, cursor: java.util.UUID?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
@@ -4185,6 +4191,12 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
                 }
                 if (includeUntriaged != null) {
                     put("include_untriaged", listOf(includeUntriaged.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (cursor != null) {
+                    put("cursor", listOf(cursor.toString()))
                 }
             }
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()

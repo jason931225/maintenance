@@ -1,4 +1,26 @@
 //! PII-in-logs gate.
+//!
+//! # Scope and limitations (literal-only)
+//!
+//! This gate is a **static, literal-pattern** scanner. It parses each Rust source
+//! file, isolates the bodies of logging macros (`tracing::{trace,debug,info,warn,
+//! error,event}` / `log::*`), and flags bodies that contain a literal PII pattern:
+//! a Korean mobile number (`010-XXXX-XXXX`), a resident-registration number
+//! (`NNNNNN-NNNNNNN`), or a GPS coordinate pair. It is a cheap, deterministic
+//! tripwire against the obvious mistake of pasting raw PII into a log line.
+//!
+//! It deliberately does **not** perform data-flow analysis, so it CANNOT catch
+//! PII that reaches a log through a binding or interpolation, e.g.
+//! `tracing::info!(phone = %customer.phone, "...")` or
+//! `let p = customer.phone; warn!("contact {p}")`. Those carry no literal pattern
+//! and pass the gate. Treat a green gate as "no obvious literal leak", not "no PII
+//! in logs".
+//!
+//! The complementary runtime defense is to wrap sensitive fields in a redacting
+//! newtype so their `Display`/`Debug` never renders the raw value (see
+//! `mnt_kernel_core::RedactedPhone`). The newtype closes the interpolation gap
+//! this gate cannot see; the gate closes the raw-literal gap. They are layered,
+//! not redundant.
 
 use std::fs;
 use std::path::{Path, PathBuf};

@@ -86,7 +86,9 @@ impl PgSupportStore {
         command: CreateInternalTicketCommand,
     ) -> Result<TicketSummary, PgSupportError> {
         let title = require_non_empty(&command.title, "support ticket title is required")?;
+        require_max_chars(&title, MAX_TITLE_CHARS, "support ticket title is too long")?;
         let body = require_non_empty(&command.body, "support ticket body is required")?;
+        require_max_chars(&body, MAX_BODY_CHARS, "support ticket body is too long")?;
         let ticket_id = SupportTicketId::new();
         let due_at = self.sla.due_at(command.priority, command.occurred_at)?;
         let event = support_audit_event(
@@ -147,11 +149,23 @@ impl PgSupportStore {
         command: CreateCustomerIntakeCommand,
     ) -> Result<TicketSummary, PgSupportError> {
         let title = require_non_empty(&command.title, "support ticket title is required")?;
+        require_max_chars(&title, MAX_TITLE_CHARS, "support ticket title is too long")?;
         let body = require_non_empty(&command.body, "support ticket body is required")?;
+        require_max_chars(&body, MAX_BODY_CHARS, "support ticket body is too long")?;
         let requester_name =
             require_non_empty(&command.requester_name, "requester name is required")?;
+        require_max_chars(
+            &requester_name,
+            MAX_REQUESTER_NAME_CHARS,
+            "requester name is too long",
+        )?;
         let requester_contact =
             require_non_empty(&command.requester_contact, "requester contact is required")?;
+        require_max_chars(
+            &requester_contact,
+            MAX_REQUESTER_CONTACT_CHARS,
+            "requester contact is too long",
+        )?;
         let ticket_id = SupportTicketId::new();
         let due_at = self.sla.due_at(command.priority, command.occurred_at)?;
         // No actor, no branch: the audit snapshot deliberately omits the PII
@@ -417,6 +431,15 @@ impl PgSupportStore {
         &self,
         query: ListTicketsQuery,
     ) -> Result<Vec<TicketSummary>, PgSupportError> {
+        // Always clamp to a hard server-side cap so an unbounded fetch is
+        // impossible, even when the client sends no limit.
+        let limit = normalized_limit(query.limit);
+        // Resolve the keyset cursor up front; an unknown cursor is a not-found.
+        let cursor = match query.cursor {
+            Some(cursor_id) => Some(ticket_cursor(&self.pool, cursor_id).await?),
+            None => None,
+        };
+
         let mut builder = QueryBuilder::<Postgres>::new(
             r#"
             SELECT
@@ -452,7 +475,16 @@ impl PgSupportStore {
             builder.push(" AND assignee_user_id = ");
             builder.push_bind(*assignee.as_uuid());
         }
-        builder.push(" ORDER BY created_at DESC, id");
+        // Keyset: strictly after the cursor on the (created_at DESC, id) order.
+        if let Some((created_at, id)) = cursor {
+            builder.push(" AND (created_at, id) < (");
+            builder.push_bind(created_at);
+            builder.push(", ");
+            builder.push_bind(id);
+            builder.push(")");
+        }
+        builder.push(" ORDER BY created_at DESC, id DESC LIMIT ");
+        builder.push_bind(limit);
 
         let rows = builder.build().fetch_all(&self.pool).await?;
         rows.iter().map(summary_from_row).collect()
@@ -730,9 +762,32 @@ async fn fetch_comment_tx(
     comment_from_row(&row)
 }
 
+/// Resolve the `(created_at, id)` keyset coordinates for a cursor ticket so
+/// `list_tickets` can page strictly after it. Mirrors messenger's
+/// `message_cursor`. An unknown cursor is a not-found.
+async fn ticket_cursor(
+    pool: &PgPool,
+    ticket_id: SupportTicketId,
+) -> Result<(OffsetDateTime, uuid::Uuid), PgSupportError> {
+    let row = sqlx::query("SELECT created_at, id FROM support_tickets WHERE id = $1")
+        .bind(*ticket_id.as_uuid())
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| KernelError::not_found("support ticket cursor was not found"))?;
+    Ok((row.try_get("created_at")?, row.try_get("id")?))
+}
+
 // ---------------------------------------------------------------------------
 // Pure helpers
 // ---------------------------------------------------------------------------
+
+/// Max-length bounds (in characters) for unauthenticated-intake and internal
+/// ticket free-text fields, enforced server-side so the public intake channel
+/// cannot store unbounded blobs.
+const MAX_TITLE_CHARS: usize = 200;
+const MAX_BODY_CHARS: usize = 8000;
+const MAX_REQUESTER_NAME_CHARS: usize = 200;
+const MAX_REQUESTER_CONTACT_CHARS: usize = 200;
 
 fn require_non_empty(value: &str, message: &'static str) -> Result<String, PgSupportError> {
     let trimmed = value.trim();
@@ -741,6 +796,27 @@ fn require_non_empty(value: &str, message: &'static str) -> Result<String, PgSup
     } else {
         Ok(trimmed.to_owned())
     }
+}
+
+/// Reject a field that exceeds `max` characters (Unicode scalar values, not
+/// bytes). Used after [`require_non_empty`] so empty/whitespace is caught first.
+fn require_max_chars(value: &str, max: usize, message: &'static str) -> Result<(), PgSupportError> {
+    if value.chars().count() > max {
+        Err(KernelError::validation(message).into())
+    } else {
+        Ok(())
+    }
+}
+
+/// Default page size for [`PgSupportStore::list_tickets`] when the caller sends
+/// no limit. The clamp in [`normalized_limit`] guarantees a hard server-side cap
+/// regardless of the requested value.
+const DEFAULT_LIST_LIMIT: i64 = 50;
+
+/// Clamp a requested page size to `1..=100`, mirroring the messenger adapter, so
+/// `list_tickets` can never issue an unbounded fetch.
+fn normalized_limit(limit: Option<i64>) -> i64 {
+    limit.unwrap_or(DEFAULT_LIST_LIMIT).clamp(1, 100)
 }
 
 /// Set `resolved_at` the first time a ticket enters RESOLVED; otherwise preserve
@@ -908,4 +984,44 @@ fn comment_from_row(row: &sqlx::postgres::PgRow) -> Result<CommentView, PgSuppor
         is_internal_note: row.try_get("is_internal_note")?,
         created_at: row.try_get("created_at")?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ErrorKind, MAX_BODY_CHARS, MAX_TITLE_CHARS, normalized_limit, require_max_chars};
+
+    #[test]
+    fn require_max_chars_accepts_at_the_boundary() {
+        let at_limit = "x".repeat(MAX_TITLE_CHARS);
+        assert!(require_max_chars(&at_limit, MAX_TITLE_CHARS, "too long").is_ok());
+    }
+
+    #[test]
+    fn require_max_chars_rejects_over_the_boundary_with_validation() {
+        let too_long = "x".repeat(MAX_TITLE_CHARS + 1);
+        let err = require_max_chars(&too_long, MAX_TITLE_CHARS, "too long")
+            .expect_err("over-limit value must be rejected");
+        assert_eq!(err.kind(), ErrorKind::Validation);
+    }
+
+    #[test]
+    fn require_max_chars_counts_unicode_scalars_not_bytes() {
+        // Each Korean syllable is 3 bytes but 1 char; a string of MAX chars must
+        // pass even though its byte length far exceeds the char limit.
+        let korean = "가".repeat(MAX_BODY_CHARS);
+        assert!(korean.len() > MAX_BODY_CHARS);
+        assert!(require_max_chars(&korean, MAX_BODY_CHARS, "too long").is_ok());
+        let over = "가".repeat(MAX_BODY_CHARS + 1);
+        assert!(require_max_chars(&over, MAX_BODY_CHARS, "too long").is_err());
+    }
+
+    #[test]
+    fn normalized_limit_clamps_and_defaults() {
+        assert_eq!(normalized_limit(None), 50);
+        assert_eq!(normalized_limit(Some(0)), 1);
+        assert_eq!(normalized_limit(Some(-10)), 1);
+        assert_eq!(normalized_limit(Some(50)), 50);
+        assert_eq!(normalized_limit(Some(100)), 100);
+        assert_eq!(normalized_limit(Some(1_000)), 100);
+    }
 }

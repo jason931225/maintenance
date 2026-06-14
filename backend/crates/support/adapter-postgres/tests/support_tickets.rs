@@ -443,6 +443,8 @@ async fn list_tickets_respects_branch_scope_and_filters(pool: PgPool) {
             origin: None,
             assignee_user_id: None,
             include_untriaged: false,
+            limit: None,
+            cursor: None,
         })
         .await
         .unwrap();
@@ -459,6 +461,8 @@ async fn list_tickets_respects_branch_scope_and_filters(pool: PgPool) {
             origin: None,
             assignee_user_id: None,
             include_untriaged: false,
+            limit: None,
+            cursor: None,
         })
         .await
         .unwrap();
@@ -475,6 +479,8 @@ async fn list_tickets_respects_branch_scope_and_filters(pool: PgPool) {
             origin: None,
             assignee_user_id: None,
             include_untriaged: false,
+            limit: None,
+            cursor: None,
         })
         .await
         .unwrap();
@@ -514,6 +520,8 @@ async fn untriaged_intake_is_only_visible_cross_branch(pool: PgPool) {
             origin: None,
             assignee_user_id: None,
             include_untriaged: true,
+            limit: None,
+            cursor: None,
         })
         .await
         .unwrap();
@@ -529,6 +537,8 @@ async fn untriaged_intake_is_only_visible_cross_branch(pool: PgPool) {
             origin: Some(TicketOrigin::Customer),
             assignee_user_id: None,
             include_untriaged: true,
+            limit: None,
+            cursor: None,
         })
         .await
         .unwrap();
@@ -609,6 +619,99 @@ async fn get_ticket_is_not_found_outside_branch_scope(pool: PgPool) {
         .await
         .unwrap_err();
     assert_eq!(err.kind(), ErrorKind::NotFound);
+}
+
+// ---------------------------------------------------------------------------
+// list_tickets: hard server-side cap + keyset cursor pagination
+// ---------------------------------------------------------------------------
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn list_tickets_caps_and_pages_by_keyset_cursor(pool: PgPool) {
+    let branch = seed_branch(&pool).await;
+    let staff = seed_user(&pool, "Staff", branch).await;
+    let store = PgSupportStore::new(pool.clone());
+    let base = datetime!(2026-06-13 09:00 UTC);
+
+    // Five tickets with strictly increasing created_at so the (created_at DESC,
+    // id DESC) order is deterministic.
+    for i in 0..5 {
+        store
+            .create_internal_ticket(CreateInternalTicketCommand {
+                actor: staff,
+                branch_id: branch,
+                category: TicketCategory::SystemBug,
+                priority: TicketPriority::High,
+                title: format!("ticket {i}"),
+                body: "x".to_owned(),
+                trace: TraceContext::generate(),
+                occurred_at: base + time::Duration::minutes(i),
+            })
+            .await
+            .unwrap();
+    }
+
+    let query = |limit: Option<i64>, cursor: Option<SupportTicketId>| ListTicketsQuery {
+        branch_scope: BranchScope::single(branch),
+        status: None,
+        priority: None,
+        category: None,
+        origin: None,
+        assignee_user_id: None,
+        include_untriaged: false,
+        limit,
+        cursor,
+    };
+
+    // First page of 2: the two newest tickets.
+    let page1 = store.list_tickets(query(Some(2), None)).await.unwrap();
+    assert_eq!(page1.len(), 2);
+    // Newest first.
+    assert!(page1[0].created_at >= page1[1].created_at);
+
+    // Next page after the last id of page1: two more, all strictly older.
+    let cursor = page1[1].id;
+    let page2 = store
+        .list_tickets(query(Some(2), Some(cursor)))
+        .await
+        .unwrap();
+    assert_eq!(page2.len(), 2);
+    assert!(page2[0].created_at <= page1[1].created_at);
+    // No overlap between pages.
+    for ticket in &page2 {
+        assert!(!page1.iter().any(|p| p.id == ticket.id));
+    }
+
+    // A None limit must still bound the fetch (default 50), never unbounded.
+    let defaulted = store.list_tickets(query(None, None)).await.unwrap();
+    assert_eq!(defaulted.len(), 5);
+
+    // An over-large limit is clamped, not honored verbatim.
+    let clamped = store.list_tickets(query(Some(10_000), None)).await.unwrap();
+    assert_eq!(clamped.len(), 5);
+}
+
+// ---------------------------------------------------------------------------
+// create paths reject over-length free-text fields with a validation error
+// ---------------------------------------------------------------------------
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn customer_intake_rejects_over_length_fields(pool: PgPool) {
+    let store = PgSupportStore::new(pool.clone());
+    let now = datetime!(2026-06-13 09:00 UTC);
+
+    let err = store
+        .create_customer_intake(CreateCustomerIntakeCommand {
+            category: TicketCategory::Complaint,
+            priority: TicketPriority::Medium,
+            title: "t".to_owned(),
+            // Body over the 8000-char cap.
+            body: "x".repeat(8001),
+            requester_name: "Cust".to_owned(),
+            requester_contact: "c@example.com".to_owned(),
+            trace: TraceContext::generate(),
+            occurred_at: now,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Validation);
 }
 
 // ---------------------------------------------------------------------------

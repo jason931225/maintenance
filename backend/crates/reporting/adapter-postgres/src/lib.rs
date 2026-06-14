@@ -44,6 +44,13 @@ struct ExportLogCommand<'a> {
     occurred_at: Timestamp,
 }
 
+/// Hard row cap for the date-bounded list `fetch_all` queries. The date window
+/// already bounds normal output; this is only a memory backstop so a pathological
+/// all-time `BranchScope::All` rollup can never materialize an unbounded result
+/// set. It is deliberately well above any realistic single-window row count and
+/// does not change the date-window semantics.
+const MAX_LIST_ROWS: i64 = 10_000;
+
 #[derive(Debug, thiserror::Error)]
 enum PgReportingError {
     #[error(transparent)]
@@ -186,7 +193,8 @@ impl PgKpiRepository {
         );
         push_branch_scope_filter(&mut builder, &query.branch_scope);
         push_requested_scope_filter(&mut builder, query.scope);
-        builder.push(" ORDER BY completion_approval.approved_at, w.id");
+        builder.push(" ORDER BY completion_approval.approved_at, w.id LIMIT ");
+        builder.push_bind(MAX_LIST_ROWS);
 
         let rows = builder
             .build()
@@ -201,9 +209,9 @@ impl PgKpiRepository {
 
     async fn unavailable_source_metrics(&self) -> Result<Vec<UnavailableMetric>, KpiQueryError> {
         let mut unavailable = Vec::new();
-        if !self
-            .has_any_table(&["regular_inspection_schedules"])
-            .await?
+        if !any_table_exists(&self.pool, &["regular_inspection_schedules"])
+            .await
+            .map_err(|err| KpiQueryError::Database(err.to_string()))?
         {
             unavailable.push(UnavailableMetric {
                 metric: KpiMetric::InspectionPlanCompletionRate,
@@ -213,14 +221,17 @@ impl PgKpiRepository {
                         .to_owned(),
             });
         }
-        if !self
-            .has_any_table(&[
+        if !any_table_exists(
+            &self.pool,
+            &[
                 "p1_broadcasts",
                 "p1_broadcast_responses",
                 "dispatch_broadcasts",
                 "dispatch_broadcast_responses",
-            ])
-            .await?
+            ],
+        )
+        .await
+        .map_err(|err| KpiQueryError::Database(err.to_string()))?
         {
             unavailable.push(UnavailableMetric {
                 metric: KpiMetric::P1AcceptanceRate,
@@ -236,9 +247,9 @@ impl PgKpiRepository {
         &self,
         query: &KpiQuery,
     ) -> Result<Vec<KpiInspectionRecord>, KpiQueryError> {
-        if !self
-            .has_any_table(&["regular_inspection_schedules"])
-            .await?
+        if !any_table_exists(&self.pool, &["regular_inspection_schedules"])
+            .await
+            .map_err(|err| KpiQueryError::Database(err.to_string()))?
         {
             return Ok(Vec::new());
         }
@@ -268,7 +279,8 @@ impl PgKpiRepository {
         builder.push(" AND ");
         push_branch_column_filter(&mut builder, &query.branch_scope, "s.branch_id");
         push_requested_inspection_scope_filter(&mut builder, query.scope);
-        builder.push(" ORDER BY s.due_date, s.id");
+        builder.push(" ORDER BY s.due_date, s.id LIMIT ");
+        builder.push_bind(MAX_LIST_ROWS);
 
         let rows = builder
             .build()
@@ -278,20 +290,6 @@ impl PgKpiRepository {
         rows.iter()
             .map(inspection_record_from_row)
             .collect::<Result<Vec<_>, _>>()
-    }
-
-    async fn has_any_table(&self, table_names: &[&str]) -> Result<bool, KpiQueryError> {
-        for table_name in table_names {
-            let exists: bool = sqlx::query_scalar("SELECT to_regclass($1) IS NOT NULL")
-                .bind(table_name)
-                .fetch_one(&self.pool)
-                .await
-                .map_err(|err| KpiQueryError::Database(err.to_string()))?;
-            if exists {
-                return Ok(true);
-            }
-        }
-        Ok(false)
     }
 
     async fn export_daily_status_inner(
@@ -719,7 +717,8 @@ impl PgKpiRepository {
         builder.push_bind(end);
         builder.push(" AND ");
         push_branch_column_filter(&mut builder, branch_scope, "w.branch_id");
-        builder.push(" ORDER BY completion_approval.approved_at, w.request_no");
+        builder.push(" ORDER BY completion_approval.approved_at, w.request_no LIMIT ");
+        builder.push_bind(MAX_LIST_ROWS);
 
         let rows = builder.build().fetch_all(&self.pool).await?;
         rows.iter().map(daily_status_row_from_row).collect()
@@ -757,7 +756,8 @@ impl PgKpiRepository {
         builder.push_bind(date);
         builder.push(" AND p.status IN ('APPROVED', 'FINAL_CONFIRMED') AND ");
         push_branch_column_filter(&mut builder, branch_scope, "p.branch_id");
-        builder.push(" ORDER BY u.display_name, i.sort_order, i.id");
+        builder.push(" ORDER BY u.display_name, i.sort_order, i.id LIMIT ");
+        builder.push_bind(MAX_LIST_ROWS);
 
         let rows = builder.build().fetch_all(&self.pool).await?;
         rows.iter().map(daily_status_row_from_row).collect()
@@ -799,7 +799,8 @@ impl PgKpiRepository {
             "#,
         );
         push_branch_column_filter(&mut builder, branch_scope, "w.branch_id");
-        builder.push(" ORDER BY w.created_at, w.request_no");
+        builder.push(" ORDER BY w.created_at, w.request_no LIMIT ");
+        builder.push_bind(MAX_LIST_ROWS);
 
         let rows = builder.build().fetch_all(&self.pool).await?;
         rows.iter().map(daily_status_row_from_row).collect()
@@ -839,7 +840,8 @@ impl PgKpiRepository {
         builder.push_bind(end);
         builder.push(" AND (w.diagnosis IS NOT NULL OR w.action_taken IS NOT NULL) AND ");
         push_branch_column_filter(&mut builder, branch_scope, "w.branch_id");
-        builder.push(" ORDER BY completion_approval.approved_at, w.request_no");
+        builder.push(" ORDER BY completion_approval.approved_at, w.request_no LIMIT ");
+        builder.push_bind(MAX_LIST_ROWS);
 
         let rows = builder.build().fetch_all(&self.pool).await?;
         rows.iter().map(action_entry_from_row).collect()
@@ -850,10 +852,7 @@ impl PgKpiRepository {
         date: Date,
         branch_scope: &BranchScope,
     ) -> Result<Vec<PeriodicInspectionRow>, PgReportingError> {
-        if !self
-            .has_any_table_reporting(&["regular_inspection_schedules"])
-            .await?
-        {
+        if !any_table_exists(&self.pool, &["regular_inspection_schedules"]).await? {
             return Ok(Vec::new());
         }
 
@@ -899,17 +898,15 @@ impl PgKpiRepository {
         builder.push_bind(date);
         builder.push(" AND ");
         push_branch_column_filter(&mut builder, branch_scope, "s.branch_id");
-        builder.push(" ORDER BY site.name, e.management_no, s.id");
+        builder.push(" ORDER BY site.name, e.management_no, s.id LIMIT ");
+        builder.push_bind(MAX_LIST_ROWS);
 
         let rows = builder.build().fetch_all(&self.pool).await?;
         rows.iter().map(periodic_inspection_row_from_row).collect()
     }
 
     async fn export_source_notes(&self) -> Result<Vec<ExportSourceNote>, PgReportingError> {
-        if self
-            .has_any_table_reporting(&["regular_inspection_schedules"])
-            .await?
-        {
+        if any_table_exists(&self.pool, &["regular_inspection_schedules"]).await? {
             return Ok(Vec::new());
         }
         Ok(vec![ExportSourceNote {
@@ -918,22 +915,23 @@ impl PgKpiRepository {
                 .to_owned(),
         }])
     }
+}
 
-    async fn has_any_table_reporting(
-        &self,
-        table_names: &[&str],
-    ) -> Result<bool, PgReportingError> {
-        for table_name in table_names {
-            let exists: bool = sqlx::query_scalar("SELECT to_regclass($1) IS NOT NULL")
-                .bind(table_name)
-                .fetch_one(&self.pool)
-                .await?;
-            if exists {
-                return Ok(true);
-            }
+/// Whether any of `table_names` exists in the connected database. Used to
+/// degrade gracefully when an optional source schema (e.g. inspection tables)
+/// has not been migrated. Returns the raw `sqlx::Error` so each caller maps it
+/// into its own error type.
+async fn any_table_exists(pool: &PgPool, table_names: &[&str]) -> Result<bool, sqlx::Error> {
+    for table_name in table_names {
+        let exists: bool = sqlx::query_scalar("SELECT to_regclass($1) IS NOT NULL")
+            .bind(table_name)
+            .fetch_one(pool)
+            .await?;
+        if exists {
+            return Ok(true);
         }
-        Ok(false)
     }
+    Ok(false)
 }
 
 impl KpiQueryPort for PgKpiRepository {

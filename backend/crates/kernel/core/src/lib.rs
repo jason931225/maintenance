@@ -10,6 +10,7 @@ pub mod branch;
 pub mod clock;
 pub mod error;
 pub mod ids;
+pub mod redact;
 pub mod trace;
 pub mod transition;
 
@@ -18,6 +19,7 @@ pub use branch::BranchScope;
 pub use clock::{Clock, FixedClock, SystemClock};
 pub use error::{ErrorKind, KernelError};
 pub use ids::*;
+pub use redact::RedactedPhone;
 pub use trace::TraceContext;
 pub use transition::{Transition, TransitionError};
 

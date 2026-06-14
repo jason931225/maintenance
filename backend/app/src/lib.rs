@@ -152,6 +152,10 @@ pub struct AppConfig {
     /// Lifetime of a boot-seeded cold-start OTP (`MNT_COLDSTART_OTP_TTL_SECS`,
     /// default 3600s).
     pub coldstart_otp_ttl: time::Duration,
+    /// Number of trusted reverse proxies in front of the service
+    /// (`MNT_TRUSTED_PROXY_COUNT`, default 1). Drives `X-Forwarded-For`
+    /// client-IP derivation in the unauthenticated rate limiters.
+    pub trusted_proxy_count: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -249,6 +253,7 @@ impl AppConfig {
             DEFAULT_COLDSTART_OTP_TTL_SECS,
             "MNT_COLDSTART_OTP_TTL_SECS",
         )?;
+        let trusted_proxy_count = parse_trusted_proxy_count(vars.get("MNT_TRUSTED_PROXY_COUNT"))?;
 
         Ok(Self {
             role,
@@ -267,6 +272,7 @@ impl AppConfig {
             shutdown_timeout,
             coldstart_otp,
             coldstart_otp_ttl,
+            trusted_proxy_count,
         })
     }
 }
@@ -769,11 +775,14 @@ pub fn build_router(state: AppState) -> Router {
                     inspection_store,
                     state.jwt_verifier.clone(),
                 )))
-                .merge(mnt_support_rest::router(SupportRestState::new(
-                    support_store,
-                    state.jwt_verifier.clone(),
-                    state.push_notifier.clone(),
-                )))
+                .merge(mnt_support_rest::router(
+                    SupportRestState::new(
+                        support_store,
+                        state.jwt_verifier.clone(),
+                        state.push_notifier.clone(),
+                    )
+                    .with_trusted_proxy_count(state.config.trusted_proxy_count),
+                ))
                 .merge(mnt_compliance_rest::router(ComplianceRestState::new(
                     compliance_store,
                     state.jwt_verifier.clone(),

@@ -25,7 +25,7 @@ use mnt_kernel_core::{
     BranchId, BranchScope, ErrorKind, KernelError, SupportTicketId, TraceContext, UserId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
-use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
+use mnt_platform_authz::{Action, Feature, Principal, Role, authorize, resolve_branch_scope};
 use mnt_platform_push::{FcmPushMessage, PushNotifier};
 use mnt_support_adapter_postgres::{PgSupportError, PgSupportStore};
 use mnt_support_application::{
@@ -34,6 +34,7 @@ use mnt_support_application::{
 };
 use mnt_support_domain::{TicketCategory, TicketOrigin, TicketPriority, TicketStatus};
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 use time::{Duration, OffsetDateTime};
 
 // ---------------------------------------------------------------------------
@@ -72,9 +73,17 @@ pub struct SupportRestState {
     store: PgSupportStore,
     jwt_verifier: Option<JwtVerifier>,
     push_notifier: Option<Arc<dyn PushNotifier>>,
+    /// Number of trusted reverse proxies in front of this service. Drives the
+    /// `X-Forwarded-For` client-IP derivation in the intake rate limiter: the
+    /// real client is the Nth-from-the-right XFF entry. Clamped to at least 1 so
+    /// the spoofable left-most entry is never blindly trusted.
+    trusted_proxy_count: usize,
 }
 
 impl SupportRestState {
+    /// Construct with a default of one trusted proxy. Prefer
+    /// [`SupportRestState::with_trusted_proxy_count`] when the deployment puts a
+    /// known number of proxies in front of the service.
     #[must_use]
     pub fn new(
         store: PgSupportStore,
@@ -85,7 +94,20 @@ impl SupportRestState {
             store,
             jwt_verifier,
             push_notifier,
+            trusted_proxy_count: 1,
         }
+    }
+
+    /// Set the number of trusted reverse proxies (from `MNT_TRUSTED_PROXY_COUNT`).
+    /// A value of 0 is treated as 1.
+    #[must_use]
+    pub fn with_trusted_proxy_count(mut self, trusted_proxy_count: usize) -> Self {
+        self.trusted_proxy_count = trusted_proxy_count.max(1);
+        self
+    }
+
+    fn pool(&self) -> &PgPool {
+        self.store.pool()
     }
 }
 
@@ -156,6 +178,11 @@ struct ListTicketsRequest {
     assignee_user_id: Option<UserId>,
     #[serde(default)]
     include_untriaged: bool,
+    /// Page size; the adapter always clamps to `1..=100` and defaults a missing
+    /// value, so existing clients that omit it still get a bounded page.
+    limit: Option<i64>,
+    /// Keyset cursor: the id of the last ticket from the previous page.
+    cursor: Option<SupportTicketId>,
 }
 
 /// Intake acknowledgement. Deliberately minimal — no internal identifiers, no
@@ -185,7 +212,7 @@ async fn create_internal_ticket(
     headers: HeaderMap,
     Json(body): Json<CreateInternalTicketRequest>,
 ) -> Result<impl IntoResponse, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize(&principal, Action::new(Feature::Login), body.branch_id)
         .map_err(RestError::from_kernel)?;
     let summary = state
@@ -210,7 +237,7 @@ async fn list_tickets(
     headers: HeaderMap,
     Query(query): Query<ListTicketsRequest>,
 ) -> Result<impl IntoResponse, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize(
         &principal,
         Action::new(Feature::Login),
@@ -230,6 +257,8 @@ async fn list_tickets(
             origin: query.origin,
             assignee_user_id: query.assignee_user_id,
             include_untriaged: query.include_untriaged && cross_branch,
+            limit: query.limit,
+            cursor: query.cursor,
         })
         .await
         .map_err(RestError::from_store)?;
@@ -241,7 +270,7 @@ async fn get_ticket(
     headers: HeaderMap,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<impl IntoResponse, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let ticket_id = SupportTicketId::from_uuid(id);
     // Staff path: internal notes are visible.
     let detail = state
@@ -262,7 +291,7 @@ async fn assign_ticket(
     Path(id): Path<uuid::Uuid>,
     Json(body): Json<AssignTicketRequest>,
 ) -> Result<impl IntoResponse, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let ticket_id = SupportTicketId::from_uuid(id);
     authorize_on_ticket(&state, &principal, ticket_id, Feature::AssigneeManage).await?;
     let (summary, notifications) = state
@@ -287,7 +316,7 @@ async fn transition_ticket(
     Path(id): Path<uuid::Uuid>,
     Json(body): Json<TransitionTicketRequest>,
 ) -> Result<impl IntoResponse, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let ticket_id = SupportTicketId::from_uuid(id);
     authorize_on_ticket(&state, &principal, ticket_id, Feature::AssigneeManage).await?;
     let (summary, notifications) = state
@@ -311,7 +340,7 @@ async fn add_comment(
     Path(id): Path<uuid::Uuid>,
     Json(body): Json<AddCommentRequest>,
 ) -> Result<impl IntoResponse, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let ticket_id = SupportTicketId::from_uuid(id);
     authorize_on_ticket(&state, &principal, ticket_id, Feature::WorkOrderStart).await?;
     let (view, notifications) = state
@@ -340,7 +369,7 @@ async fn customer_intake(
     Json(body): Json<CustomerIntakeRequest>,
 ) -> Result<impl IntoResponse, RestError> {
     let now = OffsetDateTime::now_utc();
-    rate_limit(&state.store, &headers, now).await?;
+    rate_limit(&state.store, &headers, state.trusted_proxy_count, now).await?;
 
     // Generic validation: never echo the PII contact, never leak which field
     // failed beyond a coarse message.
@@ -441,12 +470,13 @@ async fn deliver_one(
 async fn rate_limit(
     store: &PgSupportStore,
     headers: &HeaderMap,
+    trusted_proxy_count: usize,
     now: OffsetDateTime,
 ) -> Result<(), RestError> {
     let window_start = floor_to_window(now);
 
     let mut buckets: Vec<(String, i64)> = Vec::with_capacity(3);
-    if let Some(ip) = client_ip(headers) {
+    if let Some(ip) = client_ip(headers, trusted_proxy_count) {
         buckets.push((format!("ip:{ip}"), RATE_LIMIT_PER_IP));
     }
     if let Some(device) = client_device_id(headers) {
@@ -473,16 +503,27 @@ fn floor_to_window(now: OffsetDateTime) -> OffsetDateTime {
     OffsetDateTime::from_unix_timestamp(floored).unwrap_or(now)
 }
 
-/// Client IP from the proxy-set `X-Forwarded-For` (left-most entry). Used only
-/// as an opaque rate-limit key; never logged.
-fn client_ip(headers: &HeaderMap) -> Option<String> {
+/// Derive the rate-limit client IP from the proxy-set `X-Forwarded-For`.
+///
+/// XFF is appended left-to-right, so the RIGHTMOST entry is what the closest
+/// trusted proxy observed and the left-most entries are attacker-spoofable. With
+/// `trusted_proxy_count` proxies in front of this service the real client is the
+/// Nth-from-the-right entry (index `len - trusted_proxy_count`); a shorter chain
+/// clamps to the left-most available entry rather than underflowing. Used only as
+/// an opaque rate-limit key; never logged. Mirrors the auth-rest fix.
+fn client_ip(headers: &HeaderMap, trusted_proxy_count: usize) -> Option<String> {
     let forwarded = headers.get("x-forwarded-for")?.to_str().ok()?;
-    let first = forwarded.split(',').next()?.trim();
-    if first.is_empty() {
-        None
-    } else {
-        Some(first.to_owned())
+    let entries: Vec<&str> = forwarded
+        .split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .collect();
+    if entries.is_empty() {
+        return None;
     }
+    let hops = trusted_proxy_count.max(1);
+    let index = entries.len().saturating_sub(hops);
+    entries.get(index).map(|ip| (*ip).to_owned())
 }
 
 /// Optional, client-controlled `X-Device-Id`; bounded length + restricted
@@ -546,7 +587,7 @@ fn representative_branch(branch_scope: &BranchScope) -> Result<BranchId, RestErr
     }
 }
 
-fn principal_from_headers(
+async fn principal_from_headers(
     state: &SupportRestState,
     headers: &HeaderMap,
 ) -> Result<Principal, RestError> {
@@ -557,7 +598,7 @@ fn principal_from_headers(
     let claims = verifier
         .verify_access_token(token)
         .map_err(|_| RestError::unauthorized("invalid bearer token"))?;
-    principal_from_claims(claims)
+    principal_from_claims(state.pool(), claims).await
 }
 
 fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {
@@ -572,34 +613,27 @@ fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {
         .ok_or_else(|| RestError::unauthorized("authorization header must use Bearer scheme"))
 }
 
-fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
+async fn principal_from_claims(
+    pool: &PgPool,
+    claims: AccessClaims,
+) -> Result<Principal, RestError> {
     let user_id = UserId::from_str(&claims.sub)
         .map_err(|_| RestError::unauthorized("token subject is not a valid user id"))?;
-    let roles_vec: Vec<Role> = claims
+    let roles = claims
         .roles
         .iter()
         .map(|role| {
             Role::from_str(role)
                 .map_err(|_| RestError::unauthorized("token contains an unknown role"))
         })
-        .collect::<Result<_, _>>()?;
-    let roles = roles_vec.iter().copied().collect::<BTreeSet<_>>();
-    let branch_scope = if roles_vec
-        .iter()
-        .any(|role| matches!(role, Role::SuperAdmin | Role::Executive))
-    {
-        BranchScope::All
-    } else {
-        let branches = claims
-            .branches
-            .iter()
-            .map(|branch| {
-                BranchId::from_str(branch)
-                    .map_err(|_| RestError::unauthorized("token contains an invalid branch id"))
-            })
-            .collect::<Result<BTreeSet<_>, _>>()?;
-        BranchScope::Branches(branches)
-    };
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    let role_vec = roles.iter().copied().collect::<Vec<_>>();
+    // Re-resolve the live branch scope from the database rather than trusting the
+    // token's `branches` claim, so a branch-membership revocation takes effect
+    // immediately. SUPER_ADMIN/EXECUTIVE still resolve to `BranchScope::All`.
+    let branch_scope = resolve_branch_scope(pool, user_id, &role_vec)
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
 
     Ok(Principal::new(user_id, roles, branch_scope))
 }
@@ -703,5 +737,63 @@ impl IntoResponse for RestError {
             }),
         )
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::client_ip;
+    use axum::http::HeaderMap;
+
+    fn headers_with_xff(value: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", value.parse().unwrap());
+        headers
+    }
+
+    #[test]
+    fn client_ip_uses_nth_from_right_with_one_trusted_proxy() {
+        // One trusted proxy: the rightmost entry is the proxy's view of the
+        // client; prepended (spoofed) entries to the left are ignored.
+        let headers = headers_with_xff("9.9.9.9, 8.8.8.8, 203.0.113.7");
+        assert_eq!(client_ip(&headers, 1).as_deref(), Some("203.0.113.7"));
+    }
+
+    #[test]
+    fn client_ip_honors_higher_trusted_proxy_count() {
+        // Two trusted proxies: take the 2nd-from-right entry, ignoring the
+        // spoofable left-most one.
+        let headers = headers_with_xff("1.2.3.4, 203.0.113.7, 10.0.0.2");
+        assert_eq!(client_ip(&headers, 2).as_deref(), Some("203.0.113.7"));
+        assert_ne!(client_ip(&headers, 2).as_deref(), Some("1.2.3.4"));
+    }
+
+    #[test]
+    fn client_ip_ignores_left_most_spoofed_entry() {
+        // A single-hop deployment must not trust the attacker-controlled
+        // left-most entry; it takes the rightmost real entry instead.
+        let headers = headers_with_xff("1.2.3.4, 203.0.113.7");
+        assert_ne!(client_ip(&headers, 1).as_deref(), Some("1.2.3.4"));
+        assert_eq!(client_ip(&headers, 1).as_deref(), Some("203.0.113.7"));
+    }
+
+    #[test]
+    fn client_ip_clamps_when_chain_shorter_than_expected() {
+        // A misconfigured/short chain yields the left-most available entry
+        // rather than underflowing.
+        let headers = headers_with_xff("203.0.113.7");
+        assert_eq!(client_ip(&headers, 3).as_deref(), Some("203.0.113.7"));
+    }
+
+    #[test]
+    fn client_ip_zero_proxy_count_is_treated_as_one() {
+        // 0 is clamped to 1 so the left-most entry is never blindly trusted.
+        let headers = headers_with_xff("1.2.3.4, 203.0.113.7");
+        assert_eq!(client_ip(&headers, 0).as_deref(), Some("203.0.113.7"));
+    }
+
+    #[test]
+    fn client_ip_none_without_header() {
+        assert_eq!(client_ip(&HeaderMap::new(), 1), None);
     }
 }

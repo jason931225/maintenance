@@ -3258,6 +3258,8 @@ export interface operations {
                 origin?: components["schemas"]["SupportTicketOrigin"];
                 assignee_user_id?: components["schemas"]["Uuid"];
                 include_untriaged?: boolean;
+                limit?: number;
+                cursor?: components["schemas"]["Uuid"];
             };
             header?: never;
             path?: never;
