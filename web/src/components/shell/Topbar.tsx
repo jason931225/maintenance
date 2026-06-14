@@ -1,4 +1,4 @@
-import { LogOut, Menu, RefreshCw, User } from "lucide-react";
+import { LogOut, MapPin, Menu, RefreshCw, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../../context/auth";
@@ -87,6 +87,7 @@ function UserMenu() {
           className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
           onClick={() => { void navigate("/settings/location"); }}
         >
+          <MapPin size={16} aria-hidden="true" />
           {ko.shell.locationSettings}
         </button>
         <div className="border-t border-slate-100">

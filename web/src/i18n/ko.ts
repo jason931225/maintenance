@@ -63,6 +63,7 @@ export const ko = {
     subtitle:
       "다음 로그인부터 코드 없이 바로 로그인할 수 있도록 패스키를 등록하세요. 등록 위치를 선택하세요.",
     enrolling: "등록 중",
+    enrollingHint: "브라우저 안내에 따라 패스키를 등록하세요.",
     enrollFailed: "패스키 등록에 실패했습니다. 다시 시도하세요.",
     enrollCancelled: "패스키 등록이 취소되었습니다.",
     signOut: "다른 계정으로 로그인",

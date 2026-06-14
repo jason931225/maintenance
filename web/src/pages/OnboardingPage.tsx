@@ -117,7 +117,9 @@ export function OnboardingPage() {
                       {active ? ko.onboarding.enrolling : method.title}
                     </span>
                     <span className="text-sm text-slate-600">
-                      {method.description}
+                      {active
+                        ? ko.onboarding.enrollingHint
+                        : method.description}
                     </span>
                   </span>
                 </button>

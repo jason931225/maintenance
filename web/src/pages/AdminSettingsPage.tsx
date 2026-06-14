@@ -138,8 +138,15 @@ export function AdminSettingsPage() {
                   {copied ? ko.admin.copied : ko.admin.copy}
                 </Button>
               </div>
+              <span role="status" aria-live="polite" className="sr-only">
+                {copied ? ko.admin.copied : ""}
+              </span>
               <span className="text-sm text-emerald-900">
-                {ko.admin.expiresAt}: {issued.expiresAt}
+                {ko.admin.expiresAt}:{" "}
+                {new Date(issued.expiresAt).toLocaleString("ko-KR", {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                })}
               </span>
             </div>
           ) : null}
