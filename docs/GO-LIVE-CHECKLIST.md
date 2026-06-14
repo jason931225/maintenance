@@ -17,11 +17,25 @@ infra + secrets) · **경영/법무** = business/legal (filings, approvals).
 ## 1. Code & CI readiness — Eng
 
 - [x] **All CI gates green on `main`.** fmt, `clippy --all-targets -D warnings`,
-  `cargo test --workspace` (159 suites / 240 tests / 0 failed at the launch
-  commit), the four `mnt-gate-*` binaries (layer-boundary, audit-coverage,
-  migration-safety, pii-no-logs), tri-client drift (ts/kotlin/swift),
-  openapi-app, contract round-trip, i18n + parity, iOS build + behavior tests.
-  See [CI-GATES.md](CI-GATES.md).
+  `cargo test --workspace` (170 suites / 302 tests / 0 failed), the four
+  `mnt-gate-*` binaries (layer-boundary, audit-coverage, migration-safety,
+  pii-no-logs), tri-client drift (ts/kotlin/swift), openapi-app, contract
+  round-trip, i18n + parity, iOS build + behavior tests. See
+  [CI-GATES.md](CI-GATES.md).
+- [x] **Supply-chain CI shipped** — Eng. `image-release.yml` builds the
+  `mnt-app` + `mnt-web` images multi-arch (incl. linux/arm64 for the A1 target),
+  reproducibly (digest-pinned bases, `SOURCE_DATE_EPOCH`), with SBOM + SLSA
+  provenance, a **blocking Trivy HIGH/CRITICAL scan before keyless cosign
+  signing**, pushed to GHCR. `security.yml` (Trivy fs/IaC + cargo-audit + npm
+  audit) runs on a schedule; `release-please.yml` enforces SemVer; Actions are
+  SHA-pinned; Renovate keeps bases/deps current.
+- [x] **Post-launch security remediation pass complete** — Eng. A repo-wide
+  audit (security / quality / performance) was triaged and fixed: the cold-start
+  OTP is now a deploy-time secret (no known value in git — see §7), the
+  admin-OTP cross-branch IDOR is closed, the unauthenticated intake is bounded
+  (field-length caps + 2 MiB body limit + 30 s timeout + trusted-proxy rate-limit
+  IP), the web tier ships CSP + HSTS, and `list_tickets` is paginated. All
+  re-verified (workspace tests + 4 gates + client-drift gate).
 - [x] **Adversarial review → harden → fix complete.** The security and
   correctness/concurrency reviews are filed in
   [`.omc/review/`](../.omc/review/); all 7 confirmed findings are fixed and
@@ -29,7 +43,7 @@ infra + secrets) · **경영/법무** = business/legal (filings, approvals).
   binding, /sync payload-binding, /sync crash recovery, WORM post-completion
   guard + DB trigger, P1 alert exactly-once lease, negative-residual flooring),
   each with a red-green regression test.
-- [x] **Migrations append-only through 0019**; migration-safety gate enforces no
+- [x] **Migrations append-only through 0023**; migration-safety gate enforces no
   destructive change to `audit_events` or audited tables.
 - [x] **No stubs/mocks in shipped paths.** Integration seams (oyatie
   `AiAssistantPort`, Bitween `IdentityProviderPort`) are port definitions only,
@@ -53,9 +67,18 @@ infra + secrets) · **경영/법무** = business/legal (filings, approvals).
 
 ## 3. Infrastructure & deployment — 운영
 
-- [ ] **OCI Compute VM provisioned** and SSH/OCI access provided (the K8s-ready
-  Compose stack: Traefik + Postgres + SeaweedFS + app + worker). See
-  [`ops/README.md`](../ops/README.md), [`ops/compose.yml`](../ops/compose.yml).
+- [ ] **OCI Compute (Ampere A1) provisioned** and access provided — 운영. Two
+  deploy paths are ready: the Compose stack (`ops/`) for a single VM, or the
+  GitOps Kubernetes path in [`deploy/`](../deploy/README.md) (single-node Talos +
+  Argo CD + Argo Rollouts blue/green + CloudNativePG PITR + cert-manager/Traefik),
+  sized for the OCI **Always Free** tier (ap-chuncheon-1). Note the free-tier
+  caveat: custom-image import needs a PAYG account (stays $0 within Always-Free
+  shapes) — see [`deploy/talos/README.md`](../deploy/talos/README.md).
+- [x] **Deploy automation built + validated** — Eng. `deploy/` is kustomize/
+  kubeconform-clean (30/30, CRDs included), the Talos machine config is
+  `talosctl validate --mode cloud`-valid, all upstream operator refs resolve, and
+  the `mnt-web` image builds + serves. Blue/green Rollouts smoke-gate the preview
+  before cutover (automatic rollback on failure); Argo CD self-heals.
 - [x] **Compose prod stack boots clean** — Eng (verified in M0: 6 services
   healthy, HTTPS healthz/readyz 200, SeaweedFS with zero host ports).
 - [ ] **Production TLS certificates** (Traefik) issued for the real hostname — 운영.
@@ -106,6 +129,12 @@ infra + secrets) · **경영/법무** = business/legal (filings, approvals).
 - [ ] **Branch/region topology + user roster seeded** for the pilot scope; each
   branch wave gated on its seeded data — 운영 (provisioning is idempotent;
   cold-start passkey bootstrap is ready).
+- [ ] **Cold-start admin OTP set as a deploy-time secret** — 운영. Production must
+  set `MNT_COLDSTART_OTP` to a CSPRNG value (the committed `coss0000` is
+  dev-only and is revoked by migration 0023); it seeds the first SUPER_ADMIN
+  sign-in at boot, short-TTL, and must be redeemed-or-revoked immediately. See
+  [`deploy/SECRETS.md`](../deploy/SECRETS.md). **Do not expose the API publicly
+  with `coss0000` reachable.**
 - [ ] **Pilot HQ team enrolled** (passkey registration via the bootstrap-credential
   one-time flow) — 운영.
 
