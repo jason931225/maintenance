@@ -431,9 +431,28 @@ async fn finish_registration(
     let services = state.services()?;
     let user_id = authenticated_user_id(services, &headers)?;
     ensure_registration_ceremony_owner(&state.pool, body.ceremony_id, user_id).await?;
+    let now = OffsetDateTime::now_utc();
+
+    // Insert the passkey AND consume the user's open one-time code in ONE transaction,
+    // so a successful enrollment — and only that — burns the code atomically. A redeem
+    // never consumes the code, so a failed/cancelled enrollment leaves it usable; the
+    // user can retry until a passkey actually sticks.
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
     let passkey = services
         .passkeys
-        .finish_registration(&state.pool, body.ceremony_id, body.credential)
+        .finish_registration_in_tx(&mut tx, body.ceremony_id, body.credential, now)
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
+    services
+        .bootstrap_credentials
+        .consume_open_credentials_tx(&mut tx, user_id, now)
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
+    tx.commit()
         .await
         .map_err(|err| RestError::internal(err.to_string()))?;
 

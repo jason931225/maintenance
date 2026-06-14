@@ -56,10 +56,12 @@ async fn issued_otp_is_eight_char_alphanumeric_special(pool: PgPool) {
     assert_ne!(token_hash, token.as_bytes());
 }
 
-/// A correct redeem consumes the OTP atomically (single-use ON SUCCESS) and
-/// resolves the pre-provisioned user; a second redeem of the same OTP fails.
+/// A redeem VERIFIES the code and resolves the user but does NOT consume it, so a
+/// failed enrollment can't lock the user out — the code stays usable until a passkey
+/// is actually registered. consume_open_credentials_tx (driven by passkey
+/// registration) is the single point of consumption; after it the code is dead.
 #[sqlx::test(migrations = "../db/migrations")]
-async fn redeem_consumes_otp_once_and_resolves_user(pool: PgPool) {
+async fn redeem_verifies_without_consuming_then_registration_consumes(pool: PgPool) {
     let user_id = seed_user(&pool).await;
     let store = BootstrapCredentialStore;
     let now = OffsetDateTime::now_utc();
@@ -85,11 +87,41 @@ async fn redeem_consumes_otp_once_and_resolves_user(pool: PgPool) {
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert!(consumed_at.is_some(), "OTP must be consumed on success");
+    assert!(consumed_at.is_none(), "a redeem must NOT consume the code");
 
-    // Replay of the same OTP is rejected.
-    let replay = store.redeem_otp(&pool, issue.token.as_str(), now).await;
-    assert!(replay.is_err(), "a consumed OTP must not redeem again");
+    // A second redeem before registration STILL succeeds (no lockout).
+    assert!(
+        store
+            .redeem_otp(&pool, issue.token.as_str(), now)
+            .await
+            .is_ok(),
+        "the code stays redeemable until a passkey is registered"
+    );
+
+    // Registration consumes it atomically (here exercised directly).
+    let mut tx = pool.begin().await.unwrap();
+    store
+        .consume_open_credentials_tx(&mut tx, user_id, now)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let consumed_at: Option<OffsetDateTime> =
+        sqlx::query_scalar("SELECT consumed_at FROM auth_bootstrap_credentials WHERE id = $1")
+            .bind(issue.credential_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(consumed_at.is_some(), "registration consumes the code");
+
+    // Once consumed, a redeem is rejected.
+    assert!(
+        store
+            .redeem_otp(&pool, issue.token.as_str(), now)
+            .await
+            .is_err(),
+        "a consumed code must not redeem again"
+    );
 }
 
 /// A WRONG guess must NOT consume or invalidate a legitimate user's OTP: only a
@@ -183,10 +215,12 @@ async fn otp_expiry_is_enforced_on_redeem(pool: PgPool) {
     );
 }
 
-/// The cold-start fixed secret "coss0000" is seeded for the SUPER_ADMIN cold
-/// admin, signs that admin in exactly once, and is dead afterwards.
+/// The cold-start fixed secret "coss0000" is seeded for the SUPER_ADMIN cold admin
+/// and signs that admin in. A redeem does not consume it (so a failed first-boot
+/// enrollment can't brick cold start); it is consumed — and dead — once the admin
+/// registers a passkey.
 #[sqlx::test(migrations = "../db/migrations")]
-async fn cold_start_coss0000_signs_in_first_admin_once(pool: PgPool) {
+async fn cold_start_coss0000_signs_in_then_dies_on_passkey_registration(pool: PgPool) {
     let store = BootstrapCredentialStore;
     let now = OffsetDateTime::now_utc();
 
@@ -202,7 +236,21 @@ async fn cold_start_coss0000_signs_in_first_admin_once(pool: PgPool) {
     assert_eq!(redemption.user_id, admin_id);
     assert!(redemption.requires_passkey_setup);
 
-    // coss0000 is now dead.
-    let replay = store.redeem_otp(&pool, "coss0000", now).await;
-    assert!(replay.is_err(), "coss0000 must be single-use");
+    // Redeem does NOT consume — coss0000 stays usable until the admin enrolls a passkey.
+    assert!(
+        store.redeem_otp(&pool, "coss0000", now).await.is_ok(),
+        "coss0000 stays redeemable until the admin registers a passkey"
+    );
+
+    // Passkey registration consumes it; afterwards it is dead.
+    let mut tx = pool.begin().await.unwrap();
+    store
+        .consume_open_credentials_tx(&mut tx, admin_id, now)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert!(
+        store.redeem_otp(&pool, "coss0000", now).await.is_err(),
+        "coss0000 is dead once the admin has a passkey"
+    );
 }

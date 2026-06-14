@@ -179,6 +179,99 @@ async fn otp_first_signin_then_passkey_enrollment_then_usernameless_login(pool: 
     assert_audit_count(&pool, "auth.login", 1).await; // usernameless login
 }
 
+/// The one-time code is consumed on PASSKEY REGISTRATION, not on redeem. A redeem
+/// only mints a session, so a failed/incomplete enrollment never burns the code —
+/// the user can re-redeem (within the TTL) until a passkey actually sticks. Once a
+/// passkey is registered the code is consumed atomically and can never be reused.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn otp_is_consumed_on_passkey_registration_not_on_redeem(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_id = seed_branch(&pool, "OTP Region", "OTP Branch").await;
+    let admin_id =
+        seed_user_with_branch(&pool, "Issuer Admin", "010-4100-0000", "ADMIN", branch_id).await;
+    let new_user_id =
+        seed_user_with_branch(&pool, "Pending User", "010-4100-0001", "MECHANIC", branch_id).await;
+    let service = build_router(
+        app_state(
+            pool.clone(),
+            private_key_pem.to_string(),
+            public_key_pem.clone(),
+        )
+        .unwrap(),
+    );
+
+    let admin_access = admin_session_via_otp(&service, &pool, admin_id).await;
+    let issued: AdminIssueOtpResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/admin/otp/issue",
+        Some(&admin_access),
+        json!({ "user_id": new_user_id.as_uuid(), "branch_id": branch_id }),
+        StatusCode::OK,
+    )
+    .await;
+
+    // First redeem -> session, code NOT consumed.
+    let first: OtpRedeemResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/otp/redeem",
+        None,
+        json!({ "otp": issued.otp }),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(first.requires_passkey_setup);
+
+    // Re-redeem BEFORE enrolling a passkey -> STILL succeeds (a failed enrollment
+    // must not lock the user out of their own code).
+    let second: OtpRedeemResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/otp/redeem",
+        None,
+        json!({ "otp": issued.otp }),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(
+        second.requires_passkey_setup,
+        "the code must remain redeemable until a passkey is actually registered"
+    );
+
+    // Enroll a passkey from the session -> consumes the code atomically with the
+    // passkey insert.
+    let mut authenticator = WebauthnAuthenticator::new(SoftPasskey::new(true));
+    enroll_passkey(&service, &mut authenticator, &second.access_token).await;
+
+    // Now the code is dead: a further redeem is rejected.
+    let after = post_raw(
+        service.clone(),
+        "/api/v1/auth/otp/redeem",
+        None,
+        json!({ "otp": issued.otp }),
+    )
+    .await;
+    assert_eq!(
+        after.status(),
+        StatusCode::UNAUTHORIZED,
+        "the code is consumed once a passkey is registered"
+    );
+
+    // DB: exactly one consumed credential for this user (consumed at enrollment).
+    let consumed: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM auth_bootstrap_credentials \
+         WHERE user_id = $1 AND consumed_at IS NOT NULL",
+    )
+    .bind(new_user_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(consumed, 1);
+}
+
 /// The admin issue-OTP endpoint is authz-gated: a non-admin session is forbidden.
 #[sqlx::test(migrations = "../crates/platform/db/migrations")]
 async fn admin_issue_otp_rejects_non_admin(pool: PgPool) {

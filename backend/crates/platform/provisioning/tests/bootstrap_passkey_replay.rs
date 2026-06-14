@@ -1,10 +1,10 @@
-//! Regression test for atomic single-use OTP redemption.
+//! Regression test for atomic single-use OTP consumption.
 //!
-//! A single OTP (bootstrap credential) authorizes EXACTLY ONE first sign-in. Two
-//! concurrent `redeem_otp` calls for the same OTP must result in exactly one
-//! success: the consume uses the harden-1 atomic single-use pattern
-//! (`UPDATE ... WHERE token_hash=$1 AND consumed_at IS NULL AND expires_at>now()
-//! RETURNING`), so a racing or replayed redeem matches 0 rows and is rejected.
+//! A redeem is verify-only and never consumes, so two concurrent redeems both
+//! succeed. The single-use invariant lives at CONSUMPTION (passkey registration):
+//! two concurrent `consume_open_credentials_tx` calls burn the code EXACTLY once —
+//! the harden-1 atomic `UPDATE ... WHERE consumed_at IS NULL RETURNING` makes the
+//! losing call match 0 rows, so the credential is consumed once and audited once.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::sync::Arc;
@@ -26,10 +26,10 @@ async fn seed_user(pool: &PgPool) -> uuid::Uuid {
     .unwrap()
 }
 
-/// One OTP, two concurrent redeems: exactly one wins; the credential ends up
-/// consumed exactly once.
+/// Concurrent redeems both succeed (verify-only); concurrent registration-consumes
+/// burn the code EXACTLY once.
 #[sqlx::test(migrations = "../db/migrations")]
-async fn concurrent_redeem_consumes_otp_exactly_once(pool: PgPool) {
+async fn concurrent_consume_burns_the_otp_exactly_once(pool: PgPool) {
     let user_id = seed_user(&pool).await;
     let store = BootstrapCredentialStore;
     let now = OffsetDateTime::now_utc();
@@ -39,16 +39,15 @@ async fn concurrent_redeem_consumes_otp_exactly_once(pool: PgPool) {
         .await
         .unwrap();
 
+    // Two concurrent redeems both succeed: a redeem verifies, it never consumes.
     let barrier = Arc::new(Barrier::new(2));
-    let store_a = store;
-    let store_b = store;
-    let pool_a = pool.clone();
-    let pool_b = pool.clone();
-    let token_a = issue.token.as_str().to_owned();
-    let token_b = issue.token.as_str().to_owned();
-    let barrier_a = Arc::clone(&barrier);
-    let barrier_b = Arc::clone(&barrier);
-
+    let (store_a, store_b) = (store, store);
+    let (pool_a, pool_b) = (pool.clone(), pool.clone());
+    let (token_a, token_b) = (
+        issue.token.as_str().to_owned(),
+        issue.token.as_str().to_owned(),
+    );
+    let (barrier_a, barrier_b) = (Arc::clone(&barrier), Arc::clone(&barrier));
     let handle_a = tokio::spawn(async move {
         barrier_a.wait().await;
         store_a.redeem_otp(&pool_a, &token_a, now).await
@@ -57,14 +56,9 @@ async fn concurrent_redeem_consumes_otp_exactly_once(pool: PgPool) {
         barrier_b.wait().await;
         store_b.redeem_otp(&pool_b, &token_b, now).await
     });
-
-    let result_a = handle_a.await.unwrap();
-    let result_b = handle_b.await.unwrap();
-
-    let successes = [&result_a, &result_b].iter().filter(|r| r.is_ok()).count();
-    assert_eq!(
-        successes, 1,
-        "exactly one concurrent OTP redeem must succeed (a={result_a:?}, b={result_b:?})"
+    assert!(
+        handle_a.await.unwrap().is_ok() && handle_b.await.unwrap().is_ok(),
+        "verify-only redeems must both succeed concurrently"
     );
 
     let consumed_at: Option<OffsetDateTime> =
@@ -73,8 +67,58 @@ async fn concurrent_redeem_consumes_otp_exactly_once(pool: PgPool) {
             .fetch_one(&pool)
             .await
             .unwrap();
+    assert!(consumed_at.is_none(), "a redeem must not consume the code");
+
+    // Two concurrent registration-consumes: exactly one matches the open row.
+    let barrier = Arc::new(Barrier::new(2));
+    let (store_a, store_b) = (store, store);
+    let (pool_a, pool_b) = (pool.clone(), pool.clone());
+    let (barrier_a, barrier_b) = (Arc::clone(&barrier), Arc::clone(&barrier));
+    let consume_a = tokio::spawn(async move {
+        barrier_a.wait().await;
+        let mut tx = pool_a.begin().await.unwrap();
+        store_a
+            .consume_open_credentials_tx(&mut tx, user_id, now)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+    });
+    let consume_b = tokio::spawn(async move {
+        barrier_b.wait().await;
+        let mut tx = pool_b.begin().await.unwrap();
+        store_b
+            .consume_open_credentials_tx(&mut tx, user_id, now)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+    });
+    consume_a.await.unwrap();
+    consume_b.await.unwrap();
+
+    let consumed_at: Option<OffsetDateTime> =
+        sqlx::query_scalar("SELECT consumed_at FROM auth_bootstrap_credentials WHERE id = $1")
+            .bind(issue.credential_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(consumed_at.is_some(), "registration consumes the code");
+
+    // Exactly one consume audit: only one concurrent consume matched the open row.
+    let consume_audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE action = 'auth.otp.consume' AND target_id = $1",
+    )
+    .bind(issue.credential_id.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        consume_audits, 1,
+        "the code must be consumed exactly once, even under concurrency"
+    );
+
+    // A subsequent redeem is rejected: the code is dead.
     assert!(
-        consumed_at.is_some(),
-        "the OTP must be consumed after the single successful redeem"
+        store.redeem_otp(&pool, issue.token.as_str(), now).await.is_err(),
+        "a consumed code must not redeem again"
     );
 }

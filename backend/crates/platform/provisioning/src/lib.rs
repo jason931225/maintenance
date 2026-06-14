@@ -217,15 +217,19 @@ impl BootstrapCredentialStore {
         // unexpired — exactly the harden-1 invariant, so a redeemed OTP can never
         // be replayed.
         let mut tx = pool.begin().await?;
+        // Verify-ONLY: a redeem mints a session but does NOT consume the code.
+        // Single-use is enforced at passkey REGISTRATION (consume_open_credentials_tx,
+        // atomic with the passkey insert via the harden-1 pattern), so an incomplete
+        // or cancelled enrollment never burns the code — the user can re-redeem until
+        // a passkey actually sticks. Expiry/revocation are still enforced here.
         let claimed = sqlx::query(
             r#"
-            UPDATE auth_bootstrap_credentials
-            SET consumed_at = $2
+            SELECT id, user_id
+            FROM auth_bootstrap_credentials
             WHERE token_hash = $1
               AND consumed_at IS NULL
               AND revoked_at IS NULL
               AND expires_at > $2
-            RETURNING id, user_id
             "#,
         )
         .bind(&token_hash)
@@ -266,6 +270,50 @@ impl BootstrapCredentialStore {
             user_id,
             requires_passkey_setup,
         })
+    }
+
+    /// Consume the user's open one-time code(s) inside the caller's transaction.
+    ///
+    /// Called from passkey registration so the code is consumed ATOMICALLY with the
+    /// passkey insert (the harden-1 single-use invariant). Because a redeem no longer
+    /// consumes, this is the single point of consumption: once a passkey exists the
+    /// code is dead and can never mint another session. A returning user adding a
+    /// second passkey simply has no open code, so this is a clean no-op (0 rows).
+    pub async fn consume_open_credentials_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        user_id: Uuid,
+        now: OffsetDateTime,
+    ) -> Result<(), ProvisioningError> {
+        let consumed = sqlx::query(
+            r#"
+            UPDATE auth_bootstrap_credentials
+            SET consumed_at = $2
+            WHERE user_id = $1
+              AND consumed_at IS NULL
+              AND revoked_at IS NULL
+            RETURNING id
+            "#,
+        )
+        .bind(user_id)
+        .bind(now)
+        .fetch_all(tx.as_mut())
+        .await?;
+
+        for row in consumed {
+            let credential_id: Uuid = row.try_get("id")?;
+            let audit = AuditEvent::new(
+                Some(UserId::from_uuid(user_id)),
+                AuditAction::new("auth.otp.consume")?,
+                "auth_bootstrap_credential",
+                credential_id.to_string(),
+                TraceContext::generate(),
+                now,
+            )
+            .with_snapshots(None, Some(serde_json::json!({ "user_id": user_id })));
+            insert_audit_event(tx, &audit).await?;
+        }
+        Ok(())
     }
 }
 
