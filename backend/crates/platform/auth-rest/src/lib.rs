@@ -8,7 +8,7 @@
 use std::str::FromStr;
 
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
@@ -16,7 +16,7 @@ use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, BranchScope, TraceConte
 use mnt_platform_auth::{
     AccessClaims, AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier,
     PasskeyAuthenticationCredential, PasskeyRegistrationCredential, PasskeyRegistrationStart,
-    PasskeyService, RefreshTokenIssue, RefreshTokenStore, RefreshTokenUseError, WebauthnSettings,
+    PasskeyService, RefreshTokenStore, RefreshTokenUseError, WebauthnSettings,
 };
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize, resolve_branch_scope};
 use mnt_platform_db::{DbError, with_audit};
@@ -28,6 +28,20 @@ use url::Url;
 use uuid::Uuid;
 
 const DEFAULT_ACCESS_TOKEN_TTL: Duration = Duration::minutes(15);
+
+/// Request header a WEB client sets to opt into the cookie transport for the
+/// refresh token. Mobile (iOS/Android) clients never send it and keep the
+/// body-based refresh token. The value must equal [`AUTH_TRANSPORT_COOKIE`].
+const AUTH_TRANSPORT_HEADER: &str = "x-auth-transport";
+/// The single recognized value of [`AUTH_TRANSPORT_HEADER`].
+const AUTH_TRANSPORT_COOKIE: &str = "cookie";
+/// Name of the HttpOnly refresh-token cookie used by the web transport.
+const REFRESH_COOKIE_NAME: &str = "mnt_refresh";
+/// Path scope of the refresh cookie. Restricting it to the auth namespace means
+/// the browser never attaches the refresh token to ordinary API calls — only to
+/// the refresh/logout endpoints that need it.
+const REFRESH_COOKIE_PATH: &str = "/api/v1/auth";
+
 pub const PASSKEY_REGISTER_START_PATH: &str = "/api/v1/auth/passkey/register/start";
 pub const PASSKEY_REGISTER_FINISH_PATH: &str = "/api/v1/auth/passkey/register/finish";
 pub const PASSKEY_LOGIN_START_PATH: &str = "/api/v1/auth/passkey/login/start";
@@ -78,6 +92,11 @@ pub struct AuthRestConfig {
     /// (the rightmost entry is appended by the closest proxy). Assumes the ingress
     /// proxy sets/strips XFF so the left-most entries cannot be spoofed past it.
     pub trusted_proxy_count: usize,
+    /// Whether the web refresh cookie carries the `Secure` attribute (`true` in
+    /// production over HTTPS). Disabled (`MNT_COOKIE_SECURE=false`) only for local
+    /// http dev where the browser would otherwise drop a `Secure` cookie on
+    /// `http://localhost`.
+    pub cookie_secure: bool,
 }
 
 #[derive(Clone)]
@@ -103,6 +122,7 @@ struct AuthServices {
     refresh_tokens: RefreshTokenStore,
     bootstrap_credentials: BootstrapCredentialStore,
     refresh_token_ttl: Duration,
+    cookie_secure: bool,
 }
 
 impl AuthRestState {
@@ -148,6 +168,7 @@ impl AuthRestState {
                 refresh_tokens: RefreshTokenStore,
                 bootstrap_credentials: BootstrapCredentialStore,
                 refresh_token_ttl: config.refresh_token_ttl,
+                cookie_secure: config.cookie_secure,
             }),
             trusted_proxy_count: config.trusted_proxy_count.max(1),
         })
@@ -224,10 +245,14 @@ struct OtpRedeemRequest {
 
 /// OTP first sign-in result: a normal session token pair plus a flag telling the
 /// frontend to force passkey enrollment in initial settings.
+///
+/// `refresh_token` is `null` in the cookie transport (web): the token is set as
+/// an HttpOnly cookie instead and must never reach web JS. It is `Some` in the
+/// body transport (mobile).
 #[derive(Debug, Serialize)]
 struct OtpRedeemResponse {
     access_token: String,
-    refresh_token: String,
+    refresh_token: Option<String>,
     token_type: &'static str,
     refresh_expires_at: OffsetDateTime,
     requires_passkey_setup: bool,
@@ -251,22 +276,31 @@ struct AdminIssueOtpResponse {
     expires_at: OffsetDateTime,
 }
 
+/// A minted access/refresh pair. `refresh_token` is `null` in the cookie
+/// transport (web) — the refresh token rides in the HttpOnly `mnt_refresh`
+/// cookie instead — and `Some` in the body transport (mobile). The access token
+/// is ALWAYS in the body: it stays a short-lived in-memory bearer token, never a
+/// cookie.
 #[derive(Debug, Serialize)]
 struct TokenPairResponse {
     access_token: String,
-    refresh_token: String,
+    refresh_token: Option<String>,
     token_type: &'static str,
     refresh_expires_at: OffsetDateTime,
 }
 
-#[derive(Debug, Deserialize)]
+/// The refresh-token body is OPTIONAL: web (cookie transport) sends the token in
+/// the `mnt_refresh` cookie and an empty/absent body, while mobile sends it here.
+#[derive(Debug, Deserialize, Default)]
 struct RefreshTokenRequest {
-    refresh_token: String,
+    refresh_token: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+/// Logout accepts the refresh token from the `mnt_refresh` cookie (web) or from
+/// this body (mobile); the field is therefore optional.
+#[derive(Debug, Deserialize, Default)]
 struct LogoutRequest {
-    refresh_token: String,
+    refresh_token: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -508,8 +542,9 @@ async fn start_login(
 
 async fn finish_login(
     State(state): State<AuthRestState>,
+    headers: HeaderMap,
     Json(body): Json<LoginFinishRequest>,
-) -> Result<Json<TokenPairResponse>, RestError> {
+) -> Result<Response, RestError> {
     let services = state.services()?;
     let outcome = services
         .passkeys
@@ -528,7 +563,11 @@ async fn finish_login(
         }),
     )
     .await?;
-    Ok(Json(tokens.into_response()))
+    Ok(token_pair_response(
+        tokens,
+        &headers,
+        services.cookie_secure,
+    ))
 }
 
 /// Redeem a one-time OTP as a FIRST SIGN-IN.
@@ -541,7 +580,7 @@ async fn redeem_otp(
     State(state): State<AuthRestState>,
     headers: HeaderMap,
     Json(body): Json<OtpRedeemRequest>,
-) -> Result<Json<OtpRedeemResponse>, RestError> {
+) -> Result<Response, RestError> {
     let services = state.services()?;
     let now = OffsetDateTime::now_utc();
     rate_limit(
@@ -584,13 +623,32 @@ async fn redeem_otp(
         }),
     )
     .await?;
-    Ok(Json(OtpRedeemResponse {
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-        token_type: "Bearer",
-        refresh_expires_at: tokens.refresh_expires_at,
-        requires_passkey_setup: redemption.requires_passkey_setup,
-    }))
+
+    // Dual transport: web (cookie) gets an HttpOnly Set-Cookie and a null body
+    // refresh token; mobile (body) gets the refresh token in the JSON body. The
+    // access token and passkey-setup flag are always in the body.
+    if wants_cookie_transport(&headers) {
+        let max_age = (tokens.refresh_expires_at - now).whole_seconds();
+        let cookie = refresh_set_cookie(&tokens.refresh_token, max_age, services.cookie_secure);
+        let response = Json(OtpRedeemResponse {
+            access_token: tokens.access_token,
+            refresh_token: None,
+            token_type: "Bearer",
+            refresh_expires_at: tokens.refresh_expires_at,
+            requires_passkey_setup: redemption.requires_passkey_setup,
+        })
+        .into_response();
+        Ok(with_refresh_cookie(response, cookie))
+    } else {
+        Ok(Json(OtpRedeemResponse {
+            access_token: tokens.access_token,
+            refresh_token: Some(tokens.refresh_token),
+            token_type: "Bearer",
+            refresh_expires_at: tokens.refresh_expires_at,
+            requires_passkey_setup: redemption.requires_passkey_setup,
+        })
+        .into_response())
+    }
 }
 
 /// Issue a one-time sign-in OTP for a pre-provisioned zero-credential user.
@@ -707,7 +765,7 @@ async fn refresh_token(
     State(state): State<AuthRestState>,
     headers: HeaderMap,
     Json(body): Json<RefreshTokenRequest>,
-) -> Result<Json<TokenPairResponse>, RestError> {
+) -> Result<Response, RestError> {
     let services = state.services()?;
     let now = OffsetDateTime::now_utc();
     rate_limit(
@@ -718,31 +776,71 @@ async fn refresh_token(
         now,
     )
     .await?;
+    // Dual transport: web reads the rotating token from the `mnt_refresh` cookie;
+    // mobile sends it in the JSON body. The cookie takes precedence so a web
+    // client never has to (and never should) echo the token in the body.
+    let cookie_mode = wants_cookie_transport(&headers);
+    let refresh = refresh_cookie_value(&headers)
+        .or(body.refresh_token)
+        .ok_or_else(|| RestError::unauthorized("missing refresh token"))?;
     let issue = services
         .refresh_tokens
-        .rotate(
-            &state.pool,
-            &body.refresh_token,
-            now,
-            services.refresh_token_ttl,
-        )
+        .rotate(&state.pool, &refresh, now, services.refresh_token_ttl)
         .await
         .map_err(RestError::from_refresh)?;
     let user = load_user_auth_context(&state.pool, issue.user_id).await?;
-    Ok(Json(access_response_for_issue(services, &user, issue)?))
+    let access_token = issue_access_token(services, &user)?;
+    if cookie_mode {
+        let max_age = (issue.expires_at - now).whole_seconds();
+        let cookie = refresh_set_cookie(issue.token.as_str(), max_age, services.cookie_secure);
+        let response = Json(TokenPairResponse {
+            access_token,
+            refresh_token: None,
+            token_type: "Bearer",
+            refresh_expires_at: issue.expires_at,
+        })
+        .into_response();
+        Ok(with_refresh_cookie(response, cookie))
+    } else {
+        Ok(Json(TokenPairResponse {
+            access_token,
+            refresh_token: Some(issue.token.as_str().to_owned()),
+            token_type: "Bearer",
+            refresh_expires_at: issue.expires_at,
+        })
+        .into_response())
+    }
 }
 
 async fn logout(
     State(state): State<AuthRestState>,
+    headers: HeaderMap,
     Json(body): Json<LogoutRequest>,
-) -> Result<StatusCode, RestError> {
+) -> Result<Response, RestError> {
     let services = state.services()?;
-    services
-        .refresh_tokens
-        .revoke_family_for_logout(&state.pool, &body.refresh_token, OffsetDateTime::now_utc())
-        .await
-        .map_err(RestError::from_refresh)?;
-    Ok(StatusCode::NO_CONTENT)
+    let cookie_mode = wants_cookie_transport(&headers);
+    // Read the token from the cookie (web) or the body (mobile). A logout with no
+    // token is a no-op success: the session is already gone client-side, and we
+    // still clear the cookie for the web client below.
+    let refresh = refresh_cookie_value(&headers).or(body.refresh_token);
+    if let Some(refresh) = refresh.as_deref() {
+        services
+            .refresh_tokens
+            .revoke_family_for_logout(&state.pool, refresh, OffsetDateTime::now_utc())
+            .await
+            .map_err(RestError::from_refresh)?;
+    }
+    // Always clear the cookie for the web transport so a stale token cannot linger
+    // in the browser after the family is revoked.
+    if cookie_mode {
+        let response = StatusCode::NO_CONTENT.into_response();
+        Ok(with_refresh_cookie(
+            response,
+            refresh_clear_cookie(services.cookie_secure),
+        ))
+    } else {
+        Ok(StatusCode::NO_CONTENT.into_response())
+    }
 }
 
 impl AuthRestState {
@@ -771,10 +869,11 @@ struct IssuedTokenPair {
 }
 
 impl IssuedTokenPair {
+    /// Body-transport (mobile) response: the refresh token rides in the JSON body.
     fn into_response(self) -> TokenPairResponse {
         TokenPairResponse {
             access_token: self.access_token,
-            refresh_token: self.refresh_token,
+            refresh_token: Some(self.refresh_token),
             token_type: "Bearer",
             refresh_expires_at: self.refresh_expires_at,
         }
@@ -815,12 +914,13 @@ async fn issue_token_pair(
     })
 }
 
-fn access_response_for_issue(
+/// Mint a fresh access JWT for `user`. Shared by the refresh path, which pairs it
+/// with either a rotated cookie (web) or a body refresh token (mobile).
+fn issue_access_token(
     services: &AuthServices,
     user: &UserAuthContext,
-    issue: RefreshTokenIssue,
-) -> Result<TokenPairResponse, RestError> {
-    let access_token = services
+) -> Result<String, RestError> {
+    services
         .jwt_issuer
         .issue_access_token(AccessTokenInput {
             subject: user.user_id,
@@ -828,14 +928,7 @@ fn access_response_for_issue(
             branches: user.branches.clone(),
             issued_at: OffsetDateTime::now_utc(),
         })
-        .map_err(|err| RestError::internal(err.to_string()))?;
-
-    Ok(TokenPairResponse {
-        access_token,
-        refresh_token: issue.token.as_str().to_owned(),
-        token_type: "Bearer",
-        refresh_expires_at: issue.expires_at,
-    })
+        .map_err(|err| RestError::internal(err.to_string()))
 }
 
 async fn load_user_auth_context(
@@ -1186,6 +1279,99 @@ fn client_device_id(headers: &HeaderMap) -> Option<String> {
         return None;
     }
     Some(value.to_owned())
+}
+
+// ---------------------------------------------------------------------------
+// Dual-transport refresh token: web=HttpOnly cookie, mobile=JSON body.
+// ---------------------------------------------------------------------------
+
+/// True when the caller opted into the cookie transport via
+/// `X-Auth-Transport: cookie` (the web client). Mobile clients omit the header
+/// and keep the body-based refresh token, so they take the `false` branch.
+fn wants_cookie_transport(headers: &HeaderMap) -> bool {
+    headers
+        .get(AUTH_TRANSPORT_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .is_some_and(|value| value.eq_ignore_ascii_case(AUTH_TRANSPORT_COOKIE))
+}
+
+/// Read the refresh token from the `mnt_refresh` cookie, parsing the raw `Cookie`
+/// header (`a=b; c=d`). Returns `None` when the header or the cookie is absent or
+/// the value is empty. Used by the web transport; mobile reads it from the body.
+fn refresh_cookie_value(headers: &HeaderMap) -> Option<String> {
+    let cookie_header = headers.get(header::COOKIE)?.to_str().ok()?;
+    cookie_header
+        .split(';')
+        .filter_map(|pair| pair.split_once('='))
+        .find_map(|(name, value)| {
+            (name.trim() == REFRESH_COOKIE_NAME).then(|| value.trim().to_owned())
+        })
+        .filter(|value| !value.is_empty())
+}
+
+/// Build a `Set-Cookie` header that stores the refresh token for the web
+/// transport.
+///
+/// CSRF safety (confirmed): `SameSite=Strict` stops the browser from attaching
+/// this cookie to any cross-site request, so a forged request from another origin
+/// carries no refresh token. The `Path=/api/v1/auth` scope keeps it off every
+/// other API call, and the access token travels in the `Authorization` header
+/// (NOT a cookie), so a state-changing API call can never be driven by an
+/// ambient cookie alone. `HttpOnly` keeps the token out of JS (XSS exfiltration),
+/// and `Secure` (prod) forbids plaintext transmission. Together these make the
+/// cookie transport CSRF-safe without a separate CSRF token.
+fn refresh_set_cookie(token: &str, max_age_secs: i64, secure: bool) -> Option<HeaderValue> {
+    let max_age = max_age_secs.max(0);
+    let mut cookie = format!(
+        "{REFRESH_COOKIE_NAME}={token}; HttpOnly; SameSite=Strict; Path={REFRESH_COOKIE_PATH}; Max-Age={max_age}"
+    );
+    if secure {
+        cookie.push_str("; Secure");
+    }
+    HeaderValue::from_str(&cookie).ok()
+}
+
+/// Build a `Set-Cookie` header that CLEARS the refresh cookie (logout): same
+/// name/path/attributes with `Max-Age=0` so the browser drops it immediately.
+fn refresh_clear_cookie(secure: bool) -> Option<HeaderValue> {
+    refresh_set_cookie("", 0, secure)
+}
+
+/// Turn a minted token pair into a transport-appropriate response.
+///
+/// Cookie transport (web): emit the refresh token as an HttpOnly `Set-Cookie`
+/// and NULL the body `refresh_token` so it never reaches web JS. Body transport
+/// (mobile): leave the refresh token in the JSON body and set no cookie. The
+/// access token stays in the body in both cases.
+fn token_pair_response(
+    tokens: IssuedTokenPair,
+    headers: &HeaderMap,
+    cookie_secure: bool,
+) -> Response {
+    if wants_cookie_transport(headers) {
+        let max_age = (tokens.refresh_expires_at - OffsetDateTime::now_utc()).whole_seconds();
+        let body = TokenPairResponse {
+            access_token: tokens.access_token,
+            refresh_token: None,
+            token_type: "Bearer",
+            refresh_expires_at: tokens.refresh_expires_at,
+        };
+        with_refresh_cookie(
+            Json(body).into_response(),
+            refresh_set_cookie(&tokens.refresh_token, max_age, cookie_secure),
+        )
+    } else {
+        Json(tokens.into_response()).into_response()
+    }
+}
+
+/// Append a `Set-Cookie` header to a response when one was built.
+fn with_refresh_cookie(mut response: Response, cookie: Option<HeaderValue>) -> Response {
+    if let Some(cookie) = cookie {
+        response.headers_mut().append(header::SET_COOKIE, cookie);
+    }
+    response
 }
 
 #[cfg(test)]

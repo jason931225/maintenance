@@ -1,5 +1,6 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 
+import { PageSpinner } from "./states/PageSpinner";
 import { useAuth } from "../context/auth";
 
 /**
@@ -8,12 +9,17 @@ import { useAuth } from "../context/auth";
  * (first OTP sign-in) is forced into the /onboarding enrollment step until a
  * passkey is enrolled.
  *
- * The session hydrates synchronously from sessionStorage, so there is no async
- * loading phase to guard against here.
+ * The session is recovered on boot via an async silent cookie refresh, so we
+ * must WAIT for that to settle before deciding authenticated-vs-redirect —
+ * otherwise a hard page reload would briefly bounce a logged-in user to /login.
  */
 export function ProtectedRoute({ children }: { children?: React.ReactNode }) {
-  const { session } = useAuth();
+  const { session, restoring } = useAuth();
   const location = useLocation();
+
+  if (restoring) {
+    return <PageSpinner />;
+  }
 
   if (!session) {
     return (

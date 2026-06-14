@@ -32,9 +32,9 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param accessToken
- * @param refreshToken
  * @param tokenType
  * @param refreshExpiresAt
+ * @param refreshToken The opaque rotating refresh token in the body transport (mobile). It is null in the cookie transport (web), where the token is set as an HttpOnly `mnt_refresh` cookie and must never reach web JS.
  */
 @Serializable
 
@@ -43,14 +43,15 @@ data class TokenPairResponse (
     @SerialName(value = "access_token")
     val accessToken: kotlin.String,
 
-    @SerialName(value = "refresh_token")
-    val refreshToken: kotlin.String,
-
     @SerialName(value = "token_type")
     val tokenType: TokenPairResponse.TokenType,
 
     @Contextual @SerialName(value = "refresh_expires_at")
-    val refreshExpiresAt: java.time.OffsetDateTime
+    val refreshExpiresAt: java.time.OffsetDateTime,
+
+    /* The opaque rotating refresh token in the body transport (mobile). It is null in the cookie transport (web), where the token is set as an HttpOnly `mnt_refresh` cookie and must never reach web JS. */
+    @SerialName(value = "refresh_token")
+    val refreshToken: kotlin.String? = null
 
 ) {
 

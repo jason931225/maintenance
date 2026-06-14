@@ -112,6 +112,9 @@ function makeAuthContext(session: AuthSession | undefined): AuthContextValue {
   const api = createConsoleApiClient(session?.access_token);
   return {
     session,
+    // Tests inject a settled context directly (no AuthProvider), so the boot
+    // silent refresh has already resolved: restoring is false.
+    restoring: false,
     login: async () => {},
     logout: async () => {},
     refresh: async () => {},
@@ -123,7 +126,6 @@ function makeAuthContext(session: AuthSession | undefined): AuthContextValue {
 
 const authenticatedSession: AuthSession = {
   access_token: tokenPair.access_token,
-  refresh_token: tokenPair.refresh_token,
 };
 
 function renderAt(path: string, session: AuthSession | undefined = authenticatedSession) {

@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useMemo, useState } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { createConsoleApiClient } from "../api/client";
 import type { ConsoleApiClient } from "../api/client";
@@ -10,8 +17,8 @@ import {
 } from "../auth/webauthn";
 
 export interface AuthSession {
+  /** Short-lived bearer token, held in memory only (never persisted). */
   access_token: string;
-  refresh_token: string;
   role?: "technician" | "admin" | "executive" | "super-admin";
   user_id?: string;
   /** JWT `roles` claim, e.g. ADMIN / SUPER_ADMIN, used for admin-only affordances. */
@@ -25,15 +32,24 @@ export interface AuthSession {
   requires_passkey_setup?: boolean;
 }
 
-/** Token pair plus the optional first-sign-in passkey-setup flag from OTP redeem. */
+/**
+ * Token pair accepted from an external flow (OTP redeem). In the web cookie
+ * transport the refresh token is NOT in the body — it is set as an HttpOnly
+ * cookie by the backend — so only the access token is carried here.
+ */
 export interface AcceptableTokens {
   access_token: string;
-  refresh_token: string;
   requires_passkey_setup?: boolean;
 }
 
 export interface AuthContextValue {
   session: AuthSession | undefined;
+  /**
+   * True while the boot-time silent refresh is in flight. UX note: a hard page
+   * reload now performs an async silent refresh before the app knows whether it
+   * is authenticated, so route guards must wait for this to settle.
+   */
+  restoring: boolean;
   login: () => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -50,25 +66,6 @@ export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used inside <AuthProvider>");
   return ctx;
-}
-
-const STORAGE_KEY = "maintenance_console_session";
-
-function loadSessionFromStorage(): AuthSession | undefined {
-  try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as AuthSession) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function saveSessionToStorage(s: AuthSession) {
-  sessionStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-}
-
-function clearSessionFromStorage() {
-  sessionStorage.removeItem(STORAGE_KEY);
 }
 
 /**
@@ -108,79 +105,110 @@ function decodeAccessClaims(accessToken: string): {
   }
 }
 
+/** Build a session from a fresh access token plus its decoded UI-gating claims. */
+function sessionFromAccessToken(
+  accessToken: string,
+  requiresPasskeySetup?: boolean,
+): AuthSession {
+  return {
+    access_token: accessToken,
+    requires_passkey_setup: requiresPasskeySetup,
+    ...decodeAccessClaims(accessToken),
+  };
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // Session hydrates synchronously from sessionStorage, so there is no async
-  // loading phase to guard against.
-  const [session, setSession] = useState<AuthSession | undefined>(
-    () => loadSessionFromStorage(),
-  );
+  // The access token lives ONLY in memory; the refresh token never reaches JS
+  // (it is an HttpOnly cookie). On boot there is therefore nothing to hydrate
+  // synchronously — we recover the session via a silent cookie refresh instead.
+  const [session, setSession] = useState<AuthSession | undefined>(undefined);
+  const [restoring, setRestoring] = useState(true);
+
+  // A bootstrap api client (no bearer) just for the boot refresh; the per-session
+  // client below carries the access token once we have one.
+  const bootApi = useMemo(() => createConsoleApiClient(undefined), []);
 
   const api = useMemo(
     () => createConsoleApiClient(session?.access_token),
     [session?.access_token],
   );
 
+  // Boot-time silent refresh: POST /refresh with the HttpOnly cookie. Success ->
+  // authenticated with a fresh access token; any failure (e.g. 401, no cookie)
+  // -> unauthenticated. Runs exactly once. The cancellation flag lives on a ref
+  // object so an unmount mid-flight skips the state updates.
+  const booted = useRef(false);
+  const cancelled = useRef(false);
+  useEffect(() => {
+    if (booted.current) return;
+    booted.current = true;
+    cancelled.current = false;
+    async function bootRefresh() {
+      try {
+        const tokens = await refreshTokenFn(bootApi);
+        if (!cancelled.current) {
+          setSession(sessionFromAccessToken(tokens.access_token));
+        }
+      } catch {
+        if (!cancelled.current) setSession(undefined);
+      } finally {
+        if (!cancelled.current) setRestoring(false);
+      }
+    }
+    void bootRefresh();
+    return () => {
+      cancelled.current = true;
+    };
+  }, [bootApi]);
+
   async function login() {
     const ceremony = await startPasskeyLogin(api);
     const tokens = await finishPasskeyLogin(api, ceremony);
-    const next: AuthSession = {
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      ...decodeAccessClaims(tokens.access_token),
-    };
-    setSession(next);
-    saveSessionToStorage(next);
+    setSession(sessionFromAccessToken(tokens.access_token));
   }
 
   async function logout() {
     if (session) {
-      await logoutWebAuthn(api, session.refresh_token).catch(() => {});
+      await logoutWebAuthn(api).catch(() => {});
     }
     setSession(undefined);
-    clearSessionFromStorage();
   }
 
   async function refresh() {
     if (!session) return;
-    const tokens = await refreshTokenFn(api, session.refresh_token);
-    const next: AuthSession = {
-      ...session,
-      ...tokens,
-      ...decodeAccessClaims(tokens.access_token),
-    };
-    setSession(next);
-    saveSessionToStorage(next);
+    const tokens = await refreshTokenFn(api);
+    setSession((current) =>
+      current
+        ? {
+            ...current,
+            access_token: tokens.access_token,
+            ...decodeAccessClaims(tokens.access_token),
+          }
+        : current,
+    );
   }
 
   function acceptTokens(tokens: AcceptableTokens | undefined) {
     if (!tokens) {
       setSession(undefined);
-      clearSessionFromStorage();
       return;
     }
-    const next: AuthSession = {
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      requires_passkey_setup: tokens.requires_passkey_setup,
-      ...decodeAccessClaims(tokens.access_token),
-    };
-    setSession(next);
-    saveSessionToStorage(next);
+    setSession(
+      sessionFromAccessToken(tokens.access_token, tokens.requires_passkey_setup),
+    );
   }
 
   function clearPasskeySetup() {
-    setSession((current) => {
-      if (!current) return current;
-      const next: AuthSession = { ...current, requires_passkey_setup: false };
-      saveSessionToStorage(next);
-      return next;
-    });
+    setSession((current) =>
+      current ? { ...current, requires_passkey_setup: false } : current,
+    );
   }
 
   return (
     <AuthContext.Provider
       value={{
         session,
+        restoring,
         login,
         logout,
         refresh,

@@ -28,6 +28,9 @@ function makeAuthContext(
   const api = createConsoleApiClient(overrides.session?.access_token);
   return {
     session: overrides.session,
+    // Injected directly (no AuthProvider): the boot silent refresh is already
+    // settled unless a test overrides it.
+    restoring: overrides.restoring ?? false,
     login: overrides.login ?? (async () => {}),
     logout: overrides.logout ?? (async () => {}),
     refresh: overrides.refresh ?? (async () => {}),
@@ -95,9 +98,10 @@ describe("LoginPage sign-in", () => {
     await user.click(screen.getByRole("button", { name: "코드로 로그인" }));
 
     await waitFor(() => {
+      // Cookie transport: only the access token is carried into the session; the
+      // refresh token is set as an HttpOnly cookie and never reaches JS.
       expect(acceptTokens).toHaveBeenCalledWith({
         access_token: "otp-access",
-        refresh_token: "otp-refresh",
         requires_passkey_setup: true,
       });
     });
@@ -129,7 +133,6 @@ describe("requires_passkey_setup routing", () => {
   it("forces an OTP-first session into /onboarding", async () => {
     const session: AuthSession = {
       access_token: "a",
-      refresh_token: "r",
       requires_passkey_setup: true,
     };
     renderApp("/dispatch", makeAuthContext({ session }));
@@ -144,7 +147,6 @@ describe("admin security page gating", () => {
   it("redirects a non-admin away from /settings/security", async () => {
     const session: AuthSession = {
       access_token: "a",
-      refresh_token: "r",
       roles: ["MECHANIC"],
     };
     renderApp("/settings/security", makeAuthContext({ session }));
@@ -159,7 +161,6 @@ describe("admin security page gating", () => {
   it("renders the admin OTP issue form for an admin", async () => {
     const session: AuthSession = {
       access_token: "a",
-      refresh_token: "r",
       roles: ["ADMIN"],
       branches: ["11111111-1111-4111-8111-111111111111"],
     };
@@ -216,7 +217,6 @@ describe("OnboardingPage enrollment", () => {
 
     const session: AuthSession = {
       access_token: "a",
-      refresh_token: "r",
       requires_passkey_setup: true,
     };
 
@@ -243,7 +243,6 @@ describe("OnboardingPage enrollment", () => {
       makeAuthContext({
         session: {
           access_token: "a",
-          refresh_token: "r",
           requires_passkey_setup: true,
         },
       }),

@@ -32,10 +32,10 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param accessToken
- * @param refreshToken
  * @param tokenType
  * @param refreshExpiresAt
  * @param requiresPasskeySetup True when the signed-in user has no passkey yet and should enroll one in initial settings.
+ * @param refreshToken The opaque rotating refresh token in the body transport (mobile). It is null in the cookie transport (web), where the token is set as an HttpOnly `mnt_refresh` cookie and must never reach web JS.
  */
 @Serializable
 
@@ -43,9 +43,6 @@ data class OtpRedeemResponse (
 
     @SerialName(value = "access_token")
     val accessToken: kotlin.String,
-
-    @SerialName(value = "refresh_token")
-    val refreshToken: kotlin.String,
 
     @SerialName(value = "token_type")
     val tokenType: kotlin.String,
@@ -55,7 +52,11 @@ data class OtpRedeemResponse (
 
     /* True when the signed-in user has no passkey yet and should enroll one in initial settings. */
     @SerialName(value = "requires_passkey_setup")
-    val requiresPasskeySetup: kotlin.Boolean
+    val requiresPasskeySetup: kotlin.Boolean,
+
+    /* The opaque rotating refresh token in the body transport (mobile). It is null in the cookie transport (web), where the token is set as an HttpOnly `mnt_refresh` cookie and must never reach web JS. */
+    @SerialName(value = "refresh_token")
+    val refreshToken: kotlin.String? = null
 
 ) {
 

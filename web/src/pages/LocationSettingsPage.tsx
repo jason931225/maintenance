@@ -8,10 +8,11 @@ const defaultBranchId = "00000000-0000-4000-8000-000000000001";
 export function LocationSettingsPage() {
   const { api, session } = useAuth();
 
+  // The panel only uses this as a "signed-in" gate; the refresh token now lives
+  // in an HttpOnly cookie and is intentionally absent from JS-visible state.
   const shimSession = session
     ? {
         access_token: session.access_token,
-        refresh_token: session.refresh_token,
         token_type: "Bearer" as const,
         refresh_expires_at: "",
       }

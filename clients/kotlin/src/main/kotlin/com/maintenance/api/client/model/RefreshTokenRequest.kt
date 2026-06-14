@@ -29,7 +29,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Contextual
 
 /**
- *
+ * Refresh/logout request body. `refresh_token` is OPTIONAL because the web transport carries the token in the HttpOnly `mnt_refresh` cookie (sent automatically by the browser) and the body is empty; mobile clients send the token here.
  *
  * @param refreshToken
  */
@@ -38,7 +38,7 @@ import kotlinx.serialization.Contextual
 data class RefreshTokenRequest (
 
     @SerialName(value = "refresh_token")
-    val refreshToken: kotlin.String
+    val refreshToken: kotlin.String? = null
 
 ) {
 

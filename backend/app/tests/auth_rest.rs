@@ -43,13 +43,15 @@ struct LoginStartResponse {
 #[derive(Debug, Deserialize)]
 struct TokenPairResponse {
     access_token: String,
-    refresh_token: String,
+    /// Present (body transport, mobile) or null (cookie transport, web).
+    refresh_token: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct OtpRedeemResponse {
     access_token: String,
-    refresh_token: String,
+    /// Present (body transport, mobile) or null (cookie transport, web).
+    refresh_token: Option<String>,
     requires_passkey_setup: bool,
 }
 
@@ -120,7 +122,11 @@ async fn otp_first_signin_then_passkey_enrollment_then_usernameless_login(pool: 
         "a zero-passkey user must be flagged for passkey setup"
     );
     assert!(
-        !redeem.access_token.is_empty() && !redeem.refresh_token.is_empty(),
+        !redeem.access_token.is_empty()
+            && redeem
+                .refresh_token
+                .as_ref()
+                .is_some_and(|token| !token.is_empty()),
         "an OTP redeem is a first sign-in: it must mint a full session (access + refresh tokens)"
     );
 
@@ -155,12 +161,16 @@ async fn otp_first_signin_then_passkey_enrollment_then_usernameless_login(pool: 
     .await;
     assert_eq!(work_order["status"], "RECEIVED");
 
-    // Refresh rotation + reuse-detection still holds.
+    // Refresh rotation + reuse-detection still holds (mobile/body transport).
+    let first_refresh = first_tokens
+        .refresh_token
+        .clone()
+        .expect("body-transport login must return a refresh token");
     let rotated: TokenPairResponse = post_json(
         service.clone(),
         "/api/v1/auth/token/refresh",
         None,
-        json!({ "refresh_token": first_tokens.refresh_token }),
+        json!({ "refresh_token": first_refresh }),
         StatusCode::OK,
     )
     .await;
@@ -170,7 +180,7 @@ async fn otp_first_signin_then_passkey_enrollment_then_usernameless_login(pool: 
         service.clone(),
         "/api/v1/auth/token/refresh",
         None,
-        json!({ "refresh_token": first_tokens.refresh_token }),
+        json!({ "refresh_token": first_refresh }),
     )
     .await;
     assert_eq!(reuse.status(), StatusCode::UNAUTHORIZED);
@@ -543,7 +553,294 @@ async fn otp_redeem_rate_limit_trips_429_per_ip(pool: PgPool) {
     );
 }
 
+/// WEB dual-transport: when `X-Auth-Transport: cookie` is present, an OTP redeem
+/// sets the refresh token as an HttpOnly `mnt_refresh` cookie and OMITS it from
+/// the JSON body, while the access token stays in the body. The cookie carries
+/// the CSRF-safe attributes (HttpOnly, SameSite=Strict, Path=/api/v1/auth).
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn cookie_mode_redeem_sets_httponly_cookie_and_omits_body_refresh(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_id = seed_branch(&pool, "Cookie Region", "Cookie Branch").await;
+    let user_id =
+        seed_user_with_branch(&pool, "Web User", "010-7000-0000", "MECHANIC", branch_id).await;
+    let service = build_router(
+        app_state(
+            pool.clone(),
+            private_key_pem.to_string(),
+            public_key_pem.clone(),
+        )
+        .unwrap(),
+    );
+
+    let issue = BootstrapCredentialStore
+        .issue_for_zero_credential_user(
+            &pool,
+            *user_id.as_uuid(),
+            OffsetDateTime::now_utc(),
+            Duration::hours(24),
+        )
+        .await
+        .unwrap();
+
+    let response = post_cookie_mode(
+        service,
+        "/api/v1/auth/otp/redeem",
+        None,
+        json!({ "otp": issue.token.as_str() }),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let set_cookie = mnt_refresh_set_cookie(&response)
+        .expect("cookie-mode redeem must set an mnt_refresh cookie");
+    assert!(set_cookie.contains("HttpOnly"), "{set_cookie}");
+    assert!(set_cookie.contains("SameSite=Strict"), "{set_cookie}");
+    assert!(set_cookie.contains("Path=/api/v1/auth"), "{set_cookie}");
+    assert!(set_cookie.contains("Max-Age="), "{set_cookie}");
+    // Local-dev config leaves MNT_COOKIE_SECURE at its default (true) in this
+    // test harness, so Secure must be present.
+    assert!(set_cookie.contains("Secure"), "{set_cookie}");
+    assert!(
+        !cookie_token(&set_cookie).is_empty(),
+        "cookie must carry the refresh token value"
+    );
+
+    let body = body_json(response).await;
+    assert!(
+        !body["access_token"].as_str().unwrap().is_empty(),
+        "access token must always be in the body"
+    );
+    assert!(
+        body["refresh_token"].is_null(),
+        "cookie mode must NOT leak the refresh token into the JSON body, got {body}"
+    );
+}
+
+/// WEB dual-transport: passkey login finish in cookie mode sets the cookie and
+/// nulls the body refresh token; the cookie value then authorizes a refresh that
+/// reads the token from the cookie (no body token) and rotates the cookie.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn cookie_mode_login_then_refresh_reads_and_rotates_cookie(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_id = seed_branch(&pool, "Cookie Region", "Cookie Branch").await;
+    let user_id =
+        seed_user_with_branch(&pool, "Web User", "010-7100-0000", "MECHANIC", branch_id).await;
+    let service = build_router(
+        app_state(
+            pool.clone(),
+            private_key_pem.to_string(),
+            public_key_pem.clone(),
+        )
+        .unwrap(),
+    );
+
+    // First sign-in via OTP (cookie mode) then enroll a passkey so we can do a
+    // real cookie-mode passkey login.
+    let issue = BootstrapCredentialStore
+        .issue_for_zero_credential_user(
+            &pool,
+            *user_id.as_uuid(),
+            OffsetDateTime::now_utc(),
+            Duration::hours(24),
+        )
+        .await
+        .unwrap();
+    let redeem = post_cookie_mode(
+        service.clone(),
+        "/api/v1/auth/otp/redeem",
+        None,
+        json!({ "otp": issue.token.as_str() }),
+    )
+    .await;
+    assert_eq!(redeem.status(), StatusCode::OK);
+    let access_token = body_json(redeem).await["access_token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut authenticator = WebauthnAuthenticator::new(SoftPasskey::new(true));
+    let credential_id = enroll_passkey(&service, &mut authenticator, &access_token).await;
+
+    // Cookie-mode usernameless passkey login -> cookie set, body refresh null.
+    let login = cookie_mode_usernameless_login(&service, &mut authenticator, &credential_id).await;
+    let login_cookie =
+        mnt_refresh_set_cookie(&login).expect("cookie-mode login must set an mnt_refresh cookie");
+    let cookie_value = cookie_token(&login_cookie).to_owned();
+    let login_body = body_json(login).await;
+    assert!(login_body["refresh_token"].is_null());
+
+    // Refresh reading the token from the cookie (NO body token) rotates and sets
+    // a fresh cookie whose value differs from the one presented.
+    let refreshed = post_cookie_mode(
+        service.clone(),
+        "/api/v1/auth/token/refresh",
+        Some(&cookie_value),
+        json!({}),
+    )
+    .await;
+    assert_eq!(refreshed.status(), StatusCode::OK);
+    let rotated_cookie = mnt_refresh_set_cookie(&refreshed)
+        .expect("cookie-mode refresh must rotate the mnt_refresh cookie");
+    let rotated_value = cookie_token(&rotated_cookie).to_owned();
+    assert_ne!(
+        rotated_value, cookie_value,
+        "the refresh token cookie must rotate on use"
+    );
+    assert!(body_json(refreshed).await["refresh_token"].is_null());
+
+    // Logout in cookie mode clears the cookie (Max-Age=0) and revokes the family,
+    // so the rotated cookie can no longer refresh. (Reuse-detection of the old
+    // pre-rotation token is covered by the body-transport end-to-end test; here we
+    // logout with the LIVE rotated cookie, the one a browser would actually hold.)
+    let logout = post_cookie_mode(
+        service.clone(),
+        "/api/v1/auth/logout",
+        Some(&rotated_value),
+        json!({}),
+    )
+    .await;
+    assert_eq!(logout.status(), StatusCode::NO_CONTENT);
+    let clear_cookie =
+        mnt_refresh_set_cookie(&logout).expect("logout must emit a clearing mnt_refresh cookie");
+    assert!(clear_cookie.contains("Max-Age=0"), "{clear_cookie}");
+    assert!(clear_cookie.contains("Path=/api/v1/auth"), "{clear_cookie}");
+
+    let after_logout = post_cookie_mode(
+        service,
+        "/api/v1/auth/token/refresh",
+        Some(&rotated_value),
+        json!({}),
+    )
+    .await;
+    assert_eq!(after_logout.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// MOBILE (no transport header) is unchanged: refresh and logout read the token
+/// from the request BODY, the response carries the refresh token in the body, and
+/// NO Set-Cookie header is emitted.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn body_mode_without_header_is_unchanged_and_sets_no_cookie(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_id = seed_branch(&pool, "Mobile Region", "Mobile Branch").await;
+    let user_id =
+        seed_user_with_branch(&pool, "Mobile User", "010-7200-0000", "MECHANIC", branch_id).await;
+    let service = build_router(
+        app_state(
+            pool.clone(),
+            private_key_pem.to_string(),
+            public_key_pem.clone(),
+        )
+        .unwrap(),
+    );
+
+    let issue = BootstrapCredentialStore
+        .issue_for_zero_credential_user(
+            &pool,
+            *user_id.as_uuid(),
+            OffsetDateTime::now_utc(),
+            Duration::hours(24),
+        )
+        .await
+        .unwrap();
+
+    // Redeem with NO transport header -> body carries the refresh token, no cookie.
+    let redeem = post_raw(
+        service.clone(),
+        "/api/v1/auth/otp/redeem",
+        None,
+        json!({ "otp": issue.token.as_str() }),
+    )
+    .await;
+    assert_eq!(redeem.status(), StatusCode::OK);
+    assert!(
+        set_cookie_values(&redeem).is_empty(),
+        "mobile/body mode must not set any cookie"
+    );
+    let redeem_body = body_json(redeem).await;
+    let refresh_token = redeem_body["refresh_token"]
+        .as_str()
+        .expect("body mode must return the refresh token in the JSON body")
+        .to_owned();
+
+    // Body-mode refresh rotates using the body token and still returns no cookie.
+    let refreshed = post_raw(
+        service.clone(),
+        "/api/v1/auth/token/refresh",
+        None,
+        json!({ "refresh_token": refresh_token }),
+    )
+    .await;
+    assert_eq!(refreshed.status(), StatusCode::OK);
+    assert!(
+        set_cookie_values(&refreshed).is_empty(),
+        "mobile/body mode refresh must not set any cookie"
+    );
+    let rotated = body_json(refreshed).await["refresh_token"]
+        .as_str()
+        .expect("body-mode refresh must return the new refresh token in the body")
+        .to_owned();
+    assert_ne!(rotated, refresh_token);
+
+    // Body-mode logout accepts the body token and revokes the family.
+    let logout = post_raw(
+        service.clone(),
+        "/api/v1/auth/logout",
+        None,
+        json!({ "refresh_token": rotated }),
+    )
+    .await;
+    assert_eq!(logout.status(), StatusCode::NO_CONTENT);
+    assert!(
+        set_cookie_values(&logout).is_empty(),
+        "mobile/body mode logout must not set any cookie"
+    );
+}
+
 // --- helpers ---------------------------------------------------------------
+
+/// Cookie-mode usernameless passkey login: mirrors `usernameless_login` but sends
+/// the `X-Auth-Transport: cookie` header so the response carries a Set-Cookie and
+/// a null body refresh token. Returns the raw response for header + body asserts.
+async fn cookie_mode_usernameless_login(
+    service: &axum::Router,
+    authenticator: &mut WebauthnAuthenticator<SoftPasskey>,
+    credential_id: &str,
+) -> http::Response<Body> {
+    let start: LoginStartResponse = post_raw(
+        service.clone(),
+        "/api/v1/auth/passkey/login/start",
+        None,
+        json!({}),
+    )
+    .await
+    .into_json(StatusCode::OK)
+    .await;
+    let challenge = inject_allow_credential(start.challenge, credential_id);
+    let assertion = authenticator
+        .do_authentication(Url::parse(TEST_ORIGIN).unwrap(), challenge)
+        .unwrap();
+    post_cookie_mode(
+        service.clone(),
+        "/api/v1/auth/passkey/login/finish",
+        None,
+        json!({ "ceremony_id": start.ceremony_id, "credential": assertion }),
+    )
+    .await
+}
 
 /// Sign a user in via a directly-issued OTP (used to bootstrap an authenticated
 /// session for any role in tests without a pre-existing passkey).
@@ -713,6 +1010,59 @@ async fn post_raw_with_ip(
         .oneshot(builder.body(Body::from(body.to_string())).unwrap())
         .await
         .unwrap()
+}
+
+/// POST as a WEB client: sends `X-Auth-Transport: cookie` and, optionally, a
+/// `Cookie` header carrying `mnt_refresh=<token>` (what a browser would replay).
+async fn post_cookie_mode(
+    service: axum::Router,
+    uri: &str,
+    cookie: Option<&str>,
+    body: Value,
+) -> http::Response<Body> {
+    let mut builder = Request::builder()
+        .uri(uri)
+        .method("POST")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header("x-auth-transport", "cookie");
+    if let Some(cookie) = cookie {
+        builder = builder.header(header::COOKIE, format!("mnt_refresh={cookie}"));
+    }
+    service
+        .oneshot(builder.body(Body::from(body.to_string())).unwrap())
+        .await
+        .unwrap()
+}
+
+/// Collect every `Set-Cookie` header value off a response as owned strings.
+fn set_cookie_values(response: &http::Response<Body>) -> Vec<String> {
+    response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .map(|value| value.to_str().unwrap().to_owned())
+        .collect()
+}
+
+/// Find the `mnt_refresh` Set-Cookie attribute string, returning its full
+/// directive (e.g. `mnt_refresh=abc; HttpOnly; SameSite=Strict; ...`).
+fn mnt_refresh_set_cookie(response: &http::Response<Body>) -> Option<String> {
+    set_cookie_values(response)
+        .into_iter()
+        .find(|value| value.starts_with("mnt_refresh="))
+}
+
+/// Pull the cookie's value (the substring between `mnt_refresh=` and the first `;`).
+fn cookie_token(set_cookie: &str) -> &str {
+    set_cookie
+        .strip_prefix("mnt_refresh=")
+        .and_then(|rest| rest.split(';').next())
+        .unwrap()
+}
+
+async fn body_json(response: http::Response<Body>) -> Value {
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    serde_json::from_slice(&bytes).unwrap()
 }
 
 fn app_state(

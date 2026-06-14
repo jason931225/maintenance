@@ -2124,7 +2124,8 @@ export interface components {
         };
         OtpRedeemResponse: {
             access_token: string;
-            refresh_token: string;
+            /** @description The opaque rotating refresh token in the body transport (mobile). It is null in the cookie transport (web), where the token is set as an HttpOnly `mnt_refresh` cookie and must never reach web JS. */
+            refresh_token?: string | null;
             token_type: string;
             refresh_expires_at: components["schemas"]["Timestamp"];
             /** @description True when the signed-in user has no passkey yet and should enroll one in initial settings. */
@@ -2157,13 +2158,15 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** @description Refresh/logout request body. `refresh_token` is OPTIONAL because the web transport carries the token in the HttpOnly `mnt_refresh` cookie (sent automatically by the browser) and the body is empty; mobile clients send the token here. */
         RefreshTokenRequest: {
-            refresh_token: string;
+            refresh_token?: string | null;
         };
         LogoutRequest: components["schemas"]["RefreshTokenRequest"];
         TokenPairResponse: {
             access_token: string;
-            refresh_token: string;
+            /** @description The opaque rotating refresh token in the body transport (mobile). It is null in the cookie transport (web), where the token is set as an HttpOnly `mnt_refresh` cookie and must never reach web JS. */
+            refresh_token?: string | null;
             /** @enum {string} */
             token_type: "Bearer";
             refresh_expires_at: components["schemas"]["Timestamp"];

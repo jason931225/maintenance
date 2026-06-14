@@ -319,7 +319,20 @@ fn auth_rest_config_from_vars(
             "MNT_REFRESH_TOKEN_TTL_SECS",
         )?,
         trusted_proxy_count: parse_trusted_proxy_count(vars.get("MNT_TRUSTED_PROXY_COUNT"))?,
+        cookie_secure: parse_cookie_secure(vars.get("MNT_COOKIE_SECURE"))?,
     }))
+}
+
+/// Whether the web refresh cookie carries the `Secure` attribute. Defaults to
+/// `true` (production over HTTPS); set `MNT_COOKIE_SECURE=false` only for local
+/// http dev, where a `Secure` cookie would be dropped on `http://localhost`.
+fn parse_cookie_secure(raw: Option<&String>) -> Result<bool, AppError> {
+    match non_empty(raw) {
+        Some(value) => value
+            .parse::<bool>()
+            .map_err(|err| AppError::Config(format!("invalid MNT_COOKIE_SECURE: {err}"))),
+        None => Ok(true),
+    }
 }
 
 /// Number of trusted reverse proxies in front of the auth service (default 1).

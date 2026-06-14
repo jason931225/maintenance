@@ -128,19 +128,29 @@ export async function finishPasskeyRegistration(
   return requireData<RegisterFinishResponse>(result.data);
 }
 
+/**
+ * Rotate the session in the web cookie transport. The refresh token rides in the
+ * HttpOnly `mnt_refresh` cookie (sent automatically by the browser), so the body
+ * is empty and the response carries only a fresh access token — the rotated
+ * refresh token is set back as a cookie and never reaches JS.
+ */
 export async function refreshToken(
   api: WebAuthnApi,
-  refresh_token: string,
 ): Promise<TokenPairResponse> {
   const result = await api.POST("/api/v1/auth/token/refresh", {
-    body: { refresh_token },
+    body: {},
   });
   return requireData<TokenPairResponse>(result.data);
 }
 
-export async function logout(api: WebAuthnApi, refresh_token: string) {
+/**
+ * Log out in the web cookie transport: the backend reads the refresh token from
+ * the `mnt_refresh` cookie, revokes the family, and clears the cookie. No token
+ * is sent in the body.
+ */
+export async function logout(api: WebAuthnApi) {
   await api.POST("/api/v1/auth/logout", {
-    body: { refresh_token },
+    body: {},
   });
 }
 

@@ -3988,7 +3988,6 @@ components:
       type: object
       required:
       - access_token
-      - refresh_token
       - token_type
       - refresh_expires_at
       - requires_passkey_setup
@@ -3997,6 +3996,10 @@ components:
           type: string
         refresh_token:
           type: string
+          nullable: true
+          description: The opaque rotating refresh token in the body transport (mobile). It is
+            null in the cookie transport (web), where the token is set as an HttpOnly
+            `mnt_refresh` cookie and must never reach web JS.
         token_type:
           type: string
         refresh_expires_at:
@@ -4059,18 +4062,19 @@ components:
           additionalProperties: true
     RefreshTokenRequest:
       type: object
-      required:
-      - refresh_token
+      description: Refresh/logout request body. `refresh_token` is OPTIONAL because the web
+        transport carries the token in the HttpOnly `mnt_refresh` cookie (sent automatically
+        by the browser) and the body is empty; mobile clients send the token here.
       properties:
         refresh_token:
           type: string
+          nullable: true
     LogoutRequest:
       $ref: '#/components/schemas/RefreshTokenRequest'
     TokenPairResponse:
       type: object
       required:
       - access_token
-      - refresh_token
       - token_type
       - refresh_expires_at
       properties:
@@ -4078,6 +4082,10 @@ components:
           type: string
         refresh_token:
           type: string
+          nullable: true
+          description: The opaque rotating refresh token in the body transport (mobile). It is
+            null in the cookie transport (web), where the token is set as an HttpOnly
+            `mnt_refresh` cookie and must never reach web JS.
         token_type:
           type: string
           enum:

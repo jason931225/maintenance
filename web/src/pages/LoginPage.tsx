@@ -15,7 +15,7 @@ function safeNext(raw: string | null): string {
 }
 
 export function LoginPage() {
-  const { session, login, acceptTokens, api } = useAuth();
+  const { session, restoring, login, acceptTokens, api } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -26,10 +26,14 @@ export function LoginPage() {
   const [otpPending, setOtpPending] = useState(false);
 
   useEffect(() => {
+    // Wait for the boot silent refresh to settle so a logged-in user who hard-
+    // reloads /login is redirected to their destination rather than shown the
+    // sign-in card mid-restore.
+    if (restoring) return;
     if (session && !session.requires_passkey_setup) {
       void navigate(safeNext(searchParams.get("next")), { replace: true });
     }
-  }, [session, navigate, searchParams]);
+  }, [restoring, session, navigate, searchParams]);
 
   async function handlePasskeyLogin() {
     setError(undefined);
@@ -56,9 +60,11 @@ export function LoginPage() {
     setOtpPending(true);
     try {
       const result = await redeemOtp(api, otp);
+      // Cookie transport: the refresh token is set as an HttpOnly cookie by the
+      // backend and is absent from the body, so only the access token is carried
+      // into the session here.
       acceptTokens({
         access_token: result.access_token,
-        refresh_token: result.refresh_token,
         requires_passkey_setup: result.requires_passkey_setup,
       });
       // Navigation is driven by the session effect (or the onboarding guard when
