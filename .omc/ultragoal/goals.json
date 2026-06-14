@@ -1,7 +1,7 @@
 {
   "version": 1,
   "createdAt": "2026-06-12T04:40:06.079Z",
-  "updatedAt": "2026-06-14T07:00:00.000Z",
+  "updatedAt": "2026-06-14T07:10:00.000Z",
   "briefPath": ".omc/ultragoal/brief.md",
   "goalsPath": ".omc/ultragoal/goals.json",
   "ledgerPath": ".omc/ultragoal/ledger.jsonl",
@@ -95,13 +95,13 @@
       "id": "G008-rollout",
       "title": "Rollout",
       "objective": "Pilot HQ 8명 on production, then branch waves 수도권→충청→영남→호남, each gated on seeded branch data, KCC coverage, parity/CI green, backup drill, OTel dashboards, audit-access review",
-      "status": "blocked",
+      "status": "review_blocked",
       "attempt": 0,
       "createdAt": "2026-06-12T04:40:06.079Z",
-      "updatedAt": "2026-06-14T07:00:00.000Z",
+      "updatedAt": "2026-06-14T07:10:00.000Z",
       "blockedReason": "Requires operator/business actions the build cannot perform: provision OCI Ampere A1 (PAYG needed for custom-image import, stays $0 within Always-Free) + production TLS + install prod secrets incl. MNT_COLDSTART_OTP as a CSPRNG value (deploy/SECRETS.md, docs/release/SECRETS.md); file KCC LBS 사업 신고; submit + get approval for Kakao Alimtalk templates; seed branch/region topology + pilot user roster; distribute a signed pilot build; run the backup/restore drill on the real VM. Engineering is complete AND the deployment is now automated: deploy/ ships a GitOps Kubernetes path (single-node Talos on OCI Always-Free ap-chuncheon-1 + Argo CD/Rollouts blue-green + CloudNativePG PITR + cert-manager/Traefik) with bootstrap runbooks, alongside the CI supply chain (signed/SBOM/scanned multi-arch images) and a completed repo-wide security/quality/perf audit remediation. G001-G007 remain green post-remediation (170 suites/302 tests/0 failed, 4 gates PASS, client-drift clean). The remaining work is purely operator execution; see docs/GO-LIVE-CHECKLIST.md. Unblock by providing production access + completing the business filings, then resume."
     }
   ],
   "claudeObjective": "Complete all ultragoal stories in .omc/ultragoal/goals.json: G001-m0-platform-spine M0 Platform spine; G002-m1-registry-wo-core-slice M1 Registry + WO core slice; G003-m2-p1-dispatch-compliance M2 P1 dispatch + compliance; G004-m3-full-messenger M3 Full messenger; G005-m4-reporting-kpi M4 Reporting + KPI; G006-m5-registry-economics M5 Registry economics; G007-m6-seams-launch-hardening M6 Seams + launch hardening; G008-rollout Rollout",
-  "activeGoalId": "G008-rollout"
+  "activeGoalId": null
 }
