@@ -51,6 +51,17 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           working-directory: backend
 
+  rust-supply-chain:
+    name: cargo deny (licenses + sources + advisories)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      # Pinned version for reproducibility (mirrors the cargo-audit gate; the
+      # policy + accepted-advisory rationale live in backend/deny.toml).
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked --version 0.19.9
+      - run: cargo deny --manifest-path backend/Cargo.toml check
+
   node-advisories:
     name: npm audit
     runs-on: ubuntu-latest
