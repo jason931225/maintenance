@@ -1,11 +1,14 @@
 name: Image Release
 
 # Builds, scans, signs and publishes the server (mnt-app) and web console
-# (mnt-web) container images to GHCR. Multi-arch (linux/amd64 + linux/arm64 —
-# arm64 is what the Oracle Ampere A1 cluster runs). The Trivy scan is a BLOCKING
-# gate: the image is pushed by digest, but it is only cosign-signed + attested
-# after the scan passes, so the deploy-time signature policy refuses any image
-# that did not clear scanning.
+# (mnt-web) container images to GHCR. Single-arch linux/arm64 only — that is
+# what the Oracle Ampere A1 cluster runs (extend `platforms` to add amd64). The
+# Trivy scan is a BLOCKING gate: the image is pushed by digest, but it is only
+# cosign-signed + attested after the scan passes, so a vulnerable image is never
+# signed. NOTE: signature verification is NOT yet enforced at admission — no
+# policy-controller/Kyverno webhook is installed on the cluster, so the signature
+# is currently an audit artifact, not a deploy-time gate. Enforcing it (sigstore
+# policy-controller) is a tracked follow-up.
 
 on:
   push:
