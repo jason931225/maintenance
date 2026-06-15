@@ -105,14 +105,22 @@ jobs:
             -o /tmp/trivy.tar.gz
           sudo tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
           trivy --version
+      # buildx --push uploads to GHCR by digest but never loads the image into
+      # the local Docker daemon, so Trivy must scan the REMOTE registry image.
+      # --image-src remote skips the (empty) local daemons; TRIVY_USERNAME/PASSWORD
+      # authenticate against the private GHCR package; --platform selects the
+      # arm64 manifest out of the multi-attestation image index.
       - name: Trivy scan (fail on HIGH/CRITICAL)
         run: |
-          trivy image --exit-code 1 --ignore-unfixed \
+          trivy image --image-src remote --platform linux/arm64 \
+            --exit-code 1 --ignore-unfixed \
             --vuln-type os,library --severity HIGH,CRITICAL \
             "${IMAGE_NAME}@${DIGEST}"
         env:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
           DIGEST: ${{ steps.build.outputs.digest }}
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install cosign
         uses: sigstore/cosign-installer@f713795cb21599bc4e5c4b58cbad1da852d7eeb9 # v3
