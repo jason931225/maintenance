@@ -1,0 +1,12 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+compartment_ocid = "ocid1.compartment.oc1..xxxx" # the 'prod' compartment
+region           = "ap-chuncheon-1"
+
+# Hardening: lock the Talos + k8s control-plane APIs to your admin /32.
+admin_cidr = "203.0.113.10/32"
+
+ssh_public_key = "ssh-ed25519 AAAA... you@host"
+
+# Set after the Talos image is imported (see ../talos/README.md). Leave empty to
+# provision only the network/storage/bastion + the flasher helper first.
+talos_image_ocid = ""
