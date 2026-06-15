@@ -784,10 +784,10 @@ async fn ticket_cursor(
 /// Max-length bounds (in characters) for unauthenticated-intake and internal
 /// ticket free-text fields, enforced server-side so the public intake channel
 /// cannot store unbounded blobs.
-const MAX_TITLE_CHARS: usize = 200;
-const MAX_BODY_CHARS: usize = 8000;
-const MAX_REQUESTER_NAME_CHARS: usize = 200;
-const MAX_REQUESTER_CONTACT_CHARS: usize = 200;
+pub const MAX_TITLE_CHARS: usize = 200;
+pub const MAX_BODY_CHARS: usize = 8000;
+pub const MAX_REQUESTER_NAME_CHARS: usize = 200;
+pub const MAX_REQUESTER_CONTACT_CHARS: usize = 200;
 
 fn require_non_empty(value: &str, message: &'static str) -> Result<String, PgSupportError> {
     let trimmed = value.trim();
