@@ -41,7 +41,7 @@ spec:
     # OCI Object Storage, S3-compatible API, Chuncheon. NAMESPACE = the tenancy
     # object-storage namespace (oci os ns get); bucket pre-created out of band.
     destinationPath: s3://mnt-db-backups/
-    endpointURL: https://NAMESPACE.compat.objectstorage.ap-chuncheon-1.oraclecloud.com
+    endpointURL: https://axdotp9iv3ua.compat.objectstorage.ap-chuncheon-1.oraclecloud.com
     s3Credentials:
       accessKeyId:
         name: oci-objectstore-creds

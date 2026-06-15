@@ -8,7 +8,7 @@ metadata:
 spec:
   project: maintenance
   source:
-    repoURL: https://github.com/OWNER/maintenance.git # replace OWNER
+    repoURL: https://github.com/jason931225/maintenance.git # replace OWNER
     targetRevision: main
     path: deploy/infra/cert-manager
   destination:

@@ -8,7 +8,7 @@ metadata:
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
-    email: admin@example.com # replace with a real ops contact
+    email: jason19931225@gmail.com # replace with a real ops contact
     privateKeySecretRef:
       name: letsencrypt-prod-account
     solvers:
@@ -23,7 +23,7 @@ metadata:
 spec:
   acme:
     server: https://acme-staging-v02.api.letsencrypt.org/directory
-    email: admin@example.com # replace with a real ops contact
+    email: jason19931225@gmail.com # replace with a real ops contact
     privateKeySecretRef:
       name: letsencrypt-staging-account
     solvers:

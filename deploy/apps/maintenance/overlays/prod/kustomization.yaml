@@ -8,10 +8,10 @@ resources:
 
 images:
   - name: mnt-app
-    newName: ghcr.io/OWNER/mnt-app # replace OWNER
+    newName: ghcr.io/jason931225/mnt-app # replace OWNER
     newTag: 0.1.0
   - name: mnt-web
-    newName: ghcr.io/OWNER/mnt-web # replace OWNER
+    newName: ghcr.io/jason931225/mnt-web # replace OWNER
     newTag: 0.1.0
 
 patches:
@@ -21,23 +21,23 @@ patches:
     patch: |-
       - op: replace
         path: /data/MNT_WEBAUTHN_RP_ID
-        value: fsm.example.com
+        value: fsm.knllosgistic.com
       - op: replace
         path: /data/MNT_WEBAUTHN_RP_ORIGIN
-        value: https://fsm.example.com
+        value: https://fsm.knllosgistic.com
       - op: replace
         path: /data/MNT_S3_ENDPOINT_URL
-        value: https://NAMESPACE.compat.objectstorage.ap-chuncheon-1.oraclecloud.com
+        value: https://axdotp9iv3ua.compat.objectstorage.ap-chuncheon-1.oraclecloud.com
   - target: { kind: Ingress, name: mnt }
     patch: |-
       - op: replace
         path: /spec/tls/0/hosts/0
-        value: fsm.example.com
+        value: fsm.knllosgistic.com
       - op: replace
         path: /spec/rules/0/host
-        value: fsm.example.com
+        value: fsm.knllosgistic.com
   - target: { kind: ObjectStore, name: mnt-backups }
     patch: |-
       - op: replace
         path: /spec/configuration/endpointURL
-        value: https://NAMESPACE.compat.objectstorage.ap-chuncheon-1.oraclecloud.com
+        value: https://axdotp9iv3ua.compat.objectstorage.ap-chuncheon-1.oraclecloud.com
