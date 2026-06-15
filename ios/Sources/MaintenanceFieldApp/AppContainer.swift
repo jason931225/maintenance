@@ -12,7 +12,7 @@ struct FieldAppContainer {
         let tokenProvider = CurrentTokenProvider()
         let sessionStore = KeychainSessionTokenStore(tokenProvider: tokenProvider)
         let deviceIDStore = UserDefaultsDeviceIDStore()
-        let serverURL = URL(string: ProcessInfo.processInfo.environment["MAINTENANCE_API_BASE_URL"] ?? "http://localhost:8080")!
+        let serverURL = Self.resolveServerURL()
         let gateway = GeneratedMaintenanceAPIGateway(serverURL: serverURL, tokenProvider: tokenProvider)
         let mutationStore: any MutationQueueStore
         do {
@@ -67,5 +67,22 @@ struct FieldAppContainer {
             messengerRepository: messenger,
             locationConsentRepository: LocationConsentRepository(gateway: gateway)
         )
+    }
+
+    /// Production is the safe default so a release build on a real device reaches
+    /// the live backend; local, simulator, and CI runs override via the
+    /// `MAINTENANCE_API_BASE_URL` environment variable. The previous default
+    /// (`http://localhost:8080`) failed closed on device — there is no host
+    /// loopback to a backend there.
+    static let productionAPIBaseURL = URL(string: "https://fsm.knllogistic.com")!
+
+    static func resolveServerURL() -> URL {
+        guard
+            let override = ProcessInfo.processInfo.environment["MAINTENANCE_API_BASE_URL"],
+            let overrideURL = URL(string: override)
+        else {
+            return productionAPIBaseURL
+        }
+        return overrideURL
     }
 }
