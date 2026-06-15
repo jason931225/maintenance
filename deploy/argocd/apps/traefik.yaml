@@ -22,11 +22,11 @@ spec:
         deployment:
           kind: DaemonSet
         ports:
+          # Port 80 stays plain HTTP — cert-manager's ACME HTTP-01 challenge is
+          # served there; a blanket http→https redirect would break TLS issuance.
           web:
             port: 8000
             hostPort: 80
-            redirectTo:
-              port: websecure
           websecure:
             port: 8443
             hostPort: 443
