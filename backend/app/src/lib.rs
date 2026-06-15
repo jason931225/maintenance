@@ -10,14 +10,17 @@ use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use axum::body::Body;
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, Request, Response, StatusCode, header};
+use axum::middleware::Next;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
+use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use mnt_compliance_adapter_postgres::PgComplianceStore;
 use mnt_compliance_rest::ComplianceRestState;
 use mnt_dispatch_adapter_postgres::PgDispatchStore;
@@ -707,6 +710,103 @@ struct ErrorPayload {
     message: String,
 }
 
+// ---------------------------------------------------------------------------
+// Prometheus metrics
+// ---------------------------------------------------------------------------
+
+/// Histogram name backing the OpenSLO availability + latency objectives
+/// (`backend/app/slos/*.openslo.yaml`). The `metrics-exporter-prometheus`
+/// renderer appends the standard `_bucket` / `_sum` / `_count` suffixes, and the
+/// `s` unit suffix is already in the name, so the SLO queries
+/// (`http_server_request_duration_seconds_bucket`,
+/// `http_server_request_duration_seconds_count`) resolve against it directly.
+const HTTP_DURATION_METRIC: &str = "http_server_request_duration_seconds";
+
+/// Latency histogram boundaries in SECONDS. Chosen to bracket the 500ms p99 SLO
+/// objective with resolution on either side.
+const HTTP_LATENCY_BUCKETS: &[f64] = &[
+    0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 10.0,
+];
+
+static METRICS_HANDLE: OnceLock<PrometheusHandle> = OnceLock::new();
+
+/// Install the process-global Prometheus recorder once and return a render
+/// handle. Idempotent: the first successful install wins and later calls (and a
+/// lost install race) return that same handle. Call at startup before serving.
+pub fn install_metrics_recorder() -> Result<PrometheusHandle, AppError> {
+    if let Some(handle) = METRICS_HANDLE.get() {
+        return Ok(handle.clone());
+    }
+    match PrometheusBuilder::new()
+        .set_buckets_for_metric(
+            Matcher::Full(HTTP_DURATION_METRIC.to_owned()),
+            HTTP_LATENCY_BUCKETS,
+        )
+        .and_then(PrometheusBuilder::install_recorder)
+    {
+        Ok(handle) => Ok(METRICS_HANDLE.get_or_init(|| handle).clone()),
+        // Lost the install race (another caller already set the global recorder)
+        // → adopt the winner's handle; only a genuine absence is an error.
+        Err(err) => METRICS_HANDLE
+            .get()
+            .cloned()
+            .ok_or_else(|| AppError::Telemetry(err.to_string())),
+    }
+}
+
+/// Middleware: time each request and record its duration (seconds) into the
+/// `http_server_request_duration_seconds` histogram, labelled with the service
+/// name and response status code. Labels are deliberately low-cardinality (no
+/// path/method) so the series count stays bounded. A no-op until the recorder is
+/// installed.
+async fn track_http_metrics(
+    State(state): State<AppState>,
+    request: Request<Body>,
+    next: Next,
+) -> Response<Body> {
+    let start = std::time::Instant::now();
+    let response = next.run(request).await;
+    let status = response.status().as_u16();
+    metrics::histogram!(
+        HTTP_DURATION_METRIC,
+        "service_name" => state.config.service_name.clone(),
+        "http_response_status_code" => status.to_string(),
+    )
+    .record(start.elapsed().as_secs_f64());
+    response
+}
+
+/// `GET /metrics` — Prometheus exposition. Internal-only: the ingress routes
+/// `/api` to this server and everything else to the SPA, so `/metrics` is
+/// reachable only in-cluster (e.g. by a ServiceMonitor scrape), never via the
+/// public host.
+async fn render_metrics() -> Response<Body> {
+    match METRICS_HANDLE.get() {
+        Some(handle) => (
+            [(header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+            handle.render(),
+        )
+            .into_response(),
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "metrics recorder not installed",
+        )
+            .into_response(),
+    }
+}
+
+/// Wrap a fully-merged router with request metrics and expose `/metrics`. Applied
+/// last so every route (base + all domain routers) is measured; `/metrics` is
+/// added afterwards so it does not measure itself.
+fn with_metrics(router: Router, state: &AppState) -> Router {
+    router
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            track_http_metrics,
+        ))
+        .route("/metrics", get(render_metrics))
+}
+
 pub fn build_router(state: AppState) -> Router {
     let router = Router::new()
         .route("/healthz", get(healthz))
@@ -755,7 +855,7 @@ pub fn build_router(state: AppState) -> Router {
         ))
         .with_state(state.clone());
 
-    match &state.database {
+    let router = match &state.database {
         DatabaseDependency::Postgres(pool) => {
             let kpi_repository = PgKpiRepository::new(pool.clone());
             let realtime_hub = state
@@ -832,7 +932,8 @@ pub fn build_router(state: AppState) -> Router {
             }
         }
         DatabaseDependency::NotConfigured => router,
-    }
+    };
+    with_metrics(router, &state)
 }
 
 async fn healthz(State(state): State<AppState>) -> impl IntoResponse {
@@ -1288,6 +1389,7 @@ pub async fn serve(config: AppConfig, state: AppState) -> Result<(), AppError> {
 }
 
 async fn serve_api(config: AppConfig, state: AppState) -> Result<(), AppError> {
+    install_metrics_recorder()?;
     seed_cold_start_otp(&config, &state).await?;
 
     let listener = tokio::net::TcpListener::bind(config.http_addr)
@@ -1348,6 +1450,7 @@ async fn seed_cold_start_otp(config: &AppConfig, state: &AppState) -> Result<(),
 }
 
 async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), AppError> {
+    install_metrics_recorder()?;
     let database_url = config
         .database_url
         .as_deref()
@@ -1384,10 +1487,13 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
         .await
         .map_err(AppError::Io)?;
     tracing::info!(addr = %config.http_addr, "worker health server listening");
-    let health_router = Router::new()
-        .route("/healthz", get(healthz))
-        .route("/readyz", get(readyz))
-        .with_state(state.clone());
+    let health_router = with_metrics(
+        Router::new()
+            .route("/healthz", get(healthz))
+            .route("/readyz", get(readyz))
+            .with_state(state.clone()),
+        &state,
+    );
     let health_server = tokio::spawn(async move {
         if let Err(err) = axum::serve(health_listener, health_router).await {
             tracing::warn!(error = %err, "worker health server stopped");

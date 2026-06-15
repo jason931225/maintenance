@@ -48,6 +48,45 @@ async fn readyz_returns_503_when_configured_database_is_unreachable()
     Ok(())
 }
 
+#[tokio::test]
+async fn metrics_endpoint_exposes_the_slo_http_duration_histogram()
+-> Result<(), Box<dyn std::error::Error>> {
+    // The global recorder is process-wide and shared across this test binary;
+    // installation is idempotent and the unique service_name isolates this
+    // test's series from any other test's measured requests.
+    mnt_app::install_metrics_recorder()?;
+    let config = AppConfig::from_pairs([
+        ("MNT_APP_ROLE", AppRole::Api.to_string()),
+        ("MNT_HTTP_ADDR", "127.0.0.1:0".to_owned()),
+        ("MNT_SERVICE_NAME", "mnt-app-api".to_owned()),
+    ])?;
+    let state = AppState::new(config, DatabaseDependency::NotConfigured)?;
+    let app = build_router(state);
+
+    // One measured request so the histogram has at least one observation.
+    let health = app
+        .clone()
+        .oneshot(Request::builder().uri("/healthz").body(Body::empty())?)
+        .await?;
+    assert_eq!(health.status(), StatusCode::OK);
+
+    let metrics = app
+        .oneshot(Request::builder().uri("/metrics").body(Body::empty())?)
+        .await?;
+    assert_eq!(metrics.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(metrics.into_body(), usize::MAX).await?;
+    let text = String::from_utf8(body.to_vec())?;
+    assert!(
+        text.contains("http_server_request_duration_seconds_bucket"),
+        "exposition must include the SLO latency histogram buckets; got:\n{text}"
+    );
+    assert!(
+        text.contains("service_name=\"mnt-app-api\""),
+        "histogram series must carry the service_name label the SLO filters on; got:\n{text}"
+    );
+    Ok(())
+}
+
 fn app_config(role: AppRole) -> Result<AppConfig, mnt_app::AppError> {
     AppConfig::from_pairs([
         ("MNT_APP_ROLE", role.to_string()),
