@@ -37,5 +37,15 @@ spec:
     server: https://kubernetes.default.svc
     namespace: traefik
   syncPolicy:
+    # Talos enforces the baseline PodSecurity profile cluster-wide, and baseline
+    # forbids hostPort. Traefik binds host ports 80/443 directly (no LB, Always
+    # Free), which requires the privileged PSS level on its namespace. This is
+    # the standard tradeoff for hostPort-based ingress; the chart itself still
+    # runs Traefik as non-root with a dropped-capability container.
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: privileged
+        pod-security.kubernetes.io/audit: privileged
+        pod-security.kubernetes.io/warn: privileged
     automated: { prune: true, selfHeal: true }
     syncOptions: [CreateNamespace=true, ServerSideApply=true]
