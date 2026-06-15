@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: mnt-app
+  namespace: maintenance
+  labels: { app: mnt-app }
+spec:
+  selector:
+    matchLabels: { app: mnt-app }
+  # Scrape the active mnt-app Service (the blue/green active endpoint). The
+  # preview Service shares the app=mnt-app label, so restrict to the named port.
+  endpoints:
+    - port: http # named port 8080 on the mnt-app Service
+      path: /metrics
+      interval: 30s

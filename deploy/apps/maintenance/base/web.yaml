@@ -25,6 +25,7 @@ spec:
     metadata:
       labels: { app: mnt-web }
     spec:
+      terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
         runAsUser: 101 # nginx-unprivileged
@@ -34,6 +35,12 @@ spec:
           image: mnt-web # registry + tag set by the prod overlay
           ports:
             - { name: http, containerPort: 8080 }
+          lifecycle:
+            # Let in-flight requests drain before nginx receives SIGTERM, so the
+            # blue/green rollout terminates the pod gracefully. /bin/sh exists in
+            # nginx-unprivileged and the sleep needs no writable root filesystem.
+            preStop:
+              exec: { command: ["/bin/sh", "-c", "sleep 5"] }
           readinessProbe:
             httpGet: { path: /healthz, port: http }
             periodSeconds: 10

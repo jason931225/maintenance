@@ -20,3 +20,8 @@ data:
   MNT_S3_REGION: "ap-chuncheon-1"
   MNT_S3_PRIMARY_BUCKET: "mnt-evidence"
   MNT_S3_FORCE_PATH_STYLE: "true"
+  # OTLP trace export (opt-in). Leave unset to keep tracing as JSON-to-stdout
+  # only. Uncommenting enables gRPC OTLP export to an in-cluster collector — the
+  # OTel collector MUST be deployed first, otherwise every request will attempt
+  # to export and fail. Point it at the collector's gRPC endpoint, e.g.:
+  # OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability:4317"

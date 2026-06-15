@@ -1,0 +1,50 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mnt-app-slo
+  namespace: maintenance
+  labels: { app: mnt-app }
+spec:
+  groups:
+    - name: mnt-app-slo.rules
+      rules:
+        # Availability SLO: 99.5% non-5xx over 30d (see
+        # backend/app/slos/api-availability.openslo.yaml). Alert when the
+        # short-window 5xx ratio burns the error budget — i.e. the success
+        # ratio drops below the 0.995 objective for a sustained period.
+        - alert: MntApiAvailabilityBurn
+          expr: |
+            (
+              sum(rate(http_server_request_duration_seconds_count{service_name="mnt-app-api",http_response_status_code=~"5.."}[5m]))
+              /
+              sum(rate(http_server_request_duration_seconds_count{service_name="mnt-app-api"}[5m]))
+            ) > (1 - 0.995)
+          for: 10m
+          labels:
+            severity: critical
+            service: mnt-app-api
+            slo: availability
+          annotations:
+            summary: "mnt-app-api 5xx ratio is burning the availability error budget"
+            description: >-
+              The 5xx ratio for service_name='mnt-app-api' has exceeded the
+              0.5% budget (99.5% availability objective) for over 10m.
+
+        # Latency SLO: p99 < 500ms over 30d (see
+        # backend/app/slos/api-latency.openslo.yaml).
+        - alert: MntApiLatencyP99High
+          expr: |
+            histogram_quantile(
+              0.99,
+              sum(rate(http_server_request_duration_seconds_bucket{service_name="mnt-app-api"}[5m])) by (le)
+            ) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+            service: mnt-app-api
+            slo: latency
+          annotations:
+            summary: "mnt-app-api p99 latency above 500ms"
+            description: >-
+              The p99 HTTP request duration for service_name='mnt-app-api' has
+              exceeded the 0.5s latency objective for over 10m.

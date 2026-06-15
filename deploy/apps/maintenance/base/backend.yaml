@@ -28,6 +28,7 @@ spec:
     metadata:
       labels: { app: mnt-app }
     spec:
+      terminationGracePeriodSeconds: 30 # Rust app handles SIGTERM and drains within MNT_SHUTDOWN_TIMEOUT_SECS (10s)
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -44,6 +45,8 @@ spec:
           env:
             - name: MNT_APP_ROLE
               value: "api"
+            - name: MNT_SERVICE_NAME # metrics/traces service_name — must match the SLO selector
+              value: "mnt-app-api"
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef: { name: mnt-db-app, key: uri }
