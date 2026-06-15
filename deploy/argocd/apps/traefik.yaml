@@ -25,10 +25,8 @@ spec:
           web:
             port: 8000
             hostPort: 80
-            redirections:
-              entryPoint:
-                to: websecure
-                scheme: https
+            redirectTo:
+              port: websecure
           websecure:
             port: 8443
             hostPort: 443
