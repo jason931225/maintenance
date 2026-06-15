@@ -39,6 +39,10 @@ export const ko = {
     title: "정비 콘솔",
     readSurfaceReady:
       "작업지시 목록, 승인 대기, 장비 조회는 OpenAPI 생성 클라이언트로 조회합니다.",
+    crashTitle: "예기치 못한 오류가 발생했습니다.",
+    crashMessage:
+      "페이지를 새로고침해 주세요. 문제가 계속되면 관리자에게 문의하세요.",
+    reload: "새로고침",
   },
   auth: {
     title: "로그인",
