@@ -21,10 +21,10 @@ patches:
     patch: |-
       - op: replace
         path: /data/MNT_WEBAUTHN_RP_ID
-        value: fsm.knllosgistic.com
+        value: fsm.knllogistic.com
       - op: replace
         path: /data/MNT_WEBAUTHN_RP_ORIGIN
-        value: https://fsm.knllosgistic.com
+        value: https://fsm.knllogistic.com
       - op: replace
         path: /data/MNT_S3_ENDPOINT_URL
         value: https://axdotp9iv3ua.compat.objectstorage.ap-chuncheon-1.oraclecloud.com
@@ -32,10 +32,10 @@ patches:
     patch: |-
       - op: replace
         path: /spec/tls/0/hosts/0
-        value: fsm.knllosgistic.com
+        value: fsm.knllogistic.com
       - op: replace
         path: /spec/rules/0/host
-        value: fsm.knllosgistic.com
+        value: fsm.knllogistic.com
   - target: { kind: ObjectStore, name: mnt-backups }
     patch: |-
       - op: replace

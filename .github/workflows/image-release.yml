@@ -26,7 +26,7 @@ concurrency:
 jobs:
   images:
     name: ${{ matrix.image }} — build / scan / sign / push
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm # native arm64 — the OCI Ampere A1 cluster is arm64-only
     strategy:
       fail-fast: false
       matrix:
@@ -47,9 +47,6 @@ jobs:
       # commit time so the same source produces a bit-reproducible image.
       - name: Set SOURCE_DATE_EPOCH from commit
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
-
-      - name: Set up QEMU (arm64 emulation)
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -82,7 +79,7 @@ jobs:
         with:
           context: .                       # repo root: backend embeds docs/, web is a workspace
           file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -95,15 +92,21 @@ jobs:
 
       # BLOCKING vulnerability gate. Runs against the pushed digest; failing here
       # fails the job BEFORE the signing step, so nothing vulnerable is signed.
+      # Trivy installed directly (the composite trivy-action pinned a setup-trivy
+      # tag that no longer resolves); arm64 binary matches the runner.
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sudo sh -s -- -b /usr/local/bin v0.58.1
+          trivy --version
       - name: Trivy scan (fail on HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # 0.29.0
-        with:
-          image-ref: ${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
-          format: table
-          exit-code: "1"
-          ignore-unfixed: true
-          vuln-type: os,library
-          severity: HIGH,CRITICAL
+        run: |
+          trivy image --exit-code 1 --ignore-unfixed \
+            --vuln-type os,library --severity HIGH,CRITICAL \
+            "${IMAGE_NAME}@${DIGEST}"
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          DIGEST: ${{ steps.build.outputs.digest }}
 
       - name: Install cosign
         uses: sigstore/cosign-installer@f713795cb21599bc4e5c4b58cbad1da852d7eeb9 # v3

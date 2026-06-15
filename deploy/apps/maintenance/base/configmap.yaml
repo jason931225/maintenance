@@ -13,8 +13,8 @@ data:
   MNT_JWT_ISSUER: "mnt-platform-auth"
   MNT_JWT_AUDIENCE: "mnt-api"
   MNT_WEBAUTHN_RP_NAME: "MNT 정비 콘솔"
-  MNT_WEBAUTHN_RP_ID: "fsm.knllosgistic.com" # overridden in overlays/prod
-  MNT_WEBAUTHN_RP_ORIGIN: "https://fsm.knllosgistic.com" # overridden in overlays/prod
+  MNT_WEBAUTHN_RP_ID: "fsm.knllogistic.com" # overridden in overlays/prod
+  MNT_WEBAUTHN_RP_ORIGIN: "https://fsm.knllogistic.com" # overridden in overlays/prod
   # Evidence object storage — OCI Object Storage (S3-compatible), Chuncheon.
   MNT_S3_ENDPOINT_URL: "https://axdotp9iv3ua.compat.objectstorage.ap-chuncheon-1.oraclecloud.com"
   MNT_S3_REGION: "ap-chuncheon-1"
