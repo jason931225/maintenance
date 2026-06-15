@@ -27,6 +27,8 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Default/debug target: the host loopback as seen from the Android emulator.
+        // Overridden per build type below (release points at production).
         buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8080\"")
     }
 
@@ -46,6 +48,10 @@ android {
 
     buildTypes {
         release {
+            // Release builds ship to real devices and must reach production over TLS,
+            // not the emulator loopback. The generated client appends /api/v1/... itself,
+            // and the prod ingress routes /api on this host to the API server.
+            buildConfigField("String", "API_BASE_URL", "\"https://fsm.knllogistic.com\"")
             if (androidReleaseSigningReady) {
                 signingConfig = signingConfigs.getByName("release")
             }
