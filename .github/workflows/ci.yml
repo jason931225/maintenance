@@ -92,7 +92,13 @@ jobs:
         run: SQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings
 
       - name: cargo test
-        run: cargo test
+        # SQLX_OFFLINE=true so the query! macros compile against the committed
+        # .sqlx cache (the documented contract — see crates/platform/db/src/lib.rs)
+        # rather than the unmigrated CI service DB. The #[sqlx::test] runtime
+        # tests still use DATABASE_URL to create their own per-test databases.
+        # Without this, a Cargo.lock change busts the build cache and the macros
+        # re-check online against a schema-less DB ("audit_events does not exist").
+        run: SQLX_OFFLINE=true cargo test
 
       - name: Layer-boundary gate
         run: cargo run -p mnt-gate-layer-boundary
