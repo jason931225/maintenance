@@ -37,6 +37,11 @@ export function DispatchPage() {
 
   async function assignWorkOrder(workOrderId: string, mechanicId: string): Promise<boolean> {
     setWriteState("idle");
+    // Never issue an assignment with an empty mechanic id (no signed-in user id).
+    if (!mechanicId) {
+      setWriteState("error");
+      return false;
+    }
     try {
       const response = await api.PUT("/api/work-orders/{workOrderId}/assignments", {
         params: { path: { workOrderId } },

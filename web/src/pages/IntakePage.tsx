@@ -6,7 +6,7 @@ import type {
   EquipmentLookupState,
   WorkOrderSummary,
 } from "../api/types";
-import { useAuth } from "../context/auth";
+import { useActiveBranchId, useAuth } from "../context/auth";
 import { PageHeader } from "../components/shell/PageHeader";
 import { PageEmpty } from "../components/states/PageEmpty";
 import { IntakeForm } from "../features/intake/IntakeForm";
@@ -15,8 +15,8 @@ import { ko } from "../i18n/ko";
 const equipmentDebounceMs = 300;
 
 export function IntakePage() {
-  const { api, session } = useAuth();
-  const branchId = session?.branches?.[0];
+  const { api } = useAuth();
+  const branchId = useActiveBranchId();
   const [managementNo, setManagementNo] = useState("");
   const [equipmentSuggestions, setEquipmentSuggestions] = useState<EquipmentLookupResponse[]>([]);
   const [equipmentLookupState, setEquipmentLookupState] = useState<EquipmentLookupState>({ status: "idle" });

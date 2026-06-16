@@ -29,7 +29,7 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": [
         "warn",
-        { allowConstantExport: true, allowExportNames: ["useAuth", "AuthContext", "usePageTitle", "useCurrentTitle"] }
+        { allowConstantExport: true, allowExportNames: ["useAuth", "useActiveBranchId", "AuthContext", "usePageTitle", "useCurrentTitle"] }
       ],
       "@typescript-eslint/consistent-type-imports": [
         "error",

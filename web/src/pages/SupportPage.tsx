@@ -17,7 +17,7 @@ import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { PageEmpty } from "../components/states/PageEmpty";
 import { PageError } from "../components/states/PageError";
-import { useAuth } from "../context/auth";
+import { useActiveBranchId, useAuth } from "../context/auth";
 import { CreateTicketForm } from "../features/support/CreateTicketForm";
 import { SupportTicketDetail } from "../features/support/SupportTicketDetail";
 import { SupportTicketList } from "../features/support/SupportTicketList";
@@ -56,7 +56,7 @@ type ReadState = "idle" | "loading" | "error";
 
 export function SupportPage() {
   const { api, session } = useAuth();
-  const branchId = session?.branches?.[0];
+  const branchId = useActiveBranchId();
   const currentUserId = session?.user_id;
 
   const [tickets, setTickets] = useState<SupportTicketSummary[]>([]);

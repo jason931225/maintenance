@@ -69,6 +69,16 @@ export function useAuth(): AuthContextValue {
 }
 
 /**
+ * The active branch id — the first entry of the JWT `branches` claim — or
+ * `undefined` when the session carries no branch. Single source of truth for
+ * branch scoping: callers render an empty/disabled state when this is absent
+ * rather than fabricating a placeholder id.
+ */
+export function useActiveBranchId(): string | undefined {
+  return useAuth().session?.branches?.[0];
+}
+
+/**
  * Decode the unverified JWT payload to surface the `sub` / `roles` / `branches`
  * claims for client-side UI gating only (the backend re-verifies on every call).
  * Returns an empty object when the token is malformed.

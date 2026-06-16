@@ -1,4 +1,4 @@
-import { useAuth } from "../context/auth";
+import { useActiveBranchId, useAuth } from "../context/auth";
 import { PageHeader } from "../components/shell/PageHeader";
 import { PageEmpty } from "../components/states/PageEmpty";
 import { LocationConsentPanel } from "../features/location/LocationConsentPanel";
@@ -6,7 +6,7 @@ import { ko } from "../i18n/ko";
 
 export function LocationSettingsPage() {
   const { api, session } = useAuth();
-  const branchId = session?.branches?.[0];
+  const branchId = useActiveBranchId();
 
   // The panel only uses this as a "signed-in" gate; the refresh token now lives
   // in an HttpOnly cookie and is intentionally absent from JS-visible state.

@@ -2,7 +2,7 @@ import { LogOut, MapPin, Menu, RefreshCw, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { useAuth } from "../../context/auth";
+import { useActiveBranchId, useAuth } from "../../context/auth";
 import { useCurrentTitle } from "../../context/title";
 import { ko } from "../../i18n/ko";
 
@@ -41,8 +41,7 @@ export function Topbar({ onOpenMobileSidebar }: TopbarProps) {
 }
 
 function BranchChip() {
-  const { session } = useAuth();
-  const branchId = session?.branches?.[0];
+  const branchId = useActiveBranchId();
   if (!branchId) return null;
   return (
     <span className="hidden sm:inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600">
