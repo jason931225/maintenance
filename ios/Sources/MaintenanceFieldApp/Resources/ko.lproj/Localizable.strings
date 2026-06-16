@@ -64,6 +64,7 @@
 "equipment" = "장비";
 "site" = "현장";
 "symptom" = "증상";
+"symptom_format" = "증상 %@";
 "target_due" = "목표 완료일";
 "result_completed" = "완료";
 "result_temporary_action" = "임시 조치";
@@ -95,6 +96,7 @@
 "location_consent_title" = "GPS 위치 동의";
 "location_consent_state" = "상태";
 "location_consent_collection" = "수집 가능";
+"location_consent_collection_format" = "수집 가능: %@";
 "location_consent_grant" = "동의";
 "location_consent_regain" = "다시 동의";
 "location_consent_suspend" = "GPS 끄기";

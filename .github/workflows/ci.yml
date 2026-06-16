@@ -254,14 +254,20 @@ jobs:
 
           const iosOnlyStringKeys = {
             camera_unavailable: "iOS camera capability fallback copy",
+            camera_open_settings: "iOS-only: deep-link to the Settings app for camera permission",
             capture_evidence: "SwiftUI alias for detail_capture_evidence",
             equipment: "SwiftUI detail label",
+            error_invalid_user_id: "iOS-only login user-id format validation copy",
             error_network: "SwiftUI network error copy",
+            location_consent_collection: "iOS base label; Android uses location_consent_collection_format",
+            location_consent_state: "SwiftUI location-consent status label",
+            messenger_search_no_results: "iOS messenger search empty-state copy",
             request_no: "SwiftUI detail label",
             result_type: "SwiftUI alias for report_result_type",
             site: "SwiftUI detail label",
             submit_report: "SwiftUI alias for detail_submit_report",
             symptom: "SwiftUI detail label",
+            target_due: "SwiftUI detail label (target due date)",
             user_id: "SwiftUI alias for login_user_id_label",
           };
 
