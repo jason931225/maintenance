@@ -21,6 +21,19 @@ export function AppShell() {
     mainRef.current?.focus();
   }, [location.pathname]);
 
+  // Dismiss the mobile sidebar drawer on Escape, matching the backdrop-click
+  // dismissal so the overlay is keyboard-accessible.
+  useEffect(() => {
+    if (!sidebarOpen) return undefined;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setSidebarOpen(false);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [sidebarOpen]);
+
   return (
     <TitleProvider>
       <div className="flex h-screen overflow-hidden bg-slate-50">
