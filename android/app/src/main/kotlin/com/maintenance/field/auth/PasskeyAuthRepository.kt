@@ -20,7 +20,7 @@ class PasskeyAuthRepository(
     suspend fun login(context: Context, userId: UUID): LoginState {
         var state: LoginState = LoginState.SignedOut()
         return try {
-            val challenge = api.startPasskeyLogin(userId)
+            val challenge = api.startPasskeyLogin()
             val challengeJson = JsonObject(challenge.challenge).toString()
             state = stateMachine.reduce(
                 state,
@@ -34,14 +34,18 @@ class PasskeyAuthRepository(
 
             val credential = credentialClient.getLoginCredential(context, challengeJson)
             val tokens = api.finishPasskeyLogin(challenge.ceremonyId, credential)
-            tokenStore.save(tokens.accessToken, tokens.refreshToken)
+            // refresh_token is nullable in the shared schema (null for the web cookie
+            // transport); mobile always receives it in the response body. Treat a missing
+            // token as a login failure (handled by the catch below).
+            val refreshToken = requireNotNull(tokens.refreshToken) { "login response missing refresh token" }
+            tokenStore.save(tokens.accessToken, refreshToken)
 
             val deviceId = deviceIdStore.getOrCreate()
             state = stateMachine.reduce(
                 state,
                 LoginEvent.PasskeyVerified(
                     accessToken = tokens.accessToken,
-                    refreshToken = tokens.refreshToken,
+                    refreshToken = refreshToken,
                     deviceId = deviceId,
                     appVersion = appVersion,
                 ),

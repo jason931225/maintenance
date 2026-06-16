@@ -21,7 +21,7 @@ public protocol MaintenanceAPIGateway: SyncGateway, MessengerGateway {
     func getWorkOrderDetail(id: Components.Schemas.Uuid) async throws -> TechnicianWorkOrder
     func startWorkOrder(id: Components.Schemas.Uuid) async throws
     func submitReport(id: Components.Schemas.Uuid, draft: ReportDraft) async throws
-    func startPasskeyLogin(userID: Components.Schemas.Uuid) async throws -> Components.Schemas.PasskeyLoginStartResponse
+    func startPasskeyLogin() async throws -> Components.Schemas.PasskeyLoginStartResponse
     func finishPasskeyLogin(ceremonyID: Components.Schemas.Uuid, credential: Components.Schemas.PasskeyLoginFinishRequest.CredentialPayload) async throws -> Components.Schemas.TokenPairResponse
     func registerDevice(deviceID: String, appVersion: String) async throws -> Components.Schemas.DeviceRegistrationResponse
     func presignEvidence(_ request: Components.Schemas.EvidencePresignRequest) async throws -> Components.Schemas.EvidencePresignResponse

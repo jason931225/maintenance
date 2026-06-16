@@ -15,7 +15,6 @@ import com.maintenance.api.client.model.LocationConsentStatus
 import com.maintenance.api.client.model.LocationConsentTransitionRequest
 import com.maintenance.api.client.model.LocationPingRequest
 import com.maintenance.api.client.model.PasskeyLoginFinishRequest
-import com.maintenance.api.client.model.PasskeyLoginStartRequest
 import com.maintenance.api.client.model.PasskeyLoginStartResponse
 import com.maintenance.api.client.model.SendMessengerMessageRequest
 import com.maintenance.api.client.model.SubmitReportRequest
@@ -46,7 +45,7 @@ interface MaintenanceApiGateway : SyncGateway, MessengerGateway {
 
     suspend fun confirmEvidence(evidenceId: UUID): EvidenceConfirmResponse
 
-    suspend fun startPasskeyLogin(userId: UUID): PasskeyLoginStartResponse
+    suspend fun startPasskeyLogin(): PasskeyLoginStartResponse
 
     suspend fun finishPasskeyLogin(ceremonyId: UUID, credential: Map<String, JsonElement>): TokenPairResponse
 
@@ -91,8 +90,10 @@ class GeneratedMaintenanceApiGateway(
     override suspend fun replay(deviceId: String, request: SyncBatchRequest): SyncBatchResponse =
         api.replayOfflineSyncBatch(deviceId, request)
 
-    override suspend fun startPasskeyLogin(userId: UUID): PasskeyLoginStartResponse =
-        api.apiV1AuthPasskeyLoginStartPost(PasskeyLoginStartRequest(userId))
+    // Usernameless (discoverable) login: POST /api/v1/auth/passkey/login/start takes no
+    // body; the user is resolved from the asserted credential at finish.
+    override suspend fun startPasskeyLogin(): PasskeyLoginStartResponse =
+        api.apiV1AuthPasskeyLoginStartPost()
 
     override suspend fun finishPasskeyLogin(
         ceremonyId: UUID,
