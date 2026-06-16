@@ -53,7 +53,6 @@
     <string name="equipment_format">관리번호 %1$s · %2$s</string>
     <string name="site_format">%1$s · %2$s</string>
     <string name="due_format">목표 %1$s</string>
-    <string name="symptom">증상</string>
     <string name="symptom_format">증상 %1$s</string>
     <string name="result_completed">완료</string>
     <string name="result_temporary_action">임시 조치</string>
