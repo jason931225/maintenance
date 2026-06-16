@@ -20,30 +20,49 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      # Trivy installed from a pinned release tarball rather than the composite
+      # aquasecurity/trivy-action: that action internally references
+      # aquasecurity/setup-trivy@v0.2.2, a tag that no longer resolves and broke
+      # the job at setup. The amd64 (Linux-64bit) asset matches ubuntu-latest.
+      # Mirrors the install in image-release.yml.
+      - name: Install Trivy
+        env:
+          TRIVY_VERSION: "0.71.0"
+        run: |
+          curl -sfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+            -o /tmp/trivy.tar.gz
+          sudo tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
+          trivy --version
       - name: Trivy filesystem scan (vuln + secret)
-        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # 0.29.0
-        with:
-          scan-type: fs
-          scanners: vuln,secret
-          ignore-unfixed: true
-          severity: HIGH,CRITICAL
-          exit-code: "1"
+        run: |
+          trivy fs --scanners vuln,secret --ignore-unfixed \
+            --severity HIGH,CRITICAL --exit-code 1 .
 
   iac:
     name: Trivy — IaC / manifest misconfig
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Install Trivy
+        env:
+          TRIVY_VERSION: "0.71.0"
+        run: |
+          curl -sfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+            -o /tmp/trivy.tar.gz
+          sudo tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
+          trivy --version
       - name: Trivy config scan (Dockerfiles + k8s manifests)
-        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # 0.29.0
-        with:
-          scan-type: config
-          severity: HIGH,CRITICAL
-          exit-code: "1"
+        run: trivy config --severity HIGH,CRITICAL --exit-code 1 .
 
   rust-advisories:
     name: cargo audit (RUSTSEC)
     runs-on: ubuntu-latest
+    # audit-check posts results as a Check Run, which needs checks:write on top
+    # of the repo-default contents:read; without it the step fails with
+    # "Resource not accessible by integration".
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2
@@ -67,7 +86,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbc3f7d6820020 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "24"
           cache: npm

@@ -1,0 +1,14 @@
+# cargo-audit (RUSTSEC) configuration. Read by the rustsec/audit-check CI job
+# (working-directory: backend). Keep the ignore list in sync with the rationale
+# in backend/deny.toml.
+[advisories]
+ignore = [
+  # rsa Marvin timing side-channel. Pulled transitively by jsonwebtoken for RSA
+  # (RS*) JWT algorithms; this service signs/verifies with ES256 only, so the
+  # RSA private-key path is compiled but never exercised. No fixed rsa release
+  # exists yet — revisit when jsonwebtoken drops rsa or a patched version ships.
+  "RUSTSEC-2023-0071",
+  # paste unmaintained (not a vulnerability). Build-time proc-macro pulled
+  # transitively by umya-spreadsheet (Excel export); no runtime surface.
+  "RUSTSEC-2024-0436",
+]
