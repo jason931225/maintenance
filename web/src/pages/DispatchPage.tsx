@@ -9,13 +9,11 @@ import { DispatchBoard } from "../features/dispatch/DispatchBoard";
 import { WorkOrderList } from "../features/dispatch/WorkOrderList";
 import { ko } from "../i18n/ko";
 
-const defaultMechanicId = "00000000-0000-4000-8000-000000000002";
-
 type ReadState = "idle" | "loading" | "error";
 type WriteState = "idle" | "error";
 
 export function DispatchPage() {
-  const { api } = useAuth();
+  const { api, session } = useAuth();
   const [workOrders, setWorkOrders] = useState<WorkOrderListItem[]>([]);
   const [readState, setReadState] = useState<ReadState>("loading");
   const [writeState, setWriteState] = useState<WriteState>("idle");
@@ -74,7 +72,7 @@ export function DispatchPage() {
         <WorkOrderList workOrders={workOrders} isLoading={readState === "loading"} />
         <DispatchBoard
           workOrders={workOrders}
-          selectedMechanicId={defaultMechanicId}
+          selectedMechanicId={session?.user_id ?? ""}
           isLoading={readState === "loading"}
           onAssignWorkOrder={assignWorkOrder}
         />

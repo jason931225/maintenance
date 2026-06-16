@@ -8,14 +8,15 @@ import type {
 } from "../api/types";
 import { useAuth } from "../context/auth";
 import { PageHeader } from "../components/shell/PageHeader";
+import { PageEmpty } from "../components/states/PageEmpty";
 import { IntakeForm } from "../features/intake/IntakeForm";
 import { ko } from "../i18n/ko";
 
-const defaultBranchId = "00000000-0000-4000-8000-000000000001";
 const equipmentDebounceMs = 300;
 
 export function IntakePage() {
-  const { api } = useAuth();
+  const { api, session } = useAuth();
+  const branchId = session?.branches?.[0];
   const [managementNo, setManagementNo] = useState("");
   const [equipmentSuggestions, setEquipmentSuggestions] = useState<EquipmentLookupResponse[]>([]);
   const [equipmentLookupState, setEquipmentLookupState] = useState<EquipmentLookupState>({ status: "idle" });
@@ -94,18 +95,22 @@ export function IntakePage() {
     <>
       <PageHeader title={ko.intake.title} description={ko.intake.description} />
       <div className="max-w-2xl">
-        <IntakeForm
-          branchId={defaultBranchId}
-          equipmentLookupState={equipmentLookupState}
-          equipmentSuggestions={equipmentSuggestions}
-          onManagementNoChange={handleManagementNoChange}
-          onCreateWorkOrder={createWorkOrder}
-          onCreated={() => {
-            setManagementNo("");
-            setEquipmentSuggestions([]);
-            setEquipmentLookupState({ status: "idle" });
-          }}
-        />
+        {branchId ? (
+          <IntakeForm
+            branchId={branchId}
+            equipmentLookupState={equipmentLookupState}
+            equipmentSuggestions={equipmentSuggestions}
+            onManagementNoChange={handleManagementNoChange}
+            onCreateWorkOrder={createWorkOrder}
+            onCreated={() => {
+              setManagementNo("");
+              setEquipmentSuggestions([]);
+              setEquipmentLookupState({ status: "idle" });
+            }}
+          />
+        ) : (
+          <PageEmpty message={ko.common.noBranch} />
+        )}
       </div>
     </>
   );

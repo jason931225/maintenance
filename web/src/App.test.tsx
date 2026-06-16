@@ -126,6 +126,8 @@ function makeAuthContext(session: AuthSession | undefined): AuthContextValue {
 
 const authenticatedSession: AuthSession = {
   access_token: tokenPair.access_token,
+  user_id: "00000000-0000-4000-8000-000000000002",
+  branches: ["00000000-0000-4000-8000-000000000001"],
 };
 
 function renderAt(path: string, session: AuthSession | undefined = authenticatedSession) {

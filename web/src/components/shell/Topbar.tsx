@@ -5,8 +5,6 @@ import { useAuth } from "../../context/auth";
 import { useCurrentTitle } from "../../context/title";
 import { ko } from "../../i18n/ko";
 
-const defaultBranchId = "00000000-0000-4000-8000-000000000001";
-
 interface TopbarProps {
   onOpenMobileSidebar: () => void;
 }
@@ -42,9 +40,12 @@ export function Topbar({ onOpenMobileSidebar }: TopbarProps) {
 }
 
 function BranchChip() {
+  const { session } = useAuth();
+  const branchId = session?.branches?.[0];
+  if (!branchId) return null;
   return (
     <span className="hidden sm:inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600">
-      {ko.shell.branch}: {defaultBranchId.slice(-4)}
+      {ko.shell.branch}: {branchId.slice(-4)}
     </span>
   );
 }

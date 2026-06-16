@@ -292,6 +292,7 @@ export const ko = {
     loadFailed: "데이터를 불러오지 못했습니다.",
     writeFailed: "요청을 처리하지 못했습니다. 다시 시도하세요.",
     notSet: "미지정",
+    noBranch: "계정에 배정된 지점이 없습니다. 관리자에게 문의하세요.",
     unknown: "미상",
     countUnit: "건",
     pointUnit: "점",

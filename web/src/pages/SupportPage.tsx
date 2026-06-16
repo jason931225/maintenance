@@ -15,6 +15,7 @@ import { Card } from "../components/ui/card";
 import { Select } from "../components/ui/select";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
+import { PageEmpty } from "../components/states/PageEmpty";
 import { PageError } from "../components/states/PageError";
 import { useAuth } from "../context/auth";
 import { CreateTicketForm } from "../features/support/CreateTicketForm";
@@ -32,7 +33,6 @@ import {
 } from "../features/support/support-format";
 import { ko } from "../i18n/ko";
 
-const defaultBranchId = "00000000-0000-4000-8000-000000000001";
 // Mirrors the server-side default list cap; a full page implies more rows.
 const PAGE_SIZE = 50;
 
@@ -56,7 +56,7 @@ type ReadState = "idle" | "loading" | "error";
 
 export function SupportPage() {
   const { api, session } = useAuth();
-  const branchId = session?.branches?.[0] ?? defaultBranchId;
+  const branchId = session?.branches?.[0];
   const currentUserId = session?.user_id;
 
   const [tickets, setTickets] = useState<SupportTicketSummary[]>([]);
@@ -202,7 +202,7 @@ export function SupportPage() {
   }
 
   async function assignSelf(): Promise<void> {
-    if (!selectedId || !currentUserId) return;
+    if (!selectedId || !currentUserId || !branchId) return;
     const response = await api.POST("/api/v1/support/tickets/{id}/assign", {
       params: { path: { id: selectedId } },
       body: { assignee_user_id: currentUserId, branch_id: branchId },
@@ -262,14 +262,18 @@ export function SupportPage() {
 
         <div className="grid gap-4">
           {selectedId === undefined ? (
-            <CreateTicketForm
-              branchId={branchId}
-              onCreate={createTicket}
-              onCreated={(ticket) => {
-                void loadTickets();
-                setSelectedId(ticket.id);
-              }}
-            />
+            branchId ? (
+              <CreateTicketForm
+                branchId={branchId}
+                onCreate={createTicket}
+                onCreated={(ticket) => {
+                  void loadTickets();
+                  setSelectedId(ticket.id);
+                }}
+              />
+            ) : (
+              <PageEmpty message={ko.common.noBranch} />
+            )
           ) : detailState === "loading" ? (
             <Card>
               <p role="status" className="text-sm font-medium text-slate-700">
