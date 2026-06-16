@@ -42,7 +42,7 @@ public struct PasskeyAuthRepository: Sendable {
     public func login(userID: Components.Schemas.Uuid) async -> LoginState {
         var state = LoginState.signedOut()
         do {
-            let challenge = try await gateway.startPasskeyLogin(userID: userID)
+            let challenge = try await gateway.startPasskeyLogin()
             let challengeJSON = String(data: try encoder.encode(challenge.challenge), encoding: .utf8) ?? "{}"
             state = stateMachine.reduce(
                 state,
