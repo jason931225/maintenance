@@ -8,7 +8,7 @@ metadata:
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
-    email: jason19931225@gmail.com # replace with a real ops contact
+    email: jason19931225@gmail.com # owner/operator contact for expiry + revocation notices
     privateKeySecretRef:
       name: letsencrypt-prod-account
     solvers:
@@ -23,7 +23,7 @@ metadata:
 spec:
   acme:
     server: https://acme-staging-v02.api.letsencrypt.org/directory
-    email: jason19931225@gmail.com # replace with a real ops contact
+    email: jason19931225@gmail.com # owner/operator contact for expiry + revocation notices
     privateKeySecretRef:
       name: letsencrypt-staging-account
     solvers:
