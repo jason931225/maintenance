@@ -18,10 +18,18 @@ const child = spawn("cargo", ["run", "-p", "mnt-app", "--quiet"], {
   stdio: ["ignore", "pipe", "pipe"],
 });
 
-let stderr = "";
-child.stderr.on("data", (chunk) => {
-  stderr += chunk.toString();
-});
+// Drain BOTH stdout and stderr. Leaving the stdout pipe unread lets a chatty
+// boot (or a cold `cargo run` recompile) fill the OS pipe buffer and block the
+// app's write() before it ever serves /healthz — indistinguishable from a
+// readiness timeout. Echo live so CI logs show exactly what the app did.
+let appOutput = "";
+const capture = (chunk) => {
+  const text = chunk.toString();
+  appOutput += text;
+  process.stderr.write(text);
+};
+child.stdout.on("data", capture);
+child.stderr.on("data", capture);
 
 try {
   await waitForApp(baseUrl);
@@ -38,10 +46,12 @@ try {
 }
 
 async function waitForApp(url) {
-  const deadline = Date.now() + 45_000;
+  // Generous: absorbs a cold `cargo run` compile on a cache-miss runner plus
+  // boot. The early-exit check below fails fast if the app actually crashes.
+  const deadline = Date.now() + 300_000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
-      throw new Error(`mnt-app exited early with ${child.exitCode}\n${stderr}`);
+      throw new Error(`mnt-app exited early with ${child.exitCode}\n${appOutput}`);
     }
     try {
       const response = await fetch(`${url}/healthz`);
@@ -53,5 +63,5 @@ async function waitForApp(url) {
     }
     await new Promise((resolveTimer) => setTimeout(resolveTimer, 500));
   }
-  throw new Error(`Timed out waiting for mnt-app\n${stderr}`);
+  throw new Error(`Timed out waiting for mnt-app\n${appOutput}`);
 }
