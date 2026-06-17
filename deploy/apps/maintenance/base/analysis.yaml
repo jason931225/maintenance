@@ -26,7 +26,10 @@ spec:
                   seccompProfile: { type: RuntimeDefault }
                 containers:
                   - name: probe
-                    image: busybox:1.37
+                    # Pinned to the multi-arch index digest so the smoke gate is
+                    # reproducible and immutable; tag kept for readability.
+                    # renovate: datasource=docker depName=busybox
+                    image: busybox:1.37@sha256:9532d8c39891ca2ecde4d30d7710e01fb739c87a8b9299685c63704296b16028
                     securityContext:
                       allowPrivilegeEscalation: false
                       readOnlyRootFilesystem: true

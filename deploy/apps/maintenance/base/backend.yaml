@@ -28,6 +28,8 @@ spec:
     metadata:
       labels: { app: mnt-app }
     spec:
+      # The API talks to Postgres and OCI, never to the Kubernetes API.
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30 # Rust app handles SIGTERM and drains within MNT_SHUTDOWN_TIMEOUT_SECS (10s)
       securityContext:
         runAsNonRoot: true

@@ -15,6 +15,8 @@ spec:
     metadata:
       labels: { app: mnt-worker }
     spec:
+      # The worker talks to Postgres and OCI, never to the Kubernetes API.
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30 # Rust app handles SIGTERM and drains within MNT_SHUTDOWN_TIMEOUT_SECS (10s)
       securityContext:
         runAsNonRoot: true
@@ -37,6 +39,10 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef: { name: mnt-db-app, key: uri }
+          startupProbe:
+            httpGet: { path: /healthz, port: health }
+            failureThreshold: 30
+            periodSeconds: 2
           readinessProbe:
             httpGet: { path: /healthz, port: health }
             periodSeconds: 10
@@ -57,3 +63,15 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mnt-worker
+  namespace: maintenance
+spec:
+  # Single-replica async worker: jobs are idempotent and tolerate a brief gap,
+  # so allow the one pod to be evicted (minAvailable: 1 would wedge node drains).
+  maxUnavailable: 1
+  selector:
+    matchLabels: { app: mnt-worker }

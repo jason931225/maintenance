@@ -1,6 +1,14 @@
-# Default-deny ingress for the namespace, then the minimum allows. Egress is
-# left open (Postgres needs OCI Object Storage 443; the app needs ACME, FCM,
-# Solapi and DNS) — restricting it by destination IP is impractical here.
+# Default-deny ingress for the namespace, then the minimum allows, plus a
+# default-deny EGRESS for the app tier with explicit allows (DNS, intra-namespace
+# Postgres, outbound HTTPS for OCI Object Storage / FCM / Solapi). The CNPG
+# database pods are intentionally NOT egress-restricted here — their egress
+# (Barman→OCI, the Kubernetes API used by the instance manager) is operator-
+# managed and unsafe to blanket-deny.
+#
+# ENFORCEMENT: these policies only take effect with a policy-capable CNI. Plain
+# flannel (Talos default) does NOT enforce NetworkPolicy. Enforcement on this
+# cluster requires the Calico policy add-on (Canal: flannel dataplane + Calico
+# policy), rolled out and connectivity-verified as a dedicated step.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -50,3 +58,71 @@ spec:
               - { key: app, operator: In, values: [mnt-app, mnt-worker] }
       ports:
         - { protocol: TCP, port: 5432 }
+---
+# Default-deny EGRESS for the app tier (api/web/worker). CNPG pods are excluded.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress-app-tier
+  namespace: maintenance
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app, operator: In, values: [mnt-app, mnt-web, mnt-worker] }
+  policyTypes: [Egress]
+---
+# DNS resolution (kube-dns in kube-system) for the app tier.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-app-egress-dns
+  namespace: maintenance
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app, operator: In, values: [mnt-app, mnt-web, mnt-worker] }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+# api/worker → Postgres (intra-namespace).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-app-egress-postgres
+  namespace: maintenance
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app, operator: In, values: [mnt-app, mnt-worker] }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: { cnpg.io/cluster: mnt-db }
+      ports:
+        - { protocol: TCP, port: 5432 }
+---
+# api/worker → external HTTPS (OCI Object Storage, FCM, Solapi). External SaaS
+# endpoints have no stable IPs, so allow 443 broadly; every other egress port
+# stays denied by default-deny-egress-app-tier.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-app-egress-https
+  namespace: maintenance
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app, operator: In, values: [mnt-app, mnt-worker] }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock: { cidr: 0.0.0.0/0 }
+      ports:
+        - { protocol: TCP, port: 443 }

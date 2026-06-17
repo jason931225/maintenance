@@ -19,6 +19,13 @@ variable "availability_domain" {
 variable "admin_cidr" {
   type        = string
   description = "Admin source CIDR allowed to reach the Talos + k8s control-plane APIs."
+
+  # Guard against accidentally exposing the Talos (50000) and Kubernetes (6443)
+  # control-plane APIs to the whole internet. Use a tight admin /32.
+  validation {
+    condition     = !contains(["0.0.0.0/0", "::/0"], trimspace(var.admin_cidr))
+    error_message = "admin_cidr must not be 0.0.0.0/0 or ::/0 — it gates the Talos and Kubernetes control-plane APIs. Use a specific admin CIDR (ideally a /32)."
+  }
 }
 
 variable "ssh_public_key" {
