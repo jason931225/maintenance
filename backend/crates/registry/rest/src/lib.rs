@@ -9,21 +9,40 @@
 use std::collections::BTreeSet;
 use std::str::FromStr;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Multipart, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
-use mnt_kernel_core::{BranchId, BranchScope, EquipmentId, ErrorKind, KernelError, UserId};
+use mnt_kernel_core::{
+    BranchId, BranchScope, EquipmentId, ErrorKind, KernelError, TraceContext, UserId,
+};
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
-use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
+use mnt_platform_authz::{Action, Feature, Principal, Role, authorize, resolve_branch_scope};
 use mnt_registry_adapter_postgres::{PgRegistryError, PgRegistryStore};
-use mnt_registry_application::{SubstituteCandidate, SubstituteSearch};
-use mnt_registry_domain::{EquipmentStatus, SubstituteMatchKind};
+use mnt_registry_application::{
+    CreateEquipmentCommand, DeleteEquipmentCommand, RegistryImportReport, SubstituteCandidate,
+    SubstituteSearch, UpdateEquipmentCommand, UpdateEquipmentFields,
+};
+use mnt_registry_domain::{EquipmentNo, EquipmentStatus, MoneyWon, SubstituteMatchKind, Ton};
 use serde::{Deserialize, Serialize};
+use time::Date;
+use time::OffsetDateTime;
 
+pub const EQUIPMENT_PATH: &str = "/api/v1/equipment";
+pub const EQUIPMENT_IMPORT_PATH: &str = "/api/v1/equipment/import";
+pub const EQUIPMENT_ID_PATH_TEMPLATE: &str = "/api/v1/equipment/{id}";
 pub const EQUIPMENT_SUBSTITUTES_PATH_TEMPLATE: &str = "/api/v1/equipment/{id}/substitutes";
-pub const REGISTRY_ROUTE_PATHS: &[&str] = &[EQUIPMENT_SUBSTITUTES_PATH_TEMPLATE];
+pub const REGISTRY_ROUTE_PATHS: &[&str] = &[
+    EQUIPMENT_PATH,
+    EQUIPMENT_IMPORT_PATH,
+    EQUIPMENT_ID_PATH_TEMPLATE,
+    EQUIPMENT_SUBSTITUTES_PATH_TEMPLATE,
+];
+
+/// Hard cap on an uploaded master-list workbook. The reference master-list is a
+/// few hundred KiB; 16 MiB leaves generous headroom while bounding memory.
+const MAX_IMPORT_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct RegistryRestState {
@@ -46,6 +65,12 @@ pub fn router(state: RegistryRestState) -> Router {
         .route(
             EQUIPMENT_SUBSTITUTES_PATH_TEMPLATE,
             get(list_equipment_substitutes),
+        )
+        .route(EQUIPMENT_PATH, post(create_equipment))
+        .route(EQUIPMENT_IMPORT_PATH, post(import_master_list))
+        .route(
+            EQUIPMENT_ID_PATH_TEMPLATE,
+            axum::routing::patch(update_equipment).delete(delete_equipment),
         )
         .with_state(state)
 }
@@ -134,6 +159,389 @@ impl From<SubstituteCandidate> for SubstituteCandidateResponse {
             ton_delta_milli: value.ton_delta_milli,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Equipment master import (admin-gated multipart upload)
+// ---------------------------------------------------------------------------
+
+async fn import_master_list(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+    multipart: Multipart,
+) -> Result<Json<RegistryImportReport>, RestError> {
+    let principal = principal_from_headers_db(&state, &headers).await?;
+    authorize_equipment_feature(&principal, Feature::MasterListImport)?;
+
+    let upload = read_xlsx_upload(multipart).await?;
+    let report = state
+        .store
+        .import_master_list_bytes(principal.user_id, &upload.filename, &upload.bytes)
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(report))
+}
+
+struct XlsxUpload {
+    filename: String,
+    bytes: Vec<u8>,
+}
+
+async fn read_xlsx_upload(mut multipart: Multipart) -> Result<XlsxUpload, RestError> {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|err| RestError::from_kernel(KernelError::validation(err.to_string())))?
+    {
+        if field.name() != Some("file") {
+            continue;
+        }
+        let filename = field
+            .file_name()
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| "master-list.xlsx".to_owned());
+        let bytes = field
+            .bytes()
+            .await
+            .map_err(|err| RestError::from_kernel(KernelError::validation(err.to_string())))?;
+        if bytes.is_empty() {
+            return Err(RestError::from_kernel(KernelError::validation(
+                "uploaded file is empty",
+            )));
+        }
+        if bytes.len() > MAX_IMPORT_BYTES {
+            return Err(RestError::from_kernel(KernelError::validation(
+                "uploaded file exceeds the maximum import size",
+            )));
+        }
+        return Ok(XlsxUpload {
+            filename,
+            bytes: bytes.to_vec(),
+        });
+    }
+    Err(RestError::from_kernel(KernelError::validation(
+        "multipart upload is missing the 'file' field",
+    )))
+}
+
+// ---------------------------------------------------------------------------
+// Equipment CRUD (admin-gated)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct CreateEquipmentRequest {
+    equipment_no: String,
+    customer_name: String,
+    site_name: String,
+    status: EquipmentStatus,
+    specification: String,
+    ton_text: String,
+    #[serde(default)]
+    management_no: Option<String>,
+    #[serde(default)]
+    power_label: Option<String>,
+    #[serde(default)]
+    manager_name: Option<String>,
+    #[serde(default)]
+    placement_location: Option<String>,
+    #[serde(default)]
+    placement_no: Option<String>,
+    #[serde(default)]
+    operation_shift: Option<String>,
+    #[serde(default)]
+    maker: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    vin: Option<String>,
+    #[serde(default)]
+    year: Option<Date>,
+    #[serde(default)]
+    hours: Option<i64>,
+    #[serde(default)]
+    vehicle_registration_no: Option<String>,
+    #[serde(default)]
+    insured: Option<bool>,
+    #[serde(default)]
+    insurer: Option<String>,
+    #[serde(default)]
+    policy_holder: Option<String>,
+    #[serde(default)]
+    insured_party: Option<String>,
+    #[serde(default)]
+    asset_owner: Option<String>,
+    #[serde(default)]
+    asset_registered_on: Option<Date>,
+    #[serde(default)]
+    rental_started_on: Option<Date>,
+    #[serde(default)]
+    rental_fee: Option<i64>,
+    #[serde(default)]
+    vehicle_value: Option<i64>,
+    #[serde(default)]
+    residual_value: Option<i64>,
+    #[serde(default)]
+    note: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct CreateEquipmentResponse {
+    id: EquipmentId,
+}
+
+async fn create_equipment(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateEquipmentRequest>,
+) -> Result<(StatusCode, Json<CreateEquipmentResponse>), RestError> {
+    let principal = principal_from_headers_db(&state, &headers).await?;
+    authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
+
+    let equipment_no = EquipmentNo::parse(body.equipment_no).map_err(RestError::from_kernel)?;
+    let command = CreateEquipmentCommand {
+        actor: principal.user_id,
+        equipment_no,
+        customer_name: require_nonempty(body.customer_name, "customer_name")?,
+        site_name: require_nonempty(body.site_name, "site_name")?,
+        status: body.status,
+        specification: require_nonempty(body.specification, "specification")?,
+        ton: Ton::parse(&body.ton_text),
+        management_no: body.management_no,
+        power_label: body.power_label,
+        manager_name: body.manager_name,
+        placement_location: body.placement_location,
+        placement_no: body.placement_no,
+        operation_shift: body.operation_shift,
+        maker: body.maker,
+        model: body.model,
+        vin: body.vin,
+        year: body.year,
+        hours: body.hours,
+        vehicle_registration_no: body.vehicle_registration_no,
+        insured: body.insured,
+        insurer: body.insurer,
+        policy_holder: body.policy_holder,
+        insured_party: body.insured_party,
+        asset_owner: body.asset_owner,
+        asset_registered_on: body.asset_registered_on,
+        rental_started_on: body.rental_started_on,
+        rental_fee: body.rental_fee.map(MoneyWon::new),
+        vehicle_value: body.vehicle_value.map(MoneyWon::new),
+        residual_value: body.residual_value.map(MoneyWon::new),
+        note: body.note,
+        trace: TraceContext::generate(),
+        occurred_at: OffsetDateTime::now_utc(),
+    };
+    let id = state
+        .store
+        .create_equipment(command)
+        .await
+        .map_err(RestError::from_store)?;
+    Ok((StatusCode::CREATED, Json(CreateEquipmentResponse { id })))
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateEquipmentRequest {
+    #[serde(default)]
+    customer_name: Option<String>,
+    #[serde(default)]
+    site_name: Option<String>,
+    #[serde(default)]
+    status: Option<EquipmentStatus>,
+    #[serde(default)]
+    specification: Option<String>,
+    #[serde(default)]
+    ton_text: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    management_no: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    power_label: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    manager_name: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    placement_location: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    placement_no: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    operation_shift: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    maker: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    model: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    vin: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    year: Option<Option<Date>>,
+    #[serde(default, deserialize_with = "double_option")]
+    hours: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "double_option")]
+    vehicle_registration_no: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    insured: Option<Option<bool>>,
+    #[serde(default, deserialize_with = "double_option")]
+    insurer: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    policy_holder: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    insured_party: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    asset_owner: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    asset_registered_on: Option<Option<Date>>,
+    #[serde(default, deserialize_with = "double_option")]
+    rental_started_on: Option<Option<Date>>,
+    #[serde(default, deserialize_with = "double_option")]
+    rental_fee: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "double_option")]
+    vehicle_value: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "double_option")]
+    residual_value: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "double_option")]
+    note: Option<Option<String>>,
+}
+
+/// Distinguish "key absent" (leave unchanged) from "key present but null"
+/// (clear the column) for nullable PATCH fields.
+fn double_option<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Deserialize::deserialize(deserializer).map(Some)
+}
+
+async fn update_equipment(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+    Path(equipment_id): Path<EquipmentId>,
+    Json(body): Json<UpdateEquipmentRequest>,
+) -> Result<StatusCode, RestError> {
+    let principal = principal_from_headers_db(&state, &headers).await?;
+    authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
+
+    let fields = UpdateEquipmentFields {
+        customer_name: body.customer_name,
+        site_name: body.site_name,
+        status: body.status,
+        specification: body.specification,
+        ton: body.ton_text.as_deref().map(Ton::parse),
+        management_no: body.management_no,
+        power_label: body.power_label,
+        manager_name: body.manager_name,
+        placement_location: body.placement_location,
+        placement_no: body.placement_no,
+        operation_shift: body.operation_shift,
+        maker: body.maker,
+        model: body.model,
+        vin: body.vin,
+        year: body.year,
+        hours: body.hours,
+        vehicle_registration_no: body.vehicle_registration_no,
+        insured: body.insured,
+        insurer: body.insurer,
+        policy_holder: body.policy_holder,
+        insured_party: body.insured_party,
+        asset_owner: body.asset_owner,
+        asset_registered_on: body.asset_registered_on,
+        rental_started_on: body.rental_started_on,
+        rental_fee: body.rental_fee.map(|value| value.map(MoneyWon::new)),
+        vehicle_value: body.vehicle_value.map(|value| value.map(MoneyWon::new)),
+        residual_value: body.residual_value.map(|value| value.map(MoneyWon::new)),
+        note: body.note,
+    };
+    if fields.is_empty() {
+        return Err(RestError::from_kernel(KernelError::validation(
+            "no equipment fields to update",
+        )));
+    }
+    state
+        .store
+        .update_equipment(UpdateEquipmentCommand {
+            actor: principal.user_id,
+            equipment_id,
+            fields,
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn delete_equipment(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+    Path(equipment_id): Path<EquipmentId>,
+) -> Result<StatusCode, RestError> {
+    let principal = principal_from_headers_db(&state, &headers).await?;
+    authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
+
+    state
+        .store
+        .soft_delete_equipment(DeleteEquipmentCommand {
+            actor: principal.user_id,
+            equipment_id,
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn require_nonempty(value: String, field: &str) -> Result<String, RestError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        Err(RestError::from_kernel(KernelError::validation(format!(
+            "{field} must not be empty"
+        ))))
+    } else {
+        Ok(trimmed.to_owned())
+    }
+}
+
+/// Authorize a global equipment-master feature against a representative branch:
+/// cross-branch principals authorize against a fresh id (allowed by
+/// `BranchScope::All`); branch-scoped principals authorize against one of their
+/// own branches. The feature matrix is what actually decides.
+fn authorize_equipment_feature(principal: &Principal, feature: Feature) -> Result<(), RestError> {
+    let branch = match &principal.branch_scope {
+        BranchScope::All => BranchId::new(),
+        BranchScope::Branches(branches) => branches.iter().next().copied().ok_or_else(|| {
+            RestError::from_kernel(KernelError::forbidden(
+                "principal has no branch scope for equipment management",
+            ))
+        })?,
+    };
+    authorize(principal, Action::new(feature), branch).map_err(RestError::from_kernel)
+}
+
+async fn principal_from_headers_db(
+    state: &RegistryRestState,
+    headers: &HeaderMap,
+) -> Result<Principal, RestError> {
+    let verifier = state.jwt_verifier.as_ref().ok_or_else(|| {
+        RestError::unavailable("JWT verification is not configured for registry API")
+    })?;
+    let token = bearer_token(headers)?;
+    let claims = verifier
+        .verify_access_token(token)
+        .map_err(|_| RestError::unauthorized("invalid bearer token"))?;
+    let user_id = UserId::from_str(&claims.sub)
+        .map_err(|_| RestError::unauthorized("token subject is not a valid user id"))?;
+    let role_vec: Vec<Role> = claims
+        .roles
+        .iter()
+        .map(|role| {
+            Role::from_str(role)
+                .map_err(|_| RestError::unauthorized("token contains an unknown role"))
+        })
+        .collect::<Result<_, _>>()?;
+    let branch_scope = resolve_branch_scope(state.store.pool(), user_id, &role_vec)
+        .await
+        .map_err(RestError::from_kernel)?;
+    let roles = role_vec.iter().copied().collect::<BTreeSet<_>>();
+    Ok(Principal::new(user_id, roles, branch_scope))
 }
 
 fn authorize_read_access(principal: &Principal) -> Result<(), RestError> {

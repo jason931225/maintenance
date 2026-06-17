@@ -1,5 +1,6 @@
 import {
   BarChart2,
+  Building2,
   CheckSquare,
   ClipboardList,
   FilePlus,
@@ -7,6 +8,8 @@ import {
   MapPin,
   MessageSquare,
   ShieldCheck,
+  UserCircle,
+  Users,
   Wrench,
 } from "lucide-react";
 
@@ -53,11 +56,15 @@ const KPI_ROLES: readonly Role[] = [
  *  - kpi (KpiRead): ADMIN/EXECUTIVE/SUPER_ADMIN.
  *  - security settings (UserManage / admin OTP issuance): ADMIN/SUPER_ADMIN,
  *    matching the `RequireAdminRoute` guard on `/settings/security`.
+ *  - users / org (UserManage, region/branch management): ADMIN/SUPER_ADMIN,
+ *    matching the `RequireAdminRoute` guards on `/settings/users` & `/settings/org`.
  *  - dispatch/messenger/support/equipment/location: all authenticated roles.
  */
 const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["approvals", ADMIN_ROLES],
   ["kpi", KPI_ROLES],
+  ["users", ADMIN_ROLES],
+  ["org", ADMIN_ROLES],
   ["security", ADMIN_ROLES],
 ]);
 
@@ -95,9 +102,18 @@ export const NAV_GROUPS = [
     ],
   },
   {
+    key: "org",
+    label: "nav.groups.org",
+    items: [
+      { key: "users", href: "/settings/users", labelKey: "nav.users", Icon: Users },
+      { key: "org",   href: "/settings/org",   labelKey: "nav.org",   Icon: Building2 },
+    ],
+  },
+  {
     key: "settings",
     label: "nav.groups.settings",
     items: [
+      { key: "profile",   href: "/settings/profile",  labelKey: "nav.profile",  Icon: UserCircle },
       { key: "location",  href: "/settings/location", labelKey: "nav.location", Icon: MapPin },
       { key: "security",  href: "/settings/security", labelKey: "nav.security", Icon: ShieldCheck },
     ],

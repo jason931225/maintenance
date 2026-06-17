@@ -103,6 +103,9 @@ pub enum Feature {
     RegionManage,
     /// Create/rename branches (지점) during org setup.
     BranchManage,
+    /// Create/update/soft-delete equipment master rows (지게차) outside the
+    /// bulk master-list import path.
+    EquipmentManage,
     MasterListImport,
     RentalQuoteManage,
     EquipmentCostLedgerRead,
@@ -122,7 +125,7 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Self; 34] = [
+    pub const ALL: [Self; 35] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -143,6 +146,7 @@ impl Feature {
         Self::ElevatedRoleGrant,
         Self::RegionManage,
         Self::BranchManage,
+        Self::EquipmentManage,
         Self::MasterListImport,
         Self::RentalQuoteManage,
         Self::EquipmentCostLedgerRead,
@@ -183,6 +187,7 @@ impl Feature {
             Self::ElevatedRoleGrant => [D, D, D, D, A],
             Self::RegionManage => [D, D, A, A, A],
             Self::BranchManage => [D, D, A, A, A],
+            Self::EquipmentManage => [D, D, A, A, A],
             Self::MasterListImport => [D, D, A, D, A],
             Self::RentalQuoteManage => [A, D, A, A, A],
             Self::EquipmentCostLedgerRead => [D, D, A, A, A],

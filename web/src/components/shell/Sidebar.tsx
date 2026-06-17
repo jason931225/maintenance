@@ -17,6 +17,7 @@ interface SidebarProps {
 const groupLabels: Record<string, string> = {
   operations: ko.nav.groups.operations,
   data: ko.nav.groups.data,
+  org: ko.nav.groups.org,
   settings: ko.nav.groups.settings,
 };
 

@@ -65,6 +65,18 @@ export type AddCommentRequest =
   components["schemas"]["AddCommentRequest"];
 export type SupportIntakeAck = components["schemas"]["SupportIntakeAck"];
 
+export type Team = components["schemas"]["Team"];
+export type UserSummary = components["schemas"]["UserSummary"];
+export type CreateUserRequest = components["schemas"]["CreateUserRequest"];
+export type UpdateUserRequest = components["schemas"]["UpdateUserRequest"];
+export type UpdateSelfProfileRequest =
+  components["schemas"]["UpdateSelfProfileRequest"];
+export type RegionSummary = components["schemas"]["RegionSummary"];
+export type CreateRegionRequest = components["schemas"]["CreateRegionRequest"];
+export type BranchSummary = components["schemas"]["BranchSummary"];
+export type CreateBranchRequest = components["schemas"]["CreateBranchRequest"];
+export type UpdateBranchRequest = components["schemas"]["UpdateBranchRequest"];
+
 export interface EquipmentLookupResult {
   managementNo: string;
   model: string;

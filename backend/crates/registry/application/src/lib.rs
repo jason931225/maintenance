@@ -164,6 +164,185 @@ pub struct SubstituteAssignment {
     pub return_note: Option<String>,
 }
 
+/// Fields a caller may set when creating a single equipment master row outside
+/// the bulk import path. Mirrors the importer's [`MasterListEquipment`] surface
+/// but omits derived prefix codes (recomputed from `equipment_no`) and the
+/// import-only `source_sheet`/`source_row` provenance.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CreateEquipmentCommand {
+    pub actor: UserId,
+    pub equipment_no: EquipmentNo,
+    pub customer_name: String,
+    pub site_name: String,
+    pub status: EquipmentStatus,
+    pub specification: String,
+    pub ton: Ton,
+    pub management_no: Option<String>,
+    pub power_label: Option<String>,
+    pub manager_name: Option<String>,
+    pub placement_location: Option<String>,
+    pub placement_no: Option<String>,
+    pub operation_shift: Option<String>,
+    pub maker: Option<String>,
+    pub model: Option<String>,
+    pub vin: Option<String>,
+    pub year: Option<Date>,
+    pub hours: Option<i64>,
+    pub vehicle_registration_no: Option<String>,
+    pub insured: Option<bool>,
+    pub insurer: Option<String>,
+    pub policy_holder: Option<String>,
+    pub insured_party: Option<String>,
+    pub asset_owner: Option<String>,
+    pub asset_registered_on: Option<Date>,
+    pub rental_started_on: Option<Date>,
+    pub rental_fee: Option<MoneyWon>,
+    pub vehicle_value: Option<MoneyWon>,
+    pub residual_value: Option<MoneyWon>,
+    pub note: Option<String>,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+/// A partial update to one equipment master row. `None` fields are left
+/// untouched; `Some` fields are written. Customer/site and financial fields can
+/// all be re-targeted here, including the 유효설비 `status` and 취득/잔존가액.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct UpdateEquipmentFields {
+    pub customer_name: Option<String>,
+    pub site_name: Option<String>,
+    pub status: Option<EquipmentStatus>,
+    pub specification: Option<String>,
+    pub ton: Option<Ton>,
+    pub management_no: Option<Option<String>>,
+    pub power_label: Option<Option<String>>,
+    pub manager_name: Option<Option<String>>,
+    pub placement_location: Option<Option<String>>,
+    pub placement_no: Option<Option<String>>,
+    pub operation_shift: Option<Option<String>>,
+    pub maker: Option<Option<String>>,
+    pub model: Option<Option<String>>,
+    pub vin: Option<Option<String>>,
+    pub year: Option<Option<Date>>,
+    pub hours: Option<Option<i64>>,
+    pub vehicle_registration_no: Option<Option<String>>,
+    pub insured: Option<Option<bool>>,
+    pub insurer: Option<Option<String>>,
+    pub policy_holder: Option<Option<String>>,
+    pub insured_party: Option<Option<String>>,
+    pub asset_owner: Option<Option<String>>,
+    pub asset_registered_on: Option<Option<Date>>,
+    pub rental_started_on: Option<Option<Date>>,
+    pub rental_fee: Option<Option<MoneyWon>>,
+    pub vehicle_value: Option<Option<MoneyWon>>,
+    pub residual_value: Option<Option<MoneyWon>>,
+    pub note: Option<Option<String>>,
+}
+
+impl UpdateEquipmentFields {
+    /// True when no field would be written, so the adapter can reject empty
+    /// patches with a validation error instead of opening a transaction.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct UpdateEquipmentCommand {
+    pub actor: UserId,
+    pub equipment_id: EquipmentId,
+    pub fields: UpdateEquipmentFields,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DeleteEquipmentCommand {
+    pub actor: UserId,
+    pub equipment_id: EquipmentId,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+pub fn equipment_create_audit_event(
+    actor: UserId,
+    branch_id: BranchId,
+    equipment_id: EquipmentId,
+    equipment_no: &EquipmentNo,
+    status: EquipmentStatus,
+    trace: TraceContext,
+    occurred_at: Timestamp,
+) -> Result<AuditEvent, KernelError> {
+    let after = serde_json::json!({
+        "id": equipment_id,
+        "equipment_no": equipment_no.as_str(),
+        "status": status,
+    });
+    Ok(AuditEvent::new(
+        Some(actor),
+        AuditAction::new("equipment.create")?,
+        "registry_equipment",
+        equipment_id.to_string(),
+        trace,
+        occurred_at,
+    )
+    .with_branch(branch_id)
+    .with_snapshots(None, Some(after)))
+}
+
+pub fn equipment_update_audit_event(
+    actor: UserId,
+    branch_id: BranchId,
+    equipment_id: EquipmentId,
+    before: serde_json::Value,
+    after: serde_json::Value,
+    trace: TraceContext,
+    occurred_at: Timestamp,
+) -> Result<AuditEvent, KernelError> {
+    Ok(AuditEvent::new(
+        Some(actor),
+        AuditAction::new("equipment.update")?,
+        "registry_equipment",
+        equipment_id.to_string(),
+        trace,
+        occurred_at,
+    )
+    .with_branch(branch_id)
+    .with_snapshots(Some(before), Some(after)))
+}
+
+pub fn equipment_delete_audit_event(
+    actor: UserId,
+    branch_id: BranchId,
+    equipment_id: EquipmentId,
+    equipment_no: &EquipmentNo,
+    before_status: EquipmentStatus,
+    trace: TraceContext,
+    occurred_at: Timestamp,
+) -> Result<AuditEvent, KernelError> {
+    let before = serde_json::json!({
+        "id": equipment_id,
+        "equipment_no": equipment_no.as_str(),
+        "status": before_status,
+    });
+    let after = serde_json::json!({
+        "id": equipment_id,
+        "equipment_no": equipment_no.as_str(),
+        "status": EquipmentStatus::Disposed,
+    });
+    Ok(AuditEvent::new(
+        Some(actor),
+        AuditAction::new("equipment.delete")?,
+        "registry_equipment",
+        equipment_id.to_string(),
+        trace,
+        occurred_at,
+    )
+    .with_branch(branch_id)
+    .with_snapshots(Some(before), Some(after)))
+}
+
 pub fn registry_import_audit_event(
     actor: Option<UserId>,
     branch_id: BranchId,

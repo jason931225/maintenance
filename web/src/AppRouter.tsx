@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/shell/AppShell";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { RequireAdminRoute } from "./components/RequireAdminRoute";
+import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
 import { PageSpinner } from "./components/states/PageSpinner";
 import { LoginPage } from "./pages/LoginPage";
 import { WallBoardPage } from "./pages/WallBoardPage";
@@ -46,6 +47,15 @@ const AdminSettingsPage = lazy(() =>
     default: m.AdminSettingsPage,
   })),
 );
+const UsersPage = lazy(() =>
+  import("./pages/UsersPage").then((m) => ({ default: m.UsersPage })),
+);
+const OrgPage = lazy(() =>
+  import("./pages/OrgPage").then((m) => ({ default: m.OrgPage })),
+);
+const ProfilePage = lazy(() =>
+  import("./pages/ProfilePage").then((m) => ({ default: m.ProfilePage })),
+);
 
 export function AppRouter() {
   return (
@@ -58,13 +68,18 @@ export function AppRouter() {
 
       {/* Auth guard — redirects to /login when unauthenticated */}
       <Route element={<ProtectedRoute />}>
-        {/* Shell-less initial-settings passkey enrollment (first OTP sign-in) */}
+        {/* Shell-less initial-settings passkey enrollment (first OTP sign-in).
+            Renders outside the shell, so it needs its own error boundary to
+            contain a crash rather than falling through to the blank top-level
+            fallback. */}
         <Route
           path="/onboarding"
           element={
-            <Suspense fallback={<PageSpinner />}>
-              <OnboardingPage />
-            </Suspense>
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageSpinner />}>
+                <OnboardingPage />
+              </Suspense>
+            </RouteErrorBoundary>
           }
         />
 
@@ -78,9 +93,12 @@ export function AppRouter() {
           <Route path="/messenger" element={<MessengerPage />} />
           <Route path="/support" element={<SupportPage />} />
           <Route path="/equipment" element={<EquipmentPage />} />
-          <Route path="/settings" element={<Navigate to="/settings/location" replace />} />
+          <Route path="/settings" element={<Navigate to="/settings/profile" replace />} />
+          <Route path="/settings/profile" element={<ProfilePage />} />
           <Route path="/settings/location" element={<LocationSettingsPage />} />
           <Route element={<RequireAdminRoute />}>
+            <Route path="/settings/users" element={<UsersPage />} />
+            <Route path="/settings/org" element={<OrgPage />} />
             <Route path="/settings/security" element={<AdminSettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/dispatch" replace />} />

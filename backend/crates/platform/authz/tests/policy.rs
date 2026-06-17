@@ -17,15 +17,16 @@ const ROLES: [Role; 5] = [
     Role::SuperAdmin,
 ];
 
-fn expected_matrix() -> [(Feature, [PermissionLevel; 5]); 34] {
+fn expected_matrix() -> [(Feature, [PermissionLevel; 5]); 35] {
     use Feature::{
         AiAssist, AssigneeManage, AuditLogRead, BranchManage, CompletionReview, DailyPlanRequest,
         DailyPlanReview, ElevatedRoleGrant, EquipmentCostLedgerRead, EquipmentCostLedgerWrite,
-        EvidenceAttach, ExcelDownload, InspectionRoundComplete, InspectionScheduleManage,
-        KpiExclusionManage, KpiRead, Login, MasterListImport, PriorityManage, PurchaseExecute,
-        PurchaseFinalApprove, PurchaseRequestApprove, PurchaseRequestCreate, PurchaseRequestRead,
-        RegionManage, RentalQuoteManage, SubordinateUserCreate, TargetManage, UserManage,
-        WorkOrderCreate, WorkOrderEditIntake, WorkOrderReadAll, WorkOrderStart, WorkReportSubmit,
+        EquipmentManage, EvidenceAttach, ExcelDownload, InspectionRoundComplete,
+        InspectionScheduleManage, KpiExclusionManage, KpiRead, Login, MasterListImport,
+        PriorityManage, PurchaseExecute, PurchaseFinalApprove, PurchaseRequestApprove,
+        PurchaseRequestCreate, PurchaseRequestRead, RegionManage, RentalQuoteManage,
+        SubordinateUserCreate, TargetManage, UserManage, WorkOrderCreate, WorkOrderEditIntake,
+        WorkOrderReadAll, WorkOrderStart, WorkReportSubmit,
     };
     use PermissionLevel::{Allow as A, Deny as D, Limited as L, RequestOnly as R};
 
@@ -50,6 +51,7 @@ fn expected_matrix() -> [(Feature, [PermissionLevel; 5]); 34] {
         (ElevatedRoleGrant, [D, D, D, D, A]),
         (RegionManage, [D, D, A, A, A]),
         (BranchManage, [D, D, A, A, A]),
+        (EquipmentManage, [D, D, A, A, A]),
         (MasterListImport, [D, D, A, D, A]),
         (RentalQuoteManage, [A, D, A, A, A]),
         (EquipmentCostLedgerRead, [D, D, A, A, A]),
@@ -90,7 +92,7 @@ fn role_enum_uses_canonical_database_codes() {
 #[test]
 fn permission_matrix_is_exhaustive_and_matches_inherited_table() {
     let matrix = expected_matrix();
-    assert_eq!(Feature::ALL.len(), 34);
+    assert_eq!(Feature::ALL.len(), 35);
     assert_eq!(matrix.len(), Feature::ALL.len());
 
     for feature in Feature::ALL {

@@ -4,6 +4,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/auth";
 import { TitleProvider } from "../../context/title";
 import { ko } from "../../i18n/ko";
+import { RouteErrorBoundary } from "../RouteErrorBoundary";
 import { PageSpinner } from "../states/PageSpinner";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
@@ -62,10 +63,15 @@ export function AppShell() {
             tabIndex={-1}
           >
             {/* Routed pages are code-split; keep the shell mounted and show the
-                shared spinner while a page chunk loads. */}
-            <Suspense fallback={<PageSpinner />}>
-              <Outlet />
-            </Suspense>
+                shared spinner while a page chunk loads. The error boundary is
+                keyed by the route path so a single page's render crash is
+                contained here (shell + nav stay usable) and clears when the
+                user navigates away. */}
+            <RouteErrorBoundary resetKey={location.pathname}>
+              <Suspense fallback={<PageSpinner />}>
+                <Outlet />
+              </Suspense>
+            </RouteErrorBoundary>
           </main>
         </div>
       </div>

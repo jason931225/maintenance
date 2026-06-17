@@ -24,6 +24,9 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "support",
     "kpi",
     "equipment",
+    "users",
+    "org",
+    "profile",
     "location",
     "security",
   ],
@@ -35,10 +38,13 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "support",
     "kpi",
     "equipment",
+    "users",
+    "org",
+    "profile",
     "location",
     "security",
   ],
-  // Executive: KPI yes; approvals/security no.
+  // Executive: KPI yes; approvals/users/org/security no. Profile is shared.
   [ROLES.EXECUTIVE]: [
     "dispatch",
     "intake",
@@ -46,24 +52,27 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "support",
     "kpi",
     "equipment",
+    "profile",
     "location",
   ],
-  // Mechanic: operational pages only; no approvals/kpi/security.
+  // Mechanic: operational pages only; no approvals/kpi/users/org/security.
   [ROLES.MECHANIC]: [
     "dispatch",
     "intake",
     "messenger",
     "support",
     "equipment",
+    "profile",
     "location",
   ],
-  // Receptionist: same surface as mechanic (no approvals/kpi/security).
+  // Receptionist: same surface as mechanic (no approvals/kpi/users/org/security).
   [ROLES.RECEPTIONIST]: [
     "dispatch",
     "intake",
     "messenger",
     "support",
     "equipment",
+    "profile",
     "location",
   ],
 };
@@ -80,6 +89,18 @@ describe("nav role gating", () => {
     for (const role of [ROLES.EXECUTIVE, ROLES.MECHANIC, ROLES.RECEPTIONIST]) {
       expect(isNavItemVisible("approvals", [role])).toBe(false);
       expect(isNavItemVisible("security", [role])).toBe(false);
+      expect(isNavItemVisible("users", [role])).toBe(false);
+      expect(isNavItemVisible("org", [role])).toBe(false);
+    }
+  });
+
+  it("shows user and org management only to ADMIN and SUPER_ADMIN", () => {
+    for (const key of ["users", "org"]) {
+      expect(isNavItemVisible(key, [ROLES.ADMIN])).toBe(true);
+      expect(isNavItemVisible(key, [ROLES.SUPER_ADMIN])).toBe(true);
+      expect(isNavItemVisible(key, [ROLES.EXECUTIVE])).toBe(false);
+      expect(isNavItemVisible(key, [ROLES.MECHANIC])).toBe(false);
+      expect(isNavItemVisible(key, [ROLES.RECEPTIONIST])).toBe(false);
     }
   });
 
@@ -93,7 +114,7 @@ describe("nav role gating", () => {
 
   it("shows shared pages to all roles", () => {
     for (const role of Object.values(ROLES)) {
-      for (const key of ["dispatch", "intake", "messenger", "support", "equipment", "location"]) {
+      for (const key of ["dispatch", "intake", "messenger", "support", "equipment", "location", "profile"]) {
         expect(isNavItemVisible(key, [role])).toBe(true);
       }
     }

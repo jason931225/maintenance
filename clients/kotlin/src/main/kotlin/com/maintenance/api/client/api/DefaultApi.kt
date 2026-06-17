@@ -40,6 +40,8 @@ import com.maintenance.api.client.model.ComputedRentalQuote
 import com.maintenance.api.client.model.CostLedgerEntrySummary
 import com.maintenance.api.client.model.CreateBranchRequest
 import com.maintenance.api.client.model.CreateDailyPlanRequest
+import com.maintenance.api.client.model.CreateEquipmentRequest
+import com.maintenance.api.client.model.CreateEquipmentResponse
 import com.maintenance.api.client.model.CreateInspectionScheduleRequest
 import com.maintenance.api.client.model.CreateInternalTicketRequest
 import com.maintenance.api.client.model.CreateMessengerThreadRequest
@@ -89,6 +91,7 @@ import com.maintenance.api.client.model.PriorityLevel
 import com.maintenance.api.client.model.PurchaseRequestSummary
 import com.maintenance.api.client.model.RefreshTokenRequest
 import com.maintenance.api.client.model.RegionSummary
+import com.maintenance.api.client.model.RegistryImportReport
 import com.maintenance.api.client.model.RejectPurchaseRequest
 import com.maintenance.api.client.model.RejectWorkOrderRequest
 import com.maintenance.api.client.model.RentalQuoteSummary
@@ -115,6 +118,7 @@ import com.maintenance.api.client.model.TargetChangeRequestSummary
 import com.maintenance.api.client.model.TokenPairResponse
 import com.maintenance.api.client.model.TransitionTicketRequest
 import com.maintenance.api.client.model.UpdateBranchRequest
+import com.maintenance.api.client.model.UpdateEquipmentRequest
 import com.maintenance.api.client.model.UpdateSelfProfileRequest
 import com.maintenance.api.client.model.UpdateUserRequest
 import com.maintenance.api.client.model.UpdateWorkOrderPriorityRequest
@@ -1947,6 +1951,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/equipment
+     * Create a single equipment master row on the HQ branch
+     * Admin-gated (EquipmentManage). The equipment number prefix derives the manufacturer, kind, and power codes.
+     * @param createEquipmentRequest
+     * @return CreateEquipmentResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createEquipment(createEquipmentRequest: CreateEquipmentRequest) : CreateEquipmentResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = createEquipmentWithHttpInfo(createEquipmentRequest = createEquipmentRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CreateEquipmentResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/equipment
+     * Create a single equipment master row on the HQ branch
+     * Admin-gated (EquipmentManage). The equipment number prefix derives the manufacturer, kind, and power codes.
+     * @param createEquipmentRequest
+     * @return ApiResponse<CreateEquipmentResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createEquipmentWithHttpInfo(createEquipmentRequest: CreateEquipmentRequest) : ApiResponse<CreateEquipmentResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createEquipmentRequestConfig(createEquipmentRequest = createEquipmentRequest)
+
+        return@withContext request<CreateEquipmentRequest, CreateEquipmentResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createEquipment
+     *
+     * @param createEquipmentRequest
+     * @return RequestConfig
+     */
+    fun createEquipmentRequestConfig(createEquipmentRequest: CreateEquipmentRequest) : RequestConfig<CreateEquipmentRequest> {
+        val localVariableBody = createEquipmentRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/equipment",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/inspections/schedules
      * Create a regular inspection schedule
      *
@@ -2681,6 +2759,77 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/users/{id}/deactivate".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * DELETE /api/v1/equipment/{id}
+     * Soft-delete one equipment master row
+     * Admin-gated (EquipmentManage). Marks the row 폐기 (disposed) rather than hard-deleting, so work-order and substitution references stay intact.
+     * @param id
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun deleteEquipment(id: java.util.UUID) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = deleteEquipmentWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * DELETE /api/v1/equipment/{id}
+     * Soft-delete one equipment master row
+     * Admin-gated (EquipmentManage). Marks the row 폐기 (disposed) rather than hard-deleting, so work-order and substitution references stay intact.
+     * @param id
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun deleteEquipmentWithHttpInfo(id: java.util.UUID) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = deleteEquipmentRequestConfig(id = id)
+
+        return@withContext request<Unit, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation deleteEquipment
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun deleteEquipmentRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.DELETE,
+            path = "/api/v1/equipment/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -4040,6 +4189,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/equipment/import
+     * Import the 지게차 master-list workbook into a fresh registry
+     * Admin-gated (MasterListImport) multipart upload of the K&amp;L master-list .xlsx. Upserts equipment by equipment number and returns a created/updated/error summary.
+     * @param file The master-list .xlsx workbook.
+     * @return RegistryImportReport
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun importEquipmentMasterList(file: java.io.File) : RegistryImportReport = withContext(Dispatchers.IO) {
+        val localVarResponse = importEquipmentMasterListWithHttpInfo(file = file)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as RegistryImportReport
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/equipment/import
+     * Import the 지게차 master-list workbook into a fresh registry
+     * Admin-gated (MasterListImport) multipart upload of the K&amp;L master-list .xlsx. Upserts equipment by equipment number and returns a created/updated/error summary.
+     * @param file The master-list .xlsx workbook.
+     * @return ApiResponse<RegistryImportReport?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun importEquipmentMasterListWithHttpInfo(file: java.io.File) : ApiResponse<RegistryImportReport?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = importEquipmentMasterListRequestConfig(file = file)
+
+        return@withContext request<Map<String, PartConfig<*>>, RegistryImportReport>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation importEquipmentMasterList
+     *
+     * @param file The master-list .xlsx workbook.
+     * @return RequestConfig
+     */
+    fun importEquipmentMasterListRequestConfig(file: java.io.File) : RequestConfig<Map<String, PartConfig<*>>> {
+        val localVariableBody = mapOf(
+            "file" to PartConfig(body = file, headers = mutableMapOf()),)
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf("Content-Type" to "multipart/form-data")
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/equipment/import",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
             body = localVariableBody
         )
     }
@@ -7122,6 +7345,81 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.PATCH,
             path = "/api/v1/users/me",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PATCH /api/v1/equipment/{id}
+     * Update fields on one equipment master row
+     * Admin-gated (EquipmentManage). Only supplied fields are written; nullable fields explicitly set to null are cleared.
+     * @param id
+     * @param updateEquipmentRequest
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun updateEquipment(id: java.util.UUID, updateEquipmentRequest: UpdateEquipmentRequest) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = updateEquipmentWithHttpInfo(id = id, updateEquipmentRequest = updateEquipmentRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PATCH /api/v1/equipment/{id}
+     * Update fields on one equipment master row
+     * Admin-gated (EquipmentManage). Only supplied fields are written; nullable fields explicitly set to null are cleared.
+     * @param id
+     * @param updateEquipmentRequest
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun updateEquipmentWithHttpInfo(id: java.util.UUID, updateEquipmentRequest: UpdateEquipmentRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = updateEquipmentRequestConfig(id = id, updateEquipmentRequest = updateEquipmentRequest)
+
+        return@withContext request<UpdateEquipmentRequest, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation updateEquipment
+     *
+     * @param id
+     * @param updateEquipmentRequest
+     * @return RequestConfig
+     */
+    fun updateEquipmentRequestConfig(id: java.util.UUID, updateEquipmentRequest: UpdateEquipmentRequest) : RequestConfig<UpdateEquipmentRequest> {
+        val localVariableBody = updateEquipmentRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PATCH,
+            path = "/api/v1/equipment/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

@@ -186,6 +186,34 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/equipment`.
     /// - Remark: Generated from `#/paths//api/v1/equipment/get(autocompleteEquipment)`.
     func autocompleteEquipment(_ input: Operations.AutocompleteEquipment.Input) async throws -> Operations.AutocompleteEquipment.Output
+    /// Create a single equipment master row on the HQ branch
+    ///
+    /// Admin-gated (EquipmentManage). The equipment number prefix derives the manufacturer, kind, and power codes.
+    ///
+    /// - Remark: HTTP `POST /api/v1/equipment`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/post(createEquipment)`.
+    func createEquipment(_ input: Operations.CreateEquipment.Input) async throws -> Operations.CreateEquipment.Output
+    /// Import the 지게차 master-list workbook into a fresh registry
+    ///
+    /// Admin-gated (MasterListImport) multipart upload of the K&L master-list .xlsx. Upserts equipment by equipment number and returns a created/updated/error summary.
+    ///
+    /// - Remark: HTTP `POST /api/v1/equipment/import`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/import/post(importEquipmentMasterList)`.
+    func importEquipmentMasterList(_ input: Operations.ImportEquipmentMasterList.Input) async throws -> Operations.ImportEquipmentMasterList.Output
+    /// Update fields on one equipment master row
+    ///
+    /// Admin-gated (EquipmentManage). Only supplied fields are written; nullable fields explicitly set to null are cleared.
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/equipment/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/patch(updateEquipment)`.
+    func updateEquipment(_ input: Operations.UpdateEquipment.Input) async throws -> Operations.UpdateEquipment.Output
+    /// Soft-delete one equipment master row
+    ///
+    /// Admin-gated (EquipmentManage). Marks the row 폐기 (disposed) rather than hard-deleting, so work-order and substitution references stay intact.
+    ///
+    /// - Remark: HTTP `DELETE /api/v1/equipment/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/delete(deleteEquipment)`.
+    func deleteEquipment(_ input: Operations.DeleteEquipment.Input) async throws -> Operations.DeleteEquipment.Output
     /// Replay an idempotent mobile offline-operation batch
     ///
     /// - Remark: HTTP `POST /api/v1/sync`.
@@ -970,6 +998,68 @@ extension APIProtocol {
     ) async throws -> Operations.AutocompleteEquipment.Output {
         try await autocompleteEquipment(Operations.AutocompleteEquipment.Input(
             query: query,
+            headers: headers
+        ))
+    }
+    /// Create a single equipment master row on the HQ branch
+    ///
+    /// Admin-gated (EquipmentManage). The equipment number prefix derives the manufacturer, kind, and power codes.
+    ///
+    /// - Remark: HTTP `POST /api/v1/equipment`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/post(createEquipment)`.
+    public func createEquipment(
+        headers: Operations.CreateEquipment.Input.Headers = .init(),
+        body: Operations.CreateEquipment.Input.Body
+    ) async throws -> Operations.CreateEquipment.Output {
+        try await createEquipment(Operations.CreateEquipment.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Import the 지게차 master-list workbook into a fresh registry
+    ///
+    /// Admin-gated (MasterListImport) multipart upload of the K&L master-list .xlsx. Upserts equipment by equipment number and returns a created/updated/error summary.
+    ///
+    /// - Remark: HTTP `POST /api/v1/equipment/import`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/import/post(importEquipmentMasterList)`.
+    public func importEquipmentMasterList(
+        headers: Operations.ImportEquipmentMasterList.Input.Headers = .init(),
+        body: Operations.ImportEquipmentMasterList.Input.Body
+    ) async throws -> Operations.ImportEquipmentMasterList.Output {
+        try await importEquipmentMasterList(Operations.ImportEquipmentMasterList.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Update fields on one equipment master row
+    ///
+    /// Admin-gated (EquipmentManage). Only supplied fields are written; nullable fields explicitly set to null are cleared.
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/equipment/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/patch(updateEquipment)`.
+    public func updateEquipment(
+        path: Operations.UpdateEquipment.Input.Path,
+        headers: Operations.UpdateEquipment.Input.Headers = .init(),
+        body: Operations.UpdateEquipment.Input.Body
+    ) async throws -> Operations.UpdateEquipment.Output {
+        try await updateEquipment(Operations.UpdateEquipment.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Soft-delete one equipment master row
+    ///
+    /// Admin-gated (EquipmentManage). Marks the row 폐기 (disposed) rather than hard-deleting, so work-order and substitution references stay intact.
+    ///
+    /// - Remark: HTTP `DELETE /api/v1/equipment/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/delete(deleteEquipment)`.
+    public func deleteEquipment(
+        path: Operations.DeleteEquipment.Input.Path,
+        headers: Operations.DeleteEquipment.Input.Headers = .init()
+    ) async throws -> Operations.DeleteEquipment.Output {
+        try await deleteEquipment(Operations.DeleteEquipment.Input(
+            path: path,
             headers: headers
         ))
     }
@@ -5584,6 +5674,481 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case items
                 case total
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest`.
+        public struct CreateEquipmentRequest: Codable, Hashable, Sendable {
+            /// Equipment number in AAANN-NNNN form; prefix derives manufacturer/kind/power codes.
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/equipment_no`.
+            public var equipmentNo: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/customer_name`.
+            public var customerName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/site_name`.
+            public var siteName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/status`.
+            public var status: Components.Schemas.EquipmentStatus
+            /// 규격, e.g. 입식 or 좌식.
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/specification`.
+            public var specification: Swift.String
+            /// 톤수 text, e.g. "2.5T"; numeric milli-tons are derived when the value ends in T.
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/ton_text`.
+            public var tonText: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/management_no`.
+            public var managementNo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/power_label`.
+            public var powerLabel: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/manager_name`.
+            public var managerName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/placement_location`.
+            public var placementLocation: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/placement_no`.
+            public var placementNo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/operation_shift`.
+            public var operationShift: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/maker`.
+            public var maker: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/model`.
+            public var model: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/vin`.
+            public var vin: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/year`.
+            public var year: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/hours`.
+            public var hours: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/vehicle_registration_no`.
+            public var vehicleRegistrationNo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/insured`.
+            public var insured: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/insurer`.
+            public var insurer: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/policy_holder`.
+            public var policyHolder: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/insured_party`.
+            public var insuredParty: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/asset_owner`.
+            public var assetOwner: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/asset_registered_on`.
+            public var assetRegisteredOn: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/rental_started_on`.
+            public var rentalStartedOn: Swift.String?
+            /// 임대료 in KRW.
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/rental_fee`.
+            public var rentalFee: Swift.Int64?
+            /// 취득가액 in KRW.
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/vehicle_value`.
+            public var vehicleValue: Swift.Int64?
+            /// 잔존가액 in KRW.
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/residual_value`.
+            public var residualValue: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest/note`.
+            public var note: Swift.String?
+            /// Creates a new `CreateEquipmentRequest`.
+            ///
+            /// - Parameters:
+            ///   - equipmentNo: Equipment number in AAANN-NNNN form; prefix derives manufacturer/kind/power codes.
+            ///   - customerName:
+            ///   - siteName:
+            ///   - status:
+            ///   - specification: 규격, e.g. 입식 or 좌식.
+            ///   - tonText: 톤수 text, e.g. "2.5T"; numeric milli-tons are derived when the value ends in T.
+            ///   - managementNo:
+            ///   - powerLabel:
+            ///   - managerName:
+            ///   - placementLocation:
+            ///   - placementNo:
+            ///   - operationShift:
+            ///   - maker:
+            ///   - model:
+            ///   - vin:
+            ///   - year:
+            ///   - hours:
+            ///   - vehicleRegistrationNo:
+            ///   - insured:
+            ///   - insurer:
+            ///   - policyHolder:
+            ///   - insuredParty:
+            ///   - assetOwner:
+            ///   - assetRegisteredOn:
+            ///   - rentalStartedOn:
+            ///   - rentalFee: 임대료 in KRW.
+            ///   - vehicleValue: 취득가액 in KRW.
+            ///   - residualValue: 잔존가액 in KRW.
+            ///   - note:
+            public init(
+                equipmentNo: Swift.String,
+                customerName: Swift.String,
+                siteName: Swift.String,
+                status: Components.Schemas.EquipmentStatus,
+                specification: Swift.String,
+                tonText: Swift.String,
+                managementNo: Swift.String? = nil,
+                powerLabel: Swift.String? = nil,
+                managerName: Swift.String? = nil,
+                placementLocation: Swift.String? = nil,
+                placementNo: Swift.String? = nil,
+                operationShift: Swift.String? = nil,
+                maker: Swift.String? = nil,
+                model: Swift.String? = nil,
+                vin: Swift.String? = nil,
+                year: Swift.String? = nil,
+                hours: Swift.Int64? = nil,
+                vehicleRegistrationNo: Swift.String? = nil,
+                insured: Swift.Bool? = nil,
+                insurer: Swift.String? = nil,
+                policyHolder: Swift.String? = nil,
+                insuredParty: Swift.String? = nil,
+                assetOwner: Swift.String? = nil,
+                assetRegisteredOn: Swift.String? = nil,
+                rentalStartedOn: Swift.String? = nil,
+                rentalFee: Swift.Int64? = nil,
+                vehicleValue: Swift.Int64? = nil,
+                residualValue: Swift.Int64? = nil,
+                note: Swift.String? = nil
+            ) {
+                self.equipmentNo = equipmentNo
+                self.customerName = customerName
+                self.siteName = siteName
+                self.status = status
+                self.specification = specification
+                self.tonText = tonText
+                self.managementNo = managementNo
+                self.powerLabel = powerLabel
+                self.managerName = managerName
+                self.placementLocation = placementLocation
+                self.placementNo = placementNo
+                self.operationShift = operationShift
+                self.maker = maker
+                self.model = model
+                self.vin = vin
+                self.year = year
+                self.hours = hours
+                self.vehicleRegistrationNo = vehicleRegistrationNo
+                self.insured = insured
+                self.insurer = insurer
+                self.policyHolder = policyHolder
+                self.insuredParty = insuredParty
+                self.assetOwner = assetOwner
+                self.assetRegisteredOn = assetRegisteredOn
+                self.rentalStartedOn = rentalStartedOn
+                self.rentalFee = rentalFee
+                self.vehicleValue = vehicleValue
+                self.residualValue = residualValue
+                self.note = note
+            }
+            public enum CodingKeys: String, CodingKey {
+                case equipmentNo = "equipment_no"
+                case customerName = "customer_name"
+                case siteName = "site_name"
+                case status
+                case specification
+                case tonText = "ton_text"
+                case managementNo = "management_no"
+                case powerLabel = "power_label"
+                case managerName = "manager_name"
+                case placementLocation = "placement_location"
+                case placementNo = "placement_no"
+                case operationShift = "operation_shift"
+                case maker
+                case model
+                case vin
+                case year
+                case hours
+                case vehicleRegistrationNo = "vehicle_registration_no"
+                case insured
+                case insurer
+                case policyHolder = "policy_holder"
+                case insuredParty = "insured_party"
+                case assetOwner = "asset_owner"
+                case assetRegisteredOn = "asset_registered_on"
+                case rentalStartedOn = "rental_started_on"
+                case rentalFee = "rental_fee"
+                case vehicleValue = "vehicle_value"
+                case residualValue = "residual_value"
+                case note
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CreateEquipmentResponse`.
+        public struct CreateEquipmentResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CreateEquipmentResponse/id`.
+            public var id: Components.Schemas.Uuid
+            /// Creates a new `CreateEquipmentResponse`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            public init(id: Components.Schemas.Uuid) {
+                self.id = id
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+            }
+        }
+        /// Partial update. Absent keys are left unchanged; nullable keys set to null clear the column.
+        ///
+        /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest`.
+        public struct UpdateEquipmentRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/customer_name`.
+            public var customerName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/site_name`.
+            public var siteName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/status`.
+            public var status: Components.Schemas.EquipmentStatus?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/specification`.
+            public var specification: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/ton_text`.
+            public var tonText: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/management_no`.
+            public var managementNo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/power_label`.
+            public var powerLabel: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/manager_name`.
+            public var managerName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/placement_location`.
+            public var placementLocation: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/placement_no`.
+            public var placementNo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/operation_shift`.
+            public var operationShift: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/maker`.
+            public var maker: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/model`.
+            public var model: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/vin`.
+            public var vin: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/year`.
+            public var year: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/hours`.
+            public var hours: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/vehicle_registration_no`.
+            public var vehicleRegistrationNo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/insured`.
+            public var insured: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/insurer`.
+            public var insurer: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/policy_holder`.
+            public var policyHolder: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/insured_party`.
+            public var insuredParty: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/asset_owner`.
+            public var assetOwner: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/asset_registered_on`.
+            public var assetRegisteredOn: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/rental_started_on`.
+            public var rentalStartedOn: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/rental_fee`.
+            public var rentalFee: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/vehicle_value`.
+            public var vehicleValue: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/residual_value`.
+            public var residualValue: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/note`.
+            public var note: Swift.String?
+            /// Creates a new `UpdateEquipmentRequest`.
+            ///
+            /// - Parameters:
+            ///   - customerName:
+            ///   - siteName:
+            ///   - status:
+            ///   - specification:
+            ///   - tonText:
+            ///   - managementNo:
+            ///   - powerLabel:
+            ///   - managerName:
+            ///   - placementLocation:
+            ///   - placementNo:
+            ///   - operationShift:
+            ///   - maker:
+            ///   - model:
+            ///   - vin:
+            ///   - year:
+            ///   - hours:
+            ///   - vehicleRegistrationNo:
+            ///   - insured:
+            ///   - insurer:
+            ///   - policyHolder:
+            ///   - insuredParty:
+            ///   - assetOwner:
+            ///   - assetRegisteredOn:
+            ///   - rentalStartedOn:
+            ///   - rentalFee:
+            ///   - vehicleValue:
+            ///   - residualValue:
+            ///   - note:
+            public init(
+                customerName: Swift.String? = nil,
+                siteName: Swift.String? = nil,
+                status: Components.Schemas.EquipmentStatus? = nil,
+                specification: Swift.String? = nil,
+                tonText: Swift.String? = nil,
+                managementNo: Swift.String? = nil,
+                powerLabel: Swift.String? = nil,
+                managerName: Swift.String? = nil,
+                placementLocation: Swift.String? = nil,
+                placementNo: Swift.String? = nil,
+                operationShift: Swift.String? = nil,
+                maker: Swift.String? = nil,
+                model: Swift.String? = nil,
+                vin: Swift.String? = nil,
+                year: Swift.String? = nil,
+                hours: Swift.Int64? = nil,
+                vehicleRegistrationNo: Swift.String? = nil,
+                insured: Swift.Bool? = nil,
+                insurer: Swift.String? = nil,
+                policyHolder: Swift.String? = nil,
+                insuredParty: Swift.String? = nil,
+                assetOwner: Swift.String? = nil,
+                assetRegisteredOn: Swift.String? = nil,
+                rentalStartedOn: Swift.String? = nil,
+                rentalFee: Swift.Int64? = nil,
+                vehicleValue: Swift.Int64? = nil,
+                residualValue: Swift.Int64? = nil,
+                note: Swift.String? = nil
+            ) {
+                self.customerName = customerName
+                self.siteName = siteName
+                self.status = status
+                self.specification = specification
+                self.tonText = tonText
+                self.managementNo = managementNo
+                self.powerLabel = powerLabel
+                self.managerName = managerName
+                self.placementLocation = placementLocation
+                self.placementNo = placementNo
+                self.operationShift = operationShift
+                self.maker = maker
+                self.model = model
+                self.vin = vin
+                self.year = year
+                self.hours = hours
+                self.vehicleRegistrationNo = vehicleRegistrationNo
+                self.insured = insured
+                self.insurer = insurer
+                self.policyHolder = policyHolder
+                self.insuredParty = insuredParty
+                self.assetOwner = assetOwner
+                self.assetRegisteredOn = assetRegisteredOn
+                self.rentalStartedOn = rentalStartedOn
+                self.rentalFee = rentalFee
+                self.vehicleValue = vehicleValue
+                self.residualValue = residualValue
+                self.note = note
+            }
+            public enum CodingKeys: String, CodingKey {
+                case customerName = "customer_name"
+                case siteName = "site_name"
+                case status
+                case specification
+                case tonText = "ton_text"
+                case managementNo = "management_no"
+                case powerLabel = "power_label"
+                case managerName = "manager_name"
+                case placementLocation = "placement_location"
+                case placementNo = "placement_no"
+                case operationShift = "operation_shift"
+                case maker
+                case model
+                case vin
+                case year
+                case hours
+                case vehicleRegistrationNo = "vehicle_registration_no"
+                case insured
+                case insurer
+                case policyHolder = "policy_holder"
+                case insuredParty = "insured_party"
+                case assetOwner = "asset_owner"
+                case assetRegisteredOn = "asset_registered_on"
+                case rentalStartedOn = "rental_started_on"
+                case rentalFee = "rental_fee"
+                case vehicleValue = "vehicle_value"
+                case residualValue = "residual_value"
+                case note
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RegistryRowError`.
+        public struct RegistryRowError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RegistryRowError/sheet`.
+            public var sheet: Swift.String
+            /// - Remark: Generated from `#/components/schemas/RegistryRowError/row`.
+            public var row: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/RegistryRowError/message`.
+            public var message: Swift.String
+            /// Creates a new `RegistryRowError`.
+            ///
+            /// - Parameters:
+            ///   - sheet:
+            ///   - row:
+            ///   - message:
+            public init(
+                sheet: Swift.String,
+                row: Swift.Int64,
+                message: Swift.String
+            ) {
+                self.sheet = sheet
+                self.row = row
+                self.message = message
+            }
+            public enum CodingKeys: String, CodingKey {
+                case sheet
+                case row
+                case message
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RegistryImportReport`.
+        public struct RegistryImportReport: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RegistryImportReport/input_rows`.
+            public var inputRows: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/RegistryImportReport/equipment_count`.
+            public var equipmentCount: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/RegistryImportReport/added`.
+            public var added: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/RegistryImportReport/updated`.
+            public var updated: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/RegistryImportReport/unchanged`.
+            public var unchanged: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/RegistryImportReport/orphaned`.
+            public var orphaned: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/RegistryImportReport/errors`.
+            public var errors: [Components.Schemas.RegistryRowError]
+            /// Creates a new `RegistryImportReport`.
+            ///
+            /// - Parameters:
+            ///   - inputRows:
+            ///   - equipmentCount:
+            ///   - added:
+            ///   - updated:
+            ///   - unchanged:
+            ///   - orphaned:
+            ///   - errors:
+            public init(
+                inputRows: Swift.Int,
+                equipmentCount: Swift.Int,
+                added: Swift.Int,
+                updated: Swift.Int,
+                unchanged: Swift.Int,
+                orphaned: Swift.Int,
+                errors: [Components.Schemas.RegistryRowError]
+            ) {
+                self.inputRows = inputRows
+                self.equipmentCount = equipmentCount
+                self.added = added
+                self.updated = updated
+                self.unchanged = unchanged
+                self.orphaned = orphaned
+                self.errors = errors
+            }
+            public enum CodingKeys: String, CodingKey {
+                case inputRows = "input_rows"
+                case equipmentCount = "equipment_count"
+                case added
+                case updated
+                case unchanged
+                case orphaned
+                case errors
             }
         }
         /// - Remark: Generated from `#/components/schemas/DepreciationMethod`.
@@ -13418,6 +13983,990 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Create a single equipment master row on the HQ branch
+    ///
+    /// Admin-gated (EquipmentManage). The equipment number prefix derives the manufacturer, kind, and power codes.
+    ///
+    /// - Remark: HTTP `POST /api/v1/equipment`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/post(createEquipment)`.
+    public enum CreateEquipment {
+        public static let id: Swift.String = "createEquipment"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/equipment/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateEquipment.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateEquipment.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CreateEquipment.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/equipment/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.CreateEquipmentRequest)
+            }
+            public var body: Operations.CreateEquipment.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.CreateEquipment.Input.Headers = .init(),
+                body: Operations.CreateEquipment.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/equipment/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.CreateEquipmentResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.CreateEquipmentResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreateEquipment.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreateEquipment.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Equipment created.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/post(createEquipment)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.CreateEquipment.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.CreateEquipment.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/post(createEquipment)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/post(createEquipment)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/post(createEquipment)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/post(createEquipment)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/post(createEquipment)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.CreateEquipment.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/post(createEquipment)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.CreateEquipment.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Import the 지게차 master-list workbook into a fresh registry
+    ///
+    /// Admin-gated (MasterListImport) multipart upload of the K&L master-list .xlsx. Upserts equipment by equipment number and returns a created/updated/error summary.
+    ///
+    /// - Remark: HTTP `POST /api/v1/equipment/import`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/import/post(importEquipmentMasterList)`.
+    public enum ImportEquipmentMasterList {
+        public static let id: Swift.String = "importEquipmentMasterList"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/equipment/import/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ImportEquipmentMasterList.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ImportEquipmentMasterList.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ImportEquipmentMasterList.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/equipment/import/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment/import/POST/requestBody/multipartForm`.
+                @frozen public enum MultipartFormPayload: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/equipment/import/POST/requestBody/multipartForm/file`.
+                    public struct FilePayload: Sendable, Hashable {
+                        public var body: OpenAPIRuntime.HTTPBody
+                        /// Creates a new `FilePayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - body:
+                        public init(body: OpenAPIRuntime.HTTPBody) {
+                            self.body = body
+                        }
+                    }
+                    case file(OpenAPIRuntime.MultipartPart<Operations.ImportEquipmentMasterList.Input.Body.MultipartFormPayload.FilePayload>)
+                    case undocumented(OpenAPIRuntime.MultipartRawPart)
+                }
+                /// - Remark: Generated from `#/paths/api/v1/equipment/import/POST/requestBody/content/multipart\/form-data`.
+                case multipartForm(OpenAPIRuntime.MultipartBody<Operations.ImportEquipmentMasterList.Input.Body.MultipartFormPayload>)
+            }
+            public var body: Operations.ImportEquipmentMasterList.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.ImportEquipmentMasterList.Input.Headers = .init(),
+                body: Operations.ImportEquipmentMasterList.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment/import/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/equipment/import/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.RegistryImportReport)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.RegistryImportReport {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ImportEquipmentMasterList.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ImportEquipmentMasterList.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Per-row import summary.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/import/post(importEquipmentMasterList)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ImportEquipmentMasterList.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ImportEquipmentMasterList.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/import/post(importEquipmentMasterList)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/import/post(importEquipmentMasterList)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/import/post(importEquipmentMasterList)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/import/post(importEquipmentMasterList)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ImportEquipmentMasterList.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/import/post(importEquipmentMasterList)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ImportEquipmentMasterList.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Update fields on one equipment master row
+    ///
+    /// Admin-gated (EquipmentManage). Only supplied fields are written; nullable fields explicitly set to null are cleared.
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/equipment/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/patch(updateEquipment)`.
+    public enum UpdateEquipment {
+        public static let id: Swift.String = "updateEquipment"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/PATCH/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/PATCH/path/id`.
+                public var id: Components.Parameters.EquipmentId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Parameters.EquipmentId) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.UpdateEquipment.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/PATCH/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdateEquipment.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdateEquipment.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.UpdateEquipment.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/PATCH/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/PATCH/requestBody/content/application\/json`.
+                case json(Components.Schemas.UpdateEquipmentRequest)
+            }
+            public var body: Operations.UpdateEquipment.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.UpdateEquipment.Input.Path,
+                headers: Operations.UpdateEquipment.Input.Headers = .init(),
+                body: Operations.UpdateEquipment.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                public init() {}
+            }
+            /// Equipment updated.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/patch(updateEquipment)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.UpdateEquipment.Output.NoContent)
+            /// Equipment updated.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/patch(updateEquipment)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            public static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            public var noContent: Operations.UpdateEquipment.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/patch(updateEquipment)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/patch(updateEquipment)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/patch(updateEquipment)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/patch(updateEquipment)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/patch(updateEquipment)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.UpdateEquipment.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/patch(updateEquipment)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.UpdateEquipment.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Soft-delete one equipment master row
+    ///
+    /// Admin-gated (EquipmentManage). Marks the row 폐기 (disposed) rather than hard-deleting, so work-order and substitution references stay intact.
+    ///
+    /// - Remark: HTTP `DELETE /api/v1/equipment/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/delete(deleteEquipment)`.
+    public enum DeleteEquipment {
+        public static let id: Swift.String = "deleteEquipment"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/DELETE/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/DELETE/path/id`.
+                public var id: Components.Parameters.EquipmentId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Parameters.EquipmentId) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.DeleteEquipment.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/DELETE/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DeleteEquipment.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DeleteEquipment.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.DeleteEquipment.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.DeleteEquipment.Input.Path,
+                headers: Operations.DeleteEquipment.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                public init() {}
+            }
+            /// Equipment soft-deleted.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/delete(deleteEquipment)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.DeleteEquipment.Output.NoContent)
+            /// Equipment soft-deleted.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/delete(deleteEquipment)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            public static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            public var noContent: Operations.DeleteEquipment.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/delete(deleteEquipment)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/delete(deleteEquipment)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/delete(deleteEquipment)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/delete(deleteEquipment)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/delete(deleteEquipment)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.DeleteEquipment.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/delete(deleteEquipment)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.DeleteEquipment.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
                             response: self
                         )
                     }

@@ -969,6 +969,119 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: createEquipment
+      summary: Create a single equipment master row on the HQ branch
+      description: Admin-gated (EquipmentManage). The equipment number prefix derives the manufacturer, kind, and power codes.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEquipmentRequest'
+      responses:
+        '201':
+          description: Equipment created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateEquipmentResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+  /api/v1/equipment/import:
+    post:
+      operationId: importEquipmentMasterList
+      summary: Import the 지게차 master-list workbook into a fresh registry
+      description: Admin-gated (MasterListImport) multipart upload of the K&L master-list .xlsx. Upserts equipment by equipment number and returns a created/updated/error summary.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+              - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The master-list .xlsx workbook.
+      responses:
+        '200':
+          description: Per-row import summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistryImportReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+  /api/v1/equipment/{id}:
+    patch:
+      operationId: updateEquipment
+      summary: Update fields on one equipment master row
+      description: Admin-gated (EquipmentManage). Only supplied fields are written; nullable fields explicitly set to null are cleared.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/EquipmentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEquipmentRequest'
+      responses:
+        '204':
+          description: Equipment updated.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+    delete:
+      operationId: deleteEquipment
+      summary: Soft-delete one equipment master row
+      description: Admin-gated (EquipmentManage). Marks the row 폐기 (disposed) rather than hard-deleting, so work-order and substitution references stay intact.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/EquipmentId'
+      responses:
+        '204':
+          description: Equipment soft-deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          description: JWT verification is not configured.
   /api/v1/sync:
     post:
       operationId: replayOfflineSyncBatch
@@ -4835,6 +4948,307 @@ components:
         total:
           type: integer
           minimum: 0
+    CreateEquipmentRequest:
+      type: object
+      required:
+      - equipment_no
+      - customer_name
+      - site_name
+      - status
+      - specification
+      - ton_text
+      properties:
+        equipment_no:
+          type: string
+          description: Equipment number in AAANN-NNNN form; prefix derives manufacturer/kind/power codes.
+        customer_name:
+          type: string
+          minLength: 1
+        site_name:
+          type: string
+          minLength: 1
+        status:
+          $ref: '#/components/schemas/EquipmentStatus'
+        specification:
+          type: string
+          minLength: 1
+          description: 규격, e.g. 입식 or 좌식.
+        ton_text:
+          type: string
+          description: 톤수 text, e.g. "2.5T"; numeric milli-tons are derived when the value ends in T.
+        management_no:
+          type:
+          - string
+          - 'null'
+        power_label:
+          type:
+          - string
+          - 'null'
+        manager_name:
+          type:
+          - string
+          - 'null'
+        placement_location:
+          type:
+          - string
+          - 'null'
+        placement_no:
+          type:
+          - string
+          - 'null'
+        operation_shift:
+          type:
+          - string
+          - 'null'
+        maker:
+          type:
+          - string
+          - 'null'
+        model:
+          type:
+          - string
+          - 'null'
+        vin:
+          type:
+          - string
+          - 'null'
+        year:
+          type:
+          - string
+          - 'null'
+          format: date
+        hours:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        vehicle_registration_no:
+          type:
+          - string
+          - 'null'
+        insured:
+          type:
+          - boolean
+          - 'null'
+        insurer:
+          type:
+          - string
+          - 'null'
+        policy_holder:
+          type:
+          - string
+          - 'null'
+        insured_party:
+          type:
+          - string
+          - 'null'
+        asset_owner:
+          type:
+          - string
+          - 'null'
+        asset_registered_on:
+          type:
+          - string
+          - 'null'
+          format: date
+        rental_started_on:
+          type:
+          - string
+          - 'null'
+          format: date
+        rental_fee:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: 임대료 in KRW.
+        vehicle_value:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: 취득가액 in KRW.
+        residual_value:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: 잔존가액 in KRW.
+        note:
+          type:
+          - string
+          - 'null'
+    CreateEquipmentResponse:
+      type: object
+      required:
+      - id
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+    UpdateEquipmentRequest:
+      type: object
+      description: Partial update. Absent keys are left unchanged; nullable keys set to null clear the column.
+      properties:
+        customer_name:
+          type: string
+          minLength: 1
+        site_name:
+          type: string
+          minLength: 1
+        status:
+          $ref: '#/components/schemas/EquipmentStatus'
+        specification:
+          type: string
+          minLength: 1
+        ton_text:
+          type: string
+        management_no:
+          type:
+          - string
+          - 'null'
+        power_label:
+          type:
+          - string
+          - 'null'
+        manager_name:
+          type:
+          - string
+          - 'null'
+        placement_location:
+          type:
+          - string
+          - 'null'
+        placement_no:
+          type:
+          - string
+          - 'null'
+        operation_shift:
+          type:
+          - string
+          - 'null'
+        maker:
+          type:
+          - string
+          - 'null'
+        model:
+          type:
+          - string
+          - 'null'
+        vin:
+          type:
+          - string
+          - 'null'
+        year:
+          type:
+          - string
+          - 'null'
+          format: date
+        hours:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        vehicle_registration_no:
+          type:
+          - string
+          - 'null'
+        insured:
+          type:
+          - boolean
+          - 'null'
+        insurer:
+          type:
+          - string
+          - 'null'
+        policy_holder:
+          type:
+          - string
+          - 'null'
+        insured_party:
+          type:
+          - string
+          - 'null'
+        asset_owner:
+          type:
+          - string
+          - 'null'
+        asset_registered_on:
+          type:
+          - string
+          - 'null'
+          format: date
+        rental_started_on:
+          type:
+          - string
+          - 'null'
+          format: date
+        rental_fee:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        vehicle_value:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        residual_value:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        note:
+          type:
+          - string
+          - 'null'
+    RegistryRowError:
+      type: object
+      required:
+      - sheet
+      - row
+      - message
+      properties:
+        sheet:
+          type: string
+        row:
+          type: integer
+          format: int64
+          minimum: 0
+        message:
+          type: string
+    RegistryImportReport:
+      type: object
+      required:
+      - input_rows
+      - equipment_count
+      - added
+      - updated
+      - unchanged
+      - orphaned
+      - errors
+      properties:
+        input_rows:
+          type: integer
+          minimum: 0
+        equipment_count:
+          type: integer
+          minimum: 0
+        added:
+          type: integer
+          minimum: 0
+        updated:
+          type: integer
+          minimum: 0
+        unchanged:
+          type: integer
+          minimum: 0
+        orphaned:
+          type: integer
+          minimum: 0
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegistryRowError'
     DepreciationMethod:
       type: string
       enum:

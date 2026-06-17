@@ -49,6 +49,8 @@ src/main/kotlin/com/maintenance/api/client/model/CostLedgerSource.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateBranchRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateDailyPlanRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateDailyPlanRequestItemsInner.kt
+src/main/kotlin/com/maintenance/api/client/model/CreateEquipmentRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/CreateEquipmentResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateInspectionScheduleRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateInternalTicketRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateMessengerThreadRequest.kt
@@ -125,6 +127,8 @@ src/main/kotlin/com/maintenance/api/client/model/PurchaseStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/QuoteLine.kt
 src/main/kotlin/com/maintenance/api/client/model/RefreshTokenRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/RegionSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/RegistryImportReport.kt
+src/main/kotlin/com/maintenance/api/client/model/RegistryRowError.kt
 src/main/kotlin/com/maintenance/api/client/model/RejectPurchaseRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/RejectWorkOrderRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/RentalQuoteSummary.kt
@@ -165,6 +169,7 @@ src/main/kotlin/com/maintenance/api/client/model/TokenPairResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/TransitionTicketRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UnavailableMetric.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateBranchRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/UpdateEquipmentRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateSelfProfileRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateUserRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateWorkOrderPriorityRequest.kt
