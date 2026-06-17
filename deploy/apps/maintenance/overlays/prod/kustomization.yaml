@@ -7,12 +7,15 @@ resources:
   - ../../base
 
 images:
+  # Deploy by immutable, cosign-signed @sha256 digest (not a mutable tag): the
+  # exact scanned+signed artifact from image-release for main@528f1c4. Renovate /
+  # release-please bump these. mnt-worker shares the mnt-app image.
   - name: mnt-app
-    newName: ghcr.io/jason931225/mnt-app # replace OWNER
-    newTag: 0.1.0
+    newName: ghcr.io/jason931225/mnt-app
+    digest: sha256:64abad3f52a097a6e8584bf595136169fd0a3efd30da39a3e4f3d830067eab1b
   - name: mnt-web
-    newName: ghcr.io/jason931225/mnt-web # replace OWNER
-    newTag: 0.1.0
+    newName: ghcr.io/jason931225/mnt-web
+    digest: sha256:b4279ab9211c5dfa344332b52b4e33a6a9d8ed38f1c7ee7d93d88eb8225cc8de
 
 patches:
   # Public host (WebAuthn rp id/origin must equal the served origin) + the OCI
