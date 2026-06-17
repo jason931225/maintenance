@@ -27,7 +27,7 @@ jobs:
       # Mirrors the install in image-release.yml.
       - name: Install Trivy
         env:
-          TRIVY_VERSION: "0.71.0"
+          TRIVY_VERSION: "0.71.1"
         run: |
           curl -sfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
             -o /tmp/trivy.tar.gz
@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Install Trivy
         env:
-          TRIVY_VERSION: "0.71.0"
+          TRIVY_VERSION: "0.71.1"
         run: |
           curl -sfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
             -o /tmp/trivy.tar.gz

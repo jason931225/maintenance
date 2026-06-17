@@ -24,7 +24,7 @@ COPY web ./web
 RUN npm run build --workspace @maintenance/web-console
 
 # ---- runtime ---------------------------------------------------------------
-FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:37f356a5eba5d187365b4f59cd6cc29f1f922ad18146d554b576a80983377e6a AS runtime
+FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:de3e40ec8b7debd7194fc798d4bbfb102c7f8b012b2c73032816b5f72393acdd AS runtime
 
 # Stopgap until Renovate bumps the base digest: patch the OpenSSL libraries the
 # pinned base ships vulnerable (CVE-2026-45447 in libssl3/libcrypto3, fixed in

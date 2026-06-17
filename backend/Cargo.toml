@@ -65,12 +65,12 @@ apalis-sql = { version = "=1.0.0-rc.9" }
 # Version verified live against crates.io 2026-06-12: calamine 0.35.0
 calamine = { version = "0.35.0", features = ["dates"] }
 # Versions verified live against crates.io 2026-06-12:
-# axum 0.8.9, tower-http 0.6.11, tower 0.5.3, http 1.4.2,
+# axum 0.8.9, tower-http 0.7.0, tower 0.5.3, http 1.4.2,
 # tracing 0.1.44, tracing-subscriber 0.3.23,
 # tracing-opentelemetry 0.33.0, opentelemetry 0.32.0,
 # opentelemetry_sdk 0.32.1, opentelemetry-otlp 0.32.0.
 axum = "0.8.9"
-tower-http = "0.6.11"
+tower-http = "0.7.0"
 tower = "0.5.3"
 http = "1.4.2"
 tracing = "0.1.44"
