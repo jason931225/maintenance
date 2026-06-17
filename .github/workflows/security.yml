@@ -69,6 +69,12 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           working-directory: backend
+          # audit-check does not read backend/.cargo/audit.toml, so the accepted
+          # advisories must be passed explicitly. Keep this in sync with the
+          # rationale in backend/deny.toml (the cargo-deny gate reads that file):
+          #   RUSTSEC-2023-0071 rsa Marvin — sign-only, no decryption oracle
+          #   RUSTSEC-2024-0436 paste unmaintained — build-time proc-macro only
+          ignore: RUSTSEC-2023-0071,RUSTSEC-2024-0436
 
   rust-supply-chain:
     name: cargo deny (licenses + sources + advisories)

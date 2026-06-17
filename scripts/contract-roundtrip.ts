@@ -32,16 +32,17 @@ try {
   await seedContractData(db, userId, branchId);
 
   const token = issueAccessToken(userId, branchId);
-  // Compile mnt-app up front so the readiness deadline in waitForApp() measures
-  // the app's BOOT time, not a cold workspace compile. `cargo run` below then
-  // reuses this debug artifact and starts immediately. (A cold compile can
-  // exceed the readiness window on a cold CI cache, which manifested as a
-  // spurious "Timed out waiting for mnt-app".)
-  execFileSync("cargo", ["build", "-p", "mnt-app", "--quiet"], {
+  // Build mnt-app up front, then run the compiled binary DIRECTLY so the
+  // readiness deadline in waitForApp() measures the app's boot time only, never
+  // a compile. `cargo run` can silently recompile inside the readiness window on
+  // a cold/env-sensitive CI cache (the `app` process is then cargo-still-building,
+  // not the server), which surfaced as a spurious "Timed out waiting for mnt-app".
+  execFileSync("cargo", ["build", "-p", "mnt-app"], {
     cwd: resolve(root, "backend"),
     stdio: "inherit",
   });
-  const app = spawn("cargo", ["run", "-p", "mnt-app", "--quiet"], {
+  const appBinary = resolve(root, "backend/target/debug/mnt-app");
+  const app = spawn(appBinary, [], {
     cwd: resolve(root, "backend"),
     env: {
       ...process.env,
@@ -192,7 +193,7 @@ function base64url(input: string | Buffer) {
 }
 
 async function waitForApp(app: ReturnType<typeof spawn>, getStderr: () => string) {
-  const deadline = Date.now() + 45_000;
+  const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
     if (app.exitCode !== null) {
       throw new Error(`mnt-app exited early with ${app.exitCode}\n${getStderr()}`);
