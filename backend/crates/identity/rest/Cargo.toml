@@ -1,0 +1,35 @@
+[package]
+name = "mnt-identity-rest"
+version = "0.1.0"
+description = "REST API for identity/org setup (users, self-profile, regions, branches)."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum = { workspace = true }
+mnt-identity-adapter-postgres = { workspace = true }
+mnt-identity-application = { workspace = true }
+mnt-identity-domain = { workspace = true }
+mnt-kernel-core = { workspace = true }
+mnt-platform-auth = { path = "../../platform/auth" }
+mnt-platform-authz = { path = "../../platform/authz" }
+mnt-platform-db = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+http = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+mnt-platform-db = { workspace = true }
+p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8", "pem"] }
+
+[lints]
+workspace = true

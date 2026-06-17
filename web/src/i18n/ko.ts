@@ -8,6 +8,7 @@ export const ko = {
     kpi: "KPI 대시보드",
     equipment: "장비 조회",
     location: "GPS 위치 동의",
+    security: "보안 설정",
     groups: {
       operations: "운영",
       data: "데이터",

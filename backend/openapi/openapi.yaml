@@ -2320,6 +2320,378 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/v1/users:
+    get:
+      operationId: listUsers
+      summary: List users visible within the caller's branch scope
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: include_inactive
+        in: query
+        required: false
+        schema:
+          type: boolean
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 200
+          default: 50
+      responses:
+        '200':
+          description: Users in the principal's branch scope.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+    post:
+      operationId: createUser
+      summary: Create a user with roles and branch memberships
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: User created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/users/me:
+    get:
+      operationId: getCurrentUser
+      summary: Get the authenticated user's own profile
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: The authenticated user's profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+    patch:
+      operationId: updateCurrentUser
+      summary: Update the authenticated user's own display name and phone
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSelfProfileRequest'
+      responses:
+        '200':
+          description: Updated profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/users/{id}:
+    get:
+      operationId: getUser
+      summary: Get a user by id within the caller's branch scope
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The requested user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+    patch:
+      operationId: updateUser
+      summary: Update a user's profile, roles, and branch memberships
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: Updated user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/users/{id}/deactivate:
+    post:
+      operationId: deactivateUser
+      summary: Deactivate (soft-disable) a user
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Deactivated user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSummary'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/regions:
+    get:
+      operationId: listRegions
+      summary: List all regions
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: All regions.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RegionSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+    post:
+      operationId: createRegion
+      summary: Create a region
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRegionRequest'
+      responses:
+        '201':
+          description: Region created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegionSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/branches:
+    get:
+      operationId: listBranches
+      summary: List all branches (also backs support-ticket triage)
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: All branches.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BranchSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+    post:
+      operationId: createBranch
+      summary: Create a branch inside a region
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBranchRequest'
+      responses:
+        '201':
+          description: Branch created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/branches/{id}:
+    patch:
+      operationId: updateBranch
+      summary: Rename a branch or move it to another region
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBranchRequest'
+      responses:
+        '200':
+          description: Updated branch.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
 components:
   securitySchemes:
     bearerAuth:
@@ -5005,3 +5377,146 @@ components:
       properties:
         body:
           $ref: '#/components/schemas/WorkDiaryBody'
+    Team:
+      type: string
+      enum:
+      - MAINTENANCE
+      - PREVENTION
+      - MANAGEMENT
+      - RECEPTION
+    UserSummary:
+      type: object
+      required:
+      - id
+      - display_name
+      - phone
+      - team
+      - roles
+      - branch_ids
+      - is_active
+      - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        display_name:
+          type: string
+        phone:
+          type:
+          - string
+          - 'null'
+        team:
+          $ref: '#/components/schemas/Team'
+        roles:
+          type: array
+          items:
+            type: string
+        branch_ids:
+          type: array
+          items:
+            $ref: '#/components/schemas/Uuid'
+        is_active:
+          type: boolean
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    RegionSummary:
+      type: object
+      required:
+      - id
+      - name
+      - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    BranchSummary:
+      type: object
+      required:
+      - id
+      - region_id
+      - name
+      - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        region_id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    CreateUserRequest:
+      type: object
+      required:
+      - display_name
+      properties:
+        display_name:
+          type: string
+        phone:
+          type:
+          - string
+          - 'null'
+        team:
+          $ref: '#/components/schemas/Team'
+        roles:
+          type: array
+          items:
+            type: string
+        branch_ids:
+          type: array
+          items:
+            $ref: '#/components/schemas/Uuid'
+    UpdateUserRequest:
+      type: object
+      properties:
+        display_name:
+          type: string
+        phone:
+          type:
+          - string
+          - 'null'
+        team:
+          $ref: '#/components/schemas/Team'
+        roles:
+          type: array
+          items:
+            type: string
+        branch_ids:
+          type: array
+          items:
+            $ref: '#/components/schemas/Uuid'
+    UpdateSelfProfileRequest:
+      type: object
+      properties:
+        display_name:
+          type: string
+        phone:
+          type:
+          - string
+          - 'null'
+    CreateRegionRequest:
+      type: object
+      required:
+      - name
+      properties:
+        name:
+          type: string
+    CreateBranchRequest:
+      type: object
+      required:
+      - region_id
+      - name
+      properties:
+        region_id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+    UpdateBranchRequest:
+      type: object
+      properties:
+        region_id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string

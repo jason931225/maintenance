@@ -95,7 +95,10 @@ mnt-financial-domain = { path = "crates/financial/domain" }
 mnt-financial-application = { path = "crates/financial/application" }
 mnt-financial-adapter-postgres = { path = "crates/financial/adapter-postgres" }
 mnt-financial-rest = { path = "crates/financial/rest" }
+mnt-identity-domain = { path = "crates/identity/domain" }
 mnt-identity-application = { path = "crates/identity/application" }
+mnt-identity-adapter-postgres = { path = "crates/identity/adapter-postgres" }
+mnt-identity-rest = { path = "crates/identity/rest" }
 mnt-inspection-domain = { path = "crates/inspection/domain" }
 mnt-inspection-application = { path = "crates/inspection/application" }
 mnt-inspection-adapter-postgres = { path = "crates/inspection/adapter-postgres" }

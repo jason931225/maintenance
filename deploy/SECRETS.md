@@ -24,8 +24,12 @@ Kakao / FCM credentials): `MNT_FCM_*`, `MNT_SOLAPI_*`.
 
 ```sh
 # Generate a fresh ES256 keypair (do NOT reuse ops/.dev-secrets — those are dev-only).
-openssl ecparam -genkey -name prime256v1 -noout -out jwt-private.pem
-openssl ec -in jwt-private.pem -pubout -out jwt-public.pem
+# The private key MUST be PKCS#8 (-----BEGIN PRIVATE KEY-----): jsonwebtoken's
+# from_ec_pem rejects the legacy SEC1 (-----BEGIN EC PRIVATE KEY-----) that
+# `openssl ecparam -genkey` emits (the app fails to boot with jwt InvalidKeyFormat).
+# `openssl genpkey` produces PKCS#8 directly.
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out jwt-private.pem
+openssl pkey -in jwt-private.pem -pubout -out jwt-public.pem
 
 kubectl create secret generic mnt-secrets -n maintenance \
   --from-file=MNT_JWT_PRIVATE_KEY_PEM=jwt-private.pem \

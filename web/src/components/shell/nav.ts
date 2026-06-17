@@ -6,8 +6,73 @@ import {
   LifeBuoy,
   MapPin,
   MessageSquare,
+  ShieldCheck,
   Wrench,
 } from "lucide-react";
+
+/**
+ * Canonical role codes, mirroring the backend `Role` enum in
+ * `backend/crates/platform/authz/src/lib.rs`. These are the exact strings
+ * carried in the access-token `roles` claim, so nav gating compares against
+ * them directly.
+ */
+export const ROLES = {
+  SUPER_ADMIN: "SUPER_ADMIN",
+  ADMIN: "ADMIN",
+  EXECUTIVE: "EXECUTIVE",
+  MECHANIC: "MECHANIC",
+  RECEPTIONIST: "RECEPTIONIST",
+} as const;
+
+export type Role = (typeof ROLES)[keyof typeof ROLES];
+
+/** True when `roles` contains at least one of `allowed`. */
+export function hasAnyRole(
+  roles: readonly string[] | undefined,
+  allowed: readonly Role[],
+): boolean {
+  if (!roles || roles.length === 0) return false;
+  return roles.some((role) => (allowed as readonly string[]).includes(role));
+}
+
+const ADMIN_ROLES: readonly Role[] = [ROLES.ADMIN, ROLES.SUPER_ADMIN];
+/** Roles allowed to read KPI dashboards (backend `KpiRead`: ADMIN/EXECUTIVE/SUPER_ADMIN). */
+const KPI_ROLES: readonly Role[] = [
+  ROLES.ADMIN,
+  ROLES.EXECUTIVE,
+  ROLES.SUPER_ADMIN,
+];
+
+/**
+ * Per-item role gate. `undefined` (or omitted) means the item is visible to any
+ * authenticated role. The role sets are derived from the backend permission
+ * matrix so the nav never shows a page the backend would 403, nor hides one a
+ * role is entitled to:
+ *  - intake (WorkOrderCreate/EditIntake): every role has at least Limited -> all roles.
+ *  - approvals (CompletionReview): ADMIN/SUPER_ADMIN only.
+ *  - kpi (KpiRead): ADMIN/EXECUTIVE/SUPER_ADMIN.
+ *  - security settings (UserManage / admin OTP issuance): ADMIN/SUPER_ADMIN,
+ *    matching the `RequireAdminRoute` guard on `/settings/security`.
+ *  - dispatch/messenger/support/equipment/location: all authenticated roles.
+ */
+const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
+  ["approvals", ADMIN_ROLES],
+  ["kpi", KPI_ROLES],
+  ["security", ADMIN_ROLES],
+]);
+
+/**
+ * Whether a nav item is visible to a session carrying `roles`. Items without an
+ * explicit gate are visible to any authenticated role.
+ */
+export function isNavItemVisible(
+  itemKey: string,
+  roles: readonly string[] | undefined,
+): boolean {
+  const gate = ITEM_ROLE_GATES.get(itemKey);
+  if (!gate) return true;
+  return hasAnyRole(roles, gate);
+}
 
 export const NAV_GROUPS = [
   {
@@ -34,6 +99,7 @@ export const NAV_GROUPS = [
     label: "nav.groups.settings",
     items: [
       { key: "location",  href: "/settings/location", labelKey: "nav.location", Icon: MapPin },
+      { key: "security",  href: "/settings/security", labelKey: "nav.security", Icon: ShieldCheck },
     ],
   },
 ] as const;

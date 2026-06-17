@@ -3,7 +3,7 @@ import { NavLink } from "react-router-dom";
 
 import { cn } from "../../lib/utils";
 import { ko } from "../../i18n/ko";
-import { NAV_GROUPS } from "./nav";
+import { NAV_GROUPS, isNavItemVisible } from "./nav";
 import type { AuthSession } from "../../context/auth";
 
 interface SidebarProps {
@@ -13,8 +13,6 @@ interface SidebarProps {
   onMobileClose: () => void;
   session: AuthSession | undefined;
 }
-
-type Role = NonNullable<AuthSession["role"]>;
 
 const groupLabels: Record<string, string> = {
   operations: ko.nav.groups.operations,
@@ -26,19 +24,6 @@ function navGroupLabel(key: string): string {
   return groupLabels[key] ?? key;
 }
 
-function isItemVisible(itemKey: string, role: Role | undefined): boolean {
-  if (itemKey === "kpi" && role !== "executive" && role !== "admin" && role !== "super-admin") {
-    return false;
-  }
-  if (itemKey === "approvals" && role !== "admin" && role !== "super-admin") {
-    return false;
-  }
-  if (itemKey === "intake" && role !== "admin" && role !== "super-admin" && role !== "technician") {
-    return false;
-  }
-  return true;
-}
-
 export function Sidebar({
   collapsed,
   mobileOpen,
@@ -46,11 +31,11 @@ export function Sidebar({
   onMobileClose,
   session,
 }: SidebarProps) {
-  const role = session?.role;
+  const roles = session?.roles;
 
   const filteredGroups = NAV_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter((item) => isItemVisible(item.key, role)),
+    items: group.items.filter((item) => isNavItemVisible(item.key, roles)),
   })).filter((group) => group.items.length > 0);
 
   return (
