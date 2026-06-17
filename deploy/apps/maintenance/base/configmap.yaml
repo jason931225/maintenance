@@ -19,6 +19,9 @@ data:
   MNT_S3_ENDPOINT_URL: "https://axdotp9iv3ua.compat.objectstorage.ap-chuncheon-1.oraclecloud.com"
   MNT_S3_REGION: "ap-chuncheon-1"
   MNT_S3_PRIMARY_BUCKET: "mnt-evidence"
+  # WORM replica bucket: evidence is mirrored here and integrity-verified before
+  # financial operations proceed (data resiliency + tamper-evidence).
+  MNT_S3_REPLICA_BUCKET: "mnt-evidence-replica"
   MNT_S3_FORCE_PATH_STYLE: "true"
   # OTLP trace export (opt-in). Leave unset to keep tracing as JSON-to-stdout
   # only. Uncommenting enables gRPC OTLP export to an in-cluster collector — the
