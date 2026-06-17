@@ -1,7 +1,7 @@
 import { createSign, generateKeyPairSync, randomUUID } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import pg from "pg";
 
 import { createMaintenanceApiClient } from "../clients/ts/src/index.js";
@@ -32,6 +32,15 @@ try {
   await seedContractData(db, userId, branchId);
 
   const token = issueAccessToken(userId, branchId);
+  // Compile mnt-app up front so the readiness deadline in waitForApp() measures
+  // the app's BOOT time, not a cold workspace compile. `cargo run` below then
+  // reuses this debug artifact and starts immediately. (A cold compile can
+  // exceed the readiness window on a cold CI cache, which manifested as a
+  // spurious "Timed out waiting for mnt-app".)
+  execFileSync("cargo", ["build", "-p", "mnt-app", "--quiet"], {
+    cwd: resolve(root, "backend"),
+    stdio: "inherit",
+  });
   const app = spawn("cargo", ["run", "-p", "mnt-app", "--quiet"], {
     cwd: resolve(root, "backend"),
     env: {
