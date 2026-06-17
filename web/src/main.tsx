@@ -5,6 +5,7 @@ import { BrowserRouter } from "react-router-dom";
 import pretendard400Url from "@fontsource/pretendard/files/pretendard-latin-400-normal.woff2?url";
 import { AuthProvider } from "./context/auth";
 import { AppRouter } from "./AppRouter";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import "./styles.css";
 
 // Preload the default body weight so first paint isn't blocked on its request.
@@ -24,10 +25,12 @@ if (!root) throw new Error("Root element not found");
 
 createRoot(root).render(
   <StrictMode>
-    <BrowserRouter>
-      <AuthProvider>
-        <AppRouter />
-      </AuthProvider>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <AuthProvider>
+          <AppRouter />
+        </AuthProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   </StrictMode>,
 );

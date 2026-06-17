@@ -5,7 +5,7 @@
 use axum::Router;
 use axum::body::Body;
 use http::{Request, StatusCode};
-use mnt_support_adapter_postgres::PgSupportStore;
+use mnt_support_adapter_postgres::{MAX_BODY_CHARS, PgSupportStore};
 use mnt_support_rest::{SupportRestState, router};
 use sqlx::PgPool;
 use tower::ServiceExt;
@@ -80,6 +80,31 @@ async fn intake_rejects_missing_fields_generically(pool: PgPool) {
         .uri("/api/v1/support/intake")
         .header("content-type", "application/json")
         .header("x-forwarded-for", "203.0.113.99")
+        .body(Body::from(body))
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn intake_rejects_over_length_fields_generically(pool: PgPool) {
+    let app = build(pool);
+    // One scalar past the store-side body bound: must be rejected at the edge
+    // with a generic 400, before any persistence.
+    let body = serde_json::json!({
+        "category": "OTHER",
+        "priority": "LOW",
+        "title": "Late delivery",
+        "body": "x".repeat(MAX_BODY_CHARS + 1),
+        "requester_name": "Cust",
+        "requester_contact": "c@example.com"
+    })
+    .to_string();
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/v1/support/intake")
+        .header("content-type", "application/json")
+        .header("x-forwarded-for", "203.0.113.77")
         .body(Body::from(body))
         .unwrap();
     let response = app.oneshot(request).await.unwrap();

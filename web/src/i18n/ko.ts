@@ -39,6 +39,10 @@ export const ko = {
     title: "정비 콘솔",
     readSurfaceReady:
       "작업지시 목록, 승인 대기, 장비 조회는 OpenAPI 생성 클라이언트로 조회합니다.",
+    crashTitle: "예기치 못한 오류가 발생했습니다.",
+    crashMessage:
+      "페이지를 새로고침해 주세요. 문제가 계속되면 관리자에게 문의하세요.",
+    reload: "새로고침",
   },
   auth: {
     title: "로그인",
@@ -288,6 +292,7 @@ export const ko = {
     loadFailed: "데이터를 불러오지 못했습니다.",
     writeFailed: "요청을 처리하지 못했습니다. 다시 시도하세요.",
     notSet: "미지정",
+    noBranch: "계정에 배정된 지점이 없습니다. 관리자에게 문의하세요.",
     unknown: "미상",
     countUnit: "건",
     pointUnit: "점",

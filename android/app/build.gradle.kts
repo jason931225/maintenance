@@ -27,6 +27,8 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Default/debug target: the host loopback as seen from the Android emulator.
+        // Overridden per build type below (release points at production).
         buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8080\"")
     }
 
@@ -46,6 +48,10 @@ android {
 
     buildTypes {
         release {
+            // Release builds ship to real devices and must reach production over TLS,
+            // not the emulator loopback. The generated client appends /api/v1/... itself,
+            // and the prod ingress routes /api on this host to the API server.
+            buildConfigField("String", "API_BASE_URL", "\"https://fsm.knllogistic.com\"")
             if (androidReleaseSigningReady) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -84,6 +90,9 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-text")
     implementation("androidx.compose.ui:ui-tooling-preview")
+    // core-ktx 1.19 + lifecycle 2.10 require compileSdk 37 / AGP 9.1 — held until
+    // the Android toolchain (Gradle 9 / AGP 9 / Kotlin) migration. okhttp (below)
+    // is a JAR with no AAR-metadata floor, so its security bump stays.
     implementation("androidx.core:core-ktx:1.18.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
@@ -96,7 +105,7 @@ dependencies {
     implementation("androidx.credentials:credentials-play-services-auth:1.6.0")
     implementation("androidx.room:room-ktx:2.8.4")
     implementation("androidx.room:room-runtime:2.8.4")
-    implementation("com.squareup.okhttp3:okhttp:5.1.0")
+    implementation("com.squareup.okhttp3:okhttp:5.4.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     ksp("androidx.room:room-compiler:2.8.4")
 

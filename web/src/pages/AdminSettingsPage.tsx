@@ -5,7 +5,7 @@ import { PageHeader } from "../components/shell/PageHeader";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
-import { useAuth } from "../context/auth";
+import { useActiveBranchId, useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
 import { issueAdminOtp } from "../auth/webauthn";
 
@@ -15,9 +15,10 @@ interface IssuedOtp {
 }
 
 export function AdminSettingsPage() {
-  const { api, session } = useAuth();
+  const { api } = useAuth();
+  const activeBranchId = useActiveBranchId();
   const [userId, setUserId] = useState("");
-  const [branchId, setBranchId] = useState(session?.branches?.[0] ?? "");
+  const [branchId, setBranchId] = useState(activeBranchId ?? "");
   const [pending, setPending] = useState(false);
   const [issued, setIssued] = useState<IssuedOtp | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);

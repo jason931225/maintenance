@@ -1,0 +1,16 @@
+# cargo-audit (RUSTSEC) configuration. Read by the rustsec/audit-check CI job
+# (working-directory: backend). Keep the ignore list in sync with the rationale
+# in backend/deny.toml.
+[advisories]
+ignore = [
+  # rsa Marvin timing side-channel. Pulled via jsonwebtoken. The RS256 signing
+  # path IS used (FCM service-account JWTs in platform/push), but Marvin targets
+  # RSA *decryption* (PKCS#1 v1.5) via a ciphertext/decryption oracle; this
+  # service only signs (no decryption) against Google's endpoint, so no oracle is
+  # exposed and the advisory is not exploitable here. No fixed rsa release exists
+  # yet — revisit when jsonwebtoken drops rsa or a patched version ships.
+  "RUSTSEC-2023-0071",
+  # paste unmaintained (not a vulnerability). Build-time proc-macro pulled
+  # transitively by umya-spreadsheet (Excel export); no runtime surface.
+  "RUSTSEC-2024-0436",
+]

@@ -42,7 +42,7 @@ public struct PasskeyAuthRepository: Sendable {
     public func login(userID: Components.Schemas.Uuid) async -> LoginState {
         var state = LoginState.signedOut()
         do {
-            let challenge = try await gateway.startPasskeyLogin(userID: userID)
+            let challenge = try await gateway.startPasskeyLogin()
             let challengeJSON = String(data: try encoder.encode(challenge.challenge), encoding: .utf8) ?? "{}"
             state = stateMachine.reduce(
                 state,
@@ -56,18 +56,26 @@ public struct PasskeyAuthRepository: Sendable {
 
             let credential = try await credentialProvider.credentialAssertion(challengeJSON: challengeJSON)
             let tokens = try await gateway.finishPasskeyLogin(ceremonyID: challenge.ceremonyId, credential: credential)
+            guard let refreshToken = tokens.refreshToken else {
+                // Mobile uses the body token transport, which always returns a
+                // refresh token (refresh_token is only null on the web cookie
+                // transport). A nil here is a server contract violation — fail
+                // the login gracefully instead of crashing.
+                await sessionStore.clear()
+                return stateMachine.reduce(state, .failed(messageKey: "login_failed"))
+            }
             let deviceID = await deviceIDStore.loadOrCreate()
             state = stateMachine.reduce(
                 state,
                 .passkeyVerified(
                     accessToken: tokens.accessToken,
-                    refreshToken: tokens.refreshToken,
+                    refreshToken: refreshToken,
                     deviceID: deviceID,
                     appVersion: appVersion
                 )
             )
 
-            await sessionStore.save(AuthTokens(accessToken: tokens.accessToken, refreshToken: tokens.refreshToken))
+            await sessionStore.save(AuthTokens(accessToken: tokens.accessToken, refreshToken: refreshToken))
             let device = try await gateway.registerDevice(deviceID: deviceID, appVersion: appVersion)
             return stateMachine.reduce(state, .deviceRegistered(serverDeviceID: device.id))
         } catch {

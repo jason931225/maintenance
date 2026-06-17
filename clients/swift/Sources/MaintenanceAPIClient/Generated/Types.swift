@@ -4434,8 +4434,10 @@ public enum Components {
         public struct OtpRedeemResponse: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/OtpRedeemResponse/access_token`.
             public var accessToken: Swift.String
+            /// The opaque rotating refresh token in the body transport (mobile). It is null in the cookie transport (web), where the token is set as an HttpOnly `mnt_refresh` cookie and must never reach web JS.
+            ///
             /// - Remark: Generated from `#/components/schemas/OtpRedeemResponse/refresh_token`.
-            public var refreshToken: Swift.String
+            public var refreshToken: Swift.String?
             /// - Remark: Generated from `#/components/schemas/OtpRedeemResponse/token_type`.
             public var tokenType: Swift.String
             /// - Remark: Generated from `#/components/schemas/OtpRedeemResponse/refresh_expires_at`.
@@ -4448,13 +4450,13 @@ public enum Components {
             ///
             /// - Parameters:
             ///   - accessToken:
-            ///   - refreshToken:
+            ///   - refreshToken: The opaque rotating refresh token in the body transport (mobile). It is null in the cookie transport (web), where the token is set as an HttpOnly `mnt_refresh` cookie and must never reach web JS.
             ///   - tokenType:
             ///   - refreshExpiresAt:
             ///   - requiresPasskeySetup: True when the signed-in user has no passkey yet and should enroll one in initial settings.
             public init(
                 accessToken: Swift.String,
-                refreshToken: Swift.String,
+                refreshToken: Swift.String? = nil,
                 tokenType: Swift.String,
                 refreshExpiresAt: Components.Schemas.Timestamp,
                 requiresPasskeySetup: Swift.Bool
@@ -4621,15 +4623,17 @@ public enum Components {
                 case credential
             }
         }
+        /// Refresh/logout request body. `refresh_token` is OPTIONAL because the web transport carries the token in the HttpOnly `mnt_refresh` cookie (sent automatically by the browser) and the body is empty; mobile clients send the token here.
+        ///
         /// - Remark: Generated from `#/components/schemas/RefreshTokenRequest`.
         public struct RefreshTokenRequest: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/RefreshTokenRequest/refresh_token`.
-            public var refreshToken: Swift.String
+            public var refreshToken: Swift.String?
             /// Creates a new `RefreshTokenRequest`.
             ///
             /// - Parameters:
             ///   - refreshToken:
-            public init(refreshToken: Swift.String) {
+            public init(refreshToken: Swift.String? = nil) {
                 self.refreshToken = refreshToken
             }
             public enum CodingKeys: String, CodingKey {
@@ -4642,8 +4646,10 @@ public enum Components {
         public struct TokenPairResponse: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/TokenPairResponse/access_token`.
             public var accessToken: Swift.String
+            /// The opaque rotating refresh token in the body transport (mobile). It is null in the cookie transport (web), where the token is set as an HttpOnly `mnt_refresh` cookie and must never reach web JS.
+            ///
             /// - Remark: Generated from `#/components/schemas/TokenPairResponse/refresh_token`.
-            public var refreshToken: Swift.String
+            public var refreshToken: Swift.String?
             /// - Remark: Generated from `#/components/schemas/TokenPairResponse/token_type`.
             @frozen public enum TokenTypePayload: String, Codable, Hashable, Sendable, CaseIterable {
                 case bearer = "Bearer"
@@ -4656,12 +4662,12 @@ public enum Components {
             ///
             /// - Parameters:
             ///   - accessToken:
-            ///   - refreshToken:
+            ///   - refreshToken: The opaque rotating refresh token in the body transport (mobile). It is null in the cookie transport (web), where the token is set as an HttpOnly `mnt_refresh` cookie and must never reach web JS.
             ///   - tokenType:
             ///   - refreshExpiresAt:
             public init(
                 accessToken: Swift.String,
-                refreshToken: Swift.String,
+                refreshToken: Swift.String? = nil,
                 tokenType: Components.Schemas.TokenPairResponse.TokenTypePayload,
                 refreshExpiresAt: Components.Schemas.Timestamp
             ) {
@@ -10738,6 +10744,10 @@ public enum Operations {
                 public var assigneeUserId: Components.Schemas.Uuid?
                 /// - Remark: Generated from `#/paths/api/v1/support/tickets/GET/query/include_untriaged`.
                 public var includeUntriaged: Swift.Bool?
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// - Remark: Generated from `#/paths/api/v1/support/tickets/GET/query/cursor`.
+                public var cursor: Components.Schemas.Uuid?
                 /// Creates a new `Query`.
                 ///
                 /// - Parameters:
@@ -10747,13 +10757,17 @@ public enum Operations {
                 ///   - origin:
                 ///   - assigneeUserId:
                 ///   - includeUntriaged:
+                ///   - limit:
+                ///   - cursor:
                 public init(
                     status: Components.Schemas.SupportTicketStatus? = nil,
                     priority: Components.Schemas.SupportTicketPriority? = nil,
                     category: Components.Schemas.SupportTicketCategory? = nil,
                     origin: Components.Schemas.SupportTicketOrigin? = nil,
                     assigneeUserId: Components.Schemas.Uuid? = nil,
-                    includeUntriaged: Swift.Bool? = nil
+                    includeUntriaged: Swift.Bool? = nil,
+                    limit: Swift.Int64? = nil,
+                    cursor: Components.Schemas.Uuid? = nil
                 ) {
                     self.status = status
                     self.priority = priority
@@ -10761,6 +10775,8 @@ public enum Operations {
                     self.origin = origin
                     self.assigneeUserId = assigneeUserId
                     self.includeUntriaged = includeUntriaged
+                    self.limit = limit
+                    self.cursor = cursor
                 }
             }
             public var query: Operations.ListSupportTickets.Input.Query

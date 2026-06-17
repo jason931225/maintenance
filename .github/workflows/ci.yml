@@ -92,7 +92,13 @@ jobs:
         run: SQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings
 
       - name: cargo test
-        run: cargo test
+        # SQLX_OFFLINE=true so the query! macros compile against the committed
+        # .sqlx cache (the documented contract — see crates/platform/db/src/lib.rs)
+        # rather than the unmigrated CI service DB. The #[sqlx::test] runtime
+        # tests still use DATABASE_URL to create their own per-test databases.
+        # Without this, a Cargo.lock change busts the build cache and the macros
+        # re-check online against a schema-less DB ("audit_events does not exist").
+        run: SQLX_OFFLINE=true cargo test
 
       - name: Layer-boundary gate
         run: cargo run -p mnt-gate-layer-boundary
@@ -115,7 +121,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbc3f7d6820020 # v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "24"
           cache: npm
@@ -140,6 +146,32 @@ jobs:
 
       - name: Kotlin compile
         run: npm run check:kotlin
+
+  web:
+    name: Web console — lint / test / build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Lint (eslint + UI-string gate)
+        run: npm run lint --workspace @maintenance/web-console
+
+      - name: Unit tests
+        run: npm run test --workspace @maintenance/web-console
+
+      - name: Production build
+        run: npm run build --workspace @maintenance/web-console
 
   api-contract:
     name: API contract — app OpenAPI and generated TS round-trip
@@ -183,7 +215,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbc3f7d6820020 # v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "24"
           cache: npm
@@ -206,7 +238,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbc3f7d6820020 # v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "24"
           cache: npm
@@ -248,14 +280,20 @@ jobs:
 
           const iosOnlyStringKeys = {
             camera_unavailable: "iOS camera capability fallback copy",
+            camera_open_settings: "iOS-only: deep-link to the Settings app for camera permission",
             capture_evidence: "SwiftUI alias for detail_capture_evidence",
             equipment: "SwiftUI detail label",
+            error_invalid_user_id: "iOS-only login user-id format validation copy",
             error_network: "SwiftUI network error copy",
+            location_consent_collection: "iOS base label; Android uses location_consent_collection_format",
+            location_consent_state: "SwiftUI location-consent status label",
+            messenger_search_no_results: "iOS messenger search empty-state copy",
             request_no: "SwiftUI detail label",
             result_type: "SwiftUI alias for report_result_type",
             site: "SwiftUI detail label",
             submit_report: "SwiftUI alias for detail_submit_report",
             symptom: "SwiftUI detail label",
+            target_due: "SwiftUI detail label (target due date)",
             user_id: "SwiftUI alias for login_user_id_label",
           };
 

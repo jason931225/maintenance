@@ -27,7 +27,10 @@ use mnt_kernel_core::{
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize, resolve_branch_scope};
 use mnt_platform_push::{FcmPushMessage, PushNotifier};
-use mnt_support_adapter_postgres::{PgSupportError, PgSupportStore};
+use mnt_support_adapter_postgres::{
+    MAX_BODY_CHARS, MAX_REQUESTER_CONTACT_CHARS, MAX_REQUESTER_NAME_CHARS, MAX_TITLE_CHARS,
+    PgSupportError, PgSupportStore,
+};
 use mnt_support_application::{
     AddCommentCommand, AssignTicketCommand, CommentAudience, CreateCustomerIntakeCommand,
     CreateInternalTicketCommand, ListTicketsQuery, TicketNotification, TransitionTicketCommand,
@@ -379,6 +382,18 @@ async fn customer_intake(
         || body.requester_contact.trim().is_empty()
     {
         return Err(RestError::bad_request("request is missing required fields"));
+    }
+
+    // Reject over-length fields at the unauthenticated edge, before any DB or
+    // audit work, mirroring the store-side bounds (counts trimmed Unicode
+    // scalars, as the store does). The store remains the source of truth; this
+    // is defense-in-depth so the public channel fails fast and generically.
+    if body.title.trim().chars().count() > MAX_TITLE_CHARS
+        || body.body.trim().chars().count() > MAX_BODY_CHARS
+        || body.requester_name.trim().chars().count() > MAX_REQUESTER_NAME_CHARS
+        || body.requester_contact.trim().chars().count() > MAX_REQUESTER_CONTACT_CHARS
+    {
+        return Err(RestError::bad_request("request failed validation"));
     }
 
     state

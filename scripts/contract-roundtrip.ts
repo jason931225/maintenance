@@ -32,7 +32,7 @@ try {
   await seedContractData(db, userId, branchId);
 
   const token = issueAccessToken(userId, branchId);
-  const app = spawn("cargo", ["run", "-p", "mnt-app", "--quiet"], {
+  const app = spawn("cargo", ["run", "-p", "mnt-app"], {
     cwd: resolve(root, "backend"),
     env: {
       ...process.env,
@@ -46,13 +46,21 @@ try {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  let stderr = "";
-  app.stderr.on("data", (chunk) => {
-    stderr += chunk.toString();
-  });
+  // Drain BOTH stdout and stderr. Leaving the stdout pipe unread lets a chatty
+  // boot (or a cold `cargo run` recompile) fill the OS pipe buffer and block the
+  // app's write() before it ever serves /healthz — indistinguishable from a
+  // readiness timeout. Echo live so CI logs show exactly what the app did.
+  let appOutput = "";
+  const capture = (chunk: Buffer) => {
+    const text = chunk.toString();
+    appOutput += text;
+    process.stderr.write(text);
+  };
+  app.stdout.on("data", capture);
+  app.stderr.on("data", capture);
 
   try {
-    await waitForApp(app, () => stderr);
+    await waitForApp(app, () => appOutput);
     const health = await fetch(`${baseUrl}/healthz`);
     if (!health.ok) {
       throw new Error(`healthz returned ${health.status}`);
@@ -183,7 +191,9 @@ function base64url(input: string | Buffer) {
 }
 
 async function waitForApp(app: ReturnType<typeof spawn>, getStderr: () => string) {
-  const deadline = Date.now() + 45_000;
+  // Generous: absorbs a cold `cargo run` compile on a cache-miss runner plus
+  // boot. The early-exit check below fails fast if the app actually crashes.
+  const deadline = Date.now() + 300_000;
   while (Date.now() < deadline) {
     if (app.exitCode !== null) {
       throw new Error(`mnt-app exited early with ${app.exitCode}\n${getStderr()}`);
