@@ -235,6 +235,14 @@ BEGIN
     LIMIT 1;
 
     IF cold_admin.id IS NOT NULL THEN
+        -- The re-home is a DELETE+re-INSERT (org_id is immutable to UPDATE), but
+        -- the cold admin owns an already-revoked auth_bootstrap_credentials row
+        -- (seeded in 0021, revoked-not-removed in 0023). That row's same-org
+        -- composite FK is ON DELETE RESTRICT, so it blocks the user delete. Remove
+        -- it first: it is dead (revoked) and the boot-time seeder re-issues a fresh
+        -- platform-admin OTP under the sentinel org. Any other future child of this
+        -- bootstrap-only user would need the same treatment, but it has none yet.
+        DELETE FROM auth_bootstrap_credentials WHERE user_id = cold_admin.id;
         DELETE FROM users WHERE id = cold_admin.id;
         INSERT INTO users (id, display_name, phone, team, roles, is_active, org_id)
         VALUES (

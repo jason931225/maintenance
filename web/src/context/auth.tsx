@@ -29,6 +29,13 @@ export interface AuthSession {
   /** JWT `branches` claim; the first entry scopes admin actions like issuing OTPs. */
   branches?: string[];
   /**
+   * JWT `platform` claim. True for the vendor platform-admin tier (multi-tenant
+   * console) rather than a tenant session. Drives client-side routing between the
+   * tenant app and the `/platform` console; the backend re-verifies on every call
+   * (a tenant token is rejected on /platform/*, and vice-versa).
+   */
+  isPlatform?: boolean;
+  /**
    * True when the user signed in via OTP and has no passkey yet. While set, the
    * shell forces the initial-settings passkey enrollment step.
    */
@@ -90,6 +97,7 @@ function decodeAccessClaims(accessToken: string): {
   user_id?: string;
   roles?: string[];
   branches?: string[];
+  isPlatform?: boolean;
 } {
   try {
     const payload = accessToken.split(".")[1];
@@ -103,6 +111,7 @@ function decodeAccessClaims(accessToken: string): {
       sub?: string;
       roles?: unknown;
       branches?: unknown;
+      platform?: unknown;
     };
     return {
       user_id: typeof claims.sub === "string" ? claims.sub : undefined,
@@ -112,6 +121,7 @@ function decodeAccessClaims(accessToken: string): {
       branches: Array.isArray(claims.branches)
         ? claims.branches.filter((b): b is string => typeof b === "string")
         : undefined,
+      isPlatform: claims.platform === true,
     };
   } catch {
     return {};

@@ -2,8 +2,10 @@ import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppShell } from "./components/shell/AppShell";
+import { PlatformShell } from "./components/shell/PlatformShell";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { RequireAdminRoute } from "./components/RequireAdminRoute";
+import { RequirePlatformRoute } from "./components/RequirePlatformRoute";
 import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
 import { PageSpinner } from "./components/states/PageSpinner";
 import { LoginPage } from "./pages/LoginPage";
@@ -56,6 +58,16 @@ const OrgPage = lazy(() =>
 const ProfilePage = lazy(() =>
   import("./pages/ProfilePage").then((m) => ({ default: m.ProfilePage })),
 );
+const PlatformTenantsPage = lazy(() =>
+  import("./pages/PlatformTenantsPage").then((m) => ({
+    default: m.PlatformTenantsPage,
+  })),
+);
+const PlatformOnboardPage = lazy(() =>
+  import("./pages/PlatformOnboardPage").then((m) => ({
+    default: m.PlatformOnboardPage,
+  })),
+);
 
 export function AppRouter() {
   return (
@@ -82,6 +94,19 @@ export function AppRouter() {
             </RouteErrorBoundary>
           }
         />
+
+        {/* Vendor platform-admin console — its own shell + nav, gated by the
+            `platform` JWT claim. A tenant session hitting /platform is bounced
+            to /dispatch by RequirePlatformRoute; a platform session hitting a
+            tenant route is bounced to /platform by ProtectedRoute. */}
+        <Route element={<RequirePlatformRoute />}>
+          <Route path="/platform" element={<PlatformShell />}>
+            <Route index element={<Navigate to="/platform/tenants" replace />} />
+            <Route path="tenants" element={<PlatformTenantsPage />} />
+            <Route path="onboard" element={<PlatformOnboardPage />} />
+            <Route path="*" element={<Navigate to="/platform/tenants" replace />} />
+          </Route>
+        </Route>
 
         {/* App shell layout */}
         <Route element={<AppShell />}>

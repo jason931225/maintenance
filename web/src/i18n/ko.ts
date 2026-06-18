@@ -234,6 +234,77 @@ export const ko = {
       unknownRegion: "미지정 지역",
     },
   },
+  platform: {
+    shell: {
+      title: "플랫폼 콘솔",
+      nav: "플랫폼 내비게이션",
+      badge: "플랫폼 관리자",
+    },
+    nav: {
+      tenants: "테넌트",
+      onboard: "테넌트 등록",
+    },
+    status: {
+      ACTIVE: "활성",
+      SUSPENDED: "정지",
+      ARCHIVED: "보관",
+    },
+    tenants: {
+      title: "테넌트 관리",
+      description: "플랫폼에 등록된 조직(테넌트)을 조회하고 상태를 관리합니다.",
+      onboardCta: "테넌트 등록",
+      empty: "등록된 테넌트가 없습니다.",
+      loadFailed: "테넌트 목록을 불러오지 못했습니다.",
+      columns: {
+        slug: "슬러그",
+        name: "이름",
+        status: "상태",
+        created: "생성일",
+      },
+      actionLabel: {
+        ACTIVE: "활성화",
+        SUSPENDED: "정지",
+        ARCHIVED: "보관",
+      },
+      statusChange: {
+        title: "테넌트 상태 변경",
+        confirm: "‘{name}’ 테넌트를 ‘{status}’ 상태로 변경하시겠습니까?",
+        warning: "이 변경은 테넌트 접근에 영향을 줍니다. 신중히 진행하세요.",
+        cancel: "취소",
+        apply: "변경",
+        applying: "변경 중",
+        failed: "상태를 변경하지 못했습니다. 다시 시도하세요.",
+      },
+    },
+    onboard: {
+      title: "테넌트 등록",
+      description: "새 조직을 온보딩하고 최초 로그인용 일회용 코드를 발급합니다.",
+      form: {
+        name: "이름",
+        namePlaceholder: "예: 한빛물류",
+        slug: "슬러그",
+        slugPlaceholder: "예: hanbit-logistics",
+        slugHint: "영문 소문자, 숫자, 하이픈만 사용할 수 있습니다.",
+        submit: "테넌트 등록",
+        submitting: "등록 중",
+        requiredName: "이름을 입력하세요.",
+        invalidSlug:
+          "슬러그 형식이 올바르지 않습니다. 영문 소문자·숫자·하이픈만 사용하세요.",
+        duplicateSlug: "이미 사용 중인 슬러그입니다. 다른 값을 입력하세요.",
+        failed: "테넌트를 등록하지 못했습니다. 다시 시도하세요.",
+      },
+      success: {
+        title: "테넌트가 등록되었습니다.",
+        subtitle: "‘{name}’ (슬러그: {slug}) 조직이 생성되었습니다.",
+        otpHeading: "일회용 코드 (한 번만 표시됩니다)",
+        otpWarning:
+          "이 코드는 다시 표시되지 않습니다. 안전한 별도 경로로 전달하세요.",
+        copy: "복사",
+        copied: "복사됨",
+        done: "테넌트 목록으로",
+      },
+    },
+  },
   profile: {
     title: "내 프로필",
     description: "이름과 연락처를 직접 수정할 수 있습니다.",

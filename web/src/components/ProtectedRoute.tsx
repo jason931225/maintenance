@@ -30,6 +30,13 @@ export function ProtectedRoute({ children }: { children?: React.ReactNode }) {
     );
   }
 
+  // A platform-admin (vendor) session belongs in the /platform console; bounce it
+  // out of any tenant route. The mirror case (a tenant session on /platform) is
+  // handled by RequirePlatformRoute. The backend re-checks on every call.
+  if (session.isPlatform && !location.pathname.startsWith("/platform")) {
+    return <Navigate to="/platform" replace />;
+  }
+
   if (session.requires_passkey_setup && location.pathname !== "/onboarding") {
     return <Navigate to="/onboarding" replace />;
   }
