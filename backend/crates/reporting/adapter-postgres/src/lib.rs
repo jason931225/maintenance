@@ -20,9 +20,9 @@ use mnt_reporting_application::{
 };
 use mnt_reporting_domain::{
     DailyStatusReport, DailyStatusRow, ExportSourceNote, KpiInputRecord, KpiInspectionRecord,
-    KpiMetric, KpiReport, KpiScope, OpsEquipmentStatus, OpsFunnel, OpsMechanicLoad, OpsSummary,
-    PeriodicInspectionRow, UnavailableMetric, WorkDiaryActionEntry, WorkDiaryBody, WorkDiaryDraft,
-    WorkDiaryStatus, calculate_kpi_report,
+    KpiMetric, KpiP1Record, KpiReport, KpiScope, OpsEquipmentStatus, OpsFunnel, OpsMechanicLoad,
+    OpsSummary, PeriodicInspectionRow, UnavailableMetric, WorkDiaryActionEntry, WorkDiaryBody,
+    WorkDiaryDraft, WorkDiaryStatus, calculate_kpi_report,
 };
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use time::{Date, Duration, OffsetDateTime, Time};
@@ -108,12 +108,14 @@ impl PgKpiRepository {
 
         let records = self.load_work_order_records(&query).await?;
         let inspection_records = self.load_inspection_records(&query).await?;
+        let p1_records = self.load_p1_records(&query).await?;
         let unavailable_metrics = self.unavailable_source_metrics().await?;
         Ok(calculate_kpi_report(
             query.period,
             query.scope,
             &records,
             &inspection_records,
+            &p1_records,
             unavailable_metrics,
         ))
     }
@@ -224,23 +226,14 @@ impl PgKpiRepository {
                         .to_owned(),
             });
         }
-        if !any_table_exists(
-            &self.pool,
-            &[
-                "p1_broadcasts",
-                "p1_broadcast_responses",
-                "dispatch_broadcasts",
-                "dispatch_broadcast_responses",
-            ],
-        )
-        .await
-        .map_err(|err| KpiQueryError::Database(err.to_string()))?
+        if !any_table_exists(&self.pool, &["p1_dispatches", "p1_dispatch_responses"])
+            .await
+            .map_err(|err| KpiQueryError::Database(err.to_string()))?
         {
             unavailable.push(UnavailableMetric {
                 metric: KpiMetric::P1AcceptanceRate,
                 source_domain: "dispatch".to_owned(),
-                reason: "P1 dispatch broadcast response source tables are not present in this migration set; T2.4 has not merged"
-                    .to_owned(),
+                reason: "P1 dispatch source tables are not present in this database".to_owned(),
             });
         }
         Ok(unavailable)
@@ -293,6 +286,61 @@ impl PgKpiRepository {
         .map_err(|e| KpiQueryError::Database(e.to_string()))?;
         rows.iter()
             .map(inspection_record_from_row)
+            .collect::<Result<Vec<_>, _>>()
+    }
+
+    async fn load_p1_records(&self, query: &KpiQuery) -> Result<Vec<KpiP1Record>, KpiQueryError> {
+        if !any_table_exists(&self.pool, &["p1_dispatches", "p1_dispatch_responses"])
+            .await
+            .map_err(|err| KpiQueryError::Database(err.to_string()))?
+        {
+            return Ok(Vec::new());
+        }
+
+        // P1 acceptance rate: of P1 emergency dispatches whose broadcast accept
+        // window opened within the period, the share that were accepted by a
+        // mechanic — i.e. the dispatch auto-assigned (AUTO_ASSIGNED), or at least
+        // one target answered ACCEPT — rather than falling through to a manager
+        // force-assign. The accepting technician is attributed via the accepting
+        // response (or the auto-assigned mechanic) for the technician rollup.
+        let mut builder = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT
+                d.id AS dispatch_id,
+                d.branch_id,
+                b.region_id,
+                COALESCE(d.auto_assigned_mechanic_id, accept.user_id) AS technician_id,
+                (d.status = 'AUTO_ASSIGNED' OR accept.user_id IS NOT NULL) AS accepted
+            FROM p1_dispatches d
+            JOIN branches b ON b.id = d.branch_id
+            LEFT JOIN LATERAL (
+                SELECT user_id
+                FROM p1_dispatch_responses
+                WHERE dispatch_id = d.id
+                  AND response = 'ACCEPT'
+                ORDER BY responded_at, id
+                LIMIT 1
+            ) accept ON TRUE
+            WHERE d.accept_window_started_at >=
+            "#,
+        );
+        builder.push_bind(query.period.start);
+        builder.push(" AND d.accept_window_started_at < ");
+        builder.push_bind(query.period.end);
+        builder.push(" AND ");
+        push_branch_column_filter(&mut builder, &query.branch_scope, "d.branch_id");
+        push_requested_p1_scope_filter(&mut builder, query.scope);
+        builder.push(" ORDER BY d.accept_window_started_at, d.id LIMIT ");
+        builder.push_bind(MAX_LIST_ROWS);
+
+        let org = current_org().map_err(|e| KpiQueryError::Database(e.to_string()))?;
+        let rows = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await
+        .map_err(|e| KpiQueryError::Database(e.to_string()))?;
+        rows.iter()
+            .map(p1_record_from_row)
             .collect::<Result<Vec<_>, _>>()
     }
 
@@ -1277,6 +1325,36 @@ fn push_requested_inspection_scope_filter(builder: &mut QueryBuilder<Postgres>, 
             builder.push_bind(*user_id.as_uuid());
         }
     }
+}
+
+fn push_requested_p1_scope_filter(builder: &mut QueryBuilder<Postgres>, scope: KpiScope) {
+    match scope {
+        KpiScope::Company => {}
+        KpiScope::Region(region_id) => {
+            builder.push(" AND b.region_id = ");
+            builder.push_bind(*region_id.as_uuid());
+        }
+        KpiScope::Branch(branch_id) => {
+            builder.push(" AND d.branch_id = ");
+            builder.push_bind(*branch_id.as_uuid());
+        }
+        // Technician rollups for P1 acceptance are derived in the domain from the
+        // accepting/auto-assigned mechanic, so no SQL-side technician filter here.
+        KpiScope::Technician(_) => {}
+    }
+}
+
+fn p1_record_from_row(row: &sqlx::postgres::PgRow) -> Result<KpiP1Record, KpiQueryError> {
+    Ok(KpiP1Record {
+        dispatch_id: row.try_get("dispatch_id").map_err(row_error)?,
+        branch_id: BranchId::from_uuid(row.try_get("branch_id").map_err(row_error)?),
+        region_id: RegionId::from_uuid(row.try_get("region_id").map_err(row_error)?),
+        technician_id: row
+            .try_get::<Option<uuid::Uuid>, _>("technician_id")
+            .map_err(row_error)?
+            .map(UserId::from_uuid),
+        accepted: row.try_get("accepted").map_err(row_error)?,
+    })
 }
 
 fn record_from_row(row: &sqlx::postgres::PgRow) -> Result<KpiInputRecord, KpiQueryError> {

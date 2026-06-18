@@ -21,6 +21,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "intake",
     "approvals",
     "daily-plan",
+    "inspection",
     "messenger",
     "support",
     "kpi",
@@ -39,6 +40,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "intake",
     "approvals",
     "daily-plan",
+    "inspection",
     "messenger",
     "support",
     "kpi",
@@ -127,6 +129,14 @@ describe("nav role gating", () => {
     expect(isNavItemVisible("kpi", [ROLES.SUPER_ADMIN])).toBe(true);
     expect(isNavItemVisible("kpi", [ROLES.MECHANIC])).toBe(false);
     expect(isNavItemVisible("kpi", [ROLES.RECEPTIONIST])).toBe(false);
+  });
+
+  it("shows inspection (InspectionScheduleManage) only to ADMIN and SUPER_ADMIN", () => {
+    expect(isNavItemVisible("inspection", [ROLES.ADMIN])).toBe(true);
+    expect(isNavItemVisible("inspection", [ROLES.SUPER_ADMIN])).toBe(true);
+    expect(isNavItemVisible("inspection", [ROLES.EXECUTIVE])).toBe(false);
+    expect(isNavItemVisible("inspection", [ROLES.MECHANIC])).toBe(false);
+    expect(isNavItemVisible("inspection", [ROLES.RECEPTIONIST])).toBe(false);
   });
 
   it("shows daily-plan to DailyPlanRequest holders only", () => {

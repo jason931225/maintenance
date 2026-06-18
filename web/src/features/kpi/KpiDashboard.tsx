@@ -259,11 +259,20 @@ function buildMetricCards(
           detail: formatDelayReason(rollup.delay_reason_distribution),
         };
       case "inspection_plan_completion_rate":
+        return {
+          metric,
+          value: formatBps(rollup.inspection_plan_completion_bps),
+          detail: `${ko.kpi.inspectionPlanScheduled}: ${formatCount(
+            rollup.inspection_schedule_completed_count,
+          )}/${formatCount(rollup.inspection_schedule_due_count)}`,
+        };
       case "p1_acceptance_rate":
         return {
           metric,
-          value: ko.kpi.unavailable,
-          detail: ko.kpi.unavailableSource,
+          value: formatBps(rollup.p1_acceptance_bps),
+          detail: `${ko.kpi.p1Accepted}: ${formatCount(
+            rollup.p1_accepted_count,
+          )}/${formatCount(rollup.p1_dispatch_count)}`,
         };
     }
   });

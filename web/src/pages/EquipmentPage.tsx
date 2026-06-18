@@ -6,6 +6,7 @@ import { hasAnyRole, ROLES } from "../components/shell/nav";
 import { PageHeader } from "../components/shell/PageHeader";
 import { PageError } from "../components/states/PageError";
 import { EquipmentManagementPanel } from "../features/equipment/EquipmentManagementPanel";
+import { SubstitutionPanel } from "../features/equipment/SubstitutionPanel";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { ko } from "../i18n/ko";
@@ -49,6 +50,9 @@ export function EquipmentPage() {
             model: eq.model ?? ko.common.unknown,
             customerName: eq.customer.name,
             siteName: eq.site.name,
+            maker: eq.maker,
+            vin: eq.vin,
+            vehicleRegistrationNo: eq.vehicle_registration_no,
           },
         });
         return;
@@ -174,6 +178,9 @@ export function EquipmentPage() {
             results={suggestions}
             onMutated={refreshSearch}
           />
+        ) : null}
+        {canManage ? (
+          <SubstitutionPanel api={api} results={suggestions} />
         ) : null}
       </div>
     </>

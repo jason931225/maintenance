@@ -1262,6 +1262,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/equipment-substitutions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assign a substitute (대차) unit to a down/under-repair equipment
+         * @description Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+         */
+        post: operations["assignEquipmentSubstitute"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-substitutions/{id}/return": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Return an active substitute (대차) assignment
+         * @description Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+         */
+        post: operations["returnEquipmentSubstitute"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/financial/rental-quotes/compute": {
         parameters: {
             query?: never;
@@ -1856,6 +1896,12 @@ export interface components {
             inspection_schedule_completed_count: number;
             /** Format: int32 */
             inspection_plan_completion_bps: number | null;
+            /** Format: int32 */
+            p1_dispatch_count: number;
+            /** Format: int32 */
+            p1_accepted_count: number;
+            /** Format: int32 */
+            p1_acceptance_bps: number | null;
         };
         OpsFunnel: {
             /** Format: int32 */
@@ -1998,6 +2044,9 @@ export interface components {
             status: string;
             specification: string;
             ton_text: string;
+            maker: string | null;
+            vin: string | null;
+            vehicle_registration_no: string | null;
             customer: components["schemas"]["NamedEntity"];
             site: components["schemas"]["NamedEntity"];
         };
@@ -2541,6 +2590,40 @@ export interface components {
             items: components["schemas"]["SubstituteCandidate"][];
             total: number;
         };
+        AssignSubstituteRequest: {
+            /** Format: uuid */
+            source_equipment_id: string;
+            /** Format: uuid */
+            substitute_equipment_id: string;
+            /** Format: uuid */
+            assigned_to?: string | null;
+            assignment_location: string;
+        };
+        ReturnSubstituteRequest: {
+            return_note?: string | null;
+        };
+        SubstituteAssignment: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            branch_id: string;
+            /** Format: uuid */
+            source_equipment_id: string;
+            /** Format: uuid */
+            substitute_equipment_id: string;
+            /** Format: uuid */
+            assigned_by: string;
+            /** Format: uuid */
+            assigned_to?: string | null;
+            assignment_location: string;
+            /** Format: date-time */
+            assigned_at: string;
+            /** Format: uuid */
+            returned_by?: string | null;
+            /** Format: date-time */
+            returned_at?: string | null;
+            return_note?: string | null;
+        };
         CreateEquipmentRequest: {
             /** @description Equipment number in AAANN-NNNN form; prefix derives manufacturer/kind/power codes. */
             equipment_no: string;
@@ -2974,6 +3057,7 @@ export interface components {
         ThreadId: string;
         EquipmentId: string;
         QuoteId: string;
+        EquipmentSubstitutionId: string;
         EquipmentIdV2: string;
         PurchaseRequestId: string;
         DispatchId: string;
@@ -4675,6 +4759,80 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    assignEquipmentSubstitute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignSubstituteRequest"];
+            };
+        };
+        responses: {
+            /** @description Substitute assignment recorded. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubstituteAssignment"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    returnEquipmentSubstitute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["EquipmentSubstitutionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReturnSubstituteRequest"];
+            };
+        };
+        responses: {
+            /** @description Substitute assignment returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubstituteAssignment"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
             /** @description JWT verification is not configured. */
             503: {

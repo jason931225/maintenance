@@ -411,8 +411,14 @@ async fn kpi_endpoint_is_jwt_authorized_and_branch_scoped(pool: PgPool) {
             .iter()
             .any(|metric| metric["metric"] == "inspection_plan_completion_rate")
     );
+    // P1 acceptance is now computed from the p1_dispatch* source tables (present
+    // in this migration set), so it is no longer reported as unavailable; with no
+    // dispatches seeded the rate is null and the counts are zero.
+    assert_eq!(company["p1_dispatch_count"], 0);
+    assert_eq!(company["p1_accepted_count"], 0);
+    assert_eq!(company["p1_acceptance_bps"], serde_json::Value::Null);
     assert!(
-        report.json["unavailable_metrics"]
+        !report.json["unavailable_metrics"]
             .as_array()
             .unwrap()
             .iter()

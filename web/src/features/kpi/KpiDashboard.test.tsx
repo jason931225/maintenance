@@ -32,4 +32,37 @@ describe("KpiDashboard", () => {
     expect(screen.getByText("7건")).toBeVisible();
     expect(screen.queryByText("18건")).not.toBeInTheDocument();
   });
+
+  it("renders computed P1 acceptance and inspection-plan rates when available", () => {
+    const onPeriodChange = vi.fn();
+    const report = {
+      ...kpiReport,
+      unavailable_metrics: [],
+      rollups: [
+        {
+          ...kpiReport.rollups[0],
+          inspection_schedule_due_count: 3,
+          inspection_schedule_completed_count: 2,
+          inspection_plan_completion_bps: 6_666,
+          p1_dispatch_count: 4,
+          p1_accepted_count: 3,
+          p1_acceptance_bps: 7_500,
+        },
+      ],
+    };
+
+    render(
+      <KpiDashboard
+        isLoading={false}
+        period="2026-06-01..2026-07-01"
+        report={report}
+        onPeriodChange={onPeriodChange}
+      />,
+    );
+
+    expect(screen.getByText("66.7%")).toBeVisible();
+    expect(screen.getByText("75%")).toBeVisible();
+    expect(screen.getByText("P1 수락: 3건/4건")).toBeVisible();
+    expect(screen.getByText("정기점검 완료: 2건/3건")).toBeVisible();
+  });
 });

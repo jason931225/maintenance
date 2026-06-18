@@ -34,6 +34,7 @@ src/main/kotlin/com/maintenance/api/client/model/AdminIssueOtpRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AdminIssueOtpResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/AppendManualCostLedgerRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ApprovalStepSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/AssignSubstituteRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AssignTicketRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AssignWorkOrderRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AssignWorkOrderRequestAssignmentsInner.kt
@@ -138,12 +139,14 @@ src/main/kotlin/com/maintenance/api/client/model/RejectWorkOrderRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/RentalQuoteSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/RespondP1DispatchRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/RestartPurchaseRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/ReturnSubstituteRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ReviewDailyPlanRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ReviewTargetChangeRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SendMessengerMessageRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/StartP1DispatchRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/StatusHistorySummary.kt
 src/main/kotlin/com/maintenance/api/client/model/SubmitReportRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/SubstituteAssignment.kt
 src/main/kotlin/com/maintenance/api/client/model/SubstituteCandidate.kt
 src/main/kotlin/com/maintenance/api/client/model/SubstituteCandidatePage.kt
 src/main/kotlin/com/maintenance/api/client/model/SubstituteMatchKind.kt

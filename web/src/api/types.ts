@@ -13,6 +13,17 @@ export type CreateEquipmentRequest =
   components["schemas"]["CreateEquipmentRequest"];
 export type UpdateEquipmentRequest =
   components["schemas"]["UpdateEquipmentRequest"];
+export type SubstituteCandidate =
+  components["schemas"]["SubstituteCandidate"];
+export type SubstituteCandidatePage =
+  components["schemas"]["SubstituteCandidatePage"];
+export type SubstituteAssignment =
+  components["schemas"]["SubstituteAssignment"];
+export type InspectionScheduleSummary =
+  components["schemas"]["InspectionScheduleSummary"];
+export type InspectionCycle = components["schemas"]["InspectionCycle"];
+export type CreateInspectionScheduleRequest =
+  components["schemas"]["CreateInspectionScheduleRequest"];
 export type CreateMessengerThreadRequest =
   components["schemas"]["CreateMessengerThreadRequest"];
 export type DailyPlanStatus = components["schemas"]["DailyPlanStatus"];
@@ -120,6 +131,9 @@ export interface EquipmentLookupResult {
   model: string;
   customerName: string;
   siteName: string;
+  maker: string | null;
+  vin: string | null;
+  vehicleRegistrationNo: string | null;
 }
 
 export type EquipmentLookupState =

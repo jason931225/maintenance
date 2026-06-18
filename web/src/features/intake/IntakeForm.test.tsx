@@ -24,6 +24,9 @@ describe("IntakeForm", () => {
             model: "GTS25DE",
             customerName: "케이앤엘",
             siteName: "본사",
+            maker: "현대",
+            vin: "VIN-12345",
+            vehicleRegistrationNo: "12가3456",
           },
         }}
       />,
@@ -46,5 +49,48 @@ describe("IntakeForm", () => {
       target_due_at: undefined,
     });
     expect(await screen.findByText("P1 권장")).toBeVisible();
+  });
+
+  it("surfaces vehicle fields and records the maintenance category in customer_request", async () => {
+    const user = userEvent.setup();
+    const createWorkOrder = vi.fn().mockResolvedValue(workOrders[0]);
+
+    render(
+      <IntakeForm
+        branchId={branchId}
+        onCreateWorkOrder={createWorkOrder}
+        equipmentLookupState={{
+          status: "ready",
+          equipment: {
+            managementNo: "290",
+            model: "GTS25DE",
+            customerName: "케이앤엘",
+            siteName: "본사",
+            maker: "현대",
+            vin: "VIN-12345",
+            vehicleRegistrationNo: "12가3456",
+          },
+        }}
+      />,
+    );
+
+    // Vehicle (차량) fields from the equipment master are surfaced.
+    expect(screen.getByText("VIN-12345")).toBeVisible();
+    expect(screen.getByText("12가3456")).toBeVisible();
+    expect(screen.getByText("현대")).toBeVisible();
+
+    await user.type(screen.getByLabelText("호기"), "290");
+    await user.type(screen.getByLabelText("고장내용"), "정기 점검");
+    await user.selectOptions(screen.getByLabelText("정비 분류"), "REGULAR");
+    await user.type(screen.getByLabelText("고객 요청사항"), "오전 방문 요청");
+    await user.click(screen.getByRole("button", { name: "접수 저장" }));
+
+    expect(createWorkOrder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        management_no: "290",
+        symptom: "정기 점검",
+        customer_request: "[정비 분류: 정기 점검] 오전 방문 요청",
+      }),
+    );
   });
 });

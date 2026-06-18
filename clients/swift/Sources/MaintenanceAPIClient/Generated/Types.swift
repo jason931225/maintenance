@@ -374,6 +374,20 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/equipment/{id}/substitutes`.
     /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/substitutes/get(listEquipmentSubstitutes)`.
     func listEquipmentSubstitutes(_ input: Operations.ListEquipmentSubstitutes.Input) async throws -> Operations.ListEquipmentSubstitutes.Output
+    /// Assign a substitute (대차) unit to a down/under-repair equipment
+    ///
+    /// Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+    ///
+    /// - Remark: HTTP `POST /api/v1/equipment-substitutions`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/post(assignEquipmentSubstitute)`.
+    func assignEquipmentSubstitute(_ input: Operations.AssignEquipmentSubstitute.Input) async throws -> Operations.AssignEquipmentSubstitute.Output
+    /// Return an active substitute (대차) assignment
+    ///
+    /// Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+    ///
+    /// - Remark: HTTP `POST /api/v1/equipment-substitutions/{id}/return`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/{id}/return/post(returnEquipmentSubstitute)`.
+    func returnEquipmentSubstitute(_ input: Operations.ReturnEquipmentSubstitute.Input) async throws -> Operations.ReturnEquipmentSubstitute.Output
     /// Compute a rental quote from explicit financial inputs without persisting it
     ///
     /// - Remark: HTTP `POST /api/v1/financial/rental-quotes/compute`.
@@ -1450,6 +1464,38 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// Assign a substitute (대차) unit to a down/under-repair equipment
+    ///
+    /// Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+    ///
+    /// - Remark: HTTP `POST /api/v1/equipment-substitutions`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/post(assignEquipmentSubstitute)`.
+    public func assignEquipmentSubstitute(
+        headers: Operations.AssignEquipmentSubstitute.Input.Headers = .init(),
+        body: Operations.AssignEquipmentSubstitute.Input.Body
+    ) async throws -> Operations.AssignEquipmentSubstitute.Output {
+        try await assignEquipmentSubstitute(Operations.AssignEquipmentSubstitute.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Return an active substitute (대차) assignment
+    ///
+    /// Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+    ///
+    /// - Remark: HTTP `POST /api/v1/equipment-substitutions/{id}/return`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/{id}/return/post(returnEquipmentSubstitute)`.
+    public func returnEquipmentSubstitute(
+        path: Operations.ReturnEquipmentSubstitute.Input.Path,
+        headers: Operations.ReturnEquipmentSubstitute.Input.Headers = .init(),
+        body: Operations.ReturnEquipmentSubstitute.Input.Body
+    ) async throws -> Operations.ReturnEquipmentSubstitute.Output {
+        try await returnEquipmentSubstitute(Operations.ReturnEquipmentSubstitute.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
     /// Compute a rental quote from explicit financial inputs without persisting it
     ///
     /// - Remark: HTTP `POST /api/v1/financial/rental-quotes/compute`.
@@ -2207,6 +2253,12 @@ public enum Components {
             public var inspectionScheduleCompletedCount: Swift.Int32
             /// - Remark: Generated from `#/components/schemas/KpiRollup/inspection_plan_completion_bps`.
             public var inspectionPlanCompletionBps: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/KpiRollup/p1_dispatch_count`.
+            public var p1DispatchCount: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/KpiRollup/p1_accepted_count`.
+            public var p1AcceptedCount: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/KpiRollup/p1_acceptance_bps`.
+            public var p1AcceptanceBps: Swift.Int32?
             /// Creates a new `KpiRollup`.
             ///
             /// - Parameters:
@@ -2223,6 +2275,9 @@ public enum Components {
             ///   - inspectionScheduleDueCount:
             ///   - inspectionScheduleCompletedCount:
             ///   - inspectionPlanCompletionBps:
+            ///   - p1DispatchCount:
+            ///   - p1AcceptedCount:
+            ///   - p1AcceptanceBps:
             public init(
                 scope: Components.Schemas.KpiRollupScope,
                 approvedReportCount: Swift.Int32,
@@ -2236,7 +2291,10 @@ public enum Components {
                 delayReasonDistribution: Components.Schemas.KpiRollup.DelayReasonDistributionPayload,
                 inspectionScheduleDueCount: Swift.Int32,
                 inspectionScheduleCompletedCount: Swift.Int32,
-                inspectionPlanCompletionBps: Swift.Int32? = nil
+                inspectionPlanCompletionBps: Swift.Int32? = nil,
+                p1DispatchCount: Swift.Int32,
+                p1AcceptedCount: Swift.Int32,
+                p1AcceptanceBps: Swift.Int32? = nil
             ) {
                 self.scope = scope
                 self.approvedReportCount = approvedReportCount
@@ -2251,6 +2309,9 @@ public enum Components {
                 self.inspectionScheduleDueCount = inspectionScheduleDueCount
                 self.inspectionScheduleCompletedCount = inspectionScheduleCompletedCount
                 self.inspectionPlanCompletionBps = inspectionPlanCompletionBps
+                self.p1DispatchCount = p1DispatchCount
+                self.p1AcceptedCount = p1AcceptedCount
+                self.p1AcceptanceBps = p1AcceptanceBps
             }
             public enum CodingKeys: String, CodingKey {
                 case scope
@@ -2266,6 +2327,9 @@ public enum Components {
                 case inspectionScheduleDueCount = "inspection_schedule_due_count"
                 case inspectionScheduleCompletedCount = "inspection_schedule_completed_count"
                 case inspectionPlanCompletionBps = "inspection_plan_completion_bps"
+                case p1DispatchCount = "p1_dispatch_count"
+                case p1AcceptedCount = "p1_accepted_count"
+                case p1AcceptanceBps = "p1_acceptance_bps"
             }
         }
         /// - Remark: Generated from `#/components/schemas/OpsFunnel`.
@@ -2952,6 +3016,12 @@ public enum Components {
             public var specification: Swift.String
             /// - Remark: Generated from `#/components/schemas/EquipmentLookupResponse/ton_text`.
             public var tonText: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentLookupResponse/maker`.
+            public var maker: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EquipmentLookupResponse/vin`.
+            public var vin: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EquipmentLookupResponse/vehicle_registration_no`.
+            public var vehicleRegistrationNo: Swift.String?
             /// - Remark: Generated from `#/components/schemas/EquipmentLookupResponse/customer`.
             public var customer: Components.Schemas.NamedEntity
             /// - Remark: Generated from `#/components/schemas/EquipmentLookupResponse/site`.
@@ -2967,6 +3037,9 @@ public enum Components {
             ///   - status:
             ///   - specification:
             ///   - tonText:
+            ///   - maker:
+            ///   - vin:
+            ///   - vehicleRegistrationNo:
             ///   - customer:
             ///   - site:
             public init(
@@ -2978,6 +3051,9 @@ public enum Components {
                 status: Swift.String,
                 specification: Swift.String,
                 tonText: Swift.String,
+                maker: Swift.String? = nil,
+                vin: Swift.String? = nil,
+                vehicleRegistrationNo: Swift.String? = nil,
                 customer: Components.Schemas.NamedEntity,
                 site: Components.Schemas.NamedEntity
             ) {
@@ -2989,6 +3065,9 @@ public enum Components {
                 self.status = status
                 self.specification = specification
                 self.tonText = tonText
+                self.maker = maker
+                self.vin = vin
+                self.vehicleRegistrationNo = vehicleRegistrationNo
                 self.customer = customer
                 self.site = site
             }
@@ -3001,6 +3080,9 @@ public enum Components {
                 case status
                 case specification
                 case tonText = "ton_text"
+                case maker
+                case vin
+                case vehicleRegistrationNo = "vehicle_registration_no"
                 case customer
                 case site
             }
@@ -5868,6 +5950,133 @@ public enum Components {
                 case total
             }
         }
+        /// - Remark: Generated from `#/components/schemas/AssignSubstituteRequest`.
+        public struct AssignSubstituteRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AssignSubstituteRequest/source_equipment_id`.
+            public var sourceEquipmentId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AssignSubstituteRequest/substitute_equipment_id`.
+            public var substituteEquipmentId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AssignSubstituteRequest/assigned_to`.
+            public var assignedTo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/AssignSubstituteRequest/assignment_location`.
+            public var assignmentLocation: Swift.String
+            /// Creates a new `AssignSubstituteRequest`.
+            ///
+            /// - Parameters:
+            ///   - sourceEquipmentId:
+            ///   - substituteEquipmentId:
+            ///   - assignedTo:
+            ///   - assignmentLocation:
+            public init(
+                sourceEquipmentId: Swift.String,
+                substituteEquipmentId: Swift.String,
+                assignedTo: Swift.String? = nil,
+                assignmentLocation: Swift.String
+            ) {
+                self.sourceEquipmentId = sourceEquipmentId
+                self.substituteEquipmentId = substituteEquipmentId
+                self.assignedTo = assignedTo
+                self.assignmentLocation = assignmentLocation
+            }
+            public enum CodingKeys: String, CodingKey {
+                case sourceEquipmentId = "source_equipment_id"
+                case substituteEquipmentId = "substitute_equipment_id"
+                case assignedTo = "assigned_to"
+                case assignmentLocation = "assignment_location"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ReturnSubstituteRequest`.
+        public struct ReturnSubstituteRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ReturnSubstituteRequest/return_note`.
+            public var returnNote: Swift.String?
+            /// Creates a new `ReturnSubstituteRequest`.
+            ///
+            /// - Parameters:
+            ///   - returnNote:
+            public init(returnNote: Swift.String? = nil) {
+                self.returnNote = returnNote
+            }
+            public enum CodingKeys: String, CodingKey {
+                case returnNote = "return_note"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SubstituteAssignment`.
+        public struct SubstituteAssignment: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SubstituteAssignment/id`.
+            public var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubstituteAssignment/branch_id`.
+            public var branchId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubstituteAssignment/source_equipment_id`.
+            public var sourceEquipmentId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubstituteAssignment/substitute_equipment_id`.
+            public var substituteEquipmentId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubstituteAssignment/assigned_by`.
+            public var assignedBy: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubstituteAssignment/assigned_to`.
+            public var assignedTo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SubstituteAssignment/assignment_location`.
+            public var assignmentLocation: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubstituteAssignment/assigned_at`.
+            public var assignedAt: Foundation.Date
+            /// - Remark: Generated from `#/components/schemas/SubstituteAssignment/returned_by`.
+            public var returnedBy: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SubstituteAssignment/returned_at`.
+            public var returnedAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/SubstituteAssignment/return_note`.
+            public var returnNote: Swift.String?
+            /// Creates a new `SubstituteAssignment`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - branchId:
+            ///   - sourceEquipmentId:
+            ///   - substituteEquipmentId:
+            ///   - assignedBy:
+            ///   - assignedTo:
+            ///   - assignmentLocation:
+            ///   - assignedAt:
+            ///   - returnedBy:
+            ///   - returnedAt:
+            ///   - returnNote:
+            public init(
+                id: Swift.String,
+                branchId: Swift.String,
+                sourceEquipmentId: Swift.String,
+                substituteEquipmentId: Swift.String,
+                assignedBy: Swift.String,
+                assignedTo: Swift.String? = nil,
+                assignmentLocation: Swift.String,
+                assignedAt: Foundation.Date,
+                returnedBy: Swift.String? = nil,
+                returnedAt: Foundation.Date? = nil,
+                returnNote: Swift.String? = nil
+            ) {
+                self.id = id
+                self.branchId = branchId
+                self.sourceEquipmentId = sourceEquipmentId
+                self.substituteEquipmentId = substituteEquipmentId
+                self.assignedBy = assignedBy
+                self.assignedTo = assignedTo
+                self.assignmentLocation = assignmentLocation
+                self.assignedAt = assignedAt
+                self.returnedBy = returnedBy
+                self.returnedAt = returnedAt
+                self.returnNote = returnNote
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case branchId = "branch_id"
+                case sourceEquipmentId = "source_equipment_id"
+                case substituteEquipmentId = "substitute_equipment_id"
+                case assignedBy = "assigned_by"
+                case assignedTo = "assigned_to"
+                case assignmentLocation = "assignment_location"
+                case assignedAt = "assigned_at"
+                case returnedBy = "returned_by"
+                case returnedAt = "returned_at"
+                case returnNote = "return_note"
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/CreateEquipmentRequest`.
         public struct CreateEquipmentRequest: Codable, Hashable, Sendable {
             /// Equipment number in AAANN-NNNN form; prefix derives manufacturer/kind/power codes.
@@ -7617,6 +7826,8 @@ public enum Components {
         public typealias EquipmentId = Swift.String
         /// - Remark: Generated from `#/components/parameters/QuoteId`.
         public typealias QuoteId = Swift.String
+        /// - Remark: Generated from `#/components/parameters/EquipmentSubstitutionId`.
+        public typealias EquipmentSubstitutionId = Swift.String
         /// - Remark: Generated from `#/components/parameters/EquipmentIdV2`.
         public typealias EquipmentIdV2 = Swift.String
         /// - Remark: Generated from `#/components/parameters/PurchaseRequestId`.
@@ -20756,6 +20967,568 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.serviceUnavailable`.
             /// - SeeAlso: `.serviceUnavailable`.
             public var serviceUnavailable: Operations.ListEquipmentSubstitutes.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Assign a substitute (대차) unit to a down/under-repair equipment
+    ///
+    /// Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+    ///
+    /// - Remark: HTTP `POST /api/v1/equipment-substitutions`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/post(assignEquipmentSubstitute)`.
+    public enum AssignEquipmentSubstitute {
+        public static let id: Swift.String = "assignEquipmentSubstitute"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/equipment-substitutions/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.AssignEquipmentSubstitute.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.AssignEquipmentSubstitute.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.AssignEquipmentSubstitute.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/equipment-substitutions/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment-substitutions/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.AssignSubstituteRequest)
+            }
+            public var body: Operations.AssignEquipmentSubstitute.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.AssignEquipmentSubstitute.Input.Headers = .init(),
+                body: Operations.AssignEquipmentSubstitute.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment-substitutions/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/equipment-substitutions/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.SubstituteAssignment)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.SubstituteAssignment {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.AssignEquipmentSubstitute.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.AssignEquipmentSubstitute.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Substitute assignment recorded.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/post(assignEquipmentSubstitute)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.AssignEquipmentSubstitute.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.AssignEquipmentSubstitute.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/post(assignEquipmentSubstitute)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/post(assignEquipmentSubstitute)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/post(assignEquipmentSubstitute)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/post(assignEquipmentSubstitute)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/post(assignEquipmentSubstitute)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/post(assignEquipmentSubstitute)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.AssignEquipmentSubstitute.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/post(assignEquipmentSubstitute)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.AssignEquipmentSubstitute.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Return an active substitute (대차) assignment
+    ///
+    /// Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+    ///
+    /// - Remark: HTTP `POST /api/v1/equipment-substitutions/{id}/return`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/{id}/return/post(returnEquipmentSubstitute)`.
+    public enum ReturnEquipmentSubstitute {
+        public static let id: Swift.String = "returnEquipmentSubstitute"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/equipment-substitutions/{id}/return/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment-substitutions/{id}/return/POST/path/id`.
+                public var id: Components.Parameters.EquipmentSubstitutionId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Parameters.EquipmentSubstitutionId) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.ReturnEquipmentSubstitute.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/equipment-substitutions/{id}/return/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ReturnEquipmentSubstitute.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ReturnEquipmentSubstitute.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ReturnEquipmentSubstitute.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/equipment-substitutions/{id}/return/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment-substitutions/{id}/return/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.ReturnSubstituteRequest)
+            }
+            public var body: Operations.ReturnEquipmentSubstitute.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.ReturnEquipmentSubstitute.Input.Path,
+                headers: Operations.ReturnEquipmentSubstitute.Input.Headers = .init(),
+                body: Operations.ReturnEquipmentSubstitute.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment-substitutions/{id}/return/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/equipment-substitutions/{id}/return/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.SubstituteAssignment)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.SubstituteAssignment {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ReturnEquipmentSubstitute.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ReturnEquipmentSubstitute.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Substitute assignment returned.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/{id}/return/post(returnEquipmentSubstitute)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ReturnEquipmentSubstitute.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ReturnEquipmentSubstitute.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/{id}/return/post(returnEquipmentSubstitute)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/{id}/return/post(returnEquipmentSubstitute)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/{id}/return/post(returnEquipmentSubstitute)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/{id}/return/post(returnEquipmentSubstitute)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/{id}/return/post(returnEquipmentSubstitute)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/{id}/return/post(returnEquipmentSubstitute)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ReturnEquipmentSubstitute.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-substitutions/{id}/return/post(returnEquipmentSubstitute)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ReturnEquipmentSubstitute.Output.ServiceUnavailable {
                 get throws {
                     switch self {
                     case let .serviceUnavailable(response):

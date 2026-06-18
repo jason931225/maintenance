@@ -209,6 +209,107 @@ async fn create_equipment_rejects_non_admin(pool: PgPool) {
     .await;
 }
 
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn substitute_assign_and_return_are_audited(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let harness = Harness::new(&pool, "ADMIN").await;
+        let source = create_equipment(&harness, "CFO25-7777", "777").await;
+        let substitute = create_equipment(&harness, "CFO25-8888", "888").await;
+
+        // Assign the substitute (대차).
+        let assign_body = json!({
+            "source_equipment_id": source,
+            "substitute_equipment_id": substitute,
+            "assignment_location": "본사 정비고"
+        });
+        let (status, body) = harness
+            .send(
+                "POST",
+                "/api/v1/equipment-substitutions",
+                Some(json_body(&assign_body)),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{body:?}");
+        let substitution_id = body["id"].as_str().unwrap().to_owned();
+        assert_eq!(body["source_equipment_id"].as_str().unwrap(), source);
+        assert!(body["returned_at"].is_null());
+
+        // A second assignment of the same pair conflicts (active substitution).
+        let (status, _) = harness
+            .send(
+                "POST",
+                "/api/v1/equipment-substitutions",
+                Some(json_body(&assign_body)),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+
+        // Return it.
+        let return_body = json!({ "return_note": "수리 완료" });
+        let (status, body) = harness
+            .send(
+                "POST",
+                &format!("/api/v1/equipment-substitutions/{substitution_id}/return"),
+                Some(json_body(&return_body)),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body:?}");
+        assert!(!body["returned_at"].is_null());
+
+        // Returning again conflicts.
+        let (status, _) = harness
+            .send(
+                "POST",
+                &format!("/api/v1/equipment-substitutions/{substitution_id}/return"),
+                Some(json_body(&return_body)),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+
+        assert_eq!(audit_count(&pool, "equipment.substitute.assign").await, 1);
+        assert_eq!(audit_count(&pool, "equipment.substitute.return").await, 1);
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn substitute_assign_rejects_non_admin(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let harness = Harness::new(&pool, "MECHANIC").await;
+        let body = json!({
+            "source_equipment_id": "00000000-0000-4000-8000-000000000001",
+            "substitute_equipment_id": "00000000-0000-4000-8000-000000000002",
+            "assignment_location": "본사"
+        });
+        let (status, _) = harness
+            .send(
+                "POST",
+                "/api/v1/equipment-substitutions",
+                Some(json_body(&body)),
+            )
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    })
+    .await;
+}
+
+async fn create_equipment(harness: &Harness, equipment_no: &str, management_no: &str) -> String {
+    let body = json!({
+        "equipment_no": equipment_no,
+        "customer_name": "K&L",
+        "site_name": "케이앤엘",
+        "status": "spare",
+        "specification": "좌식",
+        "ton_text": "2.5T",
+        "management_no": management_no
+    });
+    let (status, body) = harness
+        .send("POST", "/api/v1/equipment", Some(json_body(&body)))
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body:?}");
+    body["id"].as_str().unwrap().to_owned()
+}
+
 // ---------------------------------------------------------------------------
 // Harness
 // ---------------------------------------------------------------------------

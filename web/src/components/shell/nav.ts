@@ -2,6 +2,7 @@ import {
   BarChart2,
   Building2,
   CalendarCheck,
+  CalendarClock,
   CheckSquare,
   ClipboardList,
   FilePlus,
@@ -86,6 +87,9 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["users", ADMIN_ROLES],
   ["org", ADMIN_ROLES],
   ["security", ADMIN_ROLES],
+  // inspection (InspectionScheduleManage): ADMIN/SUPER_ADMIN only, matching the
+  // backend matrix row [D, D, A, D, A] and the list-schedules read gate.
+  ["inspection", ADMIN_ROLES],
 ]);
 
 /**
@@ -110,6 +114,7 @@ export const NAV_GROUPS = [
       { key: "intake",    href: "/intake",    labelKey: "nav.intake",    Icon: FilePlus },
       { key: "approvals", href: "/approvals", labelKey: "nav.approvals", Icon: CheckSquare },
       { key: "daily-plan", href: "/daily-plan", labelKey: "nav.daily-plan", Icon: CalendarCheck },
+      { key: "inspection", href: "/inspection", labelKey: "nav.inspection", Icon: CalendarClock },
       { key: "messenger", href: "/messenger", labelKey: "nav.messenger", Icon: MessageSquare },
       { key: "support",   href: "/support",   labelKey: "nav.support",   Icon: LifeBuoy },
     ],

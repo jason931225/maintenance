@@ -31,6 +31,7 @@ import com.maintenance.api.client.model.AddCommentRequest
 import com.maintenance.api.client.model.AdminIssueOtpRequest
 import com.maintenance.api.client.model.AdminIssueOtpResponse
 import com.maintenance.api.client.model.AppendManualCostLedgerRequest
+import com.maintenance.api.client.model.AssignSubstituteRequest
 import com.maintenance.api.client.model.AssignTicketRequest
 import com.maintenance.api.client.model.AssignWorkOrderRequest
 import com.maintenance.api.client.model.BranchSummary
@@ -98,11 +99,13 @@ import com.maintenance.api.client.model.RejectWorkOrderRequest
 import com.maintenance.api.client.model.RentalQuoteSummary
 import com.maintenance.api.client.model.RespondP1DispatchRequest
 import com.maintenance.api.client.model.RestartPurchaseRequest
+import com.maintenance.api.client.model.ReturnSubstituteRequest
 import com.maintenance.api.client.model.ReviewDailyPlanRequest
 import com.maintenance.api.client.model.ReviewTargetChangeRequest
 import com.maintenance.api.client.model.SendMessengerMessageRequest
 import com.maintenance.api.client.model.StartP1DispatchRequest
 import com.maintenance.api.client.model.SubmitReportRequest
+import com.maintenance.api.client.model.SubstituteAssignment
 import com.maintenance.api.client.model.SubstituteCandidatePage
 import com.maintenance.api.client.model.SupportIntakeAck
 import com.maintenance.api.client.model.SupportTicketCategory
@@ -1111,6 +1114,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/work-orders/{workOrderId}/approve".replace("{"+"workOrderId"+"}", encodeURIComponent(workOrderId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/equipment-substitutions
+     * Assign a substitute (대차) unit to a down/under-repair equipment
+     * Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+     * @param assignSubstituteRequest
+     * @return SubstituteAssignment
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun assignEquipmentSubstitute(assignSubstituteRequest: AssignSubstituteRequest) : SubstituteAssignment = withContext(Dispatchers.IO) {
+        val localVarResponse = assignEquipmentSubstituteWithHttpInfo(assignSubstituteRequest = assignSubstituteRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SubstituteAssignment
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/equipment-substitutions
+     * Assign a substitute (대차) unit to a down/under-repair equipment
+     * Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+     * @param assignSubstituteRequest
+     * @return ApiResponse<SubstituteAssignment?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun assignEquipmentSubstituteWithHttpInfo(assignSubstituteRequest: AssignSubstituteRequest) : ApiResponse<SubstituteAssignment?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = assignEquipmentSubstituteRequestConfig(assignSubstituteRequest = assignSubstituteRequest)
+
+        return@withContext request<AssignSubstituteRequest, SubstituteAssignment>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation assignEquipmentSubstitute
+     *
+     * @param assignSubstituteRequest
+     * @return RequestConfig
+     */
+    fun assignEquipmentSubstituteRequestConfig(assignSubstituteRequest: AssignSubstituteRequest) : RequestConfig<AssignSubstituteRequest> {
+        val localVariableBody = assignSubstituteRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/equipment-substitutions",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -6427,6 +6504,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/location-consent/resume",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/equipment-substitutions/{id}/return
+     * Return an active substitute (대차) assignment
+     * Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+     * @param id
+     * @param returnSubstituteRequest
+     * @return SubstituteAssignment
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun returnEquipmentSubstitute(id: java.util.UUID, returnSubstituteRequest: ReturnSubstituteRequest) : SubstituteAssignment = withContext(Dispatchers.IO) {
+        val localVarResponse = returnEquipmentSubstituteWithHttpInfo(id = id, returnSubstituteRequest = returnSubstituteRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SubstituteAssignment
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/equipment-substitutions/{id}/return
+     * Return an active substitute (대차) assignment
+     * Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+     * @param id
+     * @param returnSubstituteRequest
+     * @return ApiResponse<SubstituteAssignment?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun returnEquipmentSubstituteWithHttpInfo(id: java.util.UUID, returnSubstituteRequest: ReturnSubstituteRequest) : ApiResponse<SubstituteAssignment?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = returnEquipmentSubstituteRequestConfig(id = id, returnSubstituteRequest = returnSubstituteRequest)
+
+        return@withContext request<ReturnSubstituteRequest, SubstituteAssignment>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation returnEquipmentSubstitute
+     *
+     * @param id
+     * @param returnSubstituteRequest
+     * @return RequestConfig
+     */
+    fun returnEquipmentSubstituteRequestConfig(id: java.util.UUID, returnSubstituteRequest: ReturnSubstituteRequest) : RequestConfig<ReturnSubstituteRequest> {
+        val localVariableBody = returnSubstituteRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/equipment-substitutions/{id}/return".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

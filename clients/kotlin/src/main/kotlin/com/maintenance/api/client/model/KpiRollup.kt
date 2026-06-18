@@ -45,6 +45,9 @@ import kotlinx.serialization.Contextual
  * @param inspectionScheduleDueCount
  * @param inspectionScheduleCompletedCount
  * @param inspectionPlanCompletionBps
+ * @param p1DispatchCount
+ * @param p1AcceptedCount
+ * @param p1AcceptanceBps
  */
 @Serializable
 
@@ -87,7 +90,16 @@ data class KpiRollup (
     val inspectionScheduleCompletedCount: kotlin.Int,
 
     @SerialName(value = "inspection_plan_completion_bps")
-    val inspectionPlanCompletionBps: kotlin.Int?
+    val inspectionPlanCompletionBps: kotlin.Int?,
+
+    @SerialName(value = "p1_dispatch_count")
+    val p1DispatchCount: kotlin.Int,
+
+    @SerialName(value = "p1_accepted_count")
+    val p1AcceptedCount: kotlin.Int,
+
+    @SerialName(value = "p1_acceptance_bps")
+    val p1AcceptanceBps: kotlin.Int?
 
 ) {
 

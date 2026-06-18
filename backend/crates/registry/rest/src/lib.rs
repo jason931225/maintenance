@@ -15,14 +15,16 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_kernel_core::{
-    BranchId, BranchScope, EquipmentId, ErrorKind, KernelError, OrgId, TraceContext, UserId,
+    BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId, ErrorKind, KernelError, OrgId,
+    TraceContext, UserId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize, resolve_branch_scope};
 use mnt_registry_adapter_postgres::{PgRegistryError, PgRegistryStore};
 use mnt_registry_application::{
-    CreateEquipmentCommand, DeleteEquipmentCommand, RegistryImportReport, SubstituteCandidate,
-    SubstituteSearch, UpdateEquipmentCommand, UpdateEquipmentFields,
+    CreateEquipmentCommand, DeleteEquipmentCommand, RegistryImportReport, SubstituteAssignment,
+    SubstituteAssignmentCommand, SubstituteCandidate, SubstituteReturnCommand, SubstituteSearch,
+    UpdateEquipmentCommand, UpdateEquipmentFields,
 };
 use mnt_registry_domain::{EquipmentNo, EquipmentStatus, MoneyWon, SubstituteMatchKind, Ton};
 use serde::{Deserialize, Serialize};
@@ -33,11 +35,16 @@ pub const EQUIPMENT_PATH: &str = "/api/v1/equipment";
 pub const EQUIPMENT_IMPORT_PATH: &str = "/api/v1/equipment/import";
 pub const EQUIPMENT_ID_PATH_TEMPLATE: &str = "/api/v1/equipment/{id}";
 pub const EQUIPMENT_SUBSTITUTES_PATH_TEMPLATE: &str = "/api/v1/equipment/{id}/substitutes";
+pub const EQUIPMENT_SUBSTITUTIONS_PATH: &str = "/api/v1/equipment-substitutions";
+pub const EQUIPMENT_SUBSTITUTION_RETURN_PATH_TEMPLATE: &str =
+    "/api/v1/equipment-substitutions/{id}/return";
 pub const REGISTRY_ROUTE_PATHS: &[&str] = &[
     EQUIPMENT_PATH,
     EQUIPMENT_IMPORT_PATH,
     EQUIPMENT_ID_PATH_TEMPLATE,
     EQUIPMENT_SUBSTITUTES_PATH_TEMPLATE,
+    EQUIPMENT_SUBSTITUTIONS_PATH,
+    EQUIPMENT_SUBSTITUTION_RETURN_PATH_TEMPLATE,
 ];
 
 /// Hard cap on an uploaded master-list workbook. The reference master-list is a
@@ -67,6 +74,14 @@ pub fn router(state: RegistryRestState) -> Router {
         .route(
             EQUIPMENT_SUBSTITUTES_PATH_TEMPLATE,
             get(list_equipment_substitutes),
+        )
+        .route(
+            EQUIPMENT_SUBSTITUTIONS_PATH,
+            post(assign_equipment_substitute),
+        )
+        .route(
+            EQUIPMENT_SUBSTITUTION_RETURN_PATH_TEMPLATE,
+            post(return_equipment_substitute),
         )
         .route(EQUIPMENT_PATH, post(create_equipment))
         // The import route accepts a workbook upload, so it overrides axum's
@@ -170,6 +185,107 @@ impl From<SubstituteCandidate> for SubstituteCandidateResponse {
             ton_delta_milli: value.ton_delta_milli,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Substitute (대차) assignment / return — audited equipment-lifecycle writes
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct AssignSubstituteRequest {
+    source_equipment_id: EquipmentId,
+    substitute_equipment_id: EquipmentId,
+    #[serde(default)]
+    assigned_to: Option<UserId>,
+    assignment_location: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReturnSubstituteRequest {
+    #[serde(default)]
+    return_note: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct SubstituteAssignmentResponse {
+    id: EquipmentSubstitutionId,
+    branch_id: BranchId,
+    source_equipment_id: EquipmentId,
+    substitute_equipment_id: EquipmentId,
+    assigned_by: UserId,
+    assigned_to: Option<UserId>,
+    assignment_location: String,
+    assigned_at: OffsetDateTime,
+    returned_by: Option<UserId>,
+    returned_at: Option<OffsetDateTime>,
+    return_note: Option<String>,
+}
+
+impl From<SubstituteAssignment> for SubstituteAssignmentResponse {
+    fn from(value: SubstituteAssignment) -> Self {
+        Self {
+            id: value.id,
+            branch_id: value.branch_id,
+            source_equipment_id: value.source_equipment_id,
+            substitute_equipment_id: value.substitute_equipment_id,
+            assigned_by: value.assigned_by,
+            assigned_to: value.assigned_to,
+            assignment_location: value.assignment_location,
+            assigned_at: value.assigned_at,
+            returned_by: value.returned_by,
+            returned_at: value.returned_at,
+            return_note: value.return_note,
+        }
+    }
+}
+
+async fn assign_equipment_substitute(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+    Json(body): Json<AssignSubstituteRequest>,
+) -> Result<(StatusCode, Json<SubstituteAssignmentResponse>), RestError> {
+    let principal = principal_from_headers_db(&state, &headers).await?;
+    authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
+
+    let command = SubstituteAssignmentCommand {
+        actor: principal.user_id,
+        source_equipment_id: body.source_equipment_id,
+        substitute_equipment_id: body.substitute_equipment_id,
+        assigned_to: body.assigned_to,
+        assignment_location: require_nonempty(body.assignment_location, "assignment_location")?,
+        trace: TraceContext::generate(),
+        assigned_at: OffsetDateTime::now_utc(),
+    };
+    let assignment = state
+        .store
+        .assign_substitute(command)
+        .await
+        .map_err(RestError::from_store)?;
+    Ok((StatusCode::CREATED, Json(assignment.into())))
+}
+
+async fn return_equipment_substitute(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+    Path(substitution_id): Path<EquipmentSubstitutionId>,
+    Json(body): Json<ReturnSubstituteRequest>,
+) -> Result<Json<SubstituteAssignmentResponse>, RestError> {
+    let principal = principal_from_headers_db(&state, &headers).await?;
+    authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
+
+    let command = SubstituteReturnCommand {
+        actor: principal.user_id,
+        substitution_id,
+        trace: TraceContext::generate(),
+        returned_at: OffsetDateTime::now_utc(),
+        return_note: body.return_note,
+    };
+    let assignment = state
+        .store
+        .return_substitute(command)
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(assignment.into()))
 }
 
 // ---------------------------------------------------------------------------

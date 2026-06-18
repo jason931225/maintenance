@@ -87,6 +87,9 @@ pub struct KpiRollup {
     pub inspection_schedule_due_count: u32,
     pub inspection_schedule_completed_count: u32,
     pub inspection_plan_completion_bps: Option<u32>,
+    pub p1_dispatch_count: u32,
+    pub p1_accepted_count: u32,
+    pub p1_acceptance_bps: Option<u32>,
     pub average_response_seconds: Option<i64>,
     pub average_completion_seconds: Option<i64>,
     pub target_due_compliance_bps: Option<u32>,
@@ -122,12 +125,26 @@ pub struct KpiInspectionRecord {
     pub completed: bool,
 }
 
+/// One P1 emergency dispatch broadcast whose accept window opened within the
+/// reporting period. `accepted` is true when a mechanic accepted the broadcast
+/// (the dispatch reached `AUTO_ASSIGNED`, or at least one target responded
+/// `ACCEPT`) — i.e. the broadcast was answered without a manager force-assign.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KpiP1Record {
+    pub dispatch_id: uuid::Uuid,
+    pub branch_id: BranchId,
+    pub region_id: RegionId,
+    pub technician_id: Option<UserId>,
+    pub accepted: bool,
+}
+
 #[must_use]
 pub fn calculate_kpi_report(
     period: Period,
     requested_scope: KpiScope,
     records: &[KpiInputRecord],
     inspection_records: &[KpiInspectionRecord],
+    p1_records: &[KpiP1Record],
     unavailable_metrics: Vec<UnavailableMetric>,
 ) -> KpiReport {
     let mut builders = BTreeMap::<KpiRollupScope, KpiRollupBuilder>::new();
@@ -169,6 +186,26 @@ pub fn calculate_kpi_report(
             record,
         );
     }
+    for record in p1_records {
+        add_p1_record(&mut builders, KpiRollupScope::Company, record);
+        add_p1_record(
+            &mut builders,
+            KpiRollupScope::Region(record.region_id),
+            record,
+        );
+        add_p1_record(
+            &mut builders,
+            KpiRollupScope::Branch(record.branch_id),
+            record,
+        );
+        if let Some(technician_id) = record.technician_id {
+            add_p1_record(
+                &mut builders,
+                KpiRollupScope::Technician(technician_id),
+                record,
+            );
+        }
+    }
 
     KpiReport {
         period,
@@ -197,6 +234,14 @@ fn add_inspection_record(
     builders.entry(scope).or_default().push_inspection(record);
 }
 
+fn add_p1_record(
+    builders: &mut BTreeMap<KpiRollupScope, KpiRollupBuilder>,
+    scope: KpiRollupScope,
+    record: &KpiP1Record,
+) {
+    builders.entry(scope).or_default().push_p1(record);
+}
+
 #[derive(Debug, Default)]
 struct KpiRollupBuilder {
     approved_report_count: u32,
@@ -210,6 +255,8 @@ struct KpiRollupBuilder {
     target_due_compliant_count: u32,
     inspection_schedule_due_count: u32,
     inspection_schedule_completed_count: u32,
+    p1_dispatch_count: u32,
+    p1_accepted_count: u32,
     revisit_count: u32,
     delay_count: u32,
     delay_reason_distribution: BTreeMap<String, u32>,
@@ -271,6 +318,13 @@ impl KpiRollupBuilder {
         }
     }
 
+    fn push_p1(&mut self, record: &KpiP1Record) {
+        self.p1_dispatch_count += 1;
+        if record.accepted {
+            self.p1_accepted_count += 1;
+        }
+    }
+
     fn finish(mut self, scope: KpiRollupScope) -> KpiRollup {
         self.work_order_ids.sort_unstable();
         KpiRollup {
@@ -284,6 +338,9 @@ impl KpiRollupBuilder {
                 self.inspection_schedule_completed_count,
                 self.inspection_schedule_due_count,
             ),
+            p1_dispatch_count: self.p1_dispatch_count,
+            p1_accepted_count: self.p1_accepted_count,
+            p1_acceptance_bps: rate_bps(self.p1_accepted_count, self.p1_dispatch_count),
             average_response_seconds: average_i64(self.response_seconds_total, self.response_count),
             average_completion_seconds: average_i64(
                 self.completion_seconds_total,

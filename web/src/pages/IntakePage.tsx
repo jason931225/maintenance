@@ -51,6 +51,9 @@ export function IntakePage() {
             model: eq.model ?? ko.common.unknown,
             customerName: eq.customer.name,
             siteName: eq.site.name,
+            maker: eq.maker,
+            vin: eq.vin,
+            vehicleRegistrationNo: eq.vehicle_registration_no,
           },
         });
         return;

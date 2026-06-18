@@ -427,6 +427,9 @@ struct EquipmentLookupResponse {
     status: String,
     specification: String,
     ton_text: String,
+    maker: Option<String>,
+    vin: Option<String>,
+    vehicle_registration_no: Option<String>,
     customer: NamedEntity,
     site: NamedEntity,
 }
@@ -1684,14 +1687,14 @@ async fn lookup_equipment(
         r#"
         SELECT
             e.id, e.branch_id, e.equipment_no, e.management_no, e.model, e.status,
-            e.specification, e.ton_text,
+            e.specification, e.ton_text, e.maker, e.vin, e.vehicle_registration_no,
             c.id AS customer_id, c.name AS customer_name,
             s.id AS site_id, s.name AS site_name
         FROM registry_equipment e
         JOIN registry_customers c ON c.id = e.customer_id
         JOIN registry_sites s ON s.id = e.site_id
         WHERE
-        "#,
+"#,
     );
     push_branch_scope_filter(
         &mut builder,
@@ -1723,14 +1726,14 @@ async fn autocomplete_equipment(
         r#"
         SELECT
             e.id, e.branch_id, e.equipment_no, e.management_no, e.model, e.status,
-            e.specification, e.ton_text,
+            e.specification, e.ton_text, e.maker, e.vin, e.vehicle_registration_no,
             c.id AS customer_id, c.name AS customer_name,
             s.id AS site_id, s.name AS site_name
         FROM registry_equipment e
         JOIN registry_customers c ON c.id = e.customer_id
         JOIN registry_sites s ON s.id = e.site_id
         WHERE
-        "#,
+"#,
     );
     push_branch_scope_filter(
         &mut builder,
@@ -2706,6 +2709,9 @@ fn equipment_lookup_from_row(
         status: row.try_get("status")?,
         specification: row.try_get("specification")?,
         ton_text: row.try_get("ton_text")?,
+        maker: row.try_get("maker")?,
+        vin: row.try_get("vin")?,
+        vehicle_registration_no: row.try_get("vehicle_registration_no")?,
         customer: NamedEntity {
             id: row.try_get("customer_id")?,
             name: row.try_get("customer_name")?,

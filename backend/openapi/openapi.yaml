@@ -1860,6 +1860,72 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '503':
           description: JWT verification is not configured.
+  /api/v1/equipment-substitutions:
+    post:
+      operationId: assignEquipmentSubstitute
+      summary: Assign a substitute (대차) unit to a down/under-repair equipment
+      description: Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignSubstituteRequest'
+      responses:
+        '201':
+          description: Substitute assignment recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubstituteAssignment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+  /api/v1/equipment-substitutions/{id}/return:
+    post:
+      operationId: returnEquipmentSubstitute
+      summary: Return an active substitute (대차) assignment
+      description: Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/EquipmentSubstitutionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReturnSubstituteRequest'
+      responses:
+        '200':
+          description: Substitute assignment returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubstituteAssignment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
   /api/v1/financial/rental-quotes/compute:
     post:
       operationId: computeRentalQuote
@@ -2896,6 +2962,13 @@ components:
       schema:
         type: string
         format: uuid
+    EquipmentSubstitutionId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     EquipmentIdV2:
       name: equipmentId
       in: path
@@ -3160,6 +3233,9 @@ components:
       - inspection_schedule_due_count
       - inspection_schedule_completed_count
       - inspection_plan_completion_bps
+      - p1_dispatch_count
+      - p1_accepted_count
+      - p1_acceptance_bps
       properties:
         scope:
           $ref: '#/components/schemas/KpiRollupScope'
@@ -3219,6 +3295,21 @@ components:
           format: int32
           minimum: 0
         inspection_plan_completion_bps:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          minimum: 0
+          maximum: 10000
+        p1_dispatch_count:
+          type: integer
+          format: int32
+          minimum: 0
+        p1_accepted_count:
+          type: integer
+          format: int32
+          minimum: 0
+        p1_acceptance_bps:
           type:
           - integer
           - 'null'
@@ -3581,6 +3672,9 @@ components:
       - status
       - specification
       - ton_text
+      - maker
+      - vin
+      - vehicle_registration_no
       - customer
       - site
       properties:
@@ -3604,6 +3698,18 @@ components:
           type: string
         ton_text:
           type: string
+        maker:
+          type:
+          - string
+          - 'null'
+        vin:
+          type:
+          - string
+          - 'null'
+        vehicle_registration_no:
+          type:
+          - string
+          - 'null'
         customer:
           $ref: '#/components/schemas/NamedEntity'
         site:
@@ -5094,6 +5200,84 @@ components:
         total:
           type: integer
           minimum: 0
+    AssignSubstituteRequest:
+      type: object
+      required:
+      - source_equipment_id
+      - substitute_equipment_id
+      - assignment_location
+      properties:
+        source_equipment_id:
+          type: string
+          format: uuid
+        substitute_equipment_id:
+          type: string
+          format: uuid
+        assigned_to:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        assignment_location:
+          type: string
+          minLength: 1
+    ReturnSubstituteRequest:
+      type: object
+      properties:
+        return_note:
+          type:
+          - string
+          - 'null'
+    SubstituteAssignment:
+      type: object
+      required:
+      - id
+      - branch_id
+      - source_equipment_id
+      - substitute_equipment_id
+      - assigned_by
+      - assignment_location
+      - assigned_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        source_equipment_id:
+          type: string
+          format: uuid
+        substitute_equipment_id:
+          type: string
+          format: uuid
+        assigned_by:
+          type: string
+          format: uuid
+        assigned_to:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        assignment_location:
+          type: string
+        assigned_at:
+          type: string
+          format: date-time
+        returned_by:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        returned_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        return_note:
+          type:
+          - string
+          - 'null'
     CreateEquipmentRequest:
       type: object
       required:

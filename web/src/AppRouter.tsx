@@ -33,6 +33,9 @@ const DailyPlanPage = lazy(() =>
 const KpiPage = lazy(() =>
   import("./pages/KpiPage").then((m) => ({ default: m.KpiPage })),
 );
+const InspectionPage = lazy(() =>
+  import("./pages/InspectionPage").then((m) => ({ default: m.InspectionPage })),
+);
 const OpsDashboardPage = lazy(() =>
   import("./pages/OpsDashboardPage").then((m) => ({
     default: m.OpsDashboardPage,
@@ -145,6 +148,7 @@ export function AppRouter() {
           <Route path="/settings/profile" element={<ProfilePage />} />
           <Route path="/settings/location" element={<LocationSettingsPage />} />
           <Route element={<RequireAdminRoute />}>
+            <Route path="/inspection" element={<InspectionPage />} />
             <Route path="/ops" element={<OpsDashboardPage />} />
             <Route path="/settings/users" element={<UsersPage />} />
             <Route path="/settings/org" element={<OrgPage />} />

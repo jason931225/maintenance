@@ -11,8 +11,21 @@ import type {
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
+import { Select } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { ko } from "../../i18n/ko";
+
+/**
+ * Intake-time maintenance classification. The work-order backend has no
+ * first-class category column, so the selection is recorded as a structured
+ * prefix on `customer_request` (an existing free-text field) rather than a
+ * dedicated API field. See the gap note in the P2 report.
+ */
+type ServiceCategory = keyof typeof ko.intake.serviceCategories;
+
+const SERVICE_CATEGORIES = Object.keys(
+  ko.intake.serviceCategories,
+) as ServiceCategory[];
 
 interface IntakeFormProps {
   branchId: string;
@@ -41,6 +54,9 @@ export function IntakeForm({
   const [managementNo, setManagementNo] = useState("");
   const [symptom, setSymptom] = useState("");
   const [customerRequest, setCustomerRequest] = useState("");
+  const [serviceCategory, setServiceCategory] = useState<ServiceCategory | "">(
+    "",
+  );
   const [targetDueAt, setTargetDueAt] = useState("");
   const [errors, setErrors] = useState<Errors>({});
   const [status, setStatus] = useState<
@@ -69,11 +85,19 @@ export function IntakeForm({
 
     setStatus("saving");
     try {
+      // The backend work-order has no category column; record the maintenance
+      // classification as a structured prefix on the existing customer_request.
+      const categoryTag = serviceCategory
+        ? `[${ko.intake.serviceCategory}: ${ko.intake.serviceCategories[serviceCategory]}]`
+        : "";
+      const trimmedRequest = customerRequest.trim();
+      const customerRequestValue =
+        [categoryTag, trimmedRequest].filter(Boolean).join(" ") || undefined;
       const created = await onCreateWorkOrder({
         branch_id: branchId,
         management_no: managementNo.trim(),
         symptom: symptom.trim(),
-        customer_request: customerRequest.trim() || undefined,
+        customer_request: customerRequestValue,
         target_due_at: targetDueAt
           ? new Date(targetDueAt).toISOString()
           : undefined,
@@ -164,6 +188,28 @@ export function IntakeForm({
         </div>
 
         <div className="grid gap-2">
+          <label className="text-sm font-medium text-slate-700" htmlFor="service-category">
+            {ko.intake.serviceCategory}
+          </label>
+          <Select
+            id="service-category"
+            value={serviceCategory}
+            onChange={(event) => {
+              setServiceCategory(
+                event.currentTarget.value as ServiceCategory | "",
+              );
+            }}
+          >
+            <option value="">{ko.intake.serviceCategoryNone}</option>
+            {SERVICE_CATEGORIES.map((category) => (
+              <option key={category} value={category}>
+                {ko.intake.serviceCategories[category]}
+              </option>
+            ))}
+          </Select>
+        </div>
+
+        <div className="grid gap-2">
           <label className="text-sm font-medium text-slate-700" htmlFor="customer-request">
             {ko.intake.customerRequest}
           </label>
@@ -239,19 +285,40 @@ function EquipmentLookupPanel({ state }: { state: EquipmentLookupState }) {
     );
   }
 
+  const { equipment } = state;
   return (
     <dl className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm sm:grid-cols-3">
       <div>
         <dt className="font-semibold text-slate-600">{ko.intake.model}</dt>
-        <dd className="text-slate-950">{state.equipment.model}</dd>
+        <dd className="text-slate-950">{equipment.model}</dd>
       </div>
       <div>
         <dt className="font-semibold text-slate-600">{ko.intake.customer}</dt>
-        <dd className="text-slate-950">{state.equipment.customerName}</dd>
+        <dd className="text-slate-950">{equipment.customerName}</dd>
       </div>
       <div>
         <dt className="font-semibold text-slate-600">{ko.intake.site}</dt>
-        <dd className="text-slate-950">{state.equipment.siteName}</dd>
+        <dd className="text-slate-950">{equipment.siteName}</dd>
+      </div>
+      <div>
+        <dt className="font-semibold text-slate-600">{ko.intake.maker}</dt>
+        <dd className="text-slate-950">
+          {equipment.maker ?? ko.intake.vehicleUnknown}
+        </dd>
+      </div>
+      <div>
+        <dt className="font-semibold text-slate-600">{ko.intake.vin}</dt>
+        <dd className="text-slate-950">
+          {equipment.vin ?? ko.intake.vehicleUnknown}
+        </dd>
+      </div>
+      <div>
+        <dt className="font-semibold text-slate-600">
+          {ko.intake.vehicleRegistrationNo}
+        </dt>
+        <dd className="text-slate-950">
+          {equipment.vehicleRegistrationNo ?? ko.intake.vehicleUnknown}
+        </dd>
       </div>
     </dl>
   );
