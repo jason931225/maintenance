@@ -1,6 +1,7 @@
 import {
   MessageSquare,
   Paperclip,
+  Plus,
   RefreshCw,
   Search,
   Send,
@@ -12,6 +13,7 @@ import type {
   EvidencePresignResponse,
   MessengerMessageSummary,
   MessengerThreadSummary,
+  UserSummary,
 } from "../../api/types";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -31,6 +33,10 @@ interface MessengerPanelProps {
   api: ConsoleApiClient;
   accessToken?: string;
   apiBaseUrl: string;
+  /** Branch the new thread is scoped to (first JWT branch claim). */
+  branchId?: string;
+  /** Signed-in member id, excluded from the participant picker. */
+  currentUserId?: string;
 }
 
 type LoadState = "idle" | "loading" | "error";
@@ -39,6 +45,8 @@ export function MessengerPanel({
   api,
   accessToken,
   apiBaseUrl,
+  branchId,
+  currentUserId,
 }: MessengerPanelProps) {
   const [state, dispatch] = useReducer(
     messengerReducer,
@@ -53,6 +61,12 @@ export function MessengerPanel({
   const [isSending, setIsSending] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [isComposingThread, setIsComposingThread] = useState(false);
+  const [members, setMembers] = useState<UserSummary[]>([]);
+  const [newSubject, setNewSubject] = useState("");
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [isCreatingThread, setIsCreatingThread] = useState(false);
+  const [createError, setCreateError] = useState<string>();
   const cursorRef = useRef<string | undefined>(undefined);
   const selectedThread = state.threads.find(
     (thread) => thread.id === state.selectedThreadId,
@@ -194,6 +208,60 @@ export function MessengerPanel({
     }
   }
 
+  async function openThreadComposer() {
+    setIsComposingThread(true);
+    setCreateError(undefined);
+    setNewSubject("");
+    setSelectedMemberIds([]);
+    const response = await api
+      .GET("/api/v1/users", { params: { query: { include_inactive: false } } })
+      .catch(() => undefined);
+    if (response?.data) {
+      setMembers(
+        response.data.filter((user) => user.id !== currentUserId),
+      );
+    }
+  }
+
+  function toggleMember(id: string) {
+    setSelectedMemberIds((prev) =>
+      prev.includes(id)
+        ? prev.filter((value) => value !== id)
+        : [...prev, id],
+    );
+  }
+
+  async function handleCreateThread() {
+    if (!branchId || selectedMemberIds.length === 0 || isCreatingThread) {
+      if (selectedMemberIds.length === 0) {
+        setCreateError(ko.messenger.participantsRequired);
+      }
+      return;
+    }
+    setCreateError(undefined);
+    setIsCreatingThread(true);
+    try {
+      const subject = newSubject.trim();
+      const response = await api.POST("/api/messenger/threads", {
+        body: {
+          branch_id: branchId,
+          kind: selectedMemberIds.length > 1 ? "group" : "dm",
+          title: subject.length > 0 ? subject : null,
+          member_ids: selectedMemberIds,
+        },
+      });
+      if (!response.data) {
+        throw new Error("create messenger thread response missing data");
+      }
+      dispatch({ type: "threadCreated", thread: response.data });
+      setIsComposingThread(false);
+    } catch {
+      setCreateError(ko.messenger.createFailed);
+    } finally {
+      setIsCreatingThread(false);
+    }
+  }
+
   async function handleSend() {
     if (!selectedThread || !composer.trim() || isSending) {
       return;
@@ -271,10 +339,16 @@ export function MessengerPanel({
           </h2>
           <p className="text-sm text-slate-600">{ko.messenger.messages}</p>
         </div>
-        <Button type="button" variant="secondary" onClick={() => void loadThreads()}>
-          <RefreshCw aria-hidden="true" size={16} />
-          {ko.messenger.refresh}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button type="button" onClick={() => void openThreadComposer()}>
+            <Plus aria-hidden="true" size={16} />
+            {ko.messenger.newThread}
+          </Button>
+          <Button type="button" variant="secondary" onClick={() => void loadThreads()}>
+            <RefreshCw aria-hidden="true" size={16} />
+            {ko.messenger.refresh}
+          </Button>
+        </div>
       </div>
 
       {loadState === "error" ? (
@@ -446,6 +520,90 @@ export function MessengerPanel({
           )}
         </section>
       </div>
+
+      {isComposingThread ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={ko.messenger.newThreadTitle}
+          className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-4"
+        >
+          <Card className="grid w-full max-w-md gap-4">
+            <h2 className="text-lg font-semibold text-slate-950">
+              {ko.messenger.newThreadTitle}
+            </h2>
+            <div className="grid gap-2">
+              <label
+                className="text-sm font-medium text-slate-700"
+                htmlFor="new-thread-subject"
+              >
+                {ko.messenger.subject}
+              </label>
+              <Input
+                id="new-thread-subject"
+                value={newSubject}
+                placeholder={ko.messenger.subjectPlaceholder}
+                onChange={(event) => {
+                  setNewSubject(event.currentTarget.value);
+                }}
+              />
+            </div>
+            <div className="grid gap-2">
+              <span className="text-sm font-medium text-slate-700">
+                {ko.messenger.participants}
+              </span>
+              <p className="text-xs text-slate-500">
+                {ko.messenger.participantsHint}
+              </p>
+              <div className="grid max-h-56 gap-1 overflow-y-auto">
+                {members.map((member) => (
+                  <label
+                    key={member.id}
+                    className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedMemberIds.includes(member.id)}
+                      onChange={() => {
+                        toggleMember(member.id);
+                      }}
+                    />
+                    <span className="font-medium text-slate-950">
+                      {member.display_name}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            {createError ? (
+              <p role="alert" className="text-sm font-semibold text-red-700">
+                {createError}
+              </p>
+            ) : null}
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={isCreatingThread}
+                onClick={() => {
+                  setIsComposingThread(false);
+                }}
+              >
+                {ko.messenger.createCancel}
+              </Button>
+              <Button
+                type="button"
+                disabled={isCreatingThread || selectedMemberIds.length === 0}
+                onClick={() => void handleCreateThread()}
+              >
+                {isCreatingThread
+                  ? ko.messenger.creating
+                  : ko.messenger.create}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      ) : null}
     </Card>
   );
 }

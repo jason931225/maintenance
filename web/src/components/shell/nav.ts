@@ -1,6 +1,7 @@
 import {
   BarChart2,
   Building2,
+  CalendarCheck,
   CheckSquare,
   ClipboardList,
   FilePlus,
@@ -40,6 +41,17 @@ export function hasAnyRole(
 }
 
 const ADMIN_ROLES: readonly Role[] = [ROLES.ADMIN, ROLES.SUPER_ADMIN];
+/**
+ * Roles that can act on daily work plans. The page surfaces both the
+ * DailyPlanRequest creators (MECHANIC/ADMIN/SUPER_ADMIN) and the DailyPlanReview
+ * approvers (ADMIN/SUPER_ADMIN); the union is exactly the request set, so the
+ * nav gate matches DailyPlanRequest. Receptionist and Executive are denied both.
+ */
+const DAILY_PLAN_ROLES: readonly Role[] = [
+  ROLES.MECHANIC,
+  ROLES.ADMIN,
+  ROLES.SUPER_ADMIN,
+];
 /** Roles allowed to read KPI dashboards (backend `KpiRead`: ADMIN/EXECUTIVE/SUPER_ADMIN). */
 const KPI_ROLES: readonly Role[] = [
   ROLES.ADMIN,
@@ -63,6 +75,8 @@ const KPI_ROLES: readonly Role[] = [
  */
 const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["approvals", ADMIN_ROLES],
+  // daily-plan (DailyPlanRequest / DailyPlanReview): MECHANIC/ADMIN/SUPER_ADMIN.
+  ["daily-plan", DAILY_PLAN_ROLES],
   ["kpi", KPI_ROLES],
   // ops (OpsDashboardRead): SUPER_ADMIN/ADMIN only, matching the
   // `RequireAdminRoute` guard on `/ops` and the backend permission matrix.
@@ -93,6 +107,7 @@ export const NAV_GROUPS = [
       { key: "dispatch",  href: "/dispatch",  labelKey: "nav.dispatch",  Icon: ClipboardList },
       { key: "intake",    href: "/intake",    labelKey: "nav.intake",    Icon: FilePlus },
       { key: "approvals", href: "/approvals", labelKey: "nav.approvals", Icon: CheckSquare },
+      { key: "daily-plan", href: "/daily-plan", labelKey: "nav.daily-plan", Icon: CalendarCheck },
       { key: "messenger", href: "/messenger", labelKey: "nav.messenger", Icon: MessageSquare },
       { key: "support",   href: "/support",   labelKey: "nav.support",   Icon: LifeBuoy },
     ],

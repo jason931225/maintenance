@@ -1,30 +1,33 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import type { EquipmentLookupResponse, EquipmentLookupState } from "../api/types";
 import { useAuth } from "../context/auth";
+import { hasAnyRole, ROLES } from "../components/shell/nav";
 import { PageHeader } from "../components/shell/PageHeader";
 import { PageError } from "../components/states/PageError";
+import { EquipmentManagementPanel } from "../features/equipment/EquipmentManagementPanel";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { ko } from "../i18n/ko";
 
 const equipmentDebounceMs = 300;
 
+/** EquipmentManage holders (backend matrix: ADMIN/EXECUTIVE/SUPER_ADMIN). */
+const EQUIPMENT_MANAGE_ROLES = [
+  ROLES.ADMIN,
+  ROLES.EXECUTIVE,
+  ROLES.SUPER_ADMIN,
+] as const;
+
 export function EquipmentPage() {
-  const { api } = useAuth();
+  const { api, session } = useAuth();
+  const canManage = hasAnyRole(session?.roles, EQUIPMENT_MANAGE_ROLES);
   const [managementNo, setManagementNo] = useState("");
   const [suggestions, setSuggestions] = useState<EquipmentLookupResponse[]>([]);
   const [lookupState, setLookupState] = useState<EquipmentLookupState>({ status: "idle" });
 
-  useEffect(() => {
-    const query = managementNo.trim();
-    let ignore = false;
-
-    if (!query) {
-      return undefined;
-    }
-
-    async function load() {
+  const runSearch = useCallback(
+    async (query: string, ignore: () => boolean) => {
       const [autocompleteResponse, lookupResponse] = await Promise.all([
         api.GET("/api/v1/equipment", {
           params: { query: { q: query, limit: 5 } },
@@ -34,7 +37,7 @@ export function EquipmentPage() {
         }),
       ]);
 
-      if (ignore) return;
+      if (ignore()) return;
 
       setSuggestions(autocompleteResponse.data?.items ?? []);
       if (lookupResponse.data) {
@@ -51,10 +54,29 @@ export function EquipmentPage() {
         return;
       }
       setLookupState({ status: "notFound" });
+    },
+    [api],
+  );
+
+  const refreshSearch = useCallback(() => {
+    const query = managementNo.trim();
+    if (!query) return;
+    runSearch(query, () => false).catch(() => {
+      setSuggestions([]);
+      setLookupState({ status: "error" });
+    });
+  }, [managementNo, runSearch]);
+
+  useEffect(() => {
+    const query = managementNo.trim();
+    let ignore = false;
+
+    if (!query) {
+      return undefined;
     }
 
     const timer = window.setTimeout(() => {
-      load().catch(() => {
+      runSearch(query, () => ignore).catch(() => {
         if (!ignore) {
           setSuggestions([]);
           setLookupState({ status: "error" });
@@ -66,7 +88,7 @@ export function EquipmentPage() {
       ignore = true;
       window.clearTimeout(timer);
     };
-  }, [api, managementNo]);
+  }, [managementNo, runSearch]);
 
   function handleChange(value: string) {
     setManagementNo(value);
@@ -81,7 +103,7 @@ export function EquipmentPage() {
   return (
     <>
       <PageHeader title={ko.equipment.title} description={ko.equipment.description} />
-      <div className="grid gap-5 max-w-2xl">
+      <div className={`grid gap-5 ${canManage ? "max-w-4xl" : "max-w-2xl"}`}>
         <Card className="grid gap-4">
           <div className="grid gap-2">
             <label className="text-sm font-medium text-slate-700" htmlFor="equipment-search">
@@ -145,6 +167,14 @@ export function EquipmentPage() {
             </p>
           ) : null}
         </Card>
+
+        {canManage ? (
+          <EquipmentManagementPanel
+            api={api}
+            results={suggestions}
+            onMutated={refreshSearch}
+          />
+        ) : null}
       </div>
     </>
   );

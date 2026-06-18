@@ -7,6 +7,18 @@ export type CreateWorkOrderRequest =
   components["schemas"]["CreateWorkOrderRequest"];
 export type EquipmentLookupResponse =
   components["schemas"]["EquipmentLookupResponse"];
+export type EquipmentSummary = components["schemas"]["EquipmentSummary"];
+export type EquipmentStatus = components["schemas"]["EquipmentStatus"];
+export type CreateEquipmentRequest =
+  components["schemas"]["CreateEquipmentRequest"];
+export type UpdateEquipmentRequest =
+  components["schemas"]["UpdateEquipmentRequest"];
+export type CreateMessengerThreadRequest =
+  components["schemas"]["CreateMessengerThreadRequest"];
+export type DailyPlanStatus = components["schemas"]["DailyPlanStatus"];
+export type DailyPlanSummary = components["schemas"]["DailyPlanSummary"];
+export type CreateDailyPlanRequest =
+  components["schemas"]["CreateDailyPlanRequest"];
 export type KpiMetric = components["schemas"]["KpiMetric"];
 export type KpiReport = components["schemas"]["KpiReport"];
 export type KpiRollup = components["schemas"]["KpiRollup"];

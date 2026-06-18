@@ -27,6 +27,9 @@ const IntakePage = lazy(() =>
 const ApprovalsPage = lazy(() =>
   import("./pages/ApprovalsPage").then((m) => ({ default: m.ApprovalsPage })),
 );
+const DailyPlanPage = lazy(() =>
+  import("./pages/DailyPlanPage").then((m) => ({ default: m.DailyPlanPage })),
+);
 const KpiPage = lazy(() =>
   import("./pages/KpiPage").then((m) => ({ default: m.KpiPage })),
 );
@@ -125,6 +128,7 @@ export function AppRouter() {
           <Route path="/dispatch" element={<DispatchPage />} />
           <Route path="/intake" element={<IntakePage />} />
           <Route path="/approvals" element={<ApprovalsPage />} />
+          <Route path="/daily-plan" element={<DailyPlanPage />} />
           <Route path="/kpi" element={<KpiPage />} />
           <Route path="/messenger" element={<MessengerPage />} />
           <Route path="/support" element={<SupportPage />} />

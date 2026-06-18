@@ -20,6 +20,7 @@ export interface MessengerState {
 
 export type MessengerAction =
   | { type: "threadsLoaded"; threads: MessengerThreadSummary[] }
+  | { type: "threadCreated"; thread: MessengerThreadSummary }
   | { type: "threadSelected"; threadId: string }
   | {
       type: "messagesPageLoaded";
@@ -50,6 +51,15 @@ export function messengerReducer(
         ...state,
         threads: sortThreads(action.threads),
         selectedThreadId: state.selectedThreadId ?? action.threads[0]?.id,
+      };
+    case "threadCreated":
+      return {
+        ...state,
+        threads: sortThreads([
+          action.thread,
+          ...state.threads.filter((thread) => thread.id !== action.thread.id),
+        ]),
+        selectedThreadId: action.thread.id,
       };
     case "threadSelected":
       return {

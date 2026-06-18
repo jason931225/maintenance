@@ -20,6 +20,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "dispatch",
     "intake",
     "approvals",
+    "daily-plan",
     "messenger",
     "support",
     "kpi",
@@ -35,6 +36,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "dispatch",
     "intake",
     "approvals",
+    "daily-plan",
     "messenger",
     "support",
     "kpi",
@@ -46,7 +48,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "location",
     "security",
   ],
-  // Executive: KPI yes; approvals/users/org/security no. Profile is shared.
+  // Executive: KPI yes; approvals/daily-plan/users/org/security no. Profile is shared.
   [ROLES.EXECUTIVE]: [
     "dispatch",
     "intake",
@@ -57,17 +59,19 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "profile",
     "location",
   ],
-  // Mechanic: operational pages only; no approvals/kpi/users/org/security.
+  // Mechanic: operational pages only; daily-plan yes (DailyPlanRequest); no
+  // approvals/kpi/users/org/security.
   [ROLES.MECHANIC]: [
     "dispatch",
     "intake",
+    "daily-plan",
     "messenger",
     "support",
     "equipment",
     "profile",
     "location",
   ],
-  // Receptionist: same surface as mechanic (no approvals/kpi/users/org/security).
+  // Receptionist: same surface as mechanic minus daily-plan (no DailyPlanRequest).
   [ROLES.RECEPTIONIST]: [
     "dispatch",
     "intake",
@@ -112,6 +116,14 @@ describe("nav role gating", () => {
     expect(isNavItemVisible("kpi", [ROLES.SUPER_ADMIN])).toBe(true);
     expect(isNavItemVisible("kpi", [ROLES.MECHANIC])).toBe(false);
     expect(isNavItemVisible("kpi", [ROLES.RECEPTIONIST])).toBe(false);
+  });
+
+  it("shows daily-plan to DailyPlanRequest holders only", () => {
+    expect(isNavItemVisible("daily-plan", [ROLES.MECHANIC])).toBe(true);
+    expect(isNavItemVisible("daily-plan", [ROLES.ADMIN])).toBe(true);
+    expect(isNavItemVisible("daily-plan", [ROLES.SUPER_ADMIN])).toBe(true);
+    expect(isNavItemVisible("daily-plan", [ROLES.EXECUTIVE])).toBe(false);
+    expect(isNavItemVisible("daily-plan", [ROLES.RECEPTIONIST])).toBe(false);
   });
 
   it("shows shared pages to all roles", () => {

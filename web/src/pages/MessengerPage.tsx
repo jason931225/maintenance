@@ -15,6 +15,8 @@ export function MessengerPage() {
         api={api}
         accessToken={session?.access_token}
         apiBaseUrl={apiBaseUrl}
+        branchId={session?.branches?.[0]}
+        currentUserId={session?.user_id}
       />
     </>
   );
