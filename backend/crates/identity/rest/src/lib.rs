@@ -264,14 +264,18 @@ async fn update_user(
         .map_err(RestError::from_store)?;
 
     // Role/branch escalation guard: the *new* role set and the *new* branch set
-    // must both be within the caller's authority.
+    // must both be within the caller's authority. Run whenever EITHER is being
+    // changed — a request that sets only `branch_ids` (roles absent) must still
+    // prove branch authority over every target branch, or a branch-scoped admin
+    // could move a visible user into branches they do not control.
     let roles = match &body.roles {
         Some(raw) => Some(parse_roles(raw)?),
         None => None,
     };
-    if let Some(roles) = &roles {
+    if roles.is_some() || body.branch_ids.is_some() {
+        let effective_roles = roles.clone().unwrap_or_default();
         let target_branches = body.branch_ids.clone().unwrap_or_default();
-        authorize_user_write(&principal, roles, &target_branches)?;
+        authorize_user_write(&principal, &effective_roles, &target_branches)?;
     }
 
     let summary = state

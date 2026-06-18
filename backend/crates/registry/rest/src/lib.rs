@@ -9,7 +9,7 @@
 use std::collections::BTreeSet;
 use std::str::FromStr;
 
-use axum::extract::{Multipart, Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -67,7 +67,15 @@ pub fn router(state: RegistryRestState) -> Router {
             get(list_equipment_substitutes),
         )
         .route(EQUIPMENT_PATH, post(create_equipment))
-        .route(EQUIPMENT_IMPORT_PATH, post(import_master_list))
+        // The import route accepts a workbook upload, so it overrides axum's
+        // 2 MiB default body limit up to MAX_IMPORT_BYTES — a tower-level cap
+        // that rejects oversized uploads before the handler reads them. The
+        // streaming check in `read_xlsx_upload` enforces the same bound on the
+        // body itself (chunked transfer with no honest Content-Length).
+        .route(
+            EQUIPMENT_IMPORT_PATH,
+            post(import_master_list).layer(DefaultBodyLimit::max(MAX_IMPORT_BYTES)),
+        )
         .route(
             EQUIPMENT_ID_PATH_TEMPLATE,
             axum::routing::patch(update_equipment).delete(delete_equipment),
@@ -188,7 +196,7 @@ struct XlsxUpload {
 }
 
 async fn read_xlsx_upload(mut multipart: Multipart) -> Result<XlsxUpload, RestError> {
-    while let Some(field) = multipart
+    while let Some(mut field) = multipart
         .next_field()
         .await
         .map_err(|err| RestError::from_kernel(KernelError::validation(err.to_string())))?
@@ -200,24 +208,30 @@ async fn read_xlsx_upload(mut multipart: Multipart) -> Result<XlsxUpload, RestEr
             .file_name()
             .map(ToOwned::to_owned)
             .unwrap_or_else(|| "master-list.xlsx".to_owned());
-        let bytes = field
-            .bytes()
+        // Stream the field chunk-by-chunk and abort the moment the running total
+        // exceeds MAX_IMPORT_BYTES. `Field::bytes()` would buffer the entire
+        // upload into memory *before* any size check, so a malicious or
+        // misconfigured client could exhaust the worker's heap before the cap
+        // fired — the check has to bound the read incrementally, not after.
+        let mut bytes: Vec<u8> = Vec::new();
+        while let Some(chunk) = field
+            .chunk()
             .await
-            .map_err(|err| RestError::from_kernel(KernelError::validation(err.to_string())))?;
+            .map_err(|err| RestError::from_kernel(KernelError::validation(err.to_string())))?
+        {
+            if bytes.len() + chunk.len() > MAX_IMPORT_BYTES {
+                return Err(RestError::from_kernel(KernelError::validation(
+                    "uploaded file exceeds the maximum import size",
+                )));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
         if bytes.is_empty() {
             return Err(RestError::from_kernel(KernelError::validation(
                 "uploaded file is empty",
             )));
         }
-        if bytes.len() > MAX_IMPORT_BYTES {
-            return Err(RestError::from_kernel(KernelError::validation(
-                "uploaded file exceeds the maximum import size",
-            )));
-        }
-        return Ok(XlsxUpload {
-            filename,
-            bytes: bytes.to_vec(),
-        });
+        return Ok(XlsxUpload { filename, bytes });
     }
     Err(RestError::from_kernel(KernelError::validation(
         "multipart upload is missing the 'file' field",
@@ -500,10 +514,21 @@ fn require_nonempty(value: String, field: &str) -> Result<String, RestError> {
     }
 }
 
-/// Authorize a global equipment-master feature against a representative branch:
-/// cross-branch principals authorize against a fresh id (allowed by
-/// `BranchScope::All`); branch-scoped principals authorize against one of their
-/// own branches. The feature matrix is what actually decides.
+/// Authorize a deliberately **org-global** equipment-master feature against a
+/// representative branch: cross-branch principals authorize against a fresh id
+/// (allowed by `BranchScope::All`); branch-scoped principals authorize against
+/// one of their own branches. Because `authorize()` checks `branch_scope.allows`
+/// first, the branch arg is a tautology for a branch-scoped caller — the feature
+/// matrix cell is what actually decides.
+///
+/// This is correct ONLY because equipment management is org-global by design:
+/// the whole fleet is created on the single HQ branch (`ensure_default_hq_branch`)
+/// and any `EquipmentManage` holder (Admin/Executive/SuperAdmin — denied for
+/// Receptionist/Mechanic) manages all of it. The read path (substitute search)
+/// is branch-scoped; the write path intentionally is not. If equipment ever
+/// becomes genuinely multi-branch, this representative-branch shortcut must be
+/// replaced with a check against each row's real `branch_id` (tracked: app-wide
+/// scoping follow-up) or a branch-scoped role could silently gain global reach.
 fn authorize_equipment_feature(principal: &Principal, feature: Feature) -> Result<(), RestError> {
     let branch = match &principal.branch_scope {
         BranchScope::All => BranchId::new(),
