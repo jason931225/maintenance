@@ -5,6 +5,7 @@ import {
   CheckSquare,
   ClipboardList,
   FilePlus,
+  FileSpreadsheet,
   Gauge,
   LifeBuoy,
   MapPin,
@@ -119,6 +120,10 @@ export const NAV_GROUPS = [
     items: [
       { key: "kpi",       href: "/kpi",       labelKey: "nav.kpi",       Icon: BarChart2 },
       { key: "ops",       href: "/ops",       labelKey: "nav.ops",       Icon: Gauge },
+      // reporting (ExcelDownload): [A,A,A,A,A] in the backend matrix — every
+      // role may download the work-diary / daily-status workbooks, so the item
+      // is ungated like the other shared pages.
+      { key: "reporting", href: "/reporting", labelKey: "nav.reporting", Icon: FileSpreadsheet },
       { key: "equipment", href: "/equipment", labelKey: "nav.equipment", Icon: Wrench },
       // financial: the page surfaces purchase requests, whose read gate
       // (PurchaseRequestRead) is at least Limited for every role

@@ -8,6 +8,7 @@ export const ko = {
     support: "고객지원",
     kpi: "KPI 대시보드",
     ops: "운영 대시보드",
+    reporting: "보고서 출력",
     equipment: "장비 조회",
     financial: "구매·정산",
     location: "GPS 위치 동의",
@@ -374,6 +375,12 @@ export const ko = {
     listTitle: "작업지시 목록",
     targetDueAt: "목표 완료",
     equipment: "장비",
+    sla: {
+      label: "SLA 상태",
+      onTrack: "정상",
+      atRisk: "임박",
+      breached: "위반",
+    },
     selectedMechanic: "배정 정비사",
     assign: "배정",
     empty: "표시할 접수건이 없습니다.",
@@ -707,6 +714,22 @@ export const ko = {
     completedToday: "완료",
     responseSpeed: "응답 속도",
     refresh: "자동 갱신",
+  },
+  reporting: {
+    title: "보고서 출력",
+    description: "선택한 날짜의 업무일지·일일현황 엑셀 보고서를 내려받습니다.",
+    reportLabel: "보고서 종류",
+    dateLabel: "기준 날짜",
+    download: "엑셀 내려받기",
+    downloading: "생성 중",
+    reports: {
+      workDiary: "업무일지",
+      dailyStatus: "일일업무진행현황",
+    },
+    downloadFailed: "보고서를 생성하지 못했습니다. 날짜를 확인하고 다시 시도하세요.",
+    downloadDone: "{report} 보고서를 내려받았습니다.",
+    historyNote:
+      "출력 이력 보기는 백엔드에서 아직 제공되지 않습니다(excel_export_logs 미노출).",
   },
   common: {
     branch: "지점",

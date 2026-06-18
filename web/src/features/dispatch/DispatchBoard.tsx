@@ -5,6 +5,7 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { ko } from "../../i18n/ko";
+import { SlaBadge } from "./SlaBadge";
 
 type WorkOrderStatus = WorkOrderListItem["status"];
 
@@ -112,9 +113,12 @@ export function DispatchBoard({
                         {workOrder.priority}
                       </Badge>
                     </div>
-                    <p className="mt-2 text-sm text-slate-600">
-                      {ko.status[workOrder.status]}
-                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <p className="text-sm text-slate-600">
+                        {ko.status[workOrder.status]}
+                      </p>
+                      <SlaBadge workOrder={workOrder} />
+                    </div>
                     <p className="mt-1 text-sm text-slate-700">
                       {workOrder.equipment.model ?? ko.common.unknown} /{" "}
                       {workOrder.customer.name}

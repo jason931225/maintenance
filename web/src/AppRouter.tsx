@@ -38,6 +38,9 @@ const OpsDashboardPage = lazy(() =>
     default: m.OpsDashboardPage,
   })),
 );
+const ReportingPage = lazy(() =>
+  import("./pages/ReportingPage").then((m) => ({ default: m.ReportingPage })),
+);
 const MessengerPage = lazy(() =>
   import("./pages/MessengerPage").then((m) => ({ default: m.MessengerPage })),
 );
@@ -133,6 +136,7 @@ export function AppRouter() {
           <Route path="/approvals" element={<ApprovalsPage />} />
           <Route path="/daily-plan" element={<DailyPlanPage />} />
           <Route path="/kpi" element={<KpiPage />} />
+          <Route path="/reporting" element={<ReportingPage />} />
           <Route path="/messenger" element={<MessengerPage />} />
           <Route path="/support" element={<SupportPage />} />
           <Route path="/equipment" element={<EquipmentPage />} />

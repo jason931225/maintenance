@@ -2,6 +2,7 @@ import type { WorkOrderListItem } from "../../api/types";
 import { Badge } from "../../components/ui/badge";
 import { Card } from "../../components/ui/card";
 import { ko } from "../../i18n/ko";
+import { SlaBadge } from "./SlaBadge";
 
 interface WorkOrderListProps {
   workOrders: WorkOrderListItem[];
@@ -55,6 +56,7 @@ export function WorkOrderList({
               </div>
               <div className="flex flex-wrap items-center gap-2 md:justify-end">
                 <Badge>{workOrder.priority}</Badge>
+                <SlaBadge workOrder={workOrder} />
                 <span className="text-sm text-slate-600">
                   {ko.dispatch.targetDueAt}:{" "}
                   {formatIsoDateTime(workOrder.target_due_at)}
