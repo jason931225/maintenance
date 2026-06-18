@@ -344,14 +344,15 @@ async fn seed_branch(pool: &PgPool, region_name: &str, branch_name: &str) -> Bra
             .fetch_one(pool)
             .await
             .unwrap();
-    let branch_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id")
-            .bind(region_id)
-            .bind(branch_name)
-            .bind(*OrgId::knl().as_uuid())
-            .fetch_one(pool)
-            .await
-            .unwrap();
+    let branch_id: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(region_id)
+    .bind(branch_name)
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
     BranchId::from_uuid(branch_id)
 }
 

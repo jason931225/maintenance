@@ -393,13 +393,15 @@ impl PgOrgStore {
 
         with_audit::<_, RegionSummary, PgOrgError>(&self.pool, event, |tx| {
             Box::pin(async move {
-                sqlx::query("INSERT INTO regions (id, name, created_at, org_id) VALUES ($1, $2, $3, $4)")
-                    .bind(*region_id.as_uuid())
-                    .bind(&name)
-                    .bind(command.occurred_at)
-                    .bind(*OrgId::knl().as_uuid())
-                    .execute(tx.as_mut())
-                    .await?;
+                sqlx::query(
+                    "INSERT INTO regions (id, name, created_at, org_id) VALUES ($1, $2, $3, $4)",
+                )
+                .bind(*region_id.as_uuid())
+                .bind(&name)
+                .bind(command.occurred_at)
+                .bind(*OrgId::knl().as_uuid())
+                .execute(tx.as_mut())
+                .await?;
                 fetch_region_tx(tx, region_id).await
             })
         })

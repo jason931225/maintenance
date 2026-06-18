@@ -32,7 +32,7 @@
 //!     SECURITY, DISABLE TRIGGER on audit_events all raise insufficient-privilege.
 
 use mnt_kernel_core::OrgId;
-use mnt_platform_db::{with_org_conn, DbError};
+use mnt_platform_db::{DbError, with_org_conn};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
@@ -289,7 +289,9 @@ async fn cross_org_writes_are_rejected(pool: PgPool) {
             .bind(ORG_B)
             .execute(&mut *tx)
             .await;
-        let err = res.expect_err("cross-org INSERT must be rejected").to_string();
+        let err = res
+            .expect_err("cross-org INSERT must be rejected")
+            .to_string();
         assert!(
             err.contains("row-level security"),
             "cross-org INSERT must be rejected by the RLS policy, got: {err}"
@@ -307,7 +309,9 @@ async fn cross_org_writes_are_rejected(pool: PgPool) {
             .bind(ORG_B)
             .execute(&mut *tx)
             .await;
-        let err = res.expect_err("cross-org UPDATE-move must be rejected").to_string();
+        let err = res
+            .expect_err("cross-org UPDATE-move must be rejected")
+            .to_string();
         assert!(
             // Either the RLS WITH CHECK or the immutability trigger may fire
             // first; both are correct rejections of a tenant move.
@@ -328,7 +332,10 @@ async fn cross_org_writes_are_rejected(pool: PgPool) {
             .await
             .unwrap()
             .rows_affected();
-        assert_eq!(updated, 0, "UPDATE of an org-B row under GUC = A must affect 0 rows");
+        assert_eq!(
+            updated, 0,
+            "UPDATE of an org-B row under GUC = A must affect 0 rows"
+        );
 
         let deleted = sqlx::query("DELETE FROM regions WHERE id = $1")
             .bind(seeded_b.region)
@@ -336,13 +343,19 @@ async fn cross_org_writes_are_rejected(pool: PgPool) {
             .await
             .unwrap()
             .rows_affected();
-        assert_eq!(deleted, 0, "DELETE of an org-B row under GUC = A must affect 0 rows");
+        assert_eq!(
+            deleted, 0,
+            "DELETE of an org-B row under GUC = A must affect 0 rows"
+        );
         tx.commit().await.unwrap();
     }
 
     // org B's region still exists and is unmodified (proves 5 was a true no-op).
     let still_there = count_as_runtime(&pool, Guc::Set(ORG_B), COUNT_REGIONS).await;
-    assert_eq!(still_there, 1, "org B's region must survive org A's attempts");
+    assert_eq!(
+        still_there, 1,
+        "org B's region must survive org A's attempts"
+    );
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -359,7 +372,10 @@ async fn org_id_is_immutable(pool: PgPool) {
             .await
             .unwrap()
             .rows_affected();
-        assert_eq!(affected, 1, "setting org_id to its current value must be a normal UPDATE");
+        assert_eq!(
+            affected, 1,
+            "setting org_id to its current value must be a normal UPDATE"
+        );
         tx.commit().await.unwrap();
     }
 
@@ -374,7 +390,9 @@ async fn org_id_is_immutable(pool: PgPool) {
             .bind(third)
             .execute(&mut *tx)
             .await;
-        let err = res.expect_err("changing org_id must be rejected").to_string();
+        let err = res
+            .expect_err("changing org_id must be rejected")
+            .to_string();
         assert!(
             err.contains("org_id is immutable") || err.contains("row-level security"),
             "changing org_id must be rejected by the immutability trigger, got: {err}"
@@ -465,5 +483,9 @@ async fn with_org_conn_sets_the_current_org_guc(pool: PgPool) {
     .await
     .unwrap();
 
-    assert_eq!(seen, ORG_A.to_string(), "with_org_conn must set app.current_org");
+    assert_eq!(
+        seen,
+        ORG_A.to_string(),
+        "with_org_conn must set app.current_org"
+    );
 }

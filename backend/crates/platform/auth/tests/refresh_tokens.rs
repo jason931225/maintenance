@@ -6,13 +6,15 @@ use sqlx::{PgPool, Row};
 use time::{Duration, OffsetDateTime};
 
 async fn seed_user(pool: &PgPool) -> uuid::Uuid {
-    sqlx::query_scalar("INSERT INTO users (display_name, roles, org_id) VALUES ($1, $2, $3) RETURNING id")
-        .bind("Refresh User")
-        .bind(Vec::<String>::from(["MECHANIC".to_owned()]))
-        .bind(*OrgId::knl().as_uuid())
-        .fetch_one(pool)
-        .await
-        .unwrap()
+    sqlx::query_scalar(
+        "INSERT INTO users (display_name, roles, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind("Refresh User")
+    .bind(Vec::<String>::from(["MECHANIC".to_owned()]))
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 #[sqlx::test(migrations = "../db/migrations")]

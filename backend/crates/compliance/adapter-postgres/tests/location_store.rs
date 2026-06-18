@@ -290,14 +290,15 @@ async fn seed_user_and_branch(pool: &PgPool, display_name: &str) -> (UserId, Bra
             .await
             .unwrap();
 
-    let branch_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id")
-            .bind(region_id)
-            .bind(format!("{display_name} Branch"))
-            .bind(*OrgId::knl().as_uuid())
-            .fetch_one(pool)
-            .await
-            .unwrap();
+    let branch_id: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(region_id)
+    .bind(format!("{display_name} Branch"))
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
 
     seed_user_in_branch(pool, BranchId::from_uuid(branch_id), display_name).await
 }
@@ -307,14 +308,15 @@ async fn seed_user_in_branch(
     branch_id: BranchId,
     display_name: &str,
 ) -> (UserId, BranchId) {
-    let user_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO users (display_name, roles, org_id) VALUES ($1, $2, $3) RETURNING id")
-            .bind(display_name)
-            .bind(Vec::<String>::from(["MECHANIC".to_string()]))
-            .bind(*OrgId::knl().as_uuid())
-            .fetch_one(pool)
-            .await
-            .unwrap();
+    let user_id: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO users (display_name, roles, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(display_name)
+    .bind(Vec::<String>::from(["MECHANIC".to_string()]))
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
 
     sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
         .bind(user_id)
@@ -336,14 +338,15 @@ async fn seed_second_branch(pool: &PgPool, user_id: UserId, display_name: &str) 
             .await
             .unwrap();
 
-    let branch_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id")
-            .bind(region_id)
-            .bind(format!("{display_name} Branch"))
-            .bind(*OrgId::knl().as_uuid())
-            .fetch_one(pool)
-            .await
-            .unwrap();
+    let branch_id: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(region_id)
+    .bind(format!("{display_name} Branch"))
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
 
     sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
         .bind(*user_id.as_uuid())

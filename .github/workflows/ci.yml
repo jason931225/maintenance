@@ -109,6 +109,9 @@ jobs:
       - name: Migration-safety gate
         run: cargo run -p mnt-gate-migration-safety
 
+      - name: Tenant-isolation gate
+        run: cargo run -p mnt-gate-tenant-isolation
+
       - name: PII-no-logs gate
         run: cargo run -p mnt-gate-pii-no-logs
 

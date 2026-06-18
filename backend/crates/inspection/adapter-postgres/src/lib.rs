@@ -124,61 +124,67 @@ impl PgInspectionStore {
     ) -> Result<InspectionRoundSummary, PgInspectionError> {
         let round_id = InspectionRoundId::new();
 
-        with_audits::<_, InspectionRoundSummary, PgInspectionError>(&self.pool, OrgId::knl(), |tx| {
-            Box::pin(async move {
-                if command.findings.trim().is_empty() {
-                    return Err(KernelError::validation("inspection findings are required").into());
-                }
-                let schedule = lock_schedule_tx(tx, command.schedule_id).await?;
-                if schedule.status == InspectionScheduleStatus::Cancelled {
-                    return Err(KernelError::conflict(
-                        "cancelled inspection schedule cannot be completed",
-                    )
-                    .into());
-                }
-                if schedule.status == InspectionScheduleStatus::Completed {
-                    return Err(
-                        KernelError::conflict("inspection schedule is already completed").into(),
-                    );
-                }
-                if schedule.mechanic_id != command.actor {
-                    return Err(KernelError::forbidden(
-                        "inspection round must be completed by the assigned mechanic",
-                    )
-                    .into());
-                }
-                ensure_prevention_mechanic_tx(tx, command.actor, schedule.branch_id).await?;
-                let note = command
-                    .note
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty());
+        with_audits::<_, InspectionRoundSummary, PgInspectionError>(
+            &self.pool,
+            OrgId::knl(),
+            |tx| {
+                Box::pin(async move {
+                    if command.findings.trim().is_empty() {
+                        return Err(
+                            KernelError::validation("inspection findings are required").into()
+                        );
+                    }
+                    let schedule = lock_schedule_tx(tx, command.schedule_id).await?;
+                    if schedule.status == InspectionScheduleStatus::Cancelled {
+                        return Err(KernelError::conflict(
+                            "cancelled inspection schedule cannot be completed",
+                        )
+                        .into());
+                    }
+                    if schedule.status == InspectionScheduleStatus::Completed {
+                        return Err(KernelError::conflict(
+                            "inspection schedule is already completed",
+                        )
+                        .into());
+                    }
+                    if schedule.mechanic_id != command.actor {
+                        return Err(KernelError::forbidden(
+                            "inspection round must be completed by the assigned mechanic",
+                        )
+                        .into());
+                    }
+                    ensure_prevention_mechanic_tx(tx, command.actor, schedule.branch_id).await?;
+                    let note = command
+                        .note
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty());
 
-                sqlx::query(
-                    r#"
+                    sqlx::query(
+                        r#"
                     INSERT INTO inspection_rounds (
                         id, schedule_id, branch_id, equipment_id, mechanic_id, completed_by,
                         outcome, findings, note, completed_at, created_at, org_id
                     )
                     VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $11)
                     "#,
-                )
-                .bind(*round_id.as_uuid())
-                .bind(*schedule.id.as_uuid())
-                .bind(*schedule.branch_id.as_uuid())
-                .bind(*schedule.equipment_id.as_uuid())
-                .bind(*schedule.mechanic_id.as_uuid())
-                .bind(command.outcome.as_db_str())
-                .bind(command.findings.trim())
-                .bind(note)
-                .bind(command.completed_at)
-                .bind(command.occurred_at)
-                .bind(*OrgId::knl().as_uuid())
-                .execute(tx.as_mut())
-                .await?;
+                    )
+                    .bind(*round_id.as_uuid())
+                    .bind(*schedule.id.as_uuid())
+                    .bind(*schedule.branch_id.as_uuid())
+                    .bind(*schedule.equipment_id.as_uuid())
+                    .bind(*schedule.mechanic_id.as_uuid())
+                    .bind(command.outcome.as_db_str())
+                    .bind(command.findings.trim())
+                    .bind(note)
+                    .bind(command.completed_at)
+                    .bind(command.occurred_at)
+                    .bind(*OrgId::knl().as_uuid())
+                    .execute(tx.as_mut())
+                    .await?;
 
-                sqlx::query(
-                    r#"
+                    sqlx::query(
+                        r#"
                     UPDATE regular_inspection_schedules
                     SET status = 'COMPLETED',
                         completed_at = $2,
@@ -186,52 +192,53 @@ impl PgInspectionStore {
                         updated_at = $4
                     WHERE id = $1
                     "#,
-                )
-                .bind(*schedule.id.as_uuid())
-                .bind(command.completed_at)
-                .bind(*command.actor.as_uuid())
-                .bind(command.occurred_at)
-                .execute(tx.as_mut())
-                .await?;
+                    )
+                    .bind(*schedule.id.as_uuid())
+                    .bind(command.completed_at)
+                    .bind(*command.actor.as_uuid())
+                    .bind(command.occurred_at)
+                    .execute(tx.as_mut())
+                    .await?;
 
-                let round = fetch_round_summary_tx(tx, round_id).await?;
-                let round_event = inspection_audit_event(
-                    "inspection.round.complete",
-                    command.actor,
-                    schedule.branch_id,
-                    "inspection_round",
-                    round_id,
-                    command.trace.clone(),
-                    command.occurred_at,
-                )?
-                .with_snapshots(
-                    None,
-                    Some(serde_json::json!({
-                        "schedule_id": schedule.id.to_string(),
-                        "outcome": command.outcome.as_db_str(),
-                        "completed_at": command.completed_at.to_string(),
-                    })),
-                );
-                let schedule_event = inspection_audit_event(
-                    "inspection.schedule.complete",
-                    command.actor,
-                    schedule.branch_id,
-                    "regular_inspection_schedule",
-                    schedule.id,
-                    command.trace,
-                    command.occurred_at,
-                )?
-                .with_snapshots(
-                    Some(schedule.audit_snapshot()),
-                    Some(serde_json::json!({
-                        "status": InspectionScheduleStatus::Completed.as_db_str(),
-                        "completed_at": command.completed_at.to_string(),
-                        "completed_by": command.actor.to_string(),
-                    })),
-                );
-                Ok((round, vec![round_event, schedule_event]))
-            })
-        })
+                    let round = fetch_round_summary_tx(tx, round_id).await?;
+                    let round_event = inspection_audit_event(
+                        "inspection.round.complete",
+                        command.actor,
+                        schedule.branch_id,
+                        "inspection_round",
+                        round_id,
+                        command.trace.clone(),
+                        command.occurred_at,
+                    )?
+                    .with_snapshots(
+                        None,
+                        Some(serde_json::json!({
+                            "schedule_id": schedule.id.to_string(),
+                            "outcome": command.outcome.as_db_str(),
+                            "completed_at": command.completed_at.to_string(),
+                        })),
+                    );
+                    let schedule_event = inspection_audit_event(
+                        "inspection.schedule.complete",
+                        command.actor,
+                        schedule.branch_id,
+                        "regular_inspection_schedule",
+                        schedule.id,
+                        command.trace,
+                        command.occurred_at,
+                    )?
+                    .with_snapshots(
+                        Some(schedule.audit_snapshot()),
+                        Some(serde_json::json!({
+                            "status": InspectionScheduleStatus::Completed.as_db_str(),
+                            "completed_at": command.completed_at.to_string(),
+                            "completed_by": command.actor.to_string(),
+                        })),
+                    );
+                    Ok((round, vec![round_event, schedule_event]))
+                })
+            },
+        )
         .await
     }
 

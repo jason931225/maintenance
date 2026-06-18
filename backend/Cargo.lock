@@ -2183,6 +2183,10 @@ name = "mnt-gate-pii-no-logs"
 version = "0.1.0"
 
 [[package]]
+name = "mnt-gate-tenant-isolation"
+version = "0.1.0"
+
+[[package]]
 name = "mnt-identity-adapter-postgres"
 version = "0.1.0"
 dependencies = [

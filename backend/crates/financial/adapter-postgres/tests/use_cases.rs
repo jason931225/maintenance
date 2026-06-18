@@ -11,7 +11,9 @@ use mnt_financial_application::{
     PurchaseSubmitCommand, RejectPurchaseCommand,
 };
 use mnt_financial_domain::{DepreciationMethod, PurchaseStatus};
-use mnt_kernel_core::{BranchId, EquipmentId, EvidenceId, OrgId, TraceContext, UserId, WorkOrderId};
+use mnt_kernel_core::{
+    BranchId, EquipmentId, EvidenceId, OrgId, TraceContext, UserId, WorkOrderId,
+};
 use sqlx::PgPool;
 use time::macros::datetime;
 
@@ -563,14 +565,15 @@ async fn seed_branch(pool: &PgPool) -> BranchId {
             .fetch_one(pool)
             .await
             .unwrap();
-    let branch_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id")
-            .bind(region_id)
-            .bind(format!("Financial Branch {}", uuid::Uuid::new_v4()))
-            .bind(*OrgId::knl().as_uuid())
-            .fetch_one(pool)
-            .await
-            .unwrap();
+    let branch_id: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(region_id)
+    .bind(format!("Financial Branch {}", uuid::Uuid::new_v4()))
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
     BranchId::from_uuid(branch_id)
 }
 

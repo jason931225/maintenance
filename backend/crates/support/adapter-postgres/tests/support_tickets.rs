@@ -1,7 +1,9 @@
 //! DB-backed tests for the support-ticket Postgres adapter.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, OrgId, SupportTicketId, TraceContext, UserId};
+use mnt_kernel_core::{
+    BranchId, BranchScope, ErrorKind, OrgId, SupportTicketId, TraceContext, UserId,
+};
 use mnt_support_adapter_postgres::PgSupportStore;
 use mnt_support_application::{
     AddCommentCommand, AssignTicketCommand, CommentAudience, CreateCustomerIntakeCommand,
@@ -726,14 +728,15 @@ async fn seed_branch(pool: &PgPool) -> BranchId {
             .fetch_one(pool)
             .await
             .unwrap();
-    let branch_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id")
-            .bind(region_id)
-            .bind("Support Branch")
-            .bind(*OrgId::knl().as_uuid())
-            .fetch_one(pool)
-            .await
-            .unwrap();
+    let branch_id: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(region_id)
+    .bind("Support Branch")
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
     BranchId::from_uuid(branch_id)
 }
 

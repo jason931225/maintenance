@@ -29,13 +29,15 @@ fn inject_allow_credential(
 }
 
 async fn seed_user(pool: &PgPool) -> uuid::Uuid {
-    sqlx::query_scalar("INSERT INTO users (display_name, roles, org_id) VALUES ($1, $2, $3) RETURNING id")
-        .bind("Passkey User")
-        .bind(Vec::<String>::from(["MECHANIC".to_owned()]))
-        .bind(*OrgId::knl().as_uuid())
-        .fetch_one(pool)
-        .await
-        .unwrap()
+    sqlx::query_scalar(
+        "INSERT INTO users (display_name, roles, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind("Passkey User")
+    .bind(Vec::<String>::from(["MECHANIC".to_owned()]))
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 fn service() -> PasskeyService {

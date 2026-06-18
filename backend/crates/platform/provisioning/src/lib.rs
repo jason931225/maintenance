@@ -614,12 +614,14 @@ async fn apply_roster_tx(
         let existing_branches = existing_branch_rows.into_iter().collect::<BTreeSet<_>>();
 
         for branch_id in desired_branches.difference(&existing_branches) {
-            sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
-                .bind(user_id)
-                .bind(*branch_id)
-                .bind(*OrgId::knl().as_uuid())
-                .execute(tx.as_mut())
-                .await?;
+            sqlx::query(
+                "INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)",
+            )
+            .bind(user_id)
+            .bind(*branch_id)
+            .bind(*OrgId::knl().as_uuid())
+            .execute(tx.as_mut())
+            .await?;
             report.branch_memberships_added += 1;
         }
 

@@ -20,13 +20,15 @@ async fn seed_branch(pool: &PgPool, region: &str, branch: &str) -> uuid::Uuid {
     .await
     .unwrap();
 
-    sqlx::query_scalar("INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id")
-        .bind(region_id)
-        .bind(branch)
-        .bind(*OrgId::knl().as_uuid())
-        .fetch_one(pool)
-        .await
-        .unwrap()
+    sqlx::query_scalar(
+        "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(region_id)
+    .bind(branch)
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 #[sqlx::test(migrations = "../db/migrations")]

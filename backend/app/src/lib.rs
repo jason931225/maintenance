@@ -565,6 +565,21 @@ impl AppState {
                 let pool = PgPoolOptions::new()
                     .max_connections(8)
                     .acquire_timeout(Duration::from_secs(3))
+                    // Tenant-isolation backstop. The app connects as the non-owner
+                    // `mnt_rt` role under RLS keyed on the `app.current_org` GUC.
+                    // Every query sets that GUC with SET LOCAL (transaction-scoped,
+                    // auto-cleared on COMMIT/ROLLBACK), so it cannot normally
+                    // persist. RESET ALL on release is defense-in-depth: if any
+                    // future path ever set a *session*-level GUC, this clears it
+                    // before the pooled connection is reused, so a tenant's
+                    // `app.current_org` can never bleed into the next request.
+                    // (RESET ALL keeps prepared statements, unlike DISCARD ALL.)
+                    .after_release(|conn, _meta| {
+                        Box::pin(async move {
+                            sqlx::query("RESET ALL").execute(conn).await?;
+                            Ok(true)
+                        })
+                    })
                     .connect(url)
                     .await
                     .map_err(AppError::Database)?;

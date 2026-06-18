@@ -117,45 +117,53 @@ async function resetLocalContractDatabase(client: pg.Client, connectionString: s
   await client.query("CREATE SCHEMA public");
 }
 
+// KNL is tenant #1, seeded by migration 0028 (OrgId::knl()). Every tenant-scoped
+// row now carries org_id, so the contract seed stamps the same tenant.
+const KNL_ORG_ID = "00000000-0000-0000-0000-0000000000a1";
+
 async function seedContractData(client: pg.Client, actorId: string, scopedBranchId: string) {
   const regionId = randomUUID();
   const customerId = randomUUID();
   const siteId = randomUUID();
 
-  await client.query("INSERT INTO regions (id, name) VALUES ($1, $2)", [
+  await client.query("INSERT INTO regions (id, name, org_id) VALUES ($1, $2, $3)", [
     regionId,
     "Contract Region",
+    KNL_ORG_ID,
   ]);
-  await client.query("INSERT INTO branches (id, region_id, name) VALUES ($1, $2, $3)", [
+  await client.query("INSERT INTO branches (id, region_id, name, org_id) VALUES ($1, $2, $3, $4)", [
     scopedBranchId,
     regionId,
     "Contract Branch",
+    KNL_ORG_ID,
   ]);
-  await client.query("INSERT INTO users (id, display_name, roles) VALUES ($1, $2, $3)", [
+  await client.query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)", [
     actorId,
     "Contract Admin",
     ["ADMIN"],
+    KNL_ORG_ID,
   ]);
-  await client.query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)", [
+  await client.query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)", [
     actorId,
     scopedBranchId,
+    KNL_ORG_ID,
   ]);
   await client.query(
-    "INSERT INTO registry_customers (id, branch_id, name) VALUES ($1, $2, $3)",
-    [customerId, scopedBranchId, "Contract Customer"],
+    "INSERT INTO registry_customers (id, branch_id, name, org_id) VALUES ($1, $2, $3, $4)",
+    [customerId, scopedBranchId, "Contract Customer", KNL_ORG_ID],
   );
   await client.query(
-    "INSERT INTO registry_sites (id, branch_id, customer_id, name) VALUES ($1, $2, $3, $4)",
-    [siteId, scopedBranchId, customerId, "Contract Site"],
+    "INSERT INTO registry_sites (id, branch_id, customer_id, name, org_id) VALUES ($1, $2, $3, $4, $5)",
+    [siteId, scopedBranchId, customerId, "Contract Site", KNL_ORG_ID],
   );
   await client.query(
     `INSERT INTO registry_equipment (
         branch_id, customer_id, site_id, equipment_no, management_no,
         manufacturer_code, kind_code, power_code, status,
-        specification, ton_text, model, source_sheet, source_row
+        specification, ton_text, model, source_sheet, source_row, org_id
       )
-      VALUES ($1, $2, $3, $4, $5, 'A', 'B', 'C', '임대', '좌식', '2.5', 'GTS25DE', 'contract', 1)`,
-    [scopedBranchId, customerId, siteId, "ABC12-0290", "290"],
+      VALUES ($1, $2, $3, $4, $5, 'A', 'B', 'C', '임대', '좌식', '2.5', 'GTS25DE', 'contract', 1, $6)`,
+    [scopedBranchId, customerId, siteId, "ABC12-0290", "290", KNL_ORG_ID],
   );
 }
 
