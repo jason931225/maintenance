@@ -11,7 +11,8 @@ use std::path::Path;
 
 use calamine::{Data, DataType, Range, Reader, open_workbook_auto};
 use mnt_kernel_core::{
-    BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId, KernelError, TraceContext, UserId,
+    BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId, KernelError, OrgId, TraceContext,
+    UserId,
 };
 use mnt_platform_db::{DbError, with_audit, with_audits};
 use mnt_registry_application::{
@@ -121,7 +122,7 @@ impl PgRegistryStore {
         let trace = command.trace;
         let occurred_at = command.occurred_at;
 
-        with_audits::<_, EquipmentId, PgRegistryError>(&self.pool, move |tx| {
+        with_audits::<_, EquipmentId, PgRegistryError>(&self.pool, OrgId::knl(), move |tx| {
             Box::pin(async move {
                 let customer_id = upsert_customer(tx, branch_uuid, &row.customer_name).await?;
                 let site_id = upsert_site(tx, branch_uuid, customer_id, &row.site_name).await?;

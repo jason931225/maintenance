@@ -22,7 +22,27 @@ spec:
   bootstrap:
     initdb:
       database: maintenance
+      # mnt_app OWNS every table and is used ONLY to run schema migrations
+      # (out of band, via the mnt-db-app secret). The running application does
+      # NOT connect as it — see managed.roles.mnt_rt below.
       owner: mnt_app
+  # mnt_rt is the least-privilege RUNTIME role the app/worker connect as. It
+  # owns nothing, is NOSUPERUSER + NOBYPASSRLS (so Postgres RLS applies to it),
+  # and gets only the GRANTs migration 0031 hands out. CNPG attaches LOGIN + the
+  # password from mnt-db-rt here; the role attributes are also pinned in 0031 so
+  # they hold regardless of creation order.
+  managed:
+    roles:
+      - name: mnt_rt
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        bypassrls: false
+        inherit: true
+        passwordSecret:
+          name: mnt-db-rt
   # Continuous WAL archiving + base backups via the Barman Cloud Plugin.
   plugins:
     - name: barman-cloud.cloudnative-pg.io

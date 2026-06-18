@@ -14,7 +14,8 @@ use mnt_financial_domain::{
     validate_purchase_transition,
 };
 use mnt_kernel_core::{
-    AuditEvent, BranchId, EquipmentId, KernelError, PurchaseRequestId, QuoteId, UserId, WorkOrderId,
+    AuditEvent, BranchId, EquipmentId, KernelError, OrgId, PurchaseRequestId, QuoteId, UserId,
+    WorkOrderId,
 };
 use mnt_platform_db::{DbError, with_audit, with_audits};
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -373,7 +374,7 @@ impl PgFinancialStore {
         &self,
         command: ExecutePurchaseCommand,
     ) -> Result<PurchaseRequestSummary, PgFinancialError> {
-        with_audits::<_, PurchaseRequestSummary, PgFinancialError>(&self.pool, |tx| {
+        with_audits::<_, PurchaseRequestSummary, PgFinancialError>(&self.pool, OrgId::knl(), |tx| {
             Box::pin(async move {
                 let row = lock_purchase_tx(tx, command.purchase_request_id).await?;
                 validate_purchase_transition(PurchaseTransition {
@@ -484,7 +485,7 @@ impl PgFinancialStore {
             return Err(KernelError::validation("cost ledger amount must be positive").into());
         }
 
-        with_audits::<_, CostLedgerEntrySummary, PgFinancialError>(&self.pool, |tx| {
+        with_audits::<_, CostLedgerEntrySummary, PgFinancialError>(&self.pool, OrgId::knl(), |tx| {
             Box::pin(async move {
                 let (entry, event) =
                     append_cost_ledger_entry_tx(tx, command, purchase_request_id).await?;

@@ -11,8 +11,8 @@ use mnt_dispatch_domain::{
     GeoPoint, P1Dispatch, TechnicianLoad, score_candidate,
 };
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, ErrorKind, KernelError, P1DispatchAlertId, P1DispatchId,
-    TraceContext, UserId, WorkOrderId,
+    AuditAction, AuditEvent, BranchId, ErrorKind, KernelError, OrgId, P1DispatchAlertId,
+    P1DispatchId, TraceContext, UserId, WorkOrderId,
 };
 use mnt_platform_db::{DbError, insert_audit_event, with_audit, with_audits};
 use mnt_workorder_application::work_order_audit_event;
@@ -582,7 +582,7 @@ impl PgDispatchStore {
         );
         let reason = reason.to_owned();
 
-        with_audits::<_, u64, PgDispatchError>(&self.pool, |tx| {
+        with_audits::<_, u64, PgDispatchError>(&self.pool, OrgId::knl(), |tx| {
             Box::pin(async move {
                 let rows = sqlx::query(
                     r#"
@@ -789,7 +789,7 @@ impl PgDispatchStore {
         let branch_id = BranchId::from_uuid(row.try_get("branch_id")?);
         let alert_target = alert_id.to_string();
 
-        with_audits::<_, bool, PgDispatchError>(&self.pool, |tx| {
+        with_audits::<_, bool, PgDispatchError>(&self.pool, OrgId::knl(), |tx| {
             Box::pin(async move {
                 // When a lease token is supplied, only the worker still holding
                 // the lease may transition the alert; a reclaimed lease causes a

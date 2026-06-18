@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use mnt_kernel_core::{AuditAction, AuditEvent, KernelError, TraceContext, UserId};
+use mnt_kernel_core::{AuditAction, AuditEvent, KernelError, OrgId, TraceContext, UserId};
 use mnt_platform_db::{insert_audit_event, with_audit, with_audits};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -346,7 +346,7 @@ impl BootstrapCredentialStore {
     ) -> Result<bool, ProvisioningError> {
         let token_hash = hash_token(otp);
 
-        with_audits::<_, bool, ProvisioningError>(pool, |tx| {
+        with_audits::<_, bool, ProvisioningError>(pool, OrgId::knl(), |tx| {
             Box::pin(async move {
                 match seed_cold_start_if_needed_tx(tx, &token_hash, now, ttl).await? {
                     Some((admin_id, credential_id)) => {

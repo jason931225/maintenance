@@ -23,13 +23,12 @@ CREATE TABLE organizations (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- The runtime application role. RLS is only enforced for roles that are NOT
--- superusers and do NOT have BYPASSRLS; the migration/owner role that runs these
--- scripts is typically privileged, so the app must connect (and tests must run
--- their tenant-scoped queries) as this unprivileged role for the org_isolation
--- policies to apply. NOLOGIN here — deployments attach a password/LOGIN out of
--- band; tests SET LOCAL ROLE to it within a transaction. Idempotent so a
--- partially-applied or shared cluster does not error.
+-- `mnt_app` is the database OWNER (CNPG bootstrap.initdb.owner). It owns every
+-- table and is used ONLY to run migrations; the running application must NOT
+-- connect as it. The unprivileged RUNTIME role the app connects as is `mnt_rt`,
+-- created in 0031. This DO block only guarantees the owner role exists for local
+-- (non-CNPG) bootstraps; on the cluster CNPG has already created it. Idempotent
+-- so a partially-applied or shared cluster does not error.
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mnt_app') THEN

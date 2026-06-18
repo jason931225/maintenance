@@ -83,6 +83,27 @@ ALTER TABLE work_orders
         FOREIGN KEY (branch_id, org_id) REFERENCES branches (id, org_id)
         ON DELETE RESTRICT;
 
+-- Remaining slice parent/child hops get the same composite (same-org) guard so a
+-- customer/site can never reference a parent in a different tenant.
+-- customer is addressable by (id, org_id) so sites can pin the tenant via FK.
+ALTER TABLE registry_customers
+    ADD CONSTRAINT registry_customers_id_org_key UNIQUE (id, org_id);
+
+-- customer lives in the same org as its branch.
+ALTER TABLE registry_customers
+    ADD CONSTRAINT registry_customers_branch_same_org_fk
+        FOREIGN KEY (branch_id, org_id) REFERENCES branches (id, org_id)
+        ON DELETE RESTRICT;
+
+-- site lives in the same org as both its branch and its customer.
+ALTER TABLE registry_sites
+    ADD CONSTRAINT registry_sites_branch_same_org_fk
+        FOREIGN KEY (branch_id, org_id) REFERENCES branches (id, org_id)
+        ON DELETE RESTRICT,
+    ADD CONSTRAINT registry_sites_customer_same_org_fk
+        FOREIGN KEY (customer_id, org_id) REFERENCES registry_customers (id, org_id)
+        ON DELETE RESTRICT;
+
 -- --------------------------------------------------------------------------
 -- Global uniques become per-org uniques. Two tenants may reuse the same
 -- equipment number / request number / region name.

@@ -1,23 +1,35 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Acceptance gate for multi-tenant phase 1: Postgres RLS proves end-to-end
 //! tenant isolation on the vertical slice (organizations → regions → branches →
-//! users → registry → work_orders).
+//! users → registry → work_orders) **while running as a genuine NON-OWNER
+//! login-equivalent role**.
 //!
-//! ## Why the test switches role
-//! RLS policies are only enforced for roles that are NOT superusers and do NOT
-//! carry BYPASSRLS. `sqlx::test` connects as the database owner/superuser, which
-//! bypasses RLS entirely — so every tenant-scoped statement runs inside a
-//! transaction that first does `SET LOCAL ROLE mnt_app` (the unprivileged
-//! runtime role created in migration 0026) and then arms the
-//! `app.current_org` GUC. That mirrors production, where the app connects as
-//! `mnt_app`. `FORCE ROW LEVEL SECURITY` (migration 0030) additionally subjects
-//! the table owner to the policies, closing the owner-bypass hole.
+//! ## Why the test switches role — and to which role
+//! RLS is enforced only for roles that are NOT superusers and do NOT carry
+//! BYPASSRLS. `sqlx::test` connects as the database owner/superuser, which
+//! bypasses RLS. Production connects as `mnt_rt` — the least-privilege RUNTIME
+//! role (migration 0031): NOSUPERUSER, NOBYPASSRLS, owns nothing. Every
+//! tenant-scoped statement below runs inside a transaction that first
+//! `SET LOCAL ROLE mnt_rt` and then arms `app.current_org`, so the test sees
+//! exactly what production sees. `FORCE ROW LEVEL SECURITY` additionally
+//! subjects the table owner to the policies, closing the owner-bypass hole.
+//!
+//! Crucially, the DDL-denial block runs as `mnt_rt` too: a non-owner cannot
+//! `DROP POLICY` / `DISABLE ROW LEVEL SECURITY` / `DISABLE TRIGGER`. That is the
+//! regression guard for the CRITICAL "de-own the runtime role" fix — if the app
+//! ever reverts to connecting as the owner, those statements would succeed and
+//! this test would fail.
 //!
 //! ## What it asserts (definition of done)
-//!  1. GUC = A  → SELECT returns ONLY org A's rows (B invisible).
-//!  2. GUC = B  → SELECT returns ONLY org B's rows (A invisible).
-//!  3. GUC unset → ZERO rows (fail-closed).
-//!  4. GUC = A, INSERT with org_id = B → rejected by the WITH CHECK policy.
+//!  1. GUC = A → SELECT returns ONLY org A's rows (B invisible), and vice versa.
+//!  2. GUC unset → ZERO rows; empty-string GUC → ZERO rows (fail-closed, both).
+//!  3. cross-org INSERT (org_id = B under GUC = A) rejected by WITH CHECK.
+//!  4. cross-org UPDATE-move (SET org_id = B under GUC = A) rejected.
+//!  5. cross-org UPDATE/DELETE of an org-B row under GUC = A affects 0 rows.
+//!  6. org_id immutability: SET org_id = <same A> allowed; changing it fires the
+//!     trigger and aborts.
+//!  7. DDL-denial as the non-owner role: DROP POLICY, DISABLE ROW LEVEL
+//!     SECURITY, DISABLE TRIGGER on audit_events all raise insufficient-privilege.
 
 use mnt_kernel_core::OrgId;
 use mnt_platform_db::{with_org_conn, DbError};
@@ -27,20 +39,23 @@ use uuid::Uuid;
 const ORG_A: Uuid = Uuid::from_u128(0x1111_1111_1111_1111_1111_1111_1111_1111);
 const ORG_B: Uuid = Uuid::from_u128(0x2222_2222_2222_2222_2222_2222_2222_2222);
 
-/// Seed one org plus a full slice (region → branch → user → customer → site →
-/// equipment → work_order) as the unprivileged `mnt_app` role with the tenant
-/// GUC armed, so the rows pass the WITH CHECK policy on the way in.
-async fn seed_org(pool: &PgPool, org: Uuid, tag: &str) {
-    // organizations is itself RLS-protected: its policy gates on `id`, so arm
-    // the GUC to the org we are inserting.
-    let mut tx = pool.begin().await.unwrap();
-    sqlx::query("SET LOCAL ROLE mnt_app").execute(&mut *tx).await.unwrap();
-    sqlx::query("SELECT set_config('app.current_org', $1, true)")
-        .bind(org.to_string())
-        .execute(&mut *tx)
-        .await
-        .unwrap();
+/// The non-owner runtime role the application connects as in production.
+/// A static literal so sqlx accepts it without an injection-audit override.
+const SET_RUNTIME_ROLE: &str = "SET LOCAL ROLE mnt_rt";
 
+/// Seed one org plus a full slice (region → branch → user → customer → site →
+/// equipment → work_order) as the unprivileged runtime role with the tenant GUC
+/// armed, so the rows pass the WITH CHECK policy on the way in. A *known* region
+/// id is returned so cross-org write tests can target an org-B row by id.
+struct Seeded {
+    region: Uuid,
+}
+
+async fn seed_org(pool: &PgPool, org: Uuid, tag: &str) -> Seeded {
+    // Provisioning an organization is an OWNER operation (mnt_rt has SELECT-only
+    // on organizations), so insert the org row as the owner/superuser pool role
+    // — which also bypasses RLS — BEFORE dropping to mnt_rt for the tenant rows.
+    let mut tx = pool.begin().await.unwrap();
     sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3)")
         .bind(org)
         .bind(format!("org-{}", tag.to_lowercase()))
@@ -48,6 +63,10 @@ async fn seed_org(pool: &PgPool, org: Uuid, tag: &str) {
         .execute(&mut *tx)
         .await
         .unwrap();
+
+    // Now drop to the non-owner runtime role + arm the tenant GUC; every child
+    // row below passes the WITH CHECK policy as the app would write it.
+    set_role_and_org(&mut tx, Some(org)).await;
 
     let region = Uuid::new_v4();
     sqlx::query("INSERT INTO regions (id, name, org_id) VALUES ($1, $2, $3)")
@@ -143,20 +162,56 @@ async fn seed_org(pool: &PgPool, org: Uuid, tag: &str) {
     .unwrap();
 
     tx.commit().await.unwrap();
+    Seeded { region }
 }
 
-/// Run a `SELECT count(*)` (passed as a static, injection-safe literal) as
-/// `mnt_app` with the tenant GUC set to `org` (or left unset when `org` is
-/// `None`, to exercise the fail-closed path).
-async fn count_as_app(pool: &PgPool, org: Option<Uuid>, count_query: &'static str) -> i64 {
-    let mut tx = pool.begin().await.unwrap();
-    sqlx::query("SET LOCAL ROLE mnt_app").execute(&mut *tx).await.unwrap();
+/// Drop to the non-owner runtime role and (optionally) arm the tenant GUC.
+/// `org = None` leaves the GUC unset (fail-closed path); `org = Some("")` is the
+/// empty-string fail-closed path, handled by the dedicated helper below.
+async fn set_role_and_org(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, org: Option<Uuid>) {
+    sqlx::query(SET_RUNTIME_ROLE)
+        .execute(&mut **tx)
+        .await
+        .unwrap();
     if let Some(org) = org {
         sqlx::query("SELECT set_config('app.current_org', $1, true)")
             .bind(org.to_string())
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .unwrap();
+    }
+}
+
+/// What GUC state to put the transaction in for a fail-closed assertion.
+enum Guc {
+    Set(Uuid),
+    Unset,
+    Empty,
+}
+
+/// Run a `SELECT count(*)` (static, injection-safe literal) as the runtime role
+/// with the tenant GUC in the requested state.
+async fn count_as_runtime(pool: &PgPool, guc: Guc, count_query: &'static str) -> i64 {
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query(SET_RUNTIME_ROLE)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    match guc {
+        Guc::Set(org) => {
+            sqlx::query("SELECT set_config('app.current_org', $1, true)")
+                .bind(org.to_string())
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+        }
+        Guc::Empty => {
+            sqlx::query("SELECT set_config('app.current_org', '', true)")
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+        }
+        Guc::Unset => {}
     }
     let count: i64 = sqlx::query_scalar(count_query)
         .fetch_one(&mut *tx)
@@ -168,79 +223,233 @@ async fn count_as_app(pool: &PgPool, org: Option<Uuid>, count_query: &'static st
 
 const COUNT_WORK_ORDERS: &str = "SELECT count(*) FROM work_orders";
 const COUNT_EQUIPMENT: &str = "SELECT count(*) FROM registry_equipment";
+const COUNT_REGIONS: &str = "SELECT count(*) FROM regions";
 
 #[sqlx::test(migrations = "./migrations")]
 async fn rls_isolates_two_tenants_and_fails_closed(pool: PgPool) {
     seed_org(&pool, ORG_A, "A").await;
     seed_org(&pool, ORG_B, "B").await;
 
-    // (1) GUC = A → only A's single row per table is visible.
+    // (1) GUC = A → only A's single row per table; GUC = B → only B's.
     assert_eq!(
-        count_as_app(&pool, Some(ORG_A), COUNT_WORK_ORDERS).await,
+        count_as_runtime(&pool, Guc::Set(ORG_A), COUNT_WORK_ORDERS).await,
         1,
         "org A must see exactly its own work_order"
     );
     assert_eq!(
-        count_as_app(&pool, Some(ORG_A), COUNT_EQUIPMENT).await,
+        count_as_runtime(&pool, Guc::Set(ORG_A), COUNT_EQUIPMENT).await,
         1,
         "org A must see exactly its own equipment"
     );
-
-    // (2) GUC = B → only B's single row per table is visible.
     assert_eq!(
-        count_as_app(&pool, Some(ORG_B), COUNT_WORK_ORDERS).await,
+        count_as_runtime(&pool, Guc::Set(ORG_B), COUNT_WORK_ORDERS).await,
         1,
         "org B must see exactly its own work_order"
     );
     assert_eq!(
-        count_as_app(&pool, Some(ORG_B), COUNT_EQUIPMENT).await,
+        count_as_runtime(&pool, Guc::Set(ORG_B), COUNT_EQUIPMENT).await,
         1,
         "org B must see exactly its own equipment"
     );
 
-    // (3) GUC unset → ZERO rows everywhere (fail-closed).
+    // (2) Fail-closed: unset GUC → ZERO; empty-string GUC → ZERO. Both
+    // directions of the NULLIF(..., '') collapse in the policy.
     assert_eq!(
-        count_as_app(&pool, None, COUNT_WORK_ORDERS).await,
+        count_as_runtime(&pool, Guc::Unset, COUNT_WORK_ORDERS).await,
         0,
         "unset GUC must reveal ZERO work_orders (fail-closed)"
     );
     assert_eq!(
-        count_as_app(&pool, None, COUNT_EQUIPMENT).await,
+        count_as_runtime(&pool, Guc::Unset, COUNT_EQUIPMENT).await,
         0,
         "unset GUC must reveal ZERO equipment (fail-closed)"
     );
+    assert_eq!(
+        count_as_runtime(&pool, Guc::Empty, COUNT_WORK_ORDERS).await,
+        0,
+        "empty-string GUC must reveal ZERO work_orders (fail-closed)"
+    );
+    assert_eq!(
+        count_as_runtime(&pool, Guc::Empty, COUNT_REGIONS).await,
+        0,
+        "empty-string GUC must reveal ZERO regions (fail-closed)"
+    );
+}
 
-    // (4) GUC = A, INSERT a row tagged org B → rejected by WITH CHECK.
-    let mut tx = pool.begin().await.unwrap();
-    sqlx::query("SET LOCAL ROLE mnt_app").execute(&mut *tx).await.unwrap();
-    sqlx::query("SELECT set_config('app.current_org', $1, true)")
-        .bind(ORG_A.to_string())
-        .execute(&mut *tx)
-        .await
-        .unwrap();
-    let cross_tenant_write = sqlx::query(
-        "INSERT INTO regions (name, org_id) VALUES ('smuggled', $1)",
-    )
-    .bind(ORG_B)
-    .execute(&mut *tx)
-    .await;
-    assert!(
-        cross_tenant_write.is_err(),
-        "writing a row for org B while scoped to org A must be rejected by the WITH CHECK policy"
-    );
-    let err = cross_tenant_write.unwrap_err().to_string();
-    assert!(
-        err.contains("row-level security"),
-        "rejection must come from the RLS policy, got: {err}"
-    );
-    // Transaction is now aborted; roll back to release it.
-    let _ = tx.rollback().await;
+#[sqlx::test(migrations = "./migrations")]
+async fn cross_org_writes_are_rejected(pool: PgPool) {
+    seed_org(&pool, ORG_A, "A").await;
+    let seeded_b = seed_org(&pool, ORG_B, "B").await;
+
+    // (3) GUC = A, INSERT a row tagged org B → rejected by WITH CHECK.
+    {
+        let mut tx = pool.begin().await.unwrap();
+        set_role_and_org(&mut tx, Some(ORG_A)).await;
+        let res = sqlx::query("INSERT INTO regions (name, org_id) VALUES ('smuggled', $1)")
+            .bind(ORG_B)
+            .execute(&mut *tx)
+            .await;
+        let err = res.expect_err("cross-org INSERT must be rejected").to_string();
+        assert!(
+            err.contains("row-level security"),
+            "cross-org INSERT must be rejected by the RLS policy, got: {err}"
+        );
+        let _ = tx.rollback().await;
+    }
+
+    // (4) GUC = A, UPDATE-move org A's region to org B → rejected. We update by
+    // name (org A's own row is visible under GUC = A); the new org_id = B fails
+    // the WITH CHECK.
+    {
+        let mut tx = pool.begin().await.unwrap();
+        set_role_and_org(&mut tx, Some(ORG_A)).await;
+        let res = sqlx::query("UPDATE regions SET org_id = $1 WHERE name = 'Region A'")
+            .bind(ORG_B)
+            .execute(&mut *tx)
+            .await;
+        let err = res.expect_err("cross-org UPDATE-move must be rejected").to_string();
+        assert!(
+            // Either the RLS WITH CHECK or the immutability trigger may fire
+            // first; both are correct rejections of a tenant move.
+            err.contains("row-level security") || err.contains("org_id is immutable"),
+            "UPDATE-move to another org must be rejected, got: {err}"
+        );
+        let _ = tx.rollback().await;
+    }
+
+    // (5) GUC = A, UPDATE/DELETE an org-B row by id → 0 rows affected (the row
+    // is invisible under A's USING clause, so the statement matches nothing).
+    {
+        let mut tx = pool.begin().await.unwrap();
+        set_role_and_org(&mut tx, Some(ORG_A)).await;
+        let updated = sqlx::query("UPDATE regions SET name = 'hijacked' WHERE id = $1")
+            .bind(seeded_b.region)
+            .execute(&mut *tx)
+            .await
+            .unwrap()
+            .rows_affected();
+        assert_eq!(updated, 0, "UPDATE of an org-B row under GUC = A must affect 0 rows");
+
+        let deleted = sqlx::query("DELETE FROM regions WHERE id = $1")
+            .bind(seeded_b.region)
+            .execute(&mut *tx)
+            .await
+            .unwrap()
+            .rows_affected();
+        assert_eq!(deleted, 0, "DELETE of an org-B row under GUC = A must affect 0 rows");
+        tx.commit().await.unwrap();
+    }
+
+    // org B's region still exists and is unmodified (proves 5 was a true no-op).
+    let still_there = count_as_runtime(&pool, Guc::Set(ORG_B), COUNT_REGIONS).await;
+    assert_eq!(still_there, 1, "org B's region must survive org A's attempts");
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn org_id_is_immutable(pool: PgPool) {
+    seed_org(&pool, ORG_A, "A").await;
+
+    // (6a) Re-stating the SAME org_id is allowed (NEW IS NOT DISTINCT FROM OLD).
+    {
+        let mut tx = pool.begin().await.unwrap();
+        set_role_and_org(&mut tx, Some(ORG_A)).await;
+        let affected = sqlx::query("UPDATE regions SET org_id = $1 WHERE name = 'Region A'")
+            .bind(ORG_A)
+            .execute(&mut *tx)
+            .await
+            .unwrap()
+            .rows_affected();
+        assert_eq!(affected, 1, "setting org_id to its current value must be a normal UPDATE");
+        tx.commit().await.unwrap();
+    }
+
+    // (6b) Changing org_id to ANY other value fires the trigger and aborts —
+    // even to an org the row's writer does not control. Using a third uuid
+    // isolates the trigger from the RLS WITH CHECK (a value never seeded).
+    {
+        let third = Uuid::from_u128(0x3333_3333_3333_3333_3333_3333_3333_3333);
+        let mut tx = pool.begin().await.unwrap();
+        set_role_and_org(&mut tx, Some(ORG_A)).await;
+        let res = sqlx::query("UPDATE regions SET org_id = $1 WHERE name = 'Region A'")
+            .bind(third)
+            .execute(&mut *tx)
+            .await;
+        let err = res.expect_err("changing org_id must be rejected").to_string();
+        assert!(
+            err.contains("org_id is immutable") || err.contains("row-level security"),
+            "changing org_id must be rejected by the immutability trigger, got: {err}"
+        );
+        let _ = tx.rollback().await;
+    }
+}
+
+/// (7) DDL-denial — the regression guard for the CRITICAL de-owning fix. As the
+/// NON-OWNER runtime role, attempts to dismantle the tenant boundary must all
+/// raise insufficient-privilege. If the app ever reverts to connecting as the
+/// table owner, these would succeed and this test fails.
+#[sqlx::test(migrations = "./migrations")]
+async fn non_owner_cannot_disable_the_tenant_boundary(pool: PgPool) {
+    // DROP POLICY org_isolation ON work_orders.
+    {
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query(SET_RUNTIME_ROLE)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let err = sqlx::query("DROP POLICY org_isolation ON work_orders")
+            .execute(&mut *tx)
+            .await
+            .expect_err("non-owner must not DROP POLICY")
+            .to_string();
+        assert!(
+            err.contains("must be owner") || err.contains("permission denied"),
+            "DROP POLICY as non-owner must be denied, got: {err}"
+        );
+        let _ = tx.rollback().await;
+    }
+
+    // ALTER TABLE work_orders DISABLE ROW LEVEL SECURITY.
+    {
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query(SET_RUNTIME_ROLE)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let err = sqlx::query("ALTER TABLE work_orders DISABLE ROW LEVEL SECURITY")
+            .execute(&mut *tx)
+            .await
+            .expect_err("non-owner must not DISABLE ROW LEVEL SECURITY")
+            .to_string();
+        assert!(
+            err.contains("must be owner") || err.contains("permission denied"),
+            "DISABLE ROW LEVEL SECURITY as non-owner must be denied, got: {err}"
+        );
+        let _ = tx.rollback().await;
+    }
+
+    // ALTER TABLE audit_events DISABLE TRIGGER <real name from 0003>.
+    {
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query(SET_RUNTIME_ROLE)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let err =
+            sqlx::query("ALTER TABLE audit_events DISABLE TRIGGER trg_audit_events_no_update")
+                .execute(&mut *tx)
+                .await
+                .expect_err("non-owner must not DISABLE TRIGGER on audit_events")
+                .to_string();
+        assert!(
+            err.contains("must be owner") || err.contains("permission denied"),
+            "DISABLE TRIGGER on audit_events as non-owner must be denied, got: {err}"
+        );
+        let _ = tx.rollback().await;
+    }
 }
 
 /// Proves the `with_org_conn` propagation helper actually arms
-/// `app.current_org` for the connection it hands to the closure. (It runs as the
-/// superuser pool role here, so RLS does not *filter* — this asserts the GUC
-/// value is set, which is the mechanism `with_audit` relies on.)
+/// `app.current_org` for the connection it hands to the closure.
 #[sqlx::test(migrations = "./migrations")]
 async fn with_org_conn_sets_the_current_org_guc(pool: PgPool) {
     let org = OrgId::from_uuid(ORG_A);

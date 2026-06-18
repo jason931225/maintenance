@@ -49,9 +49,12 @@ spec:
               value: "api"
             - name: MNT_SERVICE_NAME # metrics/traces service_name — must match the SLO selector
               value: "mnt-app-api"
+            # Runtime connects as the NON-OWNER role mnt_rt (subject to RLS).
+            # Schema migrations are applied out of band with the owner mnt-db-app
+            # secret — never from this workload.
             - name: DATABASE_URL
               valueFrom:
-                secretKeyRef: { name: mnt-db-app, key: uri }
+                secretKeyRef: { name: mnt-db-rt, key: uri }
           startupProbe:
             httpGet: { path: /healthz, port: http }
             failureThreshold: 30

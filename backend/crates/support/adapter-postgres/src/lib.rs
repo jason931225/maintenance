@@ -7,7 +7,8 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, KernelError, SupportTicketCommentId, SupportTicketId, UserId,
+    BranchId, BranchScope, ErrorKind, KernelError, OrgId, SupportTicketCommentId, SupportTicketId,
+    UserId,
 };
 use mnt_platform_db::{DbError, with_audit, with_audits};
 use mnt_support_application::{
@@ -228,6 +229,7 @@ impl PgSupportStore {
     ) -> Result<(TicketSummary, Vec<TicketNotification>), PgSupportError> {
         with_audits::<_, (TicketSummary, Vec<TicketNotification>), PgSupportError>(
             &self.pool,
+            OrgId::knl(),
             |tx| {
                 Box::pin(async move {
                     let ticket = lock_ticket_tx(tx, command.ticket_id).await?;
@@ -302,6 +304,7 @@ impl PgSupportStore {
     ) -> Result<(TicketSummary, Vec<TicketNotification>), PgSupportError> {
         with_audits::<_, (TicketSummary, Vec<TicketNotification>), PgSupportError>(
             &self.pool,
+            OrgId::knl(),
             |tx| {
                 Box::pin(async move {
                     let ticket = lock_ticket_tx(tx, command.ticket_id).await?;
@@ -366,7 +369,7 @@ impl PgSupportStore {
         let body = require_non_empty(&command.body, "comment body is required")?;
         let comment_id = SupportTicketCommentId::new();
 
-        with_audits::<_, (CommentView, Vec<TicketNotification>), PgSupportError>(&self.pool, |tx| {
+        with_audits::<_, (CommentView, Vec<TicketNotification>), PgSupportError>(&self.pool, OrgId::knl(), |tx| {
             Box::pin(async move {
                 let ticket = lock_ticket_tx(tx, command.ticket_id).await?;
                 ensure_author_visible_to_ticket(tx, command.actor, &ticket).await?;

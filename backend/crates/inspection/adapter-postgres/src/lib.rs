@@ -10,7 +10,7 @@ use mnt_inspection_domain::{
 };
 use mnt_kernel_core::{
     BranchId, BranchScope, EquipmentId, ErrorKind, InspectionRoundId, InspectionScheduleId,
-    KernelError, UserId,
+    KernelError, OrgId, UserId,
 };
 use mnt_platform_db::{DbError, with_audit, with_audits};
 use sqlx::{PgPool, Postgres, QueryBuilder, Row, Transaction};
@@ -123,7 +123,7 @@ impl PgInspectionStore {
     ) -> Result<InspectionRoundSummary, PgInspectionError> {
         let round_id = InspectionRoundId::new();
 
-        with_audits::<_, InspectionRoundSummary, PgInspectionError>(&self.pool, |tx| {
+        with_audits::<_, InspectionRoundSummary, PgInspectionError>(&self.pool, OrgId::knl(), |tx| {
             Box::pin(async move {
                 if command.findings.trim().is_empty() {
                     return Err(KernelError::validation("inspection findings are required").into());

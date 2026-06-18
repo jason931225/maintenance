@@ -21,20 +21,10 @@
 -- The GUC is set transaction-locally (set_config(..., true)) by the
 -- with_audit / tenant_scoped_read helpers immediately after BEGIN.
 
--- Privileges: the app role can read/write the slice tables (RLS narrows what it
--- actually sees). It deliberately gets NO privileges on audit_events beyond what
--- PUBLIC already allows (INSERT/SELECT), preserving the append-only invariant.
-GRANT SELECT, INSERT, UPDATE, DELETE ON
-    organizations,
-    regions,
-    branches,
-    users,
-    registry_customers,
-    registry_sites,
-    registry_equipment,
-    work_orders,
-    work_order_request_counters
-TO mnt_app;
+-- Runtime-role privileges live in 0031 and target `mnt_rt` (the non-owner role
+-- the application actually connects as) — NOT the owner `mnt_app`. Granting the
+-- owner privileges on its own tables is a no-op, and worse, conflates the
+-- migration identity with the runtime identity. This file only turns RLS on.
 
 -- organizations itself is tenant data: a tenant may only see its own org row.
 -- (Provisioning a new tenant is a privileged/owner operation, not an mnt_app one.)

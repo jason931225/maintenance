@@ -51,10 +51,46 @@ kubectl create secret generic oci-objectstore-creds -n maintenance \
   --from-literal=ACCESS_SECRET_KEY=<oci-secret-key>
 ```
 
-## `mnt-db-app` — database connection (auto-generated)
+## Database connections — owner vs. runtime split
 
-Created by CloudNativePG for the `mnt-db` cluster's `mnt_app` user. The workloads
-read `DATABASE_URL` from its `uri` key — **do not create this manually.**
+The cluster has **two** roles, with two secrets, deliberately separated:
+
+| Role | Secret | Used by | Privileges |
+|---|---|---|---|
+| `mnt_app` (owner) | `mnt-db-app` | **migrations only**, applied out of band | owns every table; runs DDL |
+| `mnt_rt` (runtime) | `mnt-db-rt` | `mnt-app` / `mnt-worker` `DATABASE_URL` | least-privilege DML, **subject to RLS** |
+
+The running application **never** connects as the owner. Connecting as the owner
+would let a compromised app `DROP POLICY` / `DISABLE ROW LEVEL SECURITY` and turn
+the entire tenant-isolation boundary off, and (without `FORCE RLS`) bypass RLS
+outright. `mnt_rt` is `NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`, owns
+nothing, and only receives the GRANTs from migration `0031`.
+
+### `mnt-db-app` — owner / migration connection (auto-generated)
+
+Created by CloudNativePG for the `mnt-db` cluster's `mnt_app` owner user. **Do
+not create this manually.** Use it **only** to apply schema migrations (the
+out-of-band `sqlx migrate run` / migration Job), never for a serving workload.
+
+### `mnt-db-rt` — runtime connection (you create this)
+
+The password for the managed `mnt_rt` role. CNPG reads it from this secret
+(`database.yaml` `managed.roles[].passwordSecret: mnt-db-rt`) and attaches it to
+the role with LOGIN. The app/worker read `DATABASE_URL` from its `uri` key.
+Create it **before** the `maintenance` app first syncs so CNPG can bind the role:
+
+```sh
+# Pick a strong password; it must match what CNPG attaches to mnt_rt.
+RT_PASSWORD="$(openssl rand -base64 24)"
+# host = the CNPG read/write service for the cluster; db = maintenance.
+RT_URI="postgresql://mnt_rt:${RT_PASSWORD}@mnt-db-rw.maintenance.svc:5432/maintenance"
+
+kubectl create secret generic mnt-db-rt -n maintenance \
+  --from-literal=username=mnt_rt \
+  --from-literal=password="${RT_PASSWORD}" \
+  --from-literal=uri="${RT_URI}"
+unset RT_PASSWORD RT_URI
+```
 
 ## CI / release secrets (GitHub repo settings)
 

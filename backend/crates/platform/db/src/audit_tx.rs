@@ -99,7 +99,16 @@ where
 /// Use this when the audit snapshots cannot be known before `SELECT FOR UPDATE`,
 /// or when a single business action intentionally updates multiple audited
 /// targets atomically.
-pub async fn with_audits<F, T, E>(pool: &PgPool, f: F) -> Result<T, E>
+///
+/// # Tenant binding (mandatory)
+/// `org` is bound to the transaction-local `app.current_org` GUC immediately
+/// after `begin()`, before the caller's closure runs — exactly like
+/// [`with_audit`] does from `event.org_id`. Unlike `with_audit` the tenant here
+/// is a REQUIRED parameter: a multi-statement audited mutation must never open
+/// its transaction without arming the org, or its writes would hit Postgres RLS
+/// with an unset GUC and fail closed (or, worse, on a not-yet-RLS table, run
+/// untenanted). Passing the org explicitly makes that impossible to forget.
+pub async fn with_audits<F, T, E>(pool: &PgPool, org: OrgId, f: F) -> Result<T, E>
 where
     F: for<'tx> FnOnce(
         &'tx mut Transaction<'_, Postgres>,
@@ -109,6 +118,7 @@ where
     E: From<DbError>,
 {
     let mut tx = pool.begin().await.map_err(|e| E::from(DbError::Sqlx(e)))?;
+    set_current_org(&mut tx, org).await.map_err(E::from)?;
     let result = f(&mut tx).await;
 
     match result {

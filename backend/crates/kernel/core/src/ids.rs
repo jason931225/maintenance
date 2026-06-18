@@ -67,6 +67,17 @@ typed_id!(
     /// impossible. KNL Logistics is tenant #1.
     OrgId
 );
+
+impl OrgId {
+    /// Tenant #1 — KNL Logistics. The deployment is single-tenant until the
+    /// per-request tenant resolver lands, so every server-side write path arms
+    /// `app.current_org` with this fixed id. It MUST byte-for-byte match the id
+    /// seeded by migration `0028_backfill_org_id.sql`.
+    #[must_use]
+    pub const fn knl() -> Self {
+        Self(uuid::Uuid::from_u128(0xa1))
+    }
+}
 typed_id!(
     /// An organizational branch (지점). Day-1 scoping concept: every
     /// work order, user membership, equipment row, KPI rollup, and chat
