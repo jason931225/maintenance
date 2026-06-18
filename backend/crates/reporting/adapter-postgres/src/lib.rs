@@ -14,14 +14,15 @@ use mnt_platform_excel::{
 };
 use mnt_platform_request_context::current_org;
 use mnt_reporting_application::{
-    ExportedWorkbook, KpiQuery, KpiQueryError, KpiQueryPort, ReportingExportError,
-    ReportingExportPort, ReportingExportQuery, WorkDiaryConfirmCommand, WorkDiaryDraftPort,
-    WorkDiaryQuery, WorkDiaryUpdateCommand,
+    ExportedWorkbook, KpiQuery, KpiQueryError, KpiQueryPort, OpsSummaryPort, OpsSummaryQuery,
+    ReportingExportError, ReportingExportPort, ReportingExportQuery, WorkDiaryConfirmCommand,
+    WorkDiaryDraftPort, WorkDiaryQuery, WorkDiaryUpdateCommand,
 };
 use mnt_reporting_domain::{
     DailyStatusReport, DailyStatusRow, ExportSourceNote, KpiInputRecord, KpiInspectionRecord,
-    KpiMetric, KpiReport, KpiScope, PeriodicInspectionRow, UnavailableMetric, WorkDiaryActionEntry,
-    WorkDiaryBody, WorkDiaryDraft, WorkDiaryStatus, calculate_kpi_report,
+    KpiMetric, KpiReport, KpiScope, OpsEquipmentStatus, OpsFunnel, OpsMechanicLoad, OpsSummary,
+    PeriodicInspectionRow, UnavailableMetric, WorkDiaryActionEntry, WorkDiaryBody, WorkDiaryDraft,
+    WorkDiaryStatus, calculate_kpi_report,
 };
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use time::{Date, Duration, OffsetDateTime, Time};
@@ -953,6 +954,186 @@ impl PgKpiRepository {
                 .to_owned(),
         }])
     }
+
+    /// Compute the per-tenant operational rollup in ONE org-scoped transaction.
+    ///
+    /// Every count is a tenant-local aggregate: the closure runs inside
+    /// `with_org_conn(current_org())`, so Postgres RLS narrows every table to the
+    /// requesting org and a second tenant's rows are never observable. The
+    /// individual aggregates are cheap (indexed status columns / partial unique
+    /// indexes); see `idx_work_orders_branch_status`,
+    /// `idx_registry_equipment_status_*`, and the substitution partial indexes.
+    async fn ops_summary_inner(&self, query: OpsSummaryQuery) -> Result<OpsSummary, KpiQueryError> {
+        let aging_hours = i64::from(query.aging_hours);
+        let at_risk_minutes = i64::from(query.at_risk_minutes);
+        let top_mechanics = i64::from(query.top_mechanics);
+
+        let org = current_org().map_err(KernelError::from)?;
+        let summary = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                // Work-order funnel + aging, computed in a single scan.
+                let funnel_row = sqlx::query!(
+                    r#"
+                    SELECT
+                        COUNT(*) FILTER (
+                            WHERE status IN ('RECEIVED', 'UNASSIGNED')
+                        ) AS "received!",
+                        COUNT(*) FILTER (WHERE status = 'ASSIGNED') AS "assigned!",
+                        COUNT(*) FILTER (
+                            WHERE status IN ('IN_PROGRESS', 'REPORT_SUBMITTED', 'ADMIN_REVIEW')
+                        ) AS "in_progress!",
+                        COUNT(*) FILTER (WHERE status = 'FINAL_COMPLETED') AS "completed!",
+                        COUNT(*) FILTER (
+                            WHERE status NOT IN (
+                                'FINAL_COMPLETED', 'REJECTED', 'ARCHIVED', 'CANCELLED'
+                            )
+                            AND created_at < now() - make_interval(hours => $1::int)
+                        ) AS "aging!"
+                    FROM work_orders
+                    "#,
+                    aging_hours as i32,
+                )
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+                // P1 SLA risk: dispatches still broadcasting whose accept window
+                // has expired (breached) or expires within the lead window.
+                let sla_row = sqlx::query!(
+                    r#"
+                    SELECT
+                        COUNT(*) FILTER (
+                            WHERE accept_window_ends_at < now()
+                        ) AS "breached!",
+                        COUNT(*) FILTER (
+                            WHERE accept_window_ends_at >= now()
+                            AND accept_window_ends_at
+                                < now() + make_interval(mins => $1::int)
+                        ) AS "at_risk!"
+                    FROM p1_dispatches
+                    WHERE status = 'BROADCASTING'
+                    "#,
+                    at_risk_minutes as i32,
+                )
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+                // Equipment lifecycle distribution (Korean enum values).
+                let equipment_row = sqlx::query!(
+                    r#"
+                    SELECT
+                        COUNT(*) FILTER (WHERE status = '임대') AS "rented!",
+                        COUNT(*) FILTER (WHERE status = '예비') AS "spare!",
+                        COUNT(*) FILTER (WHERE status = '폐기') AS "scrapped!",
+                        COUNT(*) FILTER (WHERE status = '대체') AS "replacement!",
+                        COUNT(*) FILTER (WHERE status = '매각') AS "sold!"
+                    FROM registry_equipment
+                    "#,
+                )
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+                // Active substitutions (대차): not yet returned.
+                let active_substitutions = sqlx::query_scalar!(
+                    r#"SELECT COUNT(*) AS "count!"
+                       FROM equipment_substitutions
+                       WHERE returned_at IS NULL"#,
+                )
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+                // Pending approvals queue depth.
+                let pending_approvals = sqlx::query_scalar!(
+                    r#"SELECT COUNT(*) AS "count!"
+                       FROM work_order_approval_steps
+                       WHERE status = 'PENDING'"#,
+                )
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+                // Open support tickets (not yet resolved/closed).
+                let open_support_tickets = sqlx::query_scalar!(
+                    r#"SELECT COUNT(*) AS "count!"
+                       FROM support_tickets
+                       WHERE status IN ('OPEN', 'IN_PROGRESS', 'ON_HOLD')"#,
+                )
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+                // Mechanic utilization: active assignments per mechanic, top-N.
+                // An assignment is "active" while its work order is not terminal.
+                let mechanic_rows = sqlx::query!(
+                    r#"
+                    SELECT
+                        a.mechanic_id AS "mechanic_id!",
+                        u.display_name AS "display_name!",
+                        COUNT(*) AS "active_assignments!"
+                    FROM work_order_assignments a
+                    JOIN work_orders w ON w.id = a.work_order_id
+                    JOIN users u ON u.id = a.mechanic_id
+                    WHERE w.status NOT IN (
+                        'FINAL_COMPLETED', 'REJECTED', 'ARCHIVED', 'CANCELLED'
+                    )
+                    GROUP BY a.mechanic_id, u.display_name
+                    ORDER BY COUNT(*) DESC, u.display_name ASC
+                    LIMIT $1
+                    "#,
+                    top_mechanics,
+                )
+                .fetch_all(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+                let mechanic_load = mechanic_rows
+                    .into_iter()
+                    .map(|row| OpsMechanicLoad {
+                        mechanic_id: row.mechanic_id,
+                        display_name: row.display_name,
+                        active_assignments: clamp_count(row.active_assignments),
+                    })
+                    .collect();
+
+                Ok(OpsSummary {
+                    funnel: OpsFunnel {
+                        received: clamp_count(funnel_row.received),
+                        assigned: clamp_count(funnel_row.assigned),
+                        in_progress: clamp_count(funnel_row.in_progress),
+                        completed: clamp_count(funnel_row.completed),
+                    },
+                    aging_hours: query.aging_hours,
+                    aging_work_orders: clamp_count(funnel_row.aging),
+                    sla_breached: clamp_count(sla_row.breached),
+                    sla_at_risk: clamp_count(sla_row.at_risk),
+                    mechanic_load,
+                    equipment_status: OpsEquipmentStatus {
+                        rented: clamp_count(equipment_row.rented),
+                        spare: clamp_count(equipment_row.spare),
+                        scrapped: clamp_count(equipment_row.scrapped),
+                        replacement: clamp_count(equipment_row.replacement),
+                        sold: clamp_count(equipment_row.sold),
+                    },
+                    active_substitutions: clamp_count(active_substitutions),
+                    pending_approvals: clamp_count(pending_approvals),
+                    open_support_tickets: clamp_count(open_support_tickets),
+                })
+            })
+        })
+        .await
+        .map_err(|err| KpiQueryError::Database(err.to_string()))?;
+
+        Ok(summary)
+    }
+}
+
+/// Saturating, sign-safe `COUNT(*)` (i64) → `u32` for serialized rollup fields.
+/// Postgres counts are non-negative; the clamp is a defensive narrowing.
+fn clamp_count(value: i64) -> u32 {
+    u32::try_from(value.max(0)).unwrap_or(u32::MAX)
 }
 
 /// Whether any of `table_names` exists in the connected database. Used to
@@ -975,6 +1156,12 @@ async fn any_table_exists(pool: &PgPool, table_names: &[&str]) -> Result<bool, s
 impl KpiQueryPort for PgKpiRepository {
     async fn query_kpis(&self, query: KpiQuery) -> Result<KpiReport, KpiQueryError> {
         self.query_kpis_inner(query).await
+    }
+}
+
+impl OpsSummaryPort for PgKpiRepository {
+    async fn ops_summary(&self, query: OpsSummaryQuery) -> Result<OpsSummary, KpiQueryError> {
+        self.ops_summary_inner(query).await
     }
 }
 

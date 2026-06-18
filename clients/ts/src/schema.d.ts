@@ -316,6 +316,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ops/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-tenant operational dashboard rollup
+         * @description Point-in-time operational rollup for the authenticated tenant: work-order funnel counts by stage, aging work orders, P1 SLA risk, mechanic utilization, equipment-status distribution, active substitutions, pending approvals, and open support tickets. Authorized for SUPER_ADMIN / ADMIN; every read is org-scoped under RLS.
+         */
+        get: operations["getOpsSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/work-orders": {
         parameters: {
             query?: never;
@@ -1836,6 +1856,54 @@ export interface components {
             inspection_schedule_completed_count: number;
             /** Format: int32 */
             inspection_plan_completion_bps: number | null;
+        };
+        OpsFunnel: {
+            /** Format: int32 */
+            received: number;
+            /** Format: int32 */
+            assigned: number;
+            /** Format: int32 */
+            in_progress: number;
+            /** Format: int32 */
+            completed: number;
+        };
+        OpsEquipmentStatus: {
+            /** Format: int32 */
+            rented: number;
+            /** Format: int32 */
+            spare: number;
+            /** Format: int32 */
+            scrapped: number;
+            /** Format: int32 */
+            replacement: number;
+            /** Format: int32 */
+            sold: number;
+        };
+        OpsMechanicLoad: {
+            /** Format: uuid */
+            mechanic_id: string;
+            display_name: string;
+            /** Format: int32 */
+            active_assignments: number;
+        };
+        OpsSummary: {
+            funnel: components["schemas"]["OpsFunnel"];
+            /** Format: int32 */
+            aging_hours: number;
+            /** Format: int32 */
+            aging_work_orders: number;
+            /** Format: int32 */
+            sla_breached: number;
+            /** Format: int32 */
+            sla_at_risk: number;
+            mechanic_load: components["schemas"]["OpsMechanicLoad"][];
+            equipment_status: components["schemas"]["OpsEquipmentStatus"];
+            /** Format: int32 */
+            active_substitutions: number;
+            /** Format: int32 */
+            pending_approvals: number;
+            /** Format: int32 */
+            open_support_tickets: number;
         };
         UnavailableMetric: {
             metric: components["schemas"]["KpiMetric"];
@@ -3365,6 +3433,37 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getOpsSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operational summary scoped to the authenticated tenant. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpsSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             /** @description JWT verification is not configured. */
             503: {
                 headers: {

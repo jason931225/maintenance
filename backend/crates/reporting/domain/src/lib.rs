@@ -422,3 +422,74 @@ pub struct WorkDiaryDraft {
     pub confirmed_by: Option<UserId>,
     pub confirmed_at: Option<Timestamp>,
 }
+
+// ---------------------------------------------------------------------------
+// Operational dashboard (per-tenant ops console)
+// ---------------------------------------------------------------------------
+
+/// One stage of the work-order funnel with its current open count.
+///
+/// `접수`/RECEIVED → `배정`/ASSIGNED → `진행`/IN_PROGRESS → `완료`/COMPLETED.
+/// Counts are point-in-time (current `work_orders.status`), org-scoped by RLS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpsFunnel {
+    /// RECEIVED + UNASSIGNED (intake, not yet assigned).
+    pub received: u32,
+    /// ASSIGNED (a mechanic is on it, work not started).
+    pub assigned: u32,
+    /// IN_PROGRESS + REPORT_SUBMITTED + ADMIN_REVIEW (active work).
+    pub in_progress: u32,
+    /// FINAL_COMPLETED (terminal success).
+    pub completed: u32,
+}
+
+/// Distribution of equipment by lifecycle status (Korean enum values).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpsEquipmentStatus {
+    /// 임대 — rented out.
+    pub rented: u32,
+    /// 예비 — spare / reserve.
+    pub spare: u32,
+    /// 폐기 — scrapped.
+    pub scrapped: u32,
+    /// 대체 — replacement unit.
+    pub replacement: u32,
+    /// 매각 — sold.
+    pub sold: u32,
+}
+
+/// One mechanic's current active-assignment load (utilization top-N row).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpsMechanicLoad {
+    pub mechanic_id: uuid::Uuid,
+    pub display_name: String,
+    /// Count of assignments on work orders that are not yet terminal.
+    pub active_assignments: u32,
+}
+
+/// Point-in-time operational rollup for one tenant (org-scoped under RLS).
+///
+/// All counts are computed from the requesting tenant's data only — every read
+/// runs inside `with_org_conn(current_org())`, so a second org's rows are never
+/// visible. `aging_hours` is the threshold used for `aging_work_orders`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpsSummary {
+    pub funnel: OpsFunnel,
+    /// Threshold (hours) past which an unresolved work order counts as aging.
+    pub aging_hours: u32,
+    /// Open work orders older than `aging_hours` with no terminal status.
+    pub aging_work_orders: u32,
+    /// P1 dispatches still BROADCASTING whose accept window has expired.
+    pub sla_breached: u32,
+    /// P1 dispatches still BROADCASTING whose accept window expires soon.
+    pub sla_at_risk: u32,
+    /// Top-N mechanics by current active-assignment count.
+    pub mechanic_load: Vec<OpsMechanicLoad>,
+    pub equipment_status: OpsEquipmentStatus,
+    /// Equipment substitutions (대차) currently active (not yet returned).
+    pub active_substitutions: u32,
+    /// Work-order approval steps awaiting a decision (PENDING).
+    pub pending_approvals: u32,
+    /// Support tickets not yet resolved/closed (OPEN + IN_PROGRESS + ON_HOLD).
+    pub open_support_tickets: u32,
+}

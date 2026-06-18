@@ -22,5 +22,12 @@ time = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 
+[dev-dependencies]
+http = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+mnt-platform-db = { workspace = true }
+p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8", "pem"] }
+
 [lints]
 workspace = true

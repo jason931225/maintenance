@@ -53,6 +53,7 @@ const server = setupServer(
     kpiRequests.push(url);
     return HttpResponse.json(kpiReport);
   }),
+  http.get("*/api/v1/ops/summary", () => HttpResponse.json(opsSummary)),
   http.get("*/api/v1/location-consent/status", () =>
     HttpResponse.json({
       consent_id: "00000000-0000-4000-8000-000000000011",
@@ -128,6 +129,41 @@ const authenticatedSession: AuthSession = {
   access_token: tokenPair.access_token,
   user_id: "00000000-0000-4000-8000-000000000002",
   branches: ["00000000-0000-4000-8000-000000000001"],
+};
+
+const adminSession: AuthSession = {
+  ...authenticatedSession,
+  roles: ["ADMIN"],
+};
+
+const mechanicSession: AuthSession = {
+  ...authenticatedSession,
+  roles: ["MECHANIC"],
+};
+
+const opsSummary = {
+  funnel: { received: 2, assigned: 1, in_progress: 3, completed: 5 },
+  aging_hours: 24,
+  aging_work_orders: 1,
+  sla_breached: 0,
+  sla_at_risk: 2,
+  mechanic_load: [
+    {
+      mechanic_id: "00000000-0000-4000-8000-000000000099",
+      display_name: "김정비",
+      active_assignments: 3,
+    },
+  ],
+  equipment_status: {
+    rented: 10,
+    spare: 4,
+    scrapped: 1,
+    replacement: 2,
+    sold: 0,
+  },
+  active_substitutions: 1,
+  pending_approvals: 2,
+  open_support_tickets: 4,
 };
 
 function renderAt(path: string, session: AuthSession | undefined = authenticatedSession) {
@@ -315,6 +351,32 @@ describe("KpiPage", () => {
         ),
       ).toBe(true);
     });
+  });
+});
+
+describe("OpsDashboardPage", () => {
+  it("renders the ops summary for an admin session", async () => {
+    renderAt("/ops", adminSession);
+
+    expect(
+      await screen.findByRole("heading", { name: "운영 대시보드", level: 1 }),
+    ).toBeVisible();
+    // Funnel value (completed = 5) and a mechanic-load row render.
+    expect(await screen.findByText("김정비")).toBeVisible();
+    // The aging-alert tile renders the configured hour threshold.
+    expect(screen.getByText("24시간 초과 미해결")).toBeVisible();
+  });
+
+  it("redirects a mechanic away from /ops (role-gated)", async () => {
+    renderAt("/ops", mechanicSession);
+
+    // RequireAdminRoute bounces a non-admin to /dispatch.
+    expect(
+      await screen.findByRole("heading", { name: "작업지시 목록" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "운영 대시보드" }),
+    ).not.toBeInTheDocument();
   });
 });
 

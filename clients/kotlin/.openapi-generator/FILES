@@ -108,6 +108,10 @@ src/main/kotlin/com/maintenance/api/client/model/MessengerThreadKind.kt
 src/main/kotlin/com/maintenance/api/client/model/MessengerThreadListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/MessengerThreadSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/NamedEntity.kt
+src/main/kotlin/com/maintenance/api/client/model/OpsEquipmentStatus.kt
+src/main/kotlin/com/maintenance/api/client/model/OpsFunnel.kt
+src/main/kotlin/com/maintenance/api/client/model/OpsMechanicLoad.kt
+src/main/kotlin/com/maintenance/api/client/model/OpsSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/OtpRedeemRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/OtpRedeemResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/OutsourceWorkSummary.kt

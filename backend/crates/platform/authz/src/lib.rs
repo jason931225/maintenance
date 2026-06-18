@@ -119,13 +119,17 @@ pub enum Feature {
     InspectionRoundComplete,
     AuditLogRead,
     ExcelDownload,
+    /// Read the per-tenant operational dashboard (work-order funnel, SLA risk,
+    /// utilization, equipment/substitution rollups). SUPER_ADMIN / ADMIN only —
+    /// it surfaces an org-wide operational picture.
+    OpsDashboardRead,
     /// Permission metadata for the future AI assistant seam. T0.6 requires the
     /// 22-feature matrix; this does not implement an AI adapter or demo mode.
     AiAssist,
 }
 
 impl Feature {
-    pub const ALL: [Self; 35] = [
+    pub const ALL: [Self; 36] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -160,6 +164,7 @@ impl Feature {
         Self::InspectionRoundComplete,
         Self::AuditLogRead,
         Self::ExcelDownload,
+        Self::OpsDashboardRead,
         Self::AiAssist,
     ];
 
@@ -201,6 +206,7 @@ impl Feature {
             Self::InspectionRoundComplete => [D, A, A, D, A],
             Self::AuditLogRead => [D, D, A, D, A],
             Self::ExcelDownload => [A, A, A, A, A],
+            Self::OpsDashboardRead => [D, D, A, D, A],
             Self::AiAssist => [A, A, A, A, A],
         }
     }

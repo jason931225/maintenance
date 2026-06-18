@@ -18,7 +18,7 @@ use axum::{Extension, Json, Router};
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{PlatformFeature, PlatformPrincipal};
 use mnt_platform_provisioning::{
-    OrganizationSummary, PlatformProvisioner, ProvisioningError, TenantOnboarding,
+    OrganizationSummary, PlatformProvisioner, ProvisioningError, TenantHealth, TenantOnboarding,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -27,6 +27,7 @@ use uuid::Uuid;
 
 pub const PLATFORM_ORGS_PATH: &str = "/platform/orgs";
 pub const PLATFORM_ORG_PATH_TEMPLATE: &str = "/platform/orgs/{id}";
+pub const PLATFORM_OPS_PATH: &str = "/platform/ops";
 
 #[derive(Clone)]
 pub struct PlatformRestState {
@@ -56,6 +57,7 @@ pub fn router(state: PlatformRestState) -> Router {
     let router = Router::new()
         .route(PLATFORM_ORGS_PATH, get(list_orgs).post(create_org))
         .route(PLATFORM_ORG_PATH_TEMPLATE, patch(update_org))
+        .route(PLATFORM_OPS_PATH, get(ops_dashboard))
         .with_state(state);
     // PLATFORM extractor: resolves the PlatformPrincipal and REJECTS any tenant
     // token. Deliberately NOT the tenant org middleware — the platform tier is
@@ -128,6 +130,40 @@ struct OrgListResponse {
     items: Vec<OrgResponse>,
 }
 
+#[derive(Debug, Serialize)]
+struct TenantHealthResponse {
+    id: Uuid,
+    slug: String,
+    name: String,
+    status: String,
+    user_count: i64,
+    active_user_count: i64,
+    active_work_orders: i64,
+    open_work_orders: i64,
+    last_activity_at: Option<OffsetDateTime>,
+}
+
+impl From<TenantHealth> for TenantHealthResponse {
+    fn from(h: TenantHealth) -> Self {
+        Self {
+            id: h.id,
+            slug: h.slug,
+            name: h.name,
+            status: h.status,
+            user_count: h.user_count,
+            active_user_count: h.active_user_count,
+            active_work_orders: h.active_work_orders,
+            open_work_orders: h.open_work_orders,
+            last_activity_at: h.last_activity_at,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct PlatformOpsResponse {
+    tenants: Vec<TenantHealthResponse>,
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -183,6 +219,34 @@ async fn list_orgs(
 
     let items = orgs.into_iter().map(OrgResponse::from).collect();
     Ok(Json(OrgListResponse { items }).into_response())
+}
+
+/// GET /platform/ops — cross-tenant ops health rollup (audited platform read).
+///
+/// Aggregates per-tenant health/usage numbers for EVERY tenant via the
+/// SECURITY DEFINER `platform_org_health()` function — the only sanctioned
+/// cross-tenant path. The read is audited (`platform.tenant.health`); a tenant
+/// token is rejected with 403 by the platform extractor before this runs.
+async fn ops_dashboard(
+    State(state): State<PlatformRestState>,
+    Extension(principal): Extension<PlatformPrincipal>,
+) -> Result<Response, PlatformError> {
+    principal
+        .authorize(PlatformFeature::TenantHealthRead)
+        .map_err(|_| PlatformError::forbidden("platform principal cannot read tenant health"))?;
+
+    let health = state
+        .provisioner
+        .list_tenant_health(
+            &state.pool,
+            Some(principal.user_id),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(PlatformError::from_provisioning)?;
+
+    let tenants = health.into_iter().map(TenantHealthResponse::from).collect();
+    Ok(Json(PlatformOpsResponse { tenants }).into_response())
 }
 
 /// PATCH /platform/orgs/{id} — suspend / reactivate a tenant (audited).

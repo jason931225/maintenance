@@ -395,6 +395,25 @@ pub struct OrganizationSummary {
     pub updated_at: OffsetDateTime,
 }
 
+/// Per-tenant health/usage rollup for the platform ops dashboard.
+///
+/// Produced by the SECURITY DEFINER `platform_org_health()` function (the only
+/// sanctioned cross-tenant aggregation path) and surfaced through an audited
+/// platform read. Carries only counts + a last-activity timestamp; never any
+/// row-level tenant data.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct TenantHealth {
+    pub id: Uuid,
+    pub slug: String,
+    pub name: String,
+    pub status: String,
+    pub user_count: i64,
+    pub active_user_count: i64,
+    pub active_work_orders: i64,
+    pub open_work_orders: i64,
+    pub last_activity_at: Option<OffsetDateTime>,
+}
+
 /// Outcome of onboarding a new tenant: the created org plus the ONE-TIME OTP for
 /// its first SUPER_ADMIN, to be delivered out-of-band.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -571,6 +590,65 @@ impl PlatformProvisioner {
 
         tx.commit().await?;
         Ok(summaries)
+    }
+
+    /// Cross-tenant ops health rollup for EVERY tenant (audited platform read).
+    ///
+    /// The aggregation runs through the SECURITY DEFINER `platform_org_health()`
+    /// function — the single sanctioned cross-tenant path — which scans all
+    /// tenants with `row_security` briefly disabled and restored. This is a
+    /// PLATFORM-tier read (org_id = NULL on the audit row) recorded as
+    /// `platform.tenant.health`, so no cross-tenant read is ever unaudited.
+    pub async fn list_tenant_health(
+        &self,
+        pool: &PgPool,
+        actor: Option<UserId>,
+        now: OffsetDateTime,
+    ) -> Result<Vec<TenantHealth>, ProvisioningError> {
+        let mut tx = pool.begin().await?;
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                id, slug, name, status,
+                user_count, active_user_count,
+                active_work_orders, open_work_orders, last_activity_at
+            FROM platform_org_health()
+            "#,
+        )
+        .fetch_all(tx.as_mut())
+        .await?;
+
+        let health = rows
+            .into_iter()
+            .map(|row| {
+                Ok(TenantHealth {
+                    id: row.try_get("id")?,
+                    slug: row.try_get("slug")?,
+                    name: row.try_get("name")?,
+                    status: row.try_get("status")?,
+                    user_count: row.try_get("user_count")?,
+                    active_user_count: row.try_get("active_user_count")?,
+                    active_work_orders: row.try_get("active_work_orders")?,
+                    open_work_orders: row.try_get("open_work_orders")?,
+                    last_activity_at: row.try_get("last_activity_at")?,
+                })
+            })
+            .collect::<Result<Vec<_>, ProvisioningError>>()?;
+
+        // Audited cross-tenant read (PLATFORM-tier; org_id = NULL).
+        let event = AuditEvent::new(
+            actor,
+            AuditAction::new("platform.tenant.health")?,
+            "organizations",
+            "health",
+            TraceContext::generate(),
+            now,
+        )
+        .with_snapshots(None, Some(serde_json::json!({ "count": health.len() })));
+        insert_audit_event(&mut tx, &event).await?;
+
+        tx.commit().await?;
+        Ok(health)
     }
 
     /// Suspend / reactivate a tenant by setting its `status`. Audited to the

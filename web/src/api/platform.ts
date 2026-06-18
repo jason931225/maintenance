@@ -92,6 +92,36 @@ async function parseError(response: Response): Promise<PlatformApiError> {
   return new PlatformApiError(response.status, code);
 }
 
+/** One tenant's health/usage numbers from the platform ops dashboard. */
+export interface PlatformTenantHealth {
+  id: string;
+  slug: string;
+  name: string;
+  status: OrgStatus;
+  user_count: number;
+  active_user_count: number;
+  active_work_orders: number;
+  open_work_orders: number;
+  last_activity_at: string | null;
+}
+
+/** Response shape of GET /platform/ops. */
+export interface PlatformOpsResponse {
+  tenants: PlatformTenantHealth[];
+}
+
+/** GET /platform/ops — cross-tenant ops health rollup (audited). */
+export async function getPlatformOps(
+  bearerToken: string | undefined,
+): Promise<PlatformTenantHealth[]> {
+  const response = await platformFetch(bearerToken, "/platform/ops", {
+    method: "GET",
+  });
+  if (!response.ok) throw await parseError(response);
+  const body = (await response.json()) as PlatformOpsResponse;
+  return body.tenants;
+}
+
 /** GET /platform/orgs — list every tenant organization. */
 export async function listPlatformOrgs(
   bearerToken: string | undefined,

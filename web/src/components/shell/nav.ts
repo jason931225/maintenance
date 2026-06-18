@@ -4,6 +4,7 @@ import {
   CheckSquare,
   ClipboardList,
   FilePlus,
+  Gauge,
   LifeBuoy,
   MapPin,
   MessageSquare,
@@ -63,6 +64,9 @@ const KPI_ROLES: readonly Role[] = [
 const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["approvals", ADMIN_ROLES],
   ["kpi", KPI_ROLES],
+  // ops (OpsDashboardRead): SUPER_ADMIN/ADMIN only, matching the
+  // `RequireAdminRoute` guard on `/ops` and the backend permission matrix.
+  ["ops", ADMIN_ROLES],
   ["users", ADMIN_ROLES],
   ["org", ADMIN_ROLES],
   ["security", ADMIN_ROLES],
@@ -98,6 +102,7 @@ export const NAV_GROUPS = [
     label: "nav.groups.data",
     items: [
       { key: "kpi",       href: "/kpi",       labelKey: "nav.kpi",       Icon: BarChart2 },
+      { key: "ops",       href: "/ops",       labelKey: "nav.ops",       Icon: Gauge },
       { key: "equipment", href: "/equipment", labelKey: "nav.equipment", Icon: Wrench },
     ],
   },

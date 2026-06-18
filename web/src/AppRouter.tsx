@@ -30,6 +30,11 @@ const ApprovalsPage = lazy(() =>
 const KpiPage = lazy(() =>
   import("./pages/KpiPage").then((m) => ({ default: m.KpiPage })),
 );
+const OpsDashboardPage = lazy(() =>
+  import("./pages/OpsDashboardPage").then((m) => ({
+    default: m.OpsDashboardPage,
+  })),
+);
 const MessengerPage = lazy(() =>
   import("./pages/MessengerPage").then((m) => ({ default: m.MessengerPage })),
 );
@@ -68,6 +73,11 @@ const PlatformOnboardPage = lazy(() =>
     default: m.PlatformOnboardPage,
   })),
 );
+const PlatformOpsPage = lazy(() =>
+  import("./features/platform/PlatformOpsPage").then((m) => ({
+    default: m.PlatformOpsPage,
+  })),
+);
 
 export function AppRouter() {
   return (
@@ -103,6 +113,7 @@ export function AppRouter() {
           <Route path="/platform" element={<PlatformShell />}>
             <Route index element={<Navigate to="/platform/tenants" replace />} />
             <Route path="tenants" element={<PlatformTenantsPage />} />
+            <Route path="ops" element={<PlatformOpsPage />} />
             <Route path="onboard" element={<PlatformOnboardPage />} />
             <Route path="*" element={<Navigate to="/platform/tenants" replace />} />
           </Route>
@@ -122,6 +133,7 @@ export function AppRouter() {
           <Route path="/settings/profile" element={<ProfilePage />} />
           <Route path="/settings/location" element={<LocationSettingsPage />} />
           <Route element={<RequireAdminRoute />}>
+            <Route path="/ops" element={<OpsDashboardPage />} />
             <Route path="/settings/users" element={<UsersPage />} />
             <Route path="/settings/org" element={<OrgPage />} />
             <Route path="/settings/security" element={<AdminSettingsPage />} />

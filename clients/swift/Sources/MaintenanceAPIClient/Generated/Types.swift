@@ -106,6 +106,13 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/kpi`.
     /// - Remark: Generated from `#/paths//api/v1/kpi/get(getKpiReport)`.
     func getKpiReport(_ input: Operations.GetKpiReport.Input) async throws -> Operations.GetKpiReport.Output
+    /// Per-tenant operational dashboard rollup
+    ///
+    /// Point-in-time operational rollup for the authenticated tenant: work-order funnel counts by stage, aging work orders, P1 SLA risk, mechanic utilization, equipment-status distribution, active substitutions, pending approvals, and open support tickets. Authorized for SUPER_ADMIN / ADMIN; every read is org-scoped under RLS.
+    ///
+    /// - Remark: HTTP `GET /api/v1/ops/summary`.
+    /// - Remark: Generated from `#/paths//api/v1/ops/summary/get(getOpsSummary)`.
+    func getOpsSummary(_ input: Operations.GetOpsSummary.Input) async throws -> Operations.GetOpsSummary.Output
     /// List branch-scoped work orders
     ///
     /// Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values.
@@ -790,6 +797,15 @@ extension APIProtocol {
             query: query,
             headers: headers
         ))
+    }
+    /// Per-tenant operational dashboard rollup
+    ///
+    /// Point-in-time operational rollup for the authenticated tenant: work-order funnel counts by stage, aging work orders, P1 SLA risk, mechanic utilization, equipment-status distribution, active substitutions, pending approvals, and open support tickets. Authorized for SUPER_ADMIN / ADMIN; every read is org-scoped under RLS.
+    ///
+    /// - Remark: HTTP `GET /api/v1/ops/summary`.
+    /// - Remark: Generated from `#/paths//api/v1/ops/summary/get(getOpsSummary)`.
+    public func getOpsSummary(headers: Operations.GetOpsSummary.Input.Headers = .init()) async throws -> Operations.GetOpsSummary.Output {
+        try await getOpsSummary(Operations.GetOpsSummary.Input(headers: headers))
     }
     /// List branch-scoped work orders
     ///
@@ -2250,6 +2266,182 @@ public enum Components {
                 case inspectionScheduleDueCount = "inspection_schedule_due_count"
                 case inspectionScheduleCompletedCount = "inspection_schedule_completed_count"
                 case inspectionPlanCompletionBps = "inspection_plan_completion_bps"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/OpsFunnel`.
+        public struct OpsFunnel: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/OpsFunnel/received`.
+            public var received: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/OpsFunnel/assigned`.
+            public var assigned: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/OpsFunnel/in_progress`.
+            public var inProgress: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/OpsFunnel/completed`.
+            public var completed: Swift.Int32
+            /// Creates a new `OpsFunnel`.
+            ///
+            /// - Parameters:
+            ///   - received:
+            ///   - assigned:
+            ///   - inProgress:
+            ///   - completed:
+            public init(
+                received: Swift.Int32,
+                assigned: Swift.Int32,
+                inProgress: Swift.Int32,
+                completed: Swift.Int32
+            ) {
+                self.received = received
+                self.assigned = assigned
+                self.inProgress = inProgress
+                self.completed = completed
+            }
+            public enum CodingKeys: String, CodingKey {
+                case received
+                case assigned
+                case inProgress = "in_progress"
+                case completed
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/OpsEquipmentStatus`.
+        public struct OpsEquipmentStatus: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/OpsEquipmentStatus/rented`.
+            public var rented: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/OpsEquipmentStatus/spare`.
+            public var spare: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/OpsEquipmentStatus/scrapped`.
+            public var scrapped: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/OpsEquipmentStatus/replacement`.
+            public var replacement: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/OpsEquipmentStatus/sold`.
+            public var sold: Swift.Int32
+            /// Creates a new `OpsEquipmentStatus`.
+            ///
+            /// - Parameters:
+            ///   - rented:
+            ///   - spare:
+            ///   - scrapped:
+            ///   - replacement:
+            ///   - sold:
+            public init(
+                rented: Swift.Int32,
+                spare: Swift.Int32,
+                scrapped: Swift.Int32,
+                replacement: Swift.Int32,
+                sold: Swift.Int32
+            ) {
+                self.rented = rented
+                self.spare = spare
+                self.scrapped = scrapped
+                self.replacement = replacement
+                self.sold = sold
+            }
+            public enum CodingKeys: String, CodingKey {
+                case rented
+                case spare
+                case scrapped
+                case replacement
+                case sold
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/OpsMechanicLoad`.
+        public struct OpsMechanicLoad: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/OpsMechanicLoad/mechanic_id`.
+            public var mechanicId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/OpsMechanicLoad/display_name`.
+            public var displayName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/OpsMechanicLoad/active_assignments`.
+            public var activeAssignments: Swift.Int32
+            /// Creates a new `OpsMechanicLoad`.
+            ///
+            /// - Parameters:
+            ///   - mechanicId:
+            ///   - displayName:
+            ///   - activeAssignments:
+            public init(
+                mechanicId: Swift.String,
+                displayName: Swift.String,
+                activeAssignments: Swift.Int32
+            ) {
+                self.mechanicId = mechanicId
+                self.displayName = displayName
+                self.activeAssignments = activeAssignments
+            }
+            public enum CodingKeys: String, CodingKey {
+                case mechanicId = "mechanic_id"
+                case displayName = "display_name"
+                case activeAssignments = "active_assignments"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/OpsSummary`.
+        public struct OpsSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/OpsSummary/funnel`.
+            public var funnel: Components.Schemas.OpsFunnel
+            /// - Remark: Generated from `#/components/schemas/OpsSummary/aging_hours`.
+            public var agingHours: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/OpsSummary/aging_work_orders`.
+            public var agingWorkOrders: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/OpsSummary/sla_breached`.
+            public var slaBreached: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/OpsSummary/sla_at_risk`.
+            public var slaAtRisk: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/OpsSummary/mechanic_load`.
+            public var mechanicLoad: [Components.Schemas.OpsMechanicLoad]
+            /// - Remark: Generated from `#/components/schemas/OpsSummary/equipment_status`.
+            public var equipmentStatus: Components.Schemas.OpsEquipmentStatus
+            /// - Remark: Generated from `#/components/schemas/OpsSummary/active_substitutions`.
+            public var activeSubstitutions: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/OpsSummary/pending_approvals`.
+            public var pendingApprovals: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/OpsSummary/open_support_tickets`.
+            public var openSupportTickets: Swift.Int32
+            /// Creates a new `OpsSummary`.
+            ///
+            /// - Parameters:
+            ///   - funnel:
+            ///   - agingHours:
+            ///   - agingWorkOrders:
+            ///   - slaBreached:
+            ///   - slaAtRisk:
+            ///   - mechanicLoad:
+            ///   - equipmentStatus:
+            ///   - activeSubstitutions:
+            ///   - pendingApprovals:
+            ///   - openSupportTickets:
+            public init(
+                funnel: Components.Schemas.OpsFunnel,
+                agingHours: Swift.Int32,
+                agingWorkOrders: Swift.Int32,
+                slaBreached: Swift.Int32,
+                slaAtRisk: Swift.Int32,
+                mechanicLoad: [Components.Schemas.OpsMechanicLoad],
+                equipmentStatus: Components.Schemas.OpsEquipmentStatus,
+                activeSubstitutions: Swift.Int32,
+                pendingApprovals: Swift.Int32,
+                openSupportTickets: Swift.Int32
+            ) {
+                self.funnel = funnel
+                self.agingHours = agingHours
+                self.agingWorkOrders = agingWorkOrders
+                self.slaBreached = slaBreached
+                self.slaAtRisk = slaAtRisk
+                self.mechanicLoad = mechanicLoad
+                self.equipmentStatus = equipmentStatus
+                self.activeSubstitutions = activeSubstitutions
+                self.pendingApprovals = pendingApprovals
+                self.openSupportTickets = openSupportTickets
+            }
+            public enum CodingKeys: String, CodingKey {
+                case funnel
+                case agingHours = "aging_hours"
+                case agingWorkOrders = "aging_work_orders"
+                case slaBreached = "sla_breached"
+                case slaAtRisk = "sla_at_risk"
+                case mechanicLoad = "mechanic_load"
+                case equipmentStatus = "equipment_status"
+                case activeSubstitutions = "active_substitutions"
+                case pendingApprovals = "pending_approvals"
+                case openSupportTickets = "open_support_tickets"
             }
         }
         /// - Remark: Generated from `#/components/schemas/UnavailableMetric`.
@@ -10137,6 +10329,215 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.serviceUnavailable`.
             /// - SeeAlso: `.serviceUnavailable`.
             public var serviceUnavailable: Operations.GetKpiReport.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Per-tenant operational dashboard rollup
+    ///
+    /// Point-in-time operational rollup for the authenticated tenant: work-order funnel counts by stage, aging work orders, P1 SLA risk, mechanic utilization, equipment-status distribution, active substitutions, pending approvals, and open support tickets. Authorized for SUPER_ADMIN / ADMIN; every read is org-scoped under RLS.
+    ///
+    /// - Remark: HTTP `GET /api/v1/ops/summary`.
+    /// - Remark: Generated from `#/paths//api/v1/ops/summary/get(getOpsSummary)`.
+    public enum GetOpsSummary {
+        public static let id: Swift.String = "getOpsSummary"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/ops/summary/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetOpsSummary.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetOpsSummary.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetOpsSummary.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.GetOpsSummary.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/ops/summary/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/ops/summary/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.OpsSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.OpsSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetOpsSummary.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetOpsSummary.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Operational summary scoped to the authenticated tenant.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/ops/summary/get(getOpsSummary)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetOpsSummary.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetOpsSummary.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/ops/summary/get(getOpsSummary)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/ops/summary/get(getOpsSummary)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/ops/summary/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/ops/summary/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetOpsSummary.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetOpsSummary.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/ops/summary/get(getOpsSummary)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetOpsSummary.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.GetOpsSummary.Output.ServiceUnavailable {
                 get throws {
                     switch self {
                     case let .serviceUnavailable(response):

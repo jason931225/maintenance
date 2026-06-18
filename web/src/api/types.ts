@@ -12,6 +12,10 @@ export type KpiReport = components["schemas"]["KpiReport"];
 export type KpiRollup = components["schemas"]["KpiRollup"];
 export type KpiRollupScope = components["schemas"]["KpiRollupScope"];
 export type UnavailableMetric = components["schemas"]["UnavailableMetric"];
+export type OpsSummary = components["schemas"]["OpsSummary"];
+export type OpsFunnel = components["schemas"]["OpsFunnel"];
+export type OpsEquipmentStatus = components["schemas"]["OpsEquipmentStatus"];
+export type OpsMechanicLoad = components["schemas"]["OpsMechanicLoad"];
 export type TokenPairResponse = components["schemas"]["TokenPairResponse"];
 export type MessengerThreadKind =
   components["schemas"]["MessengerThreadKind"];

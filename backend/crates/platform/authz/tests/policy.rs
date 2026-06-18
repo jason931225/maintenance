@@ -17,16 +17,16 @@ const ROLES: [Role; 5] = [
     Role::SuperAdmin,
 ];
 
-fn expected_matrix() -> [(Feature, [PermissionLevel; 5]); 35] {
+fn expected_matrix() -> [(Feature, [PermissionLevel; 5]); 36] {
     use Feature::{
         AiAssist, AssigneeManage, AuditLogRead, BranchManage, CompletionReview, DailyPlanRequest,
         DailyPlanReview, ElevatedRoleGrant, EquipmentCostLedgerRead, EquipmentCostLedgerWrite,
         EquipmentManage, EvidenceAttach, ExcelDownload, InspectionRoundComplete,
         InspectionScheduleManage, KpiExclusionManage, KpiRead, Login, MasterListImport,
-        PriorityManage, PurchaseExecute, PurchaseFinalApprove, PurchaseRequestApprove,
-        PurchaseRequestCreate, PurchaseRequestRead, RegionManage, RentalQuoteManage,
-        SubordinateUserCreate, TargetManage, UserManage, WorkOrderCreate, WorkOrderEditIntake,
-        WorkOrderReadAll, WorkOrderStart, WorkReportSubmit,
+        OpsDashboardRead, PriorityManage, PurchaseExecute, PurchaseFinalApprove,
+        PurchaseRequestApprove, PurchaseRequestCreate, PurchaseRequestRead, RegionManage,
+        RentalQuoteManage, SubordinateUserCreate, TargetManage, UserManage, WorkOrderCreate,
+        WorkOrderEditIntake, WorkOrderReadAll, WorkOrderStart, WorkReportSubmit,
     };
     use PermissionLevel::{Allow as A, Deny as D, Limited as L, RequestOnly as R};
 
@@ -65,6 +65,7 @@ fn expected_matrix() -> [(Feature, [PermissionLevel; 5]); 35] {
         (InspectionRoundComplete, [D, A, A, D, A]),
         (AuditLogRead, [D, D, A, D, A]),
         (ExcelDownload, [A, A, A, A, A]),
+        (OpsDashboardRead, [D, D, A, D, A]),
         // The inherited PERMISSIONS.md has 21 explicit table rows; its branch
         // strategy also names AI 조회 as a branch-filtered server API surface.
         // T0.6's brief requires 22 features, so the AI assistant seam is
@@ -92,7 +93,7 @@ fn role_enum_uses_canonical_database_codes() {
 #[test]
 fn permission_matrix_is_exhaustive_and_matches_inherited_table() {
     let matrix = expected_matrix();
-    assert_eq!(Feature::ALL.len(), 35);
+    assert_eq!(Feature::ALL.len(), 36);
     assert_eq!(matrix.len(), Feature::ALL.len());
 
     for feature in Feature::ALL {

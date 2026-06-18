@@ -155,6 +155,93 @@ describe("Platform tenant list", () => {
   });
 });
 
+const opsTenants = {
+  tenants: [
+    {
+      id: "11111111-1111-4111-8111-111111111111",
+      slug: "hanbit-logistics",
+      name: "한빛물류",
+      status: "ACTIVE",
+      user_count: 12,
+      active_user_count: 9,
+      active_work_orders: 4,
+      open_work_orders: 7,
+      last_activity_at: "2026-06-18T09:00:00Z",
+    },
+    {
+      id: "22222222-2222-4222-8222-222222222222",
+      slug: "daeyang-corp",
+      name: "대양기업",
+      status: "SUSPENDED",
+      user_count: 3,
+      active_user_count: 0,
+      active_work_orders: 0,
+      open_work_orders: 0,
+      last_activity_at: null,
+    },
+  ],
+};
+
+describe("Platform ops dashboard", () => {
+  it("renders the cross-tenant health table for a platform session", async () => {
+    server.use(http.get("*/platform/ops", () => HttpResponse.json(opsTenants)));
+
+    renderApp("/platform/ops", makeAuthContext(platformSession));
+
+    expect(
+      await screen.findByRole("heading", { name: "플랫폼 운영 현황" }),
+    ).toBeVisible();
+    const row = (await screen.findByText("한빛물류")).closest("tr");
+    expect(row).not.toBeNull();
+    const cells = within(row as HTMLElement);
+    expect(cells.getByText("hanbit-logistics")).toBeVisible();
+    expect(cells.getByText("활성")).toBeVisible();
+    expect(cells.getByText("12")).toBeVisible();
+    expect(cells.getByText("4")).toBeVisible();
+    // The no-activity placeholder renders for the suspended tenant.
+    const suspendedRow = (await screen.findByText("대양기업")).closest("tr");
+    expect(
+      within(suspendedRow as HTMLElement).getByText("활동 없음"),
+    ).toBeVisible();
+  });
+
+  it("shows the empty state when no tenants are returned", async () => {
+    server.use(
+      http.get("*/platform/ops", () => HttpResponse.json({ tenants: [] })),
+    );
+
+    renderApp("/platform/ops", makeAuthContext(platformSession));
+
+    expect(
+      await screen.findByText("운영 데이터를 불러오면 표시됩니다."),
+    ).toBeVisible();
+  });
+
+  it("shows the error state when the ops request fails", async () => {
+    server.use(
+      http.get("*/platform/ops", () =>
+        HttpResponse.json({ error: "boom" }, { status: 500 }),
+      ),
+    );
+
+    renderApp("/platform/ops", makeAuthContext(platformSession));
+
+    expect(
+      await screen.findByText("운영 현황을 불러오지 못했습니다."),
+    ).toBeVisible();
+  });
+
+  it("redirects a tenant session away from /platform/ops", async () => {
+    renderApp("/platform/ops", makeAuthContext(tenantSession));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("heading", { name: "플랫폼 운영 현황" }),
+      ).not.toBeInTheDocument();
+    });
+  });
+});
+
 describe("Platform onboard", () => {
   it("posts a new tenant and reveals the one-time OTP", async () => {
     const user = userEvent.setup();
