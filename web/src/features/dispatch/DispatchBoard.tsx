@@ -16,6 +16,9 @@ interface DispatchBoardProps {
     workOrderId: string,
     mechanicId: string,
   ) => Promise<boolean>;
+  /** Manager-only: open the dispatch controls for a work order. */
+  onSelectWorkOrder?: (workOrderId: string) => void;
+  selectedWorkOrderId?: string;
 }
 
 const groups: {
@@ -60,6 +63,8 @@ export function DispatchBoard({
   selectedMechanicId,
   isLoading = false,
   onAssignWorkOrder,
+  onSelectWorkOrder,
+  selectedWorkOrderId,
 }: DispatchBoardProps) {
   return (
     <Card className="grid gap-4">
@@ -127,6 +132,18 @@ export function DispatchBoard({
                       >
                         <Send aria-hidden="true" size={16} />
                         {workOrder.request_no} {ko.dispatch.assign}
+                      </Button>
+                    ) : null}
+                    {onSelectWorkOrder ? (
+                      <Button
+                        className="mt-2 w-full"
+                        variant="ghost"
+                        aria-pressed={selectedWorkOrderId === workOrder.id}
+                        onClick={() => {
+                          onSelectWorkOrder(workOrder.id);
+                        }}
+                      >
+                        {workOrder.request_no} {ko.dispatch.controls.title}
                       </Button>
                     ) : null}
                   </article>
