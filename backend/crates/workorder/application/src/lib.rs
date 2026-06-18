@@ -8,8 +8,8 @@ use std::future::Future;
 use std::pin::Pin;
 
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, CustomerId, DailyPlanId, EquipmentId, KernelError, SiteId,
-    Timestamp, TraceContext, UserId, VendorId, WorkOrderId,
+    AuditAction, AuditEvent, BranchId, CustomerId, DailyPlanId, EquipmentId, KernelError, OrgId,
+    SiteId, Timestamp, TraceContext, UserId, VendorId, WorkOrderId,
 };
 use mnt_workorder_domain::{AssignmentRole, PriorityLevel, WorkOrderStatus, WorkResultType};
 use serde::{Deserialize, Serialize};
@@ -491,7 +491,8 @@ pub fn work_order_audit_event(
         trace,
         occurred_at,
     )
-    .with_branch(branch_id))
+    .with_branch(branch_id)
+    .with_org(OrgId::knl()))
 }
 
 pub fn daily_plan_audit_event(
@@ -510,5 +511,6 @@ pub fn daily_plan_audit_event(
         trace,
         occurred_at,
     )
-    .with_branch(branch_id))
+    .with_branch(branch_id)
+    .with_org(OrgId::knl()))
 }

@@ -6,7 +6,7 @@
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode, header};
-use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, TraceContext, UserId};
+use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, OrgId, TraceContext, UserId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
 use mnt_platform_db::{DbError, with_audit};
 use mnt_support_adapter_postgres::PgSupportStore;
@@ -135,16 +135,18 @@ async fn seed_branch(pool: &PgPool) -> BranchId {
     .with_branch(branch_id);
     with_audit(pool, event, |tx| {
         Box::pin(async move {
-            sqlx::query("INSERT INTO regions (id, name) VALUES ($1, $2)")
+            sqlx::query("INSERT INTO regions (id, name, org_id) VALUES ($1, $2, $3)")
                 .bind(region_id)
                 .bind(region_name)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await
                 .map_err(DbError::Sqlx)?;
-            sqlx::query("INSERT INTO branches (id, region_id, name) VALUES ($1, $2, $3)")
+            sqlx::query("INSERT INTO branches (id, region_id, name, org_id) VALUES ($1, $2, $3, $4)")
                 .bind(*branch_id.as_uuid())
                 .bind(region_id)
                 .bind(branch_name)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await
                 .map_err(DbError::Sqlx)?;
@@ -169,16 +171,18 @@ async fn seed_user_in_branch(pool: &PgPool, name: &str, branch_id: BranchId) -> 
     .with_branch(branch_id);
     with_audit(pool, event, |tx| {
         Box::pin(async move {
-            sqlx::query("INSERT INTO users (id, display_name, roles) VALUES ($1, $2, $3)")
+            sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
                 .bind(*user_id.as_uuid())
                 .bind(name)
                 .bind(Vec::from(["MECHANIC".to_owned()]))
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await
                 .map_err(DbError::Sqlx)?;
-            sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+            sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
                 .bind(*user_id.as_uuid())
                 .bind(*branch_id.as_uuid())
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await
                 .map_err(DbError::Sqlx)?;

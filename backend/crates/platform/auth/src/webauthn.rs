@@ -1,4 +1,4 @@
-use mnt_kernel_core::{AuditAction, AuditEvent, TraceContext, UserId};
+use mnt_kernel_core::{AuditAction, AuditEvent, OrgId, TraceContext, UserId};
 use mnt_platform_db::insert_audit_event;
 use sqlx::{PgPool, Row};
 use time::{Duration, OffsetDateTime};
@@ -176,8 +176,8 @@ impl PasskeyService {
         sqlx::query(
             r#"
             INSERT INTO auth_webauthn_credentials (
-                id, user_id, credential_id, passkey_json, created_at
-            ) VALUES ($1, $2, $3, $4, $5)
+                id, user_id, credential_id, passkey_json, created_at, org_id
+            ) VALUES ($1, $2, $3, $4, $5, $6)
             "#,
         )
         .bind(passkey_id)
@@ -185,6 +185,7 @@ impl PasskeyService {
         .bind(&credential_id)
         .bind(passkey_json)
         .bind(now)
+        .bind(*OrgId::knl().as_uuid())
         .execute(tx.as_mut())
         .await?;
 

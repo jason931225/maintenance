@@ -11,8 +11,8 @@ use std::time::Duration as StdDuration;
 
 use hmac::{Hmac, KeyInit, Mac};
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, EvidenceId, KernelError, Timestamp, TraceContext, UserId,
-    WorkOrderId,
+    AuditAction, AuditEvent, BranchId, EvidenceId, KernelError, OrgId, Timestamp, TraceContext,
+    UserId, WorkOrderId,
 };
 use mnt_platform_db::{DbError, with_audit};
 use mnt_workorder_domain::AttachmentStage;
@@ -1159,12 +1159,12 @@ async fn insert_evidence_media_tx(
         INSERT INTO evidence_media (
             id, work_order_id, stage, s3_key, content_type, size_bytes,
             checksum_sha256, uploaded_by, worm_replica_status,
-            retry_count, next_retry_at, created_at, updated_at
+            retry_count, next_retry_at, created_at, updated_at, org_id
         )
         VALUES (
             $1, $2, $3, $4, $5, $6,
             $7, $8, 'PENDING',
-            0, $9, $9, $9
+            0, $9, $9, $9, $10
         )
         "#,
     )
@@ -1177,6 +1177,7 @@ async fn insert_evidence_media_tx(
     .bind(media.checksum_sha256)
     .bind(*media.uploaded_by.as_uuid())
     .bind(media.occurred_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(tx.as_mut())
     .await?;
     evidence_media_by_id_tx(tx, media.media_id).await
@@ -1605,9 +1606,9 @@ mod tests {
             r#"
             INSERT INTO evidence_media (
                 work_order_id, stage, s3_key, content_type, size_bytes,
-                uploaded_by, worm_replica_status, retry_count
+                uploaded_by, worm_replica_status, retry_count, org_id
             )
-            VALUES ($1, 'REPORT', $2, 'image/jpeg', 1024, $3, 'PENDING', 0)
+            VALUES ($1, 'REPORT', $2, 'image/jpeg', 1024, $3, 'PENDING', 0, $4)
             "#,
         )
         .bind(*seeded.work_order_id.as_uuid())
@@ -1616,6 +1617,7 @@ mod tests {
             seeded.work_order_id
         ))
         .bind(*seeded.uploaded_by.as_uuid())
+        .bind(*OrgId::knl().as_uuid())
         .execute(&pool)
         .await;
         let err = result.unwrap_err();
@@ -1629,9 +1631,9 @@ mod tests {
             r#"
             INSERT INTO evidence_media (
                 work_order_id, stage, s3_key, content_type, size_bytes,
-                uploaded_by, worm_replica_status, retry_count
+                uploaded_by, worm_replica_status, retry_count, org_id
             )
-            VALUES ($1, 'BEFORE', $2, 'image/jpeg', 1024, $3, 'PENDING', 0)
+            VALUES ($1, 'BEFORE', $2, 'image/jpeg', 1024, $3, 'PENDING', 0, $4)
             "#,
         )
         .bind(*seeded.work_order_id.as_uuid())
@@ -1640,6 +1642,7 @@ mod tests {
             seeded.work_order_id
         ))
         .bind(*seeded.uploaded_by.as_uuid())
+        .bind(*OrgId::knl().as_uuid())
         .execute(&pool)
         .await
         .unwrap();
@@ -1680,10 +1683,10 @@ mod tests {
             r#"
             INSERT INTO work_orders (
                 id, request_no, branch_id, equipment_id, customer_id, site_id,
-                requested_by, status, priority, symptom, result_type
+                requested_by, status, priority, symptom, result_type, org_id
             )
             SELECT $1, $6, $2, e.id, e.customer_id, e.site_id,
-                   $3, $7, $4, 'Evidence fixture', 'COMPLETED'
+                   $3, $7, $4, 'Evidence fixture', 'COMPLETED', $8
             FROM registry_equipment e
             WHERE e.id = $5
             "#,
@@ -1698,6 +1701,7 @@ mod tests {
             (work_order_id.as_uuid().as_u128() % 1000) as u16
         ))
         .bind(status)
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
@@ -1709,16 +1713,18 @@ mod tests {
 
     async fn seed_branch(pool: &PgPool) -> BranchId {
         let region_id: uuid::Uuid =
-            sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+            sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
                 .bind(format!("Region {}", uuid::Uuid::new_v4()))
+                .bind(*OrgId::knl().as_uuid())
                 .fetch_one(pool)
                 .await
                 .unwrap();
         let branch_id: uuid::Uuid = sqlx::query_scalar(
-            "INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id",
+            "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
         )
         .bind(region_id)
         .bind("HQ Storage Test")
+        .bind(*OrgId::knl().as_uuid())
         .fetch_one(pool)
         .await
         .unwrap();
@@ -1727,16 +1733,18 @@ mod tests {
 
     async fn seed_user(pool: &PgPool, name: &str, role: &str, branch_id: BranchId) -> UserId {
         let user_id = UserId::new();
-        sqlx::query("INSERT INTO users (id, display_name, roles) VALUES ($1, $2, $3)")
+        sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
             .bind(*user_id.as_uuid())
             .bind(name)
             .bind(Vec::from([role]))
+            .bind(*OrgId::knl().as_uuid())
             .execute(pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+        sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
             .bind(*user_id.as_uuid())
             .bind(*branch_id.as_uuid())
+            .bind(*OrgId::knl().as_uuid())
             .execute(pool)
             .await
             .unwrap();
@@ -1745,19 +1753,21 @@ mod tests {
 
     async fn seed_equipment(pool: &PgPool, branch_id: BranchId) -> uuid::Uuid {
         let customer_id: uuid::Uuid = sqlx::query_scalar(
-            "INSERT INTO registry_customers (branch_id, name) VALUES ($1, $2) RETURNING id",
+            "INSERT INTO registry_customers (branch_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
         )
         .bind(*branch_id.as_uuid())
         .bind("Customer Storage")
+        .bind(*OrgId::knl().as_uuid())
         .fetch_one(pool)
         .await
         .unwrap();
         let site_id: uuid::Uuid = sqlx::query_scalar(
-            "INSERT INTO registry_sites (branch_id, customer_id, name) VALUES ($1, $2, $3) RETURNING id",
+            "INSERT INTO registry_sites (branch_id, customer_id, name, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
         )
         .bind(*branch_id.as_uuid())
         .bind(customer_id)
         .bind("Site Storage")
+        .bind(*OrgId::knl().as_uuid())
         .fetch_one(pool)
         .await
         .unwrap();
@@ -1766,16 +1776,17 @@ mod tests {
             INSERT INTO registry_equipment (
                 branch_id, customer_id, site_id, equipment_no, management_no,
                 manufacturer_code, kind_code, power_code, status,
-                specification, ton_text, model, source_sheet, source_row
+                specification, ton_text, model, source_sheet, source_row, org_id
             )
             VALUES ($1, $2, $3, 'STR12-0001', 'S1',
-                    'S', 'T', 'R', '임대', '좌식', '2.5', 'STORAGE', 'test', 1)
+                    'S', 'T', 'R', '임대', '좌식', '2.5', 'STORAGE', 'test', 1, $4)
             RETURNING id
             "#,
         )
         .bind(*branch_id.as_uuid())
         .bind(customer_id)
         .bind(site_id)
+        .bind(*OrgId::knl().as_uuid())
         .fetch_one(pool)
         .await
         .unwrap()

@@ -93,9 +93,9 @@ impl PgInspectionStore {
                     r#"
                     INSERT INTO regular_inspection_schedules (
                         id, branch_id, equipment_id, mechanic_id, cycle, interval_days,
-                        due_date, status, note, created_by, created_at, updated_at
+                        due_date, status, note, created_by, created_at, updated_at, org_id
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, 'SCHEDULED', $8, $9, $10, $10)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, 'SCHEDULED', $8, $9, $10, $10, $11)
                     "#,
                 )
                 .bind(*schedule_id.as_uuid())
@@ -108,6 +108,7 @@ impl PgInspectionStore {
                 .bind(note)
                 .bind(*command.actor.as_uuid())
                 .bind(command.occurred_at)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await?;
 
@@ -157,9 +158,9 @@ impl PgInspectionStore {
                     r#"
                     INSERT INTO inspection_rounds (
                         id, schedule_id, branch_id, equipment_id, mechanic_id, completed_by,
-                        outcome, findings, note, completed_at, created_at
+                        outcome, findings, note, completed_at, created_at, org_id
                     )
-                    VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10)
+                    VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $11)
                     "#,
                 )
                 .bind(*round_id.as_uuid())
@@ -172,6 +173,7 @@ impl PgInspectionStore {
                 .bind(note)
                 .bind(command.completed_at)
                 .bind(command.occurred_at)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await?;
 

@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use mnt_kernel_core::{BranchId, ErrorKind, TraceContext, UserId, WorkOrderId};
+use mnt_kernel_core::{BranchId, ErrorKind, OrgId, TraceContext, UserId, WorkOrderId};
 use mnt_workorder_adapter_postgres::PgWorkOrderStore;
 use mnt_workorder_application::{
     AssignmentInput, CreateDailyPlanCommand, CreateOutsourceWorkCommand, CreateWorkOrderCommand,
@@ -477,9 +477,9 @@ async fn insert_evidence_media(
         r#"
         INSERT INTO evidence_media (
             work_order_id, stage, s3_key, content_type, size_bytes,
-            uploaded_by, worm_replica_status, retry_count
+            uploaded_by, worm_replica_status, retry_count, org_id
         )
-        VALUES ($1, $2, $3, 'image/jpeg', 1024, $4, $5, 0)
+        VALUES ($1, $2, $3, 'image/jpeg', 1024, $4, $5, 0, $6)
         "#,
     )
     .bind(*work_order_id.as_uuid())
@@ -492,6 +492,7 @@ async fn insert_evidence_media(
     ))
     .bind(*uploaded_by.as_uuid())
     .bind(status)
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();
@@ -533,16 +534,19 @@ async fn seed_operational_context(pool: &PgPool) -> SeededContext {
 }
 
 async fn seed_branch(pool: &PgPool) -> BranchId {
+    let knl = *OrgId::knl().as_uuid();
     let region_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
             .bind(format!("Region {}", uuid::Uuid::new_v4()))
+            .bind(knl)
             .fetch_one(pool)
             .await
             .unwrap();
     let branch_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
+        sqlx::query_scalar("INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id")
             .bind(region_id)
             .bind("HQ Test")
+            .bind(knl)
             .fetch_one(pool)
             .await
             .unwrap();
@@ -550,17 +554,20 @@ async fn seed_branch(pool: &PgPool) -> BranchId {
 }
 
 async fn seed_user(pool: &PgPool, name: &str, role: &str, branch_id: BranchId) -> UserId {
+    let knl = *OrgId::knl().as_uuid();
     let user_id = UserId::new();
-    sqlx::query("INSERT INTO users (id, display_name, roles) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
         .bind(*user_id.as_uuid())
         .bind(name)
         .bind(Vec::from([role]))
+        .bind(knl)
         .execute(pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
         .bind(*user_id.as_uuid())
         .bind(*branch_id.as_uuid())
+        .bind(knl)
         .execute(pool)
         .await
         .unwrap();
@@ -611,20 +618,23 @@ impl WorkOrderCreatedListener for RecordingCreatedListener {
 }
 
 async fn seed_equipment(pool: &PgPool, branch_id: BranchId) -> uuid::Uuid {
+    let knl = *OrgId::knl().as_uuid();
     let customer_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO registry_customers (branch_id, name) VALUES ($1, $2) RETURNING id",
+        "INSERT INTO registry_customers (branch_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
     )
     .bind(*branch_id.as_uuid())
     .bind("Customer A")
+    .bind(knl)
     .fetch_one(pool)
     .await
     .unwrap();
     let site_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO registry_sites (branch_id, customer_id, name) VALUES ($1, $2, $3) RETURNING id",
+        "INSERT INTO registry_sites (branch_id, customer_id, name, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
     )
     .bind(*branch_id.as_uuid())
     .bind(customer_id)
     .bind("Site A")
+    .bind(knl)
     .fetch_one(pool)
     .await
     .unwrap();
@@ -633,16 +643,17 @@ async fn seed_equipment(pool: &PgPool, branch_id: BranchId) -> uuid::Uuid {
         INSERT INTO registry_equipment (
             branch_id, customer_id, site_id, equipment_no, management_no,
             manufacturer_code, kind_code, power_code, status,
-            specification, ton_text, model, source_sheet, source_row
+            specification, ton_text, model, source_sheet, source_row, org_id
         )
         VALUES ($1, $2, $3, 'ABC12-0290', '290',
-                'A', 'B', 'C', '임대', '좌식', '2.5', 'GTS25DE', 'test', 1)
+                'A', 'B', 'C', '임대', '좌식', '2.5', 'GTS25DE', 'test', 1, $4)
         RETURNING id
         "#,
     )
     .bind(*branch_id.as_uuid())
     .bind(customer_id)
     .bind(site_id)
+    .bind(knl)
     .fetch_one(pool)
     .await
     .unwrap()

@@ -2,7 +2,7 @@
 
 use std::io::Cursor;
 
-use mnt_kernel_core::{BranchId, BranchScope, TraceContext, UserId};
+use mnt_kernel_core::{BranchId, BranchScope, OrgId, TraceContext, UserId};
 use mnt_platform_excel::umya_spreadsheet::{self, Workbook, Worksheet};
 use mnt_reporting_adapter_postgres::PgReportingRepository;
 use mnt_reporting_application::{
@@ -183,29 +183,33 @@ async fn company_scope_export_log_persists_null_branch_id_with_authoritative_sco
     // Seed a minimal branch so we can create the actor user; the export itself
     // is company-wide (BranchScope::All) and does not filter to this branch.
     let region_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
             .bind(format!("전국-{}", uuid::Uuid::new_v4()))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(&pool)
             .await
             .unwrap();
     let branch_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
+        sqlx::query_scalar("INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id")
             .bind(region_id)
             .bind(format!("본사-{}", uuid::Uuid::new_v4()))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(&pool)
             .await
             .unwrap();
     let actor = UserId::new();
-    sqlx::query("INSERT INTO users (id, display_name, roles) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
         .bind(*actor.as_uuid())
         .bind("총괄임원")
         .bind(Vec::from(["EXECUTIVE"]))
+        .bind(*OrgId::knl().as_uuid())
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
         .bind(*actor.as_uuid())
         .bind(branch_id)
+        .bind(*OrgId::knl().as_uuid())
         .execute(&pool)
         .await
         .unwrap();
@@ -446,15 +450,17 @@ async fn seed_export_dataset(pool: &PgPool) -> SeededExportDataset {
 
 async fn seed_branch(pool: &PgPool, region_name: &str, branch_name: &str) -> BranchId {
     let region_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
             .bind(format!("{region_name}-{}", uuid::Uuid::new_v4()))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
     let branch_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
+        sqlx::query_scalar("INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id")
             .bind(region_id)
             .bind(format!("{branch_name}-{}", uuid::Uuid::new_v4()))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
@@ -463,16 +469,18 @@ async fn seed_branch(pool: &PgPool, region_name: &str, branch_name: &str) -> Bra
 
 async fn seed_user(pool: &PgPool, name: &str, role: &str, branch: BranchId) -> UserId {
     let id = UserId::new();
-    sqlx::query("INSERT INTO users (id, display_name, roles) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
         .bind(*id.as_uuid())
         .bind(name)
         .bind(Vec::from([role]))
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
         .bind(*id.as_uuid())
         .bind(*branch.as_uuid())
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
@@ -487,19 +495,21 @@ async fn seed_equipment(
     equipment_no: &str,
 ) -> uuid::Uuid {
     let customer_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO registry_customers (branch_id, name) VALUES ($1, $2) RETURNING id",
+        "INSERT INTO registry_customers (branch_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
     )
     .bind(*branch.as_uuid())
     .bind(format!("고객-{site_name}"))
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
     let site_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO registry_sites (branch_id, customer_id, name) VALUES ($1, $2, $3) RETURNING id",
+        "INSERT INTO registry_sites (branch_id, customer_id, name, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
     )
     .bind(*branch.as_uuid())
     .bind(customer_id)
     .bind(site_name)
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
@@ -508,10 +518,10 @@ async fn seed_equipment(
         INSERT INTO registry_equipment (
             branch_id, customer_id, site_id, equipment_no, management_no, model, vin,
             vehicle_registration_no, manufacturer_code, kind_code, power_code, status, specification, ton_text,
-            source_sheet, source_row, updated_at
+            source_sheet, source_row, updated_at, org_id
         )
         VALUES ($1, $2, $3, $4, $5, 'GTS30D', $6, $7,
-                'GLD', 'FBR', 'BATTERY', '임대', '입식', '3톤', 'exports', 1, now())
+                'GLD', 'FBR', 'BATTERY', '임대', '입식', '3톤', 'exports', 1, now(), $8)
         RETURNING id
         "#,
     )
@@ -522,6 +532,7 @@ async fn seed_equipment(
     .bind(management_no)
     .bind(format!("VIN-{management_no}"))
     .bind(format!("검사차량-{management_no}"))
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap()
@@ -540,9 +551,9 @@ async fn seed_inspection_schedule(
         r#"
         INSERT INTO regular_inspection_schedules (
             branch_id, equipment_id, mechanic_id, cycle, interval_days, due_date,
-            status, note, created_by, created_at, updated_at
+            status, note, created_by, created_at, updated_at, org_id
         )
-        VALUES ($1, $2, $3, 'MONTHLY', 30, $4, 'SCHEDULED', $5, $6, $7, $7)
+        VALUES ($1, $2, $3, 'MONTHLY', 30, $4, 'SCHEDULED', $5, $6, $7, $7, $8)
         RETURNING id
         "#,
     )
@@ -553,6 +564,7 @@ async fn seed_inspection_schedule(
     .bind(note)
     .bind(*actor.as_uuid())
     .bind(EXPORT_START)
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap()
@@ -587,11 +599,11 @@ async fn seed_work_order(pool: &PgPool, seed: WorkOrderSeed<'_>) -> uuid::Uuid {
         INSERT INTO work_orders (
             request_no, branch_id, equipment_id, customer_id, site_id, requested_by,
             status, priority, symptom, target_due_at, result_type, diagnosis, action_taken,
-            report_submitted_by, report_submitted_at, created_at, updated_at
+            report_submitted_by, report_submitted_at, created_at, updated_at, org_id
         )
         VALUES ($1, $2, $3, $4, $5, $6,
                 $7, $8, $9, $10, 'COMPLETED', $11, $12,
-                $13, $14, $15, $16)
+                $13, $14, $15, $16, $17)
         RETURNING id
         "#,
     )
@@ -611,6 +623,7 @@ async fn seed_work_order(pool: &PgPool, seed: WorkOrderSeed<'_>) -> uuid::Uuid {
     .bind(seed.report_submitted_at)
     .bind(seed.created_at)
     .bind(seed.approved_at.unwrap_or(seed.created_at))
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap()
@@ -623,11 +636,12 @@ async fn seed_assignment(
     assigned_at: OffsetDateTime,
 ) {
     sqlx::query(
-        "INSERT INTO work_order_assignments (work_order_id, mechanic_id, role, assigned_at) VALUES ($1, $2, 'PRIMARY', $3)",
+        "INSERT INTO work_order_assignments (work_order_id, mechanic_id, role, assigned_at, org_id) VALUES ($1, $2, 'PRIMARY', $3, $4)",
     )
     .bind(work_order_id)
     .bind(*tech.as_uuid())
     .bind(assigned_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();
@@ -643,14 +657,15 @@ async fn seed_approval(
         r#"
         INSERT INTO work_order_approval_steps (
             work_order_id, step_order, role, approver_id, status,
-            requested_at, approved_at, approved_by_id
+            requested_at, approved_at, approved_by_id, org_id
         )
-        VALUES ($1, 3, 'EXECUTIVE', $2, 'APPROVED', $3, $3, $2)
+        VALUES ($1, 3, 'EXECUTIVE', $2, 'APPROVED', $3, $3, $2, $4)
         "#,
     )
     .bind(work_order_id)
     .bind(*approver.as_uuid())
     .bind(approved_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();
@@ -667,9 +682,9 @@ async fn seed_daily_plan(
     let plan_id: uuid::Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO daily_work_plans (
-            branch_id, mechanic_id, plan_date, status, requested_at, reviewed_at, confirmed_at
+            branch_id, mechanic_id, plan_date, status, requested_at, reviewed_at, confirmed_at, org_id
         )
-        VALUES ($1, $2, $3, 'FINAL_CONFIRMED', $4, $4, $4)
+        VALUES ($1, $2, $3, 'FINAL_CONFIRMED', $4, $4, $4, $5)
         RETURNING id
         "#,
     )
@@ -677,15 +692,17 @@ async fn seed_daily_plan(
     .bind(*mechanic.as_uuid())
     .bind(date)
     .bind(date.with_time(Time::MIDNIGHT).assume_utc())
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
     sqlx::query(
-        "INSERT INTO daily_work_plan_items (plan_id, work_order_id, description, sort_order) VALUES ($1, $2, $3, 1)",
+        "INSERT INTO daily_work_plan_items (plan_id, work_order_id, description, sort_order, org_id) VALUES ($1, $2, $3, 1, $4)",
     )
     .bind(plan_id)
     .bind(work_order_id)
     .bind(description)
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();

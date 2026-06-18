@@ -4,8 +4,8 @@
 use std::io::Cursor;
 
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, BranchScope, KernelError, RegionId, Timestamp, TraceContext,
-    UserId,
+    AuditAction, AuditEvent, BranchId, BranchScope, KernelError, OrgId, RegionId, Timestamp,
+    TraceContext, UserId,
 };
 use mnt_platform_db::{DbError, with_audit};
 use mnt_platform_excel::{
@@ -389,9 +389,9 @@ impl PgKpiRepository {
                     r#"
                     INSERT INTO work_diary_drafts (
                         id, diary_date, branch_id, scope_key, status, body,
-                        generated_by, generated_at, created_at, updated_at
+                        generated_by, generated_at, created_at, updated_at, org_id
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $8)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $8, $9)
                     "#,
                 )
                 .bind(draft_id)
@@ -402,6 +402,7 @@ impl PgKpiRepository {
                 .bind(body_value)
                 .bind(actor)
                 .bind(occurred_at)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await?;
                 Ok(())
@@ -622,9 +623,9 @@ impl PgKpiRepository {
                     r#"
                     INSERT INTO excel_export_logs (
                         id, actor, branch_id, scope_key, export_kind, export_date,
-                        file_name, source_notes, created_at
+                        file_name, source_notes, created_at, org_id
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                     "#,
                 )
                 .bind(log_id)
@@ -636,6 +637,7 @@ impl PgKpiRepository {
                 .bind(file_name)
                 .bind(source_notes)
                 .bind(occurred_at)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await?;
                 Ok(())

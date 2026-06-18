@@ -11,7 +11,7 @@ use mnt_financial_application::{
     PurchaseSubmitCommand, RejectPurchaseCommand,
 };
 use mnt_financial_domain::{DepreciationMethod, PurchaseStatus};
-use mnt_kernel_core::{BranchId, EquipmentId, EvidenceId, TraceContext, UserId, WorkOrderId};
+use mnt_kernel_core::{BranchId, EquipmentId, EvidenceId, OrgId, TraceContext, UserId, WorkOrderId};
 use sqlx::PgPool;
 use time::macros::datetime;
 
@@ -557,15 +557,17 @@ fn financial_config_no_floor() -> FinancialConfigSnapshot {
 
 async fn seed_branch(pool: &PgPool) -> BranchId {
     let region_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
             .bind(format!("Financial Region {}", uuid::Uuid::new_v4()))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
     let branch_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
+        sqlx::query_scalar("INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id")
             .bind(region_id)
             .bind(format!("Financial Branch {}", uuid::Uuid::new_v4()))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
@@ -574,16 +576,18 @@ async fn seed_branch(pool: &PgPool) -> BranchId {
 
 async fn seed_user(pool: &PgPool, name: &str, role: &str, branch_id: BranchId) -> UserId {
     let user_id = UserId::new();
-    sqlx::query("INSERT INTO users (id, display_name, roles) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
         .bind(*user_id.as_uuid())
         .bind(name)
         .bind(Vec::from([role]))
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
         .bind(*user_id.as_uuid())
         .bind(*branch_id.as_uuid())
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
@@ -599,19 +603,21 @@ async fn seed_equipment(
     residual_value: i64,
 ) -> EquipmentId {
     let customer_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO registry_customers (branch_id, name) VALUES ($1, $2) RETURNING id",
+        "INSERT INTO registry_customers (branch_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
     )
     .bind(*branch_id.as_uuid())
     .bind(format!("Customer {management_no}"))
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
     let site_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO registry_sites (branch_id, customer_id, name) VALUES ($1, $2, $3) RETURNING id",
+        "INSERT INTO registry_sites (branch_id, customer_id, name, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
     )
     .bind(*branch_id.as_uuid())
     .bind(customer_id)
     .bind(format!("Site {management_no}"))
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
@@ -621,10 +627,10 @@ async fn seed_equipment(
             branch_id, customer_id, site_id, equipment_no, management_no,
             manufacturer_code, kind_code, power_code, status,
             specification, ton_text, vehicle_value, residual_value,
-            asset_registered_on, source_sheet, source_row
+            asset_registered_on, source_sheet, source_row, org_id
         )
         VALUES ($1, $2, $3, $4, $5, 'A', 'B', 'C', '임대',
-                '좌식', '2.5T', $6, $7, DATE '2023-12-12', 'financial-test', 1)
+                '좌식', '2.5T', $6, $7, DATE '2023-12-12', 'financial-test', 1, $8)
         RETURNING id
         "#,
     )
@@ -635,6 +641,7 @@ async fn seed_equipment(
     .bind(management_no)
     .bind(vehicle_value)
     .bind(residual_value)
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
@@ -658,9 +665,9 @@ async fn seed_work_order(
         r#"
         INSERT INTO work_orders (
             id, request_no, branch_id, equipment_id, customer_id, site_id,
-            requested_by, status, symptom
+            requested_by, status, symptom, org_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'RECEIVED', 'financial fixture')
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'RECEIVED', 'financial fixture', $8)
         "#,
     )
     .bind(*work_order_id.as_uuid())
@@ -673,6 +680,7 @@ async fn seed_work_order(
     .bind(row.0)
     .bind(row.1)
     .bind(*requested_by.as_uuid())
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();
@@ -699,9 +707,9 @@ async fn seed_evidence(
         r#"
         INSERT INTO evidence_media (
             id, work_order_id, stage, s3_key, content_type, size_bytes,
-            uploaded_by, worm_replica_status, retry_count
+            uploaded_by, worm_replica_status, retry_count, org_id
         )
-        VALUES ($1, $2, $3, $4, 'application/pdf', 2048, $5, $6, 0)
+        VALUES ($1, $2, $3, $4, 'application/pdf', 2048, $5, $6, 0, $7)
         "#,
     )
     .bind(*evidence_id.as_uuid())
@@ -712,6 +720,7 @@ async fn seed_evidence(
     ))
     .bind(*uploaded_by.as_uuid())
     .bind(worm_replica_status)
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();

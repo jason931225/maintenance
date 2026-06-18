@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use mnt_kernel_core::{
-    BranchId, CustomerId, DailyPlanId, EquipmentId, ErrorKind, KernelError, SiteId, UserId,
+    BranchId, CustomerId, DailyPlanId, EquipmentId, ErrorKind, KernelError, OrgId, SiteId, UserId,
     VendorId, WorkOrderId,
 };
 use mnt_platform_db::{DbError, with_audit};
@@ -146,12 +146,12 @@ impl PgWorkOrderStore {
                     INSERT INTO work_orders (
                         id, request_no, branch_id, equipment_id, customer_id, site_id,
                         requested_by, status, priority, symptom, customer_request,
-                        target_due_at, created_at, updated_at
+                        target_due_at, created_at, updated_at, org_id
                     )
                     VALUES (
                         $1, $2, $3, $4, $5, $6,
                         $7, $8, $9, $10, $11,
-                        $12, $13, $13
+                        $12, $13, $13, $14
                     )
                     "#,
                     )
@@ -168,6 +168,7 @@ impl PgWorkOrderStore {
                     .bind(customer_request.as_deref().map(str::trim))
                     .bind(target_due_at)
                     .bind(occurred_at)
+                    .bind(*OrgId::knl().as_uuid())
                     .execute(tx.as_mut())
                     .await?;
 
@@ -292,15 +293,16 @@ impl PgWorkOrderStore {
                     sqlx::query(
                         r#"
                         INSERT INTO work_order_assignments (
-                            work_order_id, mechanic_id, role, assigned_at
+                            work_order_id, mechanic_id, role, assigned_at, org_id
                         )
-                        VALUES ($1, $2, $3, $4)
+                        VALUES ($1, $2, $3, $4, $5)
                         "#,
                     )
                     .bind(row.id)
                     .bind(*assignment.mechanic_id.as_uuid())
                     .bind(assignment.role.as_db_str())
                     .bind(occurred_at)
+                    .bind(*OrgId::knl().as_uuid())
                     .execute(tx.as_mut())
                     .await?;
                 }
@@ -713,9 +715,9 @@ impl PgWorkOrderStore {
                     r#"
                         INSERT INTO target_change_requests (
                             work_order_id, requested_by, requested_target_due_at,
-                            reason, status, created_at
+                            reason, status, created_at, org_id
                         )
-                        VALUES ($1, $2, $3, $4, 'REQUESTED', $5)
+                        VALUES ($1, $2, $3, $4, 'REQUESTED', $5, $6)
                         RETURNING id
                         "#,
                 )
@@ -724,6 +726,7 @@ impl PgWorkOrderStore {
                 .bind(requested_target_due_at)
                 .bind(reason.trim())
                 .bind(occurred_at)
+                .bind(*OrgId::knl().as_uuid())
                 .fetch_one(tx.as_mut())
                 .await?;
 
@@ -861,9 +864,9 @@ impl PgWorkOrderStore {
                 sqlx::query(
                     r#"
                     INSERT INTO daily_work_plans (
-                        id, branch_id, mechanic_id, plan_date, status, created_at, updated_at
+                        id, branch_id, mechanic_id, plan_date, status, created_at, updated_at, org_id
                     )
-                    VALUES ($1, $2, $3, $4, 'DRAFT', $5, $5)
+                    VALUES ($1, $2, $3, $4, 'DRAFT', $5, $5, $6)
                     "#,
                 )
                 .bind(*plan_id.as_uuid())
@@ -871,6 +874,7 @@ impl PgWorkOrderStore {
                 .bind(*mechanic_id.as_uuid())
                 .bind(plan_date)
                 .bind(occurred_at)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await?;
 
@@ -886,15 +890,16 @@ impl PgWorkOrderStore {
                     sqlx::query(
                         r#"
                         INSERT INTO daily_work_plan_items (
-                            plan_id, work_order_id, description, sort_order
+                            plan_id, work_order_id, description, sort_order, org_id
                         )
-                        VALUES ($1, $2, $3, $4)
+                        VALUES ($1, $2, $3, $4, $5)
                         "#,
                     )
                     .bind(*plan_id.as_uuid())
                     .bind(item.work_order_id.map(|id| *id.as_uuid()))
                     .bind(item.description.trim())
                     .bind(sort_order)
+                    .bind(*OrgId::knl().as_uuid())
                     .execute(tx.as_mut())
                     .await?;
                 }
@@ -1002,8 +1007,8 @@ impl PgWorkOrderStore {
                 let row = lock_work_order(tx, work_order_id).await?;
                 let vendor_row = sqlx::query(
                     r#"
-                    INSERT INTO outsource_vendors (branch_id, name, contact)
-                    VALUES ($1, $2, $3)
+                    INSERT INTO outsource_vendors (branch_id, name, contact, org_id)
+                    VALUES ($1, $2, $3, $4)
                     ON CONFLICT (branch_id, name) DO UPDATE
                     SET contact = COALESCE(EXCLUDED.contact, outsource_vendors.contact),
                         updated_at = now()
@@ -1013,6 +1018,7 @@ impl PgWorkOrderStore {
                 .bind(*branch_id.as_uuid())
                 .bind(vendor_name.trim())
                 .bind(vendor_contact.as_deref().map(str::trim))
+                .bind(*OrgId::knl().as_uuid())
                 .fetch_one(tx.as_mut())
                 .await?;
                 let vendor_uuid: uuid::Uuid = vendor_row.try_get("id")?;
@@ -1020,9 +1026,9 @@ impl PgWorkOrderStore {
                 let outsource_id: uuid::Uuid = sqlx::query_scalar(
                     r#"
                     INSERT INTO outsource_works (
-                        work_order_id, vendor_id, status, reason, requested_at
+                        work_order_id, vendor_id, status, reason, requested_at, org_id
                     )
-                    VALUES ($1, $2, 'REQUESTED', $3, $4)
+                    VALUES ($1, $2, 'REQUESTED', $3, $4, $5)
                     RETURNING id
                     "#,
                 )
@@ -1030,6 +1036,7 @@ impl PgWorkOrderStore {
                 .bind(vendor_uuid)
                 .bind(reason.trim())
                 .bind(occurred_at)
+                .bind(*OrgId::knl().as_uuid())
                 .fetch_one(tx.as_mut())
                 .await?;
 
@@ -1305,14 +1312,15 @@ async fn next_request_no(
 ) -> Result<String, PgWorkOrderError> {
     let sequence: i32 = sqlx::query_scalar(
         r#"
-        INSERT INTO work_order_request_counters (request_date, last_sequence)
-        VALUES ($1, 1)
-        ON CONFLICT (request_date) DO UPDATE
+        INSERT INTO work_order_request_counters (org_id, request_date, last_sequence)
+        VALUES ($2, $1, 1)
+        ON CONFLICT (org_id, request_date) DO UPDATE
         SET last_sequence = work_order_request_counters.last_sequence + 1
         RETURNING last_sequence
         "#,
     )
     .bind(date)
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(tx.as_mut())
     .await?;
     if sequence > 999 {
@@ -1475,9 +1483,9 @@ async fn insert_status_history(
     sqlx::query(
         r#"
         INSERT INTO work_order_status_history (
-            work_order_id, actor, action, from_status, to_status, occurred_at
+            work_order_id, actor, action, from_status, to_status, occurred_at, org_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         "#,
     )
     .bind(*work_order_id.as_uuid())
@@ -1486,6 +1494,7 @@ async fn insert_status_history(
     .bind(from_status.map(WorkOrderStatus::as_db_str))
     .bind(to_status.as_db_str())
     .bind(occurred_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(tx.as_mut())
     .await?;
     Ok(())
@@ -1536,9 +1545,9 @@ async fn insert_approval_step(
     sqlx::query(
         r#"
         INSERT INTO work_order_approval_steps (
-            work_order_id, step_order, role, approver_id, status, requested_at
+            work_order_id, step_order, role, approver_id, status, requested_at, org_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         "#,
     )
     .bind(*work_order_id.as_uuid())
@@ -1547,6 +1556,7 @@ async fn insert_approval_step(
     .bind(approver_id.map(|user| *user.as_uuid()))
     .bind(status)
     .bind(requested_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(tx.as_mut())
     .await?;
     Ok(())

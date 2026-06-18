@@ -277,7 +277,7 @@ impl PgDispatchStore {
                     sqlx::query(
                         r#"
                         INSERT INTO p1_dispatch_alerts (
-                            dispatch_id, recipient_user_id, alert_type, status, created_at
+                            dispatch_id, recipient_user_id, alert_type, status, created_at, org_id
                         )
                         SELECT t.dispatch_id,
                                t.user_id,
@@ -287,7 +287,8 @@ impl PgDispatchStore {
                                    THEN 'PENDING'
                                    ELSE 'SKIPPED'
                                END,
-                               $2
+                               $2,
+                               t.org_id
                         FROM p1_dispatch_targets t
                         JOIN users u ON u.id = t.user_id
                         LEFT JOIN p1_dispatch_responses r
@@ -959,9 +960,9 @@ async fn insert_dispatch_row(
         INSERT INTO p1_dispatches (
             id, work_order_id, branch_id, status, incident_latitude, incident_longitude,
             include_region, accept_window_started_at, accept_window_ends_at,
-            created_by, created_at, updated_at
+            created_by, created_at, updated_at, org_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12)
         "#,
     )
     .bind(*dispatch.id.as_uuid())
@@ -975,6 +976,7 @@ async fn insert_dispatch_row(
     .bind(dispatch.accept_window_ends_at)
     .bind(*actor.as_uuid())
     .bind(occurred_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(tx.as_mut())
     .await?;
     Ok(())
@@ -1088,9 +1090,9 @@ async fn insert_dispatch_targets(
             GROUP BY u.id, target_role
         )
         INSERT INTO p1_dispatch_targets (
-            dispatch_id, user_id, target_role, push_token_count, fanout_created_at
+            dispatch_id, user_id, target_role, push_token_count, fanout_created_at, org_id
         )
-        SELECT $1, user_id, target_role, push_token_count, $5
+        SELECT $1, user_id, target_role, push_token_count, $5, $6
         FROM target_users
         "#,
     )
@@ -1099,6 +1101,7 @@ async fn insert_dispatch_targets(
     .bind(include_region)
     .bind(on_duty_since)
     .bind(occurred_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(tx.as_mut())
     .await?;
     Ok(())
@@ -1112,11 +1115,12 @@ async fn insert_push_alerts_for_targets(
     sqlx::query(
         r#"
         INSERT INTO p1_dispatch_alerts (
-            dispatch_id, recipient_user_id, alert_type, status, created_at
+            dispatch_id, recipient_user_id, alert_type, status, created_at, org_id
         )
         SELECT dispatch_id, user_id, 'FCM_PUSH',
                CASE WHEN push_token_count > 0 THEN 'PENDING' ELSE 'SKIPPED' END,
-               $2
+               $2,
+               org_id
         FROM p1_dispatch_targets
         WHERE dispatch_id = $1
         "#,
@@ -1187,9 +1191,9 @@ async fn insert_response(
     let result = sqlx::query(
         r#"
         INSERT INTO p1_dispatch_responses (
-            dispatch_id, user_id, response, responded_at
+            dispatch_id, user_id, response, responded_at, org_id
         )
-        VALUES ($1, $2, $3, $4)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (dispatch_id, user_id) DO NOTHING
         "#,
     )
@@ -1197,6 +1201,7 @@ async fn insert_response(
     .bind(*user_id.as_uuid())
     .bind(response.as_db_str())
     .bind(occurred_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(tx.as_mut())
     .await?;
     if result.rows_affected() == 0 {
@@ -1451,15 +1456,16 @@ async fn assign_work_order_tx(
     sqlx::query(
         r#"
         INSERT INTO work_order_assignments (
-            work_order_id, mechanic_id, role, assigned_at
+            work_order_id, mechanic_id, role, assigned_at, org_id
         )
-        VALUES ($1, $2, $3, $4)
+        VALUES ($1, $2, $3, $4, $5)
         "#,
     )
     .bind(*work_order_id.as_uuid())
     .bind(*mechanic_id.as_uuid())
     .bind(AssignmentRole::Primary.as_db_str())
     .bind(occurred_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(tx.as_mut())
     .await?;
     insert_approval_step(
@@ -1500,15 +1506,16 @@ async fn assign_work_order_tx(
     sqlx::query(
         r#"
         INSERT INTO work_order_status_history (
-            work_order_id, actor, action, from_status, to_status, occurred_at
+            work_order_id, actor, action, from_status, to_status, occurred_at, org_id
         )
-        VALUES ($1, $2, 'work_order.assign', $3, 'ASSIGNED', $4)
+        VALUES ($1, $2, 'work_order.assign', $3, 'ASSIGNED', $4, $5)
         "#,
     )
     .bind(*work_order_id.as_uuid())
     .bind(*actor.as_uuid())
     .bind(row.status.as_db_str())
     .bind(occurred_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(tx.as_mut())
     .await?;
     let event = work_order_audit_event(
@@ -1535,9 +1542,9 @@ async fn insert_approval_step(
     sqlx::query(
         r#"
         INSERT INTO work_order_approval_steps (
-            work_order_id, step_order, role, approver_id, status, requested_at
+            work_order_id, step_order, role, approver_id, status, requested_at, org_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         "#,
     )
     .bind(*work_order_id.as_uuid())
@@ -1546,6 +1553,7 @@ async fn insert_approval_step(
     .bind(approver_id.map(|id| *id.as_uuid()))
     .bind(status)
     .bind(requested_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(tx.as_mut())
     .await?;
     Ok(())
@@ -1570,7 +1578,7 @@ async fn insert_manager_force_alerts(
     sqlx::query(
         r#"
         INSERT INTO p1_dispatch_alerts (
-            dispatch_id, recipient_user_id, alert_type, status, created_at
+            dispatch_id, recipient_user_id, alert_type, status, created_at, org_id
         )
         SELECT t.dispatch_id,
                t.user_id,
@@ -1581,7 +1589,8 @@ async fn insert_manager_force_alerts(
                    THEN 'PENDING'
                    ELSE 'SKIPPED'
                END,
-               $2
+               $2,
+               t.org_id
         FROM p1_dispatch_targets t
         JOIN users u ON u.id = t.user_id
         WHERE t.dispatch_id = $1

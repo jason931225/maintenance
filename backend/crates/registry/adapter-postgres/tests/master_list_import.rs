@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use mnt_kernel_core::{
-    BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId, TraceContext, UserId,
+    BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId, OrgId, TraceContext, UserId,
 };
 use mnt_registry_adapter_postgres::{PgRegistryStore, parse_master_list};
 use mnt_registry_application::{
@@ -399,16 +399,19 @@ impl EquipmentFixture {
 }
 
 async fn seed_branch(pool: &PgPool, region_name: &str, branch_name: &str) -> BranchId {
+    let knl = *OrgId::knl().as_uuid();
     let region_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
             .bind(region_name)
+            .bind(knl)
             .fetch_one(pool)
             .await
             .unwrap();
     let branch_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
+        sqlx::query_scalar("INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id")
             .bind(region_id)
             .bind(branch_name)
+            .bind(knl)
             .fetch_one(pool)
             .await
             .unwrap();
@@ -416,17 +419,20 @@ async fn seed_branch(pool: &PgPool, region_name: &str, branch_name: &str) -> Bra
 }
 
 async fn seed_user(pool: &PgPool, branch_id: BranchId, role: &str) -> UserId {
+    let knl = *OrgId::knl().as_uuid();
     let user_id = UserId::new();
-    sqlx::query("INSERT INTO users (id, display_name, roles) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
         .bind(*user_id.as_uuid())
         .bind(format!("Substitute {role}"))
         .bind(Vec::from([role]))
+        .bind(knl)
         .execute(pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
         .bind(*user_id.as_uuid())
         .bind(*branch_id.as_uuid())
+        .bind(knl)
         .execute(pool)
         .await
         .unwrap();
@@ -440,26 +446,28 @@ async fn seed_equipment(
 ) -> EquipmentId {
     let customer_id: uuid::Uuid = sqlx::query_scalar(
         r#"
-        INSERT INTO registry_customers (branch_id, name)
-        VALUES ($1, 'K&L')
+        INSERT INTO registry_customers (branch_id, name, org_id)
+        VALUES ($1, 'K&L', $2)
         ON CONFLICT (branch_id, name) DO UPDATE SET name = EXCLUDED.name
         RETURNING id
         "#,
     )
     .bind(*branch_id.as_uuid())
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
     let site_id: uuid::Uuid = sqlx::query_scalar(
         r#"
-        INSERT INTO registry_sites (branch_id, customer_id, name)
-        VALUES ($1, $2, '케이앤엘')
+        INSERT INTO registry_sites (branch_id, customer_id, name, org_id)
+        VALUES ($1, $2, '케이앤엘', $3)
         ON CONFLICT (branch_id, customer_id, name) DO UPDATE SET name = EXCLUDED.name
         RETURNING id
         "#,
     )
     .bind(*branch_id.as_uuid())
     .bind(customer_id)
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
@@ -471,13 +479,13 @@ async fn seed_equipment(
             branch_id, customer_id, site_id, equipment_no, management_no,
             manufacturer_code, kind_code, power_code, power_label, status,
             placement_location, specification, ton_text, ton_milli,
-            model, source_sheet, source_row
+            model, source_sheet, source_row, org_id
         )
         VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8, $9, $10,
             $11, $12, $13, $14,
-            $15, 'test fixture', 1
+            $15, 'test fixture', 1, $16
         )
         RETURNING id
         "#,
@@ -497,6 +505,7 @@ async fn seed_equipment(
     .bind(ton.as_text())
     .bind(ton.milli_tons())
     .bind(format!("Model {}", fixture.management_no))
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();

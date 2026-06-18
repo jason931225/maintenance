@@ -3,7 +3,7 @@
 use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode, header};
 use mnt_app::{AppConfig, AppRole, AppState, DatabaseDependency, build_router};
-use mnt_kernel_core::{BranchId, UserId};
+use mnt_kernel_core::{BranchId, OrgId, UserId};
 use mnt_platform_provisioning::BootstrapCredentialStore;
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
@@ -1087,15 +1087,17 @@ fn app_state(
 
 async fn seed_branch(pool: &PgPool, region_name: &str, branch_name: &str) -> BranchId {
     let region_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
             .bind(region_name)
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
     let branch_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
+        sqlx::query_scalar("INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id")
             .bind(region_id)
             .bind(branch_name)
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
@@ -1110,17 +1112,19 @@ async fn seed_user_with_branch(
     branch_id: BranchId,
 ) -> UserId {
     let user_id = UserId::new();
-    sqlx::query("INSERT INTO users (id, display_name, phone, roles) VALUES ($1, $2, $3, $4)")
+    sqlx::query("INSERT INTO users (id, display_name, phone, roles, org_id) VALUES ($1, $2, $3, $4, $5)")
         .bind(*user_id.as_uuid())
         .bind(display_name)
         .bind(phone)
         .bind(Vec::from([role]))
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
         .bind(*user_id.as_uuid())
         .bind(*branch_id.as_uuid())
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
@@ -1130,19 +1134,21 @@ async fn seed_user_with_branch(
 async fn seed_equipment(pool: &PgPool, branch_id: BranchId, management_no: &str) {
     let equipment_suffix = format!("{:0>4}", management_no);
     let customer_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO registry_customers (branch_id, name) VALUES ($1, $2) RETURNING id",
+        "INSERT INTO registry_customers (branch_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
     )
     .bind(*branch_id.as_uuid())
     .bind(format!("Customer {management_no}"))
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
     let site_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO registry_sites (branch_id, customer_id, name) VALUES ($1, $2, $3) RETURNING id",
+        "INSERT INTO registry_sites (branch_id, customer_id, name, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
     )
     .bind(*branch_id.as_uuid())
     .bind(customer_id)
     .bind(format!("Site {management_no}"))
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
@@ -1151,10 +1157,10 @@ async fn seed_equipment(pool: &PgPool, branch_id: BranchId, management_no: &str)
         INSERT INTO registry_equipment (
             branch_id, customer_id, site_id, equipment_no, management_no,
             manufacturer_code, kind_code, power_code, status,
-            specification, ton_text, model, source_sheet, source_row
+            specification, ton_text, model, source_sheet, source_row, org_id
         )
         VALUES ($1, $2, $3, $4, $5,
-                'A', 'B', 'C', '임대', '좌식', '2.5', 'GTS25DE', 'test', 1)
+                'A', 'B', 'C', '임대', '좌식', '2.5', 'GTS25DE', 'test', 1, $6)
         "#,
     )
     .bind(*branch_id.as_uuid())
@@ -1162,6 +1168,7 @@ async fn seed_equipment(pool: &PgPool, branch_id: BranchId, management_no: &str)
     .bind(site_id)
     .bind(format!("ABC12-{equipment_suffix}"))
     .bind(management_no)
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();

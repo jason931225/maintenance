@@ -15,19 +15,30 @@
 -- the role (CNPG, a prior partial apply, or this block), so it can never drift
 -- into SUPERUSER/BYPASSRLS.
 -- --------------------------------------------------------------------------
--- Roles are CLUSTER-global, so a fresh per-test database (or a shared cluster)
--- may race two CREATE ROLE calls. Swallow duplicate_object so the migration is
--- safe under concurrent application; the ALTER ROLE below then pins attributes
--- regardless of which session won the create.
+-- Roles live in CLUSTER-global pg_authid, so when sqlx::test applies every
+-- migration into N fresh databases in parallel, an unconditional CREATE/ALTER
+-- ROLE races the same catalog tuple ("tuple concurrently updated"). Two defenses:
+--   1. pg_advisory_xact_lock — cluster-wide (not per-DB) and auto-released on
+--      commit, so it strictly orders this role setup across concurrent applies.
+--      In production (a single migration applier) it is an uncontended no-op.
+--   2. Idempotent create/alter — only write pg_authid when the role is missing
+--      or an attribute has actually drifted, so repeat applies touch nothing and
+--      cannot conflict even if the lock were unavailable.
+SELECT pg_advisory_xact_lock(hashtext('mnt_rt_role_setup'));
+
 DO $$
 BEGIN
-    CREATE ROLE mnt_rt NOLOGIN;
-EXCEPTION
-    WHEN duplicate_object THEN NULL;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mnt_rt') THEN
+        CREATE ROLE mnt_rt NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+    ELSIF EXISTS (
+        SELECT 1 FROM pg_roles
+        WHERE rolname = 'mnt_rt'
+          AND (rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole)
+    ) THEN
+        ALTER ROLE mnt_rt NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+    END IF;
 END
 $$;
-
-ALTER ROLE mnt_rt NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
 
 -- --------------------------------------------------------------------------
 -- (1b) Least-privilege table grants to the RUNTIME role (NOT the owner).

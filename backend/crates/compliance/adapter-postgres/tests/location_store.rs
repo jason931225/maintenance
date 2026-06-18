@@ -3,7 +3,7 @@
 use mnt_compliance_adapter_postgres::PgComplianceStore;
 use mnt_compliance_application::{ConsentTransitionCommand, ConsentTransitionKind};
 use mnt_compliance_domain::{LocationPing, PingVolumeBound};
-use mnt_kernel_core::{BranchId, LocationPingId, TraceContext, UserId};
+use mnt_kernel_core::{BranchId, LocationPingId, OrgId, TraceContext, UserId};
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
 use time::{Duration, OffsetDateTime, macros::datetime};
@@ -283,16 +283,18 @@ fn command(
 
 async fn seed_user_and_branch(pool: &PgPool, display_name: &str) -> (UserId, BranchId) {
     let region_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
             .bind(format!("{display_name} Region"))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
 
     let branch_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
+        sqlx::query_scalar("INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id")
             .bind(region_id)
             .bind(format!("{display_name} Branch"))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
@@ -306,16 +308,18 @@ async fn seed_user_in_branch(
     display_name: &str,
 ) -> (UserId, BranchId) {
     let user_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO users (display_name, roles) VALUES ($1, $2) RETURNING id")
+        sqlx::query_scalar("INSERT INTO users (display_name, roles, org_id) VALUES ($1, $2, $3) RETURNING id")
             .bind(display_name)
             .bind(Vec::<String>::from(["MECHANIC".to_string()]))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
 
-    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
         .bind(user_id)
         .bind(*branch_id.as_uuid())
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
@@ -325,23 +329,26 @@ async fn seed_user_in_branch(
 
 async fn seed_second_branch(pool: &PgPool, user_id: UserId, display_name: &str) -> BranchId {
     let region_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
             .bind(format!("{display_name} Region"))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
 
     let branch_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
+        sqlx::query_scalar("INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id")
             .bind(region_id)
             .bind(format!("{display_name} Branch"))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
 
-    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
         .bind(*user_id.as_uuid())
         .bind(branch_id)
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();

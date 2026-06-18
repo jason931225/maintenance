@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, BranchScope, TraceContext, UserId};
+use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, BranchScope, OrgId, TraceContext, UserId};
 use mnt_messenger_adapter_postgres::PgMessengerStore;
 use mnt_messenger_application::{CreateThreadCommand, SendMessageCommand};
 use mnt_messenger_domain::ThreadKind;
@@ -339,16 +339,18 @@ async fn seed_branch(pool: &PgPool) -> BranchId {
     .with_branch(branch_id);
     with_audit(pool, event, |tx| {
         Box::pin(async move {
-            sqlx::query("INSERT INTO regions (id, name) VALUES ($1, $2)")
+            sqlx::query("INSERT INTO regions (id, name, org_id) VALUES ($1, $2, $3)")
                 .bind(region_id)
                 .bind(format!("Realtime Region {}", uuid::Uuid::new_v4()))
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await
                 .map_err(DbError::Sqlx)?;
-            sqlx::query("INSERT INTO branches (id, region_id, name) VALUES ($1, $2, $3)")
+            sqlx::query("INSERT INTO branches (id, region_id, name, org_id) VALUES ($1, $2, $3, $4)")
                 .bind(*branch_id.as_uuid())
                 .bind(region_id)
                 .bind(format!("Realtime Branch {}", uuid::Uuid::new_v4()))
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await
                 .map_err(DbError::Sqlx)?;
@@ -434,16 +436,18 @@ async fn seed_user_with_branch(
     .with_branch(branch_id);
     with_audit(pool, event, |tx| {
         Box::pin(async move {
-            sqlx::query("INSERT INTO users (id, display_name, roles) VALUES ($1, $2, $3)")
+            sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
                 .bind(*user_id.as_uuid())
                 .bind(format!("Realtime {name} {}", uuid::Uuid::new_v4()))
                 .bind(Vec::from([role]))
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await
                 .map_err(DbError::Sqlx)?;
-            sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+            sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
                 .bind(*user_id.as_uuid())
                 .bind(*branch_id.as_uuid())
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await
                 .map_err(DbError::Sqlx)?;

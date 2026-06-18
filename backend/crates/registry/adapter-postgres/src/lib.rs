@@ -420,9 +420,9 @@ impl PgRegistryStore {
                     r#"
                     INSERT INTO equipment_substitutions (
                         id, branch_id, source_equipment_id, substitute_equipment_id,
-                        assigned_by, assigned_to, assignment_location, assigned_at
+                        assigned_by, assigned_to, assignment_location, assigned_at, org_id
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                     "#,
                 )
                 .bind(*substitution_id.as_uuid())
@@ -433,6 +433,7 @@ impl PgRegistryStore {
                 .bind(assigned_to.map(|user_id| *user_id.as_uuid()))
                 .bind(assignment_location.as_str())
                 .bind(assigned_at)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await?;
 
@@ -516,24 +517,26 @@ impl PgRegistryStore {
         let mut tx = self.pool.begin().await?;
         let region_id: uuid::Uuid = sqlx::query_scalar(
             r#"
-            INSERT INTO regions (name)
-            VALUES ('HQ')
-            ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+            INSERT INTO regions (name, org_id)
+            VALUES ('HQ', $1)
+            ON CONFLICT (org_id, name) DO UPDATE SET name = EXCLUDED.name
             RETURNING id
             "#,
         )
+        .bind(*OrgId::knl().as_uuid())
         .fetch_one(tx.as_mut())
         .await?;
 
         let branch_id: uuid::Uuid = sqlx::query_scalar(
             r#"
-            INSERT INTO branches (region_id, name)
-            VALUES ($1, 'HQ')
+            INSERT INTO branches (region_id, name, org_id)
+            VALUES ($1, 'HQ', $2)
             ON CONFLICT (region_id, name) DO UPDATE SET name = EXCLUDED.name
             RETURNING id
             "#,
         )
         .bind(region_id)
+        .bind(*OrgId::knl().as_uuid())
         .fetch_one(tx.as_mut())
         .await?;
 
@@ -934,8 +937,8 @@ async fn upsert_customer(
 ) -> Result<uuid::Uuid, PgRegistryError> {
     let id = sqlx::query_scalar(
         r#"
-        INSERT INTO registry_customers (branch_id, name)
-        VALUES ($1, $2)
+        INSERT INTO registry_customers (branch_id, name, org_id)
+        VALUES ($1, $2, $3)
         ON CONFLICT (branch_id, name) DO UPDATE
             SET updated_at = registry_customers.updated_at
         RETURNING id
@@ -943,6 +946,7 @@ async fn upsert_customer(
     )
     .bind(branch_id)
     .bind(name)
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(tx.as_mut())
     .await?;
     Ok(id)
@@ -956,8 +960,8 @@ async fn upsert_site(
 ) -> Result<uuid::Uuid, PgRegistryError> {
     let id = sqlx::query_scalar(
         r#"
-        INSERT INTO registry_sites (branch_id, customer_id, name)
-        VALUES ($1, $2, $3)
+        INSERT INTO registry_sites (branch_id, customer_id, name, org_id)
+        VALUES ($1, $2, $3, $4)
         ON CONFLICT (branch_id, customer_id, name) DO UPDATE
             SET updated_at = registry_sites.updated_at
         RETURNING id
@@ -966,6 +970,7 @@ async fn upsert_site(
     .bind(branch_id)
     .bind(customer_id)
     .bind(name)
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(tx.as_mut())
     .await?;
     Ok(id)
@@ -988,7 +993,8 @@ async fn insert_equipment(
                 specification, ton_text, ton_milli, maker, model, vin, year, hours,
                 vehicle_registration_no, insured, insurer, policy_holder, insured_party,
                 asset_owner, asset_registered_on, rental_started_on,
-                rental_fee, vehicle_value, residual_value, note, source_sheet, source_row
+                rental_fee, vehicle_value, residual_value, note, source_sheet, source_row,
+                org_id
             )
             VALUES (
                 $1, $2, $3, $4,
@@ -997,7 +1003,8 @@ async fn insert_equipment(
                 $15, $16, $17, $18, $19, $20, $21, $22,
                 $23, $24, $25, $26, $27,
                 $28, $29, $30,
-                $31, $32, $33, $34, $35, $36
+                $31, $32, $33, $34, $35, $36,
+                $37
             )
             "#,
         ),
@@ -1006,6 +1013,7 @@ async fn insert_equipment(
         site_id,
         row,
     )
+    .bind(*OrgId::knl().as_uuid())
     .execute(tx.as_mut())
     .await?;
     Ok(())

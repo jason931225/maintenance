@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, UserId};
+use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, OrgId, UserId};
 use mnt_platform_authz::{
     Action, BranchColumn, Feature, PermissionLevel, Principal, Role, authorize, permission_for,
     repository_filter, resolve_branch_scope,
@@ -225,9 +225,10 @@ async fn resolves_user_branch_scope_from_memberships(pool: PgPool) {
 #[sqlx::test(migrations = "../db/migrations")]
 async fn resolves_super_admin_to_all_scope_without_memberships(pool: PgPool) {
     let user: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO users (display_name, roles) VALUES ($1, $2) RETURNING id")
+        sqlx::query_scalar("INSERT INTO users (display_name, roles, org_id) VALUES ($1, $2, $3) RETURNING id")
             .bind("Global Admin")
             .bind(Vec::from(["SUPER_ADMIN"]))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -250,39 +251,44 @@ async fn seed_user_with_two_branches_and_one_membership(
     role: &str,
 ) -> SeededBranches {
     let region_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
             .bind(format!("Region {role}"))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
 
     let member_branch: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
+        sqlx::query_scalar("INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id")
             .bind(region_id)
             .bind(format!("Member {role}"))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
 
     let other_branch: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
+        sqlx::query_scalar("INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id")
             .bind(region_id)
             .bind(format!("Other {role}"))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
 
     let user: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO users (display_name, roles) VALUES ($1, $2) RETURNING id")
+        sqlx::query_scalar("INSERT INTO users (display_name, roles, org_id) VALUES ($1, $2, $3) RETURNING id")
             .bind(format!("User {role}"))
             .bind(Vec::from([role]))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
 
-    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
         .bind(user)
         .bind(member_branch)
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();

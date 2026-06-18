@@ -15,7 +15,7 @@ use mnt_identity_application::{
 use mnt_identity_domain::{
     Team, normalize_optional_phone, validate_display_name, validate_org_name,
 };
-use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, KernelError, RegionId, UserId};
+use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, KernelError, OrgId, RegionId, UserId};
 use mnt_platform_db::{DbError, with_audit};
 use sqlx::{PgPool, Postgres, QueryBuilder, Row, Transaction};
 
@@ -112,8 +112,8 @@ impl PgOrgStore {
             Box::pin(async move {
                 sqlx::query(
                     r#"
-                    INSERT INTO users (id, display_name, phone, roles, team, is_active, created_at)
-                    VALUES ($1, $2, $3, $4, $5, true, $6)
+                    INSERT INTO users (id, display_name, phone, roles, team, is_active, created_at, org_id)
+                    VALUES ($1, $2, $3, $4, $5, true, $6, $7)
                     "#,
                 )
                 .bind(*user_id.as_uuid())
@@ -122,6 +122,7 @@ impl PgOrgStore {
                 .bind(&roles)
                 .bind(team_db)
                 .bind(command.occurred_at)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await?;
 
@@ -392,10 +393,11 @@ impl PgOrgStore {
 
         with_audit::<_, RegionSummary, PgOrgError>(&self.pool, event, |tx| {
             Box::pin(async move {
-                sqlx::query("INSERT INTO regions (id, name, created_at) VALUES ($1, $2, $3)")
+                sqlx::query("INSERT INTO regions (id, name, created_at, org_id) VALUES ($1, $2, $3, $4)")
                     .bind(*region_id.as_uuid())
                     .bind(&name)
                     .bind(command.occurred_at)
+                    .bind(*OrgId::knl().as_uuid())
                     .execute(tx.as_mut())
                     .await?;
                 fetch_region_tx(tx, region_id).await
@@ -440,12 +442,13 @@ impl PgOrgStore {
         with_audit::<_, BranchSummary, PgOrgError>(&self.pool, event, |tx| {
             Box::pin(async move {
                 sqlx::query(
-                    "INSERT INTO branches (id, region_id, name, created_at) VALUES ($1, $2, $3, $4)",
+                    "INSERT INTO branches (id, region_id, name, created_at, org_id) VALUES ($1, $2, $3, $4, $5)",
                 )
                 .bind(*branch_id.as_uuid())
                 .bind(*region_id.as_uuid())
                 .bind(&name)
                 .bind(command.occurred_at)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await?;
                 fetch_branch_tx(tx, branch_id).await
@@ -526,11 +529,12 @@ async fn replace_user_branches(
         .await?;
     for branch_id in branch_ids {
         sqlx::query(
-            "INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2) \
+            "INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3) \
              ON CONFLICT (user_id, branch_id) DO NOTHING",
         )
         .bind(*user_id.as_uuid())
         .bind(branch_id)
+        .bind(*OrgId::knl().as_uuid())
         .execute(tx.as_mut())
         .await?;
     }

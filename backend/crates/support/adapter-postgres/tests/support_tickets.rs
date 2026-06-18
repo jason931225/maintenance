@@ -1,7 +1,7 @@
 //! DB-backed tests for the support-ticket Postgres adapter.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, SupportTicketId, TraceContext, UserId};
+use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, OrgId, SupportTicketId, TraceContext, UserId};
 use mnt_support_adapter_postgres::PgSupportStore;
 use mnt_support_application::{
     AddCommentCommand, AssignTicketCommand, CommentAudience, CreateCustomerIntakeCommand,
@@ -720,15 +720,17 @@ async fn customer_intake_rejects_over_length_fields(pool: PgPool) {
 
 async fn seed_branch(pool: &PgPool) -> BranchId {
     let region_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
             .bind(format!("Support Region {}", uuid::Uuid::new_v4()))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
     let branch_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
+        sqlx::query_scalar("INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id")
             .bind(region_id)
             .bind("Support Branch")
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
@@ -737,16 +739,18 @@ async fn seed_branch(pool: &PgPool) -> BranchId {
 
 async fn seed_user(pool: &PgPool, name: &str, branch_id: BranchId) -> UserId {
     let user_id = UserId::new();
-    sqlx::query("INSERT INTO users (id, display_name, phone) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (id, display_name, phone, org_id) VALUES ($1, $2, $3, $4)")
         .bind(*user_id.as_uuid())
         .bind(name)
         .bind(format!("010{}", &user_id.to_string()[..8]))
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
         .bind(*user_id.as_uuid())
         .bind(*branch_id.as_uuid())
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();

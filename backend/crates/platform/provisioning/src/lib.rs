@@ -583,8 +583,8 @@ async fn apply_roster_tx(
         } else {
             let user_id: Uuid = sqlx::query_scalar(
                 r#"
-                INSERT INTO users (display_name, phone, roles, team)
-                VALUES ($1, $2, $3, $4)
+                INSERT INTO users (display_name, phone, roles, team, org_id)
+                VALUES ($1, $2, $3, $4, $5)
                 RETURNING id
                 "#,
             )
@@ -592,6 +592,7 @@ async fn apply_roster_tx(
             .bind(&user.phone)
             .bind(&user.roles)
             .bind(&user.team)
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(tx.as_mut())
             .await?;
             report.users_created += 1;
@@ -613,9 +614,10 @@ async fn apply_roster_tx(
         let existing_branches = existing_branch_rows.into_iter().collect::<BTreeSet<_>>();
 
         for branch_id in desired_branches.difference(&existing_branches) {
-            sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+            sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
                 .bind(user_id)
                 .bind(*branch_id)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await?;
             report.branch_memberships_added += 1;
@@ -720,8 +722,8 @@ async fn issue_bootstrap_if_needed_tx(
     sqlx::query(
         r#"
         INSERT INTO auth_bootstrap_credentials (
-            id, user_id, token_hash, issued_at, expires_at
-        ) VALUES ($1, $2, $3, $4, $5)
+            id, user_id, token_hash, issued_at, expires_at, org_id
+        ) VALUES ($1, $2, $3, $4, $5, $6)
         "#,
     )
     .bind(credential_id)
@@ -729,6 +731,7 @@ async fn issue_bootstrap_if_needed_tx(
     .bind(token_hash)
     .bind(now)
     .bind(expires_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(tx.as_mut())
     .await?;
 
@@ -821,8 +824,8 @@ async fn seed_cold_start_if_needed_tx(
     let opened_id: Option<Uuid> = sqlx::query_scalar(
         r#"
         INSERT INTO auth_bootstrap_credentials (
-            id, user_id, token_hash, issued_at, expires_at
-        ) VALUES ($1, $2, $3, $4, $5)
+            id, user_id, token_hash, issued_at, expires_at, org_id
+        ) VALUES ($1, $2, $3, $4, $5, $6)
         ON CONFLICT (token_hash) DO UPDATE
             SET issued_at = EXCLUDED.issued_at,
                 expires_at = EXCLUDED.expires_at,
@@ -841,6 +844,7 @@ async fn seed_cold_start_if_needed_tx(
     .bind(token_hash)
     .bind(now)
     .bind(expires_at)
+    .bind(*OrgId::knl().as_uuid())
     .fetch_optional(tx.as_mut())
     .await?;
 

@@ -148,6 +148,7 @@ async fn insert_audit_event_tx(
     let actor_uuid: Option<uuid::Uuid> = event.actor.map(|uid| *uid.as_uuid());
     let event_id_uuid: uuid::Uuid = *event.id.as_uuid();
     let branch_uuid: Option<uuid::Uuid> = event.branch_id.map(|bid| *bid.as_uuid());
+    let org_uuid: Option<uuid::Uuid> = event.org_id.map(|oid| *oid.as_uuid());
     let action_str = event.action.as_str();
     let occurred_at = event.occurred_at;
     let trace_id = event.trace.trace_id();
@@ -158,11 +159,11 @@ async fn insert_audit_event_tx(
         INSERT INTO audit_events (
             id, actor, action, target_type, target_id,
             branch_id, before_snap, after_snap,
-            trace_id, span_id, occurred_at
+            trace_id, span_id, occurred_at, org_id
         ) VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8,
-            $9, $10, $11
+            $9, $10, $11, $12
         )
         "#,
         event_id_uuid,
@@ -176,6 +177,7 @@ async fn insert_audit_event_tx(
         trace_id,
         span_id,
         occurred_at,
+        org_uuid,
     )
     .execute(tx.as_mut())
     .await

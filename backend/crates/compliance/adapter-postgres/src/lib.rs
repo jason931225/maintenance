@@ -13,7 +13,7 @@ use mnt_compliance_domain::{
     LocationConsent, LocationConsentState, LocationPing, PersistedLocationConsent,
 };
 use mnt_kernel_core::{
-    BranchId, BranchScope, ConsentId, ErrorKind, KernelError, Timestamp, UserId,
+    BranchId, BranchScope, ConsentId, ErrorKind, KernelError, OrgId, Timestamp, UserId,
 };
 use mnt_platform_db::{DbError, with_audit};
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
@@ -115,13 +115,15 @@ impl PgComplianceStore {
 
                 match (current, expected_id, expected_status.as_deref()) {
                     (None, None, None) => {
+                        let knl_org = *OrgId::knl().as_uuid();
                         sqlx::query!(
                             r#"
                             INSERT INTO location_consents (
                                 id, user_id, branch_id, status,
-                                granted_at, suspended_at, resumed_at, withdrawn_at, updated_at
+                                granted_at, suspended_at, resumed_at, withdrawn_at, updated_at,
+                                org_id
                             )
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                             "#,
                             consent_id,
                             user_uuid,
@@ -132,6 +134,7 @@ impl PgComplianceStore {
                             resumed_at,
                             withdrawn_at,
                             updated_at,
+                            knl_org,
                         )
                         .execute(tx.as_mut())
                         .await?;
@@ -174,13 +177,14 @@ impl PgComplianceStore {
                     }
                 }
 
+                let ledger_org = *OrgId::knl().as_uuid();
                 sqlx::query!(
                     r#"
                     INSERT INTO location_consent_ledger (
                         consent_id, user_id, branch_id, actor, action,
-                        from_status, to_status, occurred_at
+                        from_status, to_status, occurred_at, org_id
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                     "#,
                     consent_id,
                     user_uuid,
@@ -190,6 +194,7 @@ impl PgComplianceStore {
                     from_status,
                     to_status,
                     occurred_at,
+                    ledger_org,
                 )
                 .execute(tx.as_mut())
                 .await?;
@@ -278,13 +283,14 @@ impl PgComplianceStore {
             }
         }
 
+        let knl_org = *OrgId::knl().as_uuid();
         sqlx::query!(
             r#"
             INSERT INTO location_pings (
                 id, user_id, branch_id, latitude, longitude,
-                accuracy_m, recorded_at, on_duty
+                accuracy_m, recorded_at, on_duty, org_id
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             "#,
             ping_uuid,
             user_uuid,
@@ -294,6 +300,7 @@ impl PgComplianceStore {
             accuracy_m,
             recorded_at,
             ping.on_duty(),
+            knl_org,
         )
         .execute(tx.as_mut())
         .await?;
@@ -301,14 +308,15 @@ impl PgComplianceStore {
         sqlx::query!(
             r#"
             INSERT INTO location_collection_logs (
-                user_id, branch_id, ping_id, recorded_at, reason
+                user_id, branch_id, ping_id, recorded_at, reason, org_id
             )
-            VALUES ($1, $2, $3, $4, 'on_duty_location_ping')
+            VALUES ($1, $2, $3, $4, 'on_duty_location_ping', $5)
             "#,
             user_uuid,
             branch_uuid,
             ping_uuid,
             recorded_at,
+            knl_org,
         )
         .execute(tx.as_mut())
         .await?;

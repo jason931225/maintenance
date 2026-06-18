@@ -1,4 +1,4 @@
-use mnt_kernel_core::{AuditAction, AuditEvent, TraceContext, UserId};
+use mnt_kernel_core::{AuditAction, AuditEvent, OrgId, TraceContext, UserId};
 use mnt_platform_db::with_audit;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
@@ -79,21 +79,22 @@ impl RefreshTokenStore {
             Box::pin(async move {
                 sqlx::query(
                     r#"
-                    INSERT INTO auth_refresh_token_families (id, user_id, created_at)
-                    VALUES ($1, $2, $3)
+                    INSERT INTO auth_refresh_token_families (id, user_id, created_at, org_id)
+                    VALUES ($1, $2, $3, $4)
                     "#,
                 )
                 .bind(family_id)
                 .bind(user_id)
                 .bind(now)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await?;
 
                 sqlx::query(
                     r#"
                     INSERT INTO auth_refresh_tokens (
-                        id, family_id, user_id, token_hash, issued_at, expires_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6)
+                        id, family_id, user_id, token_hash, issued_at, expires_at, org_id
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7)
                     "#,
                 )
                 .bind(token_id)
@@ -102,6 +103,7 @@ impl RefreshTokenStore {
                 .bind(token_hash)
                 .bind(now)
                 .bind(expires_at)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await?;
 
@@ -219,8 +221,8 @@ impl RefreshTokenStore {
         sqlx::query(
             r#"
             INSERT INTO auth_refresh_tokens (
-                id, family_id, user_id, token_hash, issued_at, expires_at
-            ) VALUES ($1, $2, $3, $4, $5, $6)
+                id, family_id, user_id, token_hash, issued_at, expires_at, org_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
         )
         .bind(replacement_id)
@@ -229,6 +231,7 @@ impl RefreshTokenStore {
         .bind(replacement_hash)
         .bind(now)
         .bind(replacement_expires_at)
+        .bind(*OrgId::knl().as_uuid())
         .execute(tx.as_mut())
         .await?;
 

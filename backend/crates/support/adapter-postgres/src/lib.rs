@@ -119,9 +119,9 @@ impl PgSupportStore {
                     r#"
                     INSERT INTO support_tickets (
                         id, branch_id, origin, category, priority, status,
-                        title, body, requester_user_id, due_at, created_at, updated_at
+                        title, body, requester_user_id, due_at, created_at, updated_at, org_id
                     )
-                    VALUES ($1, $2, 'INTERNAL', $3, $4, 'OPEN', $5, $6, $7, $8, $9, $9)
+                    VALUES ($1, $2, 'INTERNAL', $3, $4, 'OPEN', $5, $6, $7, $8, $9, $9, $10)
                     "#,
                 )
                 .bind(*ticket_id.as_uuid())
@@ -133,6 +133,7 @@ impl PgSupportStore {
                 .bind(*command.actor.as_uuid())
                 .bind(due_at)
                 .bind(command.occurred_at)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await?;
 
@@ -197,9 +198,9 @@ impl PgSupportStore {
                     INSERT INTO support_tickets (
                         id, branch_id, origin, category, priority, status,
                         title, body, requester_name, requester_contact,
-                        due_at, created_at, updated_at
+                        due_at, created_at, updated_at, org_id
                     )
-                    VALUES ($1, NULL, 'CUSTOMER', $2, $3, 'OPEN', $4, $5, $6, $7, $8, $9, $9)
+                    VALUES ($1, NULL, 'CUSTOMER', $2, $3, 'OPEN', $4, $5, $6, $7, $8, $9, $9, $10)
                     "#,
                 )
                 .bind(*ticket_id.as_uuid())
@@ -211,6 +212,7 @@ impl PgSupportStore {
                 .bind(&requester_contact)
                 .bind(due_at)
                 .bind(command.occurred_at)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await?;
 
@@ -377,9 +379,9 @@ impl PgSupportStore {
                 sqlx::query(
                     r#"
                         INSERT INTO support_ticket_comments (
-                            id, ticket_id, author_user_id, body, is_internal_note, created_at
+                            id, ticket_id, author_user_id, body, is_internal_note, created_at, org_id
                         )
-                        VALUES ($1, $2, $3, $4, $5, $6)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)
                         "#,
                 )
                 .bind(*comment_id.as_uuid())
@@ -388,6 +390,7 @@ impl PgSupportStore {
                 .bind(&body)
                 .bind(command.is_internal_note)
                 .bind(command.occurred_at)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await?;
 

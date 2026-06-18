@@ -15,7 +15,7 @@ use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, DailyPlanId, DeviceId, ErrorKind, EvidenceId,
-    KernelError, TraceContext, UserId, WorkOrderId,
+    KernelError, OrgId, TraceContext, UserId, WorkOrderId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, BranchColumn, Feature, Principal, Role, authorize};
@@ -1186,9 +1186,9 @@ async fn claim_sync_request(
                 r#"
                 INSERT INTO offline_sync_requests (
                     user_id, device_hash, request_id, sync_id, operation_type,
-                    client_created_at, status, payload_hash, request_payload
+                    client_created_at, status, payload_hash, request_payload, org_id
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, 'IN_PROGRESS', $7, $8)
+                VALUES ($1, $2, $3, $4, $5, $6, 'IN_PROGRESS', $7, $8, $9)
                 RETURNING id
                 "#,
             )
@@ -1200,6 +1200,7 @@ async fn claim_sync_request(
             .bind(client_created_at)
             .bind(&payload_hash)
             .bind(&payload_envelope)
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(tx.as_mut())
             .await?;
             Ok(SyncClaim::Claimed(id))
@@ -1296,9 +1297,9 @@ where
                     r#"
                     INSERT INTO registered_devices (
                         user_id, device_hash, platform, push_token, app_version,
-                        last_registered_at, created_at, updated_at
+                        last_registered_at, created_at, updated_at, org_id
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $6, $6)
+                    VALUES ($1, $2, $3, $4, $5, $6, $6, $6, $7)
                     ON CONFLICT (user_id, device_hash) DO UPDATE
                     SET platform = EXCLUDED.platform,
                         push_token = EXCLUDED.push_token,
@@ -1315,6 +1316,7 @@ where
                 .bind(body.push_token.as_deref().map(str::trim))
                 .bind(&app_version)
                 .bind(now)
+                .bind(*OrgId::knl().as_uuid())
                 .fetch_one(tx.as_mut())
                 .await?;
                 device_registration_from_row(&row)

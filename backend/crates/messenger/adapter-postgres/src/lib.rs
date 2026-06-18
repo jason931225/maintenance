@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, EvidenceId, KernelError, MessageId, ThreadId, UserId,
+    BranchId, BranchScope, ErrorKind, EvidenceId, KernelError, MessageId, OrgId, ThreadId, UserId,
     WorkOrderId,
 };
 use mnt_messenger_application::{
@@ -225,9 +225,9 @@ impl PgMessengerStore {
                 sqlx::query(
                     r#"
                         INSERT INTO messenger_messages (
-                            id, thread_id, branch_id, sender_id, body, sent_at, created_at
+                            id, thread_id, branch_id, sender_id, body, sent_at, created_at, org_id
                         )
-                        VALUES ($1, $2, $3, $4, $5, $6, $6)
+                        VALUES ($1, $2, $3, $4, $5, $6, $6, $7)
                         "#,
                 )
                 .bind(*message_id.as_uuid())
@@ -236,6 +236,7 @@ impl PgMessengerStore {
                 .bind(*command.actor.as_uuid())
                 .bind(body.as_str())
                 .bind(command.occurred_at)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await?;
 
@@ -245,14 +246,15 @@ impl PgMessengerStore {
                     sqlx::query(
                         r#"
                             INSERT INTO messenger_message_attachments (
-                                message_id, evidence_id, sort_order
+                                message_id, evidence_id, sort_order, org_id
                             )
-                            VALUES ($1, $2, $3)
+                            VALUES ($1, $2, $3, $4)
                             "#,
                     )
                     .bind(*message_id.as_uuid())
                     .bind(*evidence_id.as_uuid())
                     .bind(sort_order)
+                    .bind(*OrgId::knl().as_uuid())
                     .execute(tx.as_mut())
                     .await?;
                 }
@@ -319,9 +321,9 @@ impl PgMessengerStore {
                 sqlx::query(
                     r#"
                     INSERT INTO messenger_read_receipts (
-                        thread_id, user_id, last_read_message_id, read_at, updated_at
+                        thread_id, user_id, last_read_message_id, read_at, updated_at, org_id
                     )
-                    VALUES ($1, $2, $3, $4, $4)
+                    VALUES ($1, $2, $3, $4, $4, $5)
                     ON CONFLICT (thread_id, user_id) DO UPDATE
                     SET last_read_message_id = EXCLUDED.last_read_message_id,
                         read_at = EXCLUDED.read_at,
@@ -332,6 +334,7 @@ impl PgMessengerStore {
                 .bind(*command.actor.as_uuid())
                 .bind(*command.last_read_message_id.as_uuid())
                 .bind(command.occurred_at)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await?;
                 fetch_read_receipt_tx(tx, command.thread_id, command.actor).await
@@ -563,9 +566,9 @@ async fn insert_thread_tx(
     sqlx::query(
         r#"
         INSERT INTO messenger_threads (
-            id, kind, branch_id, work_order_id, title, created_by, created_at, updated_at
+            id, kind, branch_id, work_order_id, title, created_by, created_at, updated_at, org_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8)
         "#,
     )
     .bind(*thread.id.as_uuid())
@@ -575,6 +578,7 @@ async fn insert_thread_tx(
     .bind(thread.title)
     .bind(*thread.actor.as_uuid())
     .bind(thread.occurred_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(tx.as_mut())
     .await?;
 
@@ -586,8 +590,8 @@ async fn insert_thread_tx(
         };
         sqlx::query(
             r#"
-            INSERT INTO messenger_thread_members (thread_id, user_id, role, joined_at)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO messenger_thread_members (thread_id, user_id, role, joined_at, org_id)
+            VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (thread_id, user_id) DO NOTHING
             "#,
         )
@@ -595,6 +599,7 @@ async fn insert_thread_tx(
         .bind(*member_id.as_uuid())
         .bind(role)
         .bind(thread.occurred_at)
+        .bind(*OrgId::knl().as_uuid())
         .execute(tx.as_mut())
         .await?;
     }

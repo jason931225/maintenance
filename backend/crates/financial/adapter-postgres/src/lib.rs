@@ -144,12 +144,12 @@ impl PgFinancialStore {
                         depreciation_method, useful_life_months, residual_rate_bps,
                         declining_balance_rate_bps, management_fee_rate_bps,
                         profit_rate_bps, floor_negative_quote_residual,
-                        executive_threshold_won, created_at, updated_at
+                        executive_threshold_won, created_at, updated_at, org_id
                     )
                     VALUES (
                         $1, $2, $3, $4, $5,
                         $6, $7, $8, $9, $10,
-                        $11, $12, $13, $14, $15, $16, $17, $18, $19, $19
+                        $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $20
                     )
                     "#,
                 )
@@ -176,6 +176,7 @@ impl PgFinancialStore {
                 .bind(command.config.floor_negative_quote_residual)
                 .bind(command.config.executive_approval_threshold_won)
                 .bind(command.occurred_at)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await?;
                 insert_purchase_history_tx(
@@ -716,9 +717,9 @@ async fn append_cost_ledger_entry_tx(
         INSERT INTO equipment_cost_ledger (
             id, branch_id, equipment_id, work_order_id, purchase_request_id,
             source, amount_won, memo, residual_before_won, residual_after_won,
-            entry_at, created_by
+            entry_at, created_by, org_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         "#,
     )
     .bind(entry_id)
@@ -733,6 +734,7 @@ async fn append_cost_ledger_entry_tx(
     .bind(residual_after)
     .bind(command.occurred_at)
     .bind(*command.actor.as_uuid())
+    .bind(*OrgId::knl().as_uuid())
     .execute(tx.as_mut())
     .await?;
 
@@ -864,14 +866,14 @@ async fn insert_quote_tx(
             cumulative_repair_cost_won, depreciation_method,
             useful_life_months, residual_rate_bps, declining_balance_rate_bps,
             management_fee_rate_bps, profit_rate_bps, floor_negative_quote_residual,
-            monthly_total_won, created_at, updated_at
+            monthly_total_won, created_at, updated_at, org_id
         )
         VALUES (
             $1, $2, $3, $4,
             $5, $6, $7, $8,
             $9, $10, $11, $12, $13,
             $14, $15, $16,
-            $17, $18, $18
+            $17, $18, $18, $19
         )
         "#,
     )
@@ -896,6 +898,7 @@ async fn insert_quote_tx(
     .bind(config.floor_negative_quote_residual)
     .bind(quote.monthly_total.amount())
     .bind(occurred_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(tx.as_mut())
     .await?;
 
@@ -905,9 +908,9 @@ async fn insert_quote_tx(
         sqlx::query(
             r#"
             INSERT INTO financial_rental_quote_lines (
-                quote_id, line_order, code, label, amount_won
+                quote_id, line_order, code, label, amount_won, org_id
             )
-            VALUES ($1, $2, $3, $4, $5)
+            VALUES ($1, $2, $3, $4, $5, $6)
             "#,
         )
         .bind(*quote_id.as_uuid())
@@ -915,6 +918,7 @@ async fn insert_quote_tx(
         .bind(&line.code)
         .bind(&line.label)
         .bind(line.amount.amount())
+        .bind(*OrgId::knl().as_uuid())
         .execute(tx.as_mut())
         .await?;
     }
@@ -1151,9 +1155,9 @@ async fn insert_purchase_history_tx(
     sqlx::query(
         r#"
         INSERT INTO financial_purchase_history (
-            purchase_request_id, actor, action, from_status, to_status, memo, occurred_at
+            purchase_request_id, actor, action, from_status, to_status, memo, occurred_at, org_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
     )
     .bind(*purchase_request_id.as_uuid())
@@ -1163,6 +1167,7 @@ async fn insert_purchase_history_tx(
     .bind(to_status.as_db_str())
     .bind(memo)
     .bind(occurred_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(tx.as_mut())
     .await?;
     Ok(())

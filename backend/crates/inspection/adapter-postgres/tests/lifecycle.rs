@@ -5,7 +5,7 @@ use mnt_inspection_application::{
     CompleteInspectionRoundCommand, CreateInspectionScheduleCommand, ListInspectionSchedulesQuery,
 };
 use mnt_inspection_domain::{InspectionCycle, InspectionRoundOutcome};
-use mnt_kernel_core::{BranchId, BranchScope, EquipmentId, TraceContext, UserId};
+use mnt_kernel_core::{BranchId, BranchScope, EquipmentId, OrgId, TraceContext, UserId};
 use sqlx::PgPool;
 use time::{Duration, OffsetDateTime, macros::datetime};
 
@@ -169,15 +169,17 @@ async fn due_schedule_listing_respects_branch_scope(pool: PgPool) {
 
 async fn seed_branch(pool: &PgPool, region_name: &str, branch_name: &str) -> BranchId {
     let region_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
             .bind(format!("{region_name}-{}", uuid::Uuid::new_v4()))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
     let branch_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
+        sqlx::query_scalar("INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id")
             .bind(region_id)
             .bind(format!("{branch_name}-{}", uuid::Uuid::new_v4()))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
@@ -192,17 +194,19 @@ async fn seed_user(
     branch: BranchId,
 ) -> UserId {
     let id = UserId::new();
-    sqlx::query("INSERT INTO users (id, display_name, roles, team) VALUES ($1, $2, $3, $4)")
+    sqlx::query("INSERT INTO users (id, display_name, roles, team, org_id) VALUES ($1, $2, $3, $4, $5)")
         .bind(*id.as_uuid())
         .bind(format!("{name}-{}", uuid::Uuid::new_v4()))
         .bind(Vec::from([role]))
         .bind(team)
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
         .bind(*id.as_uuid())
         .bind(*branch.as_uuid())
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
@@ -217,19 +221,21 @@ async fn seed_equipment(
     equipment_no: &str,
 ) -> EquipmentId {
     let customer_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO registry_customers (branch_id, name) VALUES ($1, $2) RETURNING id",
+        "INSERT INTO registry_customers (branch_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
     )
     .bind(*branch.as_uuid())
     .bind(format!("고객-{site_name}-{}", uuid::Uuid::new_v4()))
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
     let site_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO registry_sites (branch_id, customer_id, name) VALUES ($1, $2, $3) RETURNING id",
+        "INSERT INTO registry_sites (branch_id, customer_id, name, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
     )
     .bind(*branch.as_uuid())
     .bind(customer_id)
     .bind(site_name)
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
@@ -238,10 +244,10 @@ async fn seed_equipment(
         INSERT INTO registry_equipment (
             branch_id, customer_id, site_id, equipment_no, management_no, model, vin,
             vehicle_registration_no, manufacturer_code, kind_code, power_code, status,
-            specification, ton_text, source_sheet, source_row, updated_at
+            specification, ton_text, source_sheet, source_row, updated_at, org_id
         )
         VALUES ($1, $2, $3, $4, $5, 'GTS30D', $6, $7,
-                'GLD', 'FBR', 'BATTERY', '임대', '입식', '3톤', 'inspection', 1, now())
+                'GLD', 'FBR', 'BATTERY', '임대', '입식', '3톤', 'inspection', 1, now(), $8)
         RETURNING id
         "#,
     )
@@ -252,6 +258,7 @@ async fn seed_equipment(
     .bind(management_no)
     .bind(format!("VIN-{management_no}"))
     .bind(format!("검사차량-{management_no}"))
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
