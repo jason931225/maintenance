@@ -6,23 +6,27 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::path::Path;
 
 use calamine::{Data, DataType, Range, Reader, open_workbook_auto};
 use mnt_kernel_core::{
     BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId, KernelError, TraceContext, UserId,
 };
-use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_db::{DbError, with_audit, with_audits};
 use mnt_registry_application::{
-    ImportSheet, MasterListEquipment, ParsedMasterList, RegistryImportReport, RegistryRowError,
-    SubstituteAssignment, SubstituteAssignmentCommand, SubstituteCandidate,
-    SubstituteReturnCommand, SubstituteSearch, registry_import_audit_event,
-    substitute_assign_audit_event, substitute_return_audit_event,
+    CreateEquipmentCommand, DeleteEquipmentCommand, ImportSheet, MasterListEquipment,
+    ParsedMasterList, RegistryImportReport, RegistryRowError, SubstituteAssignment,
+    SubstituteAssignmentCommand, SubstituteCandidate, SubstituteReturnCommand, SubstituteSearch,
+    UpdateEquipmentCommand, equipment_create_audit_event, equipment_delete_audit_event,
+    equipment_update_audit_event, registry_import_audit_event, substitute_assign_audit_event,
+    substitute_return_audit_event,
 };
 use mnt_registry_domain::{
     EquipmentNo, EquipmentStatus, MoneyWon, SubstituteEquipmentProfile, Ton,
     rank_substitute_candidates,
 };
+use serde_json::json;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row, Transaction};
 use time::{Date, OffsetDateTime, macros::format_description};
 
@@ -65,22 +69,209 @@ impl PgRegistryStore {
         path: impl AsRef<Path>,
     ) -> Result<RegistryImportReport, PgRegistryError> {
         let path = path.as_ref();
-        let parsed = parse_master_list(path)?;
-        let branch_id = self.ensure_default_hq_branch().await?;
         let source_name = path
             .file_name()
             .and_then(|value| value.to_str())
             .unwrap_or("master-list")
             .to_string();
-        let event = registry_import_audit_event(
-            None,
-            branch_id,
-            TraceContext::generate(),
-            OffsetDateTime::now_utc(),
-            &source_name,
-            parsed.input_rows,
-            parsed.equipment.len(),
+        self.import_master_list_with_actor(path, None, &source_name)
+            .await
+    }
+
+    /// Import an uploaded master-list workbook supplied as raw bytes.
+    ///
+    /// `calamine` reads from a path, so the bytes are spilled to a uniquely
+    /// named temp file that is removed before returning. The actual upsert and
+    /// audit row are produced by [`Self::import_master_list`].
+    pub async fn import_master_list_bytes(
+        &self,
+        actor: UserId,
+        source_name: &str,
+        bytes: &[u8],
+    ) -> Result<RegistryImportReport, PgRegistryError> {
+        let temp_path = std::env::temp_dir().join(format!(
+            "mnt-registry-import-{}-{}.xlsx",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let mut file = std::fs::File::create(&temp_path)
+            .map_err(|err| PgRegistryError::Workbook(format!("cannot stage upload: {err}")))?;
+        file.write_all(bytes)
+            .and_then(|()| file.flush())
+            .map_err(|err| PgRegistryError::Workbook(format!("cannot stage upload: {err}")))?;
+        drop(file);
+
+        let result = self
+            .import_master_list_with_actor(&temp_path, Some(actor), source_name)
+            .await;
+        let _ = std::fs::remove_file(&temp_path);
+        result
+    }
+
+    /// Create a single equipment master row on the default HQ branch, audited.
+    // mnt-gate: state-changing-handler
+    pub async fn create_equipment(
+        &self,
+        command: CreateEquipmentCommand,
+    ) -> Result<EquipmentId, PgRegistryError> {
+        let branch_id = self.ensure_default_hq_branch().await?;
+        let row = master_list_row_from_create(&command);
+        let branch_uuid = *branch_id.as_uuid();
+        let actor = command.actor;
+        let trace = command.trace;
+        let occurred_at = command.occurred_at;
+
+        with_audits::<_, EquipmentId, PgRegistryError>(&self.pool, move |tx| {
+            Box::pin(async move {
+                let customer_id = upsert_customer(tx, branch_uuid, &row.customer_name).await?;
+                let site_id = upsert_site(tx, branch_uuid, customer_id, &row.site_name).await?;
+                let existing: Option<uuid::Uuid> =
+                    sqlx::query_scalar("SELECT id FROM registry_equipment WHERE equipment_no = $1")
+                        .bind(row.equipment_no.as_str())
+                        .fetch_optional(tx.as_mut())
+                        .await?;
+                if existing.is_some() {
+                    return Err(KernelError::conflict(format!(
+                        "equipment {} already exists",
+                        row.equipment_no.as_str()
+                    ))
+                    .into());
+                }
+                insert_equipment(tx, branch_uuid, customer_id, site_id, &row).await?;
+                let id: uuid::Uuid =
+                    sqlx::query_scalar("SELECT id FROM registry_equipment WHERE equipment_no = $1")
+                        .bind(row.equipment_no.as_str())
+                        .fetch_one(tx.as_mut())
+                        .await?;
+                let equipment_id = EquipmentId::from_uuid(id);
+                let event = equipment_create_audit_event(
+                    actor,
+                    branch_id,
+                    equipment_id,
+                    &row.equipment_no,
+                    row.status,
+                    trace,
+                    occurred_at,
+                )?;
+                Ok((equipment_id, vec![event]))
+            })
+        })
+        .await
+    }
+
+    /// Apply a partial update to one equipment row, audited with before/after.
+    // mnt-gate: state-changing-handler
+    pub async fn update_equipment(
+        &self,
+        command: UpdateEquipmentCommand,
+    ) -> Result<(), PgRegistryError> {
+        if command.fields.is_empty() {
+            return Err(KernelError::validation("no equipment fields to update").into());
+        }
+        let existing = fetch_equipment_admin_row(self.pool(), command.equipment_id)
+            .await?
+            .ok_or_else(|| KernelError::not_found("equipment was not found"))?;
+        let event = equipment_update_audit_event(
+            command.actor,
+            existing.branch_id,
+            command.equipment_id,
+            existing.snapshot.clone(),
+            update_after_snapshot(&existing.snapshot, &command.fields),
+            command.trace.clone(),
+            command.occurred_at,
         )?;
+        let equipment_id = command.equipment_id;
+        let branch_uuid = *existing.branch_id.as_uuid();
+        let fields = command.fields;
+
+        with_audit::<_, (), PgRegistryError>(&self.pool, event, move |tx| {
+            Box::pin(async move {
+                if let Some(customer_name) = fields.customer_name.as_deref() {
+                    let customer_id = upsert_customer(tx, branch_uuid, customer_name).await?;
+                    let site_name = fields
+                        .site_name
+                        .clone()
+                        .unwrap_or_else(|| customer_name.to_owned());
+                    let site_id = upsert_site(tx, branch_uuid, customer_id, &site_name).await?;
+                    sqlx::query(
+                        "UPDATE registry_equipment SET customer_id = $2, site_id = $3, updated_at = now() WHERE id = $1",
+                    )
+                    .bind(*equipment_id.as_uuid())
+                    .bind(customer_id)
+                    .bind(site_id)
+                    .execute(tx.as_mut())
+                    .await?;
+                } else if let Some(site_name) = fields.site_name.as_deref() {
+                    let customer_id: uuid::Uuid = sqlx::query_scalar(
+                        "SELECT customer_id FROM registry_equipment WHERE id = $1",
+                    )
+                    .bind(*equipment_id.as_uuid())
+                    .fetch_one(tx.as_mut())
+                    .await?;
+                    let site_id = upsert_site(tx, branch_uuid, customer_id, site_name).await?;
+                    sqlx::query(
+                        "UPDATE registry_equipment SET site_id = $2, updated_at = now() WHERE id = $1",
+                    )
+                    .bind(*equipment_id.as_uuid())
+                    .bind(site_id)
+                    .execute(tx.as_mut())
+                    .await?;
+                }
+
+                apply_scalar_equipment_update(tx, equipment_id, &fields).await
+            })
+        })
+        .await
+    }
+
+    /// Soft-delete one equipment row by marking it 폐기 (Disposed). Never hard
+    /// deletes, so audit history and work-order/substitution FKs stay intact.
+    // mnt-gate: state-changing-handler
+    pub async fn soft_delete_equipment(
+        &self,
+        command: DeleteEquipmentCommand,
+    ) -> Result<(), PgRegistryError> {
+        let existing = fetch_equipment_admin_row(self.pool(), command.equipment_id)
+            .await?
+            .ok_or_else(|| KernelError::not_found("equipment was not found"))?;
+        if existing.status == EquipmentStatus::Disposed {
+            return Err(KernelError::conflict("equipment is already disposed").into());
+        }
+        let event = equipment_delete_audit_event(
+            command.actor,
+            existing.branch_id,
+            command.equipment_id,
+            &existing.equipment_no,
+            existing.status,
+            command.trace.clone(),
+            command.occurred_at,
+        )?;
+        let equipment_id = command.equipment_id;
+
+        with_audit::<_, (), PgRegistryError>(&self.pool, event, move |tx| {
+            Box::pin(async move {
+                sqlx::query(
+                    "UPDATE registry_equipment SET status = $2, updated_at = now() WHERE id = $1",
+                )
+                .bind(*equipment_id.as_uuid())
+                .bind(EquipmentStatus::Disposed.as_db_str())
+                .execute(tx.as_mut())
+                .await?;
+                Ok(())
+            })
+        })
+        .await
+    }
+
+    async fn import_master_list_with_actor(
+        &self,
+        path: &Path,
+        actor: Option<UserId>,
+        source_name: &str,
+    ) -> Result<RegistryImportReport, PgRegistryError> {
+        let parsed = parse_master_list(path)?;
+        let branch_id = self.ensure_default_hq_branch().await?;
+        let event = equipment_import_event(actor, branch_id, source_name, &parsed)?;
         let branch_uuid = *branch_id.as_uuid();
         let input_rows = parsed.input_rows;
         let equipment_count = parsed.equipment.len();
@@ -817,6 +1008,310 @@ async fn insert_equipment(
     .execute(tx.as_mut())
     .await?;
     Ok(())
+}
+
+/// One equipment row's branch, identity, status, and JSON snapshot for the
+/// admin CRUD path (update/delete need the before-image for the audit row).
+#[derive(Debug, Clone)]
+struct EquipmentAdminRow {
+    branch_id: BranchId,
+    equipment_no: EquipmentNo,
+    status: EquipmentStatus,
+    snapshot: serde_json::Value,
+}
+
+async fn fetch_equipment_admin_row(
+    pool: &PgPool,
+    equipment_id: EquipmentId,
+) -> Result<Option<EquipmentAdminRow>, PgRegistryError> {
+    let row = sqlx::query(
+        r#"
+        SELECT id, branch_id, equipment_no, status, management_no, model,
+               specification, ton_text, ton_milli, power_label,
+               manager_name, placement_location, placement_no, operation_shift,
+               maker, vin, vehicle_registration_no, insured, insurer,
+               policy_holder, insured_party, asset_owner, rental_fee,
+               vehicle_value, residual_value, note
+        FROM registry_equipment
+        WHERE id = $1
+        "#,
+    )
+    .bind(*equipment_id.as_uuid())
+    .fetch_optional(pool)
+    .await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let equipment_no = EquipmentNo::parse(row.try_get::<String, _>("equipment_no")?)?;
+    let status = EquipmentStatus::parse(&row.try_get::<String, _>("status")?)?;
+    let snapshot = json!({
+        "id": EquipmentId::from_uuid(row.try_get("id")?),
+        "equipment_no": equipment_no.as_str(),
+        "status": status,
+        "management_no": row.try_get::<Option<String>, _>("management_no")?,
+        "model": row.try_get::<Option<String>, _>("model")?,
+        "specification": row.try_get::<String, _>("specification")?,
+        "ton_text": row.try_get::<String, _>("ton_text")?,
+        "ton_milli": row.try_get::<Option<i32>, _>("ton_milli")?,
+        "power_label": row.try_get::<Option<String>, _>("power_label")?,
+        "manager_name": row.try_get::<Option<String>, _>("manager_name")?,
+        "placement_location": row.try_get::<Option<String>, _>("placement_location")?,
+        "placement_no": row.try_get::<Option<String>, _>("placement_no")?,
+        "operation_shift": row.try_get::<Option<String>, _>("operation_shift")?,
+        "maker": row.try_get::<Option<String>, _>("maker")?,
+        "vin": row.try_get::<Option<String>, _>("vin")?,
+        "vehicle_registration_no": row.try_get::<Option<String>, _>("vehicle_registration_no")?,
+        "insured": row.try_get::<Option<bool>, _>("insured")?,
+        "insurer": row.try_get::<Option<String>, _>("insurer")?,
+        "policy_holder": row.try_get::<Option<String>, _>("policy_holder")?,
+        "insured_party": row.try_get::<Option<String>, _>("insured_party")?,
+        "asset_owner": row.try_get::<Option<String>, _>("asset_owner")?,
+        "rental_fee": row.try_get::<Option<i64>, _>("rental_fee")?,
+        "vehicle_value": row.try_get::<Option<i64>, _>("vehicle_value")?,
+        "residual_value": row.try_get::<Option<i64>, _>("residual_value")?,
+        "note": row.try_get::<Option<String>, _>("note")?,
+    });
+    Ok(Some(EquipmentAdminRow {
+        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+        equipment_no,
+        status,
+        snapshot,
+    }))
+}
+
+/// Build the equipment master row the create command would persist, deriving
+/// the prefix codes from the validated `equipment_no` exactly like the importer.
+fn master_list_row_from_create(command: &CreateEquipmentCommand) -> MasterListEquipment {
+    MasterListEquipment {
+        source_sheet: ImportSheet::Master,
+        source_row: 0,
+        manufacturer_code: command.equipment_no.manufacturer_code().to_string(),
+        kind_code: command.equipment_no.kind_code().to_string(),
+        power_code: command.equipment_no.power_code().to_string(),
+        power_label: command.power_label.clone(),
+        equipment_no: command.equipment_no.clone(),
+        customer_name: command.customer_name.clone(),
+        site_name: command.site_name.clone(),
+        status: command.status,
+        management_no: command.management_no.clone(),
+        manager_name: command.manager_name.clone(),
+        placement_location: command.placement_location.clone(),
+        placement_no: command.placement_no.clone(),
+        operation_shift: command.operation_shift.clone(),
+        specification: command.specification.clone(),
+        ton: command.ton.clone(),
+        maker: command.maker.clone(),
+        model: command.model.clone(),
+        vin: command.vin.clone(),
+        year: command.year,
+        hours: command.hours,
+        vehicle_registration_no: command.vehicle_registration_no.clone(),
+        insured: command.insured,
+        insurer: command.insurer.clone(),
+        policy_holder: command.policy_holder.clone(),
+        insured_party: command.insured_party.clone(),
+        asset_owner: command.asset_owner.clone(),
+        asset_registered_on: command.asset_registered_on,
+        rental_started_on: command.rental_started_on,
+        rental_fee: command.rental_fee,
+        vehicle_value: command.vehicle_value,
+        residual_value: command.residual_value,
+        note: command.note.clone(),
+    }
+}
+
+/// Merge a partial update onto the before-snapshot to produce the audit
+/// after-image without re-reading the row post-write.
+fn update_after_snapshot(
+    before: &serde_json::Value,
+    fields: &mnt_registry_application::UpdateEquipmentFields,
+) -> serde_json::Value {
+    let mut after = before.clone();
+    let Some(map) = after.as_object_mut() else {
+        // The before-snapshot is always built as a JSON object by
+        // `fetch_equipment_admin_row`; if that ever changes, fall back to the
+        // unmodified before-image rather than panicking.
+        return after;
+    };
+    if let Some(status) = fields.status {
+        map.insert("status".to_owned(), json!(status));
+    }
+    if let Some(specification) = &fields.specification {
+        map.insert("specification".to_owned(), json!(specification));
+    }
+    if let Some(ton) = &fields.ton {
+        map.insert("ton_text".to_owned(), json!(ton.as_text()));
+        map.insert("ton_milli".to_owned(), json!(ton.milli_tons()));
+    }
+    merge_opt_string(map, "management_no", &fields.management_no);
+    merge_opt_string(map, "model", &fields.model);
+    merge_opt_string(map, "power_label", &fields.power_label);
+    merge_opt_string(map, "manager_name", &fields.manager_name);
+    merge_opt_string(map, "placement_location", &fields.placement_location);
+    merge_opt_string(map, "placement_no", &fields.placement_no);
+    merge_opt_string(map, "operation_shift", &fields.operation_shift);
+    merge_opt_string(map, "maker", &fields.maker);
+    merge_opt_string(map, "vin", &fields.vin);
+    merge_opt_string(
+        map,
+        "vehicle_registration_no",
+        &fields.vehicle_registration_no,
+    );
+    merge_opt_string(map, "insurer", &fields.insurer);
+    merge_opt_string(map, "policy_holder", &fields.policy_holder);
+    merge_opt_string(map, "insured_party", &fields.insured_party);
+    merge_opt_string(map, "asset_owner", &fields.asset_owner);
+    merge_opt_string(map, "note", &fields.note);
+    if let Some(insured) = fields.insured {
+        map.insert("insured".to_owned(), json!(insured));
+    }
+    if let Some(fee) = fields.rental_fee {
+        map.insert("rental_fee".to_owned(), json!(fee.map(MoneyWon::amount)));
+    }
+    if let Some(value) = fields.vehicle_value {
+        map.insert(
+            "vehicle_value".to_owned(),
+            json!(value.map(MoneyWon::amount)),
+        );
+    }
+    if let Some(value) = fields.residual_value {
+        map.insert(
+            "residual_value".to_owned(),
+            json!(value.map(MoneyWon::amount)),
+        );
+    }
+    after
+}
+
+fn merge_opt_string(
+    map: &mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    field: &Option<Option<String>>,
+) {
+    if let Some(value) = field {
+        map.insert(key.to_owned(), json!(value));
+    }
+}
+
+/// Write the scalar (non customer/site) columns of an equipment update. Builds
+/// the SET clause dynamically so only supplied fields are touched.
+async fn apply_scalar_equipment_update(
+    tx: &mut Transaction<'_, Postgres>,
+    equipment_id: EquipmentId,
+    fields: &mnt_registry_application::UpdateEquipmentFields,
+) -> Result<(), PgRegistryError> {
+    let mut builder =
+        QueryBuilder::<Postgres>::new("UPDATE registry_equipment SET updated_at = now()");
+    if let Some(status) = fields.status {
+        builder.push(", status = ");
+        builder.push_bind(status.as_db_str());
+    }
+    if let Some(specification) = &fields.specification {
+        let specification = specification.trim();
+        if specification.is_empty() {
+            return Err(KernelError::validation("specification must not be empty").into());
+        }
+        builder.push(", specification = ");
+        builder.push_bind(specification.to_owned());
+    }
+    if let Some(ton) = &fields.ton {
+        builder.push(", ton_text = ");
+        builder.push_bind(ton.as_text().to_owned());
+        builder.push(", ton_milli = ");
+        builder.push_bind(ton.milli_tons());
+    }
+    push_opt_string_set(&mut builder, "management_no", &fields.management_no);
+    push_opt_string_set(&mut builder, "model", &fields.model);
+    push_opt_string_set(&mut builder, "power_label", &fields.power_label);
+    push_opt_string_set(&mut builder, "manager_name", &fields.manager_name);
+    push_opt_string_set(
+        &mut builder,
+        "placement_location",
+        &fields.placement_location,
+    );
+    push_opt_string_set(&mut builder, "placement_no", &fields.placement_no);
+    push_opt_string_set(&mut builder, "operation_shift", &fields.operation_shift);
+    push_opt_string_set(&mut builder, "maker", &fields.maker);
+    push_opt_string_set(&mut builder, "vin", &fields.vin);
+    push_opt_string_set(
+        &mut builder,
+        "vehicle_registration_no",
+        &fields.vehicle_registration_no,
+    );
+    push_opt_string_set(&mut builder, "insurer", &fields.insurer);
+    push_opt_string_set(&mut builder, "policy_holder", &fields.policy_holder);
+    push_opt_string_set(&mut builder, "insured_party", &fields.insured_party);
+    push_opt_string_set(&mut builder, "asset_owner", &fields.asset_owner);
+    push_opt_string_set(&mut builder, "note", &fields.note);
+    if let Some(insured) = fields.insured {
+        builder.push(", insured = ");
+        builder.push_bind(insured);
+    }
+    if let Some(year) = fields.year {
+        builder.push(", year = ");
+        builder.push_bind(year);
+    }
+    if let Some(date) = fields.asset_registered_on {
+        builder.push(", asset_registered_on = ");
+        builder.push_bind(date);
+    }
+    if let Some(date) = fields.rental_started_on {
+        builder.push(", rental_started_on = ");
+        builder.push_bind(date);
+    }
+    if let Some(hours) = fields.hours {
+        builder.push(", hours = ");
+        builder.push_bind(hours);
+    }
+    if let Some(fee) = fields.rental_fee {
+        builder.push(", rental_fee = ");
+        builder.push_bind(fee.map(MoneyWon::amount));
+    }
+    if let Some(value) = fields.vehicle_value {
+        builder.push(", vehicle_value = ");
+        builder.push_bind(value.map(MoneyWon::amount));
+    }
+    if let Some(value) = fields.residual_value {
+        builder.push(", residual_value = ");
+        builder.push_bind(value.map(MoneyWon::amount));
+    }
+    builder.push(" WHERE id = ");
+    builder.push_bind(*equipment_id.as_uuid());
+    builder.build().execute(tx.as_mut()).await?;
+    Ok(())
+}
+
+fn push_opt_string_set(
+    builder: &mut QueryBuilder<Postgres>,
+    column: &str,
+    field: &Option<Option<String>>,
+) {
+    if let Some(value) = field {
+        let normalized = value
+            .as_ref()
+            .map(|raw| raw.trim().to_owned())
+            .filter(|raw| !raw.is_empty());
+        builder.push(format!(", {column} = "));
+        builder.push_bind(normalized);
+    }
+}
+
+fn equipment_import_event(
+    actor: Option<UserId>,
+    branch_id: BranchId,
+    source_name: &str,
+    parsed: &ParsedMasterList,
+) -> Result<mnt_kernel_core::AuditEvent, PgRegistryError> {
+    registry_import_audit_event(
+        actor,
+        branch_id,
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+        source_name,
+        parsed.input_rows,
+        parsed.equipment.len(),
+    )
+    .map_err(PgRegistryError::from)
 }
 
 fn bind_equipment_insert<'q>(

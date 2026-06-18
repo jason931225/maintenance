@@ -19,9 +19,12 @@ import {
 export interface AuthSession {
   /** Short-lived bearer token, held in memory only (never persisted). */
   access_token: string;
-  role?: "technician" | "admin" | "executive" | "super-admin";
   user_id?: string;
-  /** JWT `roles` claim, e.g. ADMIN / SUPER_ADMIN, used for admin-only affordances. */
+  /**
+   * JWT `roles` claim, e.g. `["ADMIN"]` / `["SUPER_ADMIN"]`. Canonical role
+   * codes match the backend `Role` enum and drive client-side nav gating; the
+   * backend re-verifies authorization on every call.
+   */
   roles?: string[];
   /** JWT `branches` claim; the first entry scopes admin actions like issuing OTPs. */
   branches?: string[];

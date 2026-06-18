@@ -22,6 +22,8 @@ mnt-compliance-adapter-postgres = { workspace = true }
 mnt-compliance-rest = { workspace = true }
 mnt-financial-adapter-postgres = { workspace = true }
 mnt-financial-rest = { workspace = true }
+mnt-identity-adapter-postgres = { workspace = true }
+mnt-identity-rest = { workspace = true }
 mnt-inspection-adapter-postgres = { workspace = true }
 mnt-inspection-rest = { workspace = true }
 mnt-support-adapter-postgres = { workspace = true }

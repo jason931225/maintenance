@@ -29,6 +29,8 @@ use mnt_dispatch_rest::DispatchRestState;
 use mnt_dispatch_worker::{AlimtalkEscalationPolicy, DispatchWorker};
 use mnt_financial_adapter_postgres::PgFinancialStore;
 use mnt_financial_rest::FinancialRestState;
+use mnt_identity_adapter_postgres::PgOrgStore;
+use mnt_identity_rest::IdentityRestState;
 use mnt_inspection_adapter_postgres::PgInspectionStore;
 use mnt_inspection_rest::InspectionRestState;
 use mnt_kernel_core::{
@@ -870,6 +872,7 @@ pub fn build_router(state: AppState) -> Router {
             let compliance_store = PgComplianceStore::new(pool.clone());
             let dispatch_store = PgDispatchStore::new(pool.clone());
             let support_store = PgSupportStore::new(pool.clone());
+            let org_store = PgOrgStore::new(pool.clone());
             let work_order_store = PgWorkOrderStore::new(pool.clone())
                 .with_created_listener(Arc::new(messenger_store.clone()));
             let router = router
@@ -896,6 +899,10 @@ pub fn build_router(state: AppState) -> Router {
                     )
                     .with_trusted_proxy_count(state.config.trusted_proxy_count),
                 ))
+                .merge(mnt_identity_rest::router(IdentityRestState::new(
+                    org_store,
+                    state.jwt_verifier.clone(),
+                )))
                 .merge(mnt_compliance_rest::router(ComplianceRestState::new(
                     compliance_store,
                     state.jwt_verifier.clone(),

@@ -5,6 +5,15 @@
 //! application-layer seam only when a real adapter exists.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+mod org;
+
+pub use org::{
+    BranchSummary, CreateBranchCommand, CreateRegionCommand, CreateUserCommand,
+    DeactivateUserCommand, RegionSummary, UpdateBranchCommand, UpdateSelfProfileCommand,
+    UpdateUserCommand, UserListQuery, UserSummary, branch_audit_event, region_audit_event,
+    user_audit_event,
+};
+
 use std::future::Future;
 use std::pin::Pin;
 

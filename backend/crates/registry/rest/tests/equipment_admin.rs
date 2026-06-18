@@ -1,0 +1,393 @@
+//! Equipment admin REST tests: the master-list import endpoint must parse the
+//! real reference workbook through the multipart surface, and the CRUD
+//! endpoints must enforce `EquipmentManage` while routing every mutation through
+//! the audited adapter.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use std::path::PathBuf;
+
+use axum::Router;
+use axum::body::{Body, to_bytes};
+use http::{Request, StatusCode, header};
+use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, TraceContext, UserId};
+use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
+use mnt_platform_db::{DbError, with_audit};
+use mnt_registry_adapter_postgres::PgRegistryStore;
+use mnt_registry_rest::{RegistryRestState, router};
+use p256::ecdsa::SigningKey;
+use p256::elliptic_curve::rand_core::OsRng;
+use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
+use serde_json::{Value, json};
+use sqlx::PgPool;
+use time::{Duration, OffsetDateTime};
+use tower::ServiceExt;
+
+const TEST_ISSUER: &str = "mnt-platform-auth";
+const TEST_AUDIENCE: &str = "mnt-api";
+const BOUNDARY: &str = "----mnttestboundary7MA4YWxkTrZu0gW";
+
+fn master_list_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../../docs/reference/master-list_251120.xlsx")
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn import_endpoint_loads_reference_master_list(pool: PgPool) {
+    let harness = Harness::new(&pool, "ADMIN").await;
+    let bytes = std::fs::read(master_list_path()).unwrap();
+    let body = multipart_xlsx(&bytes);
+
+    let (status, json) = harness
+        .send(
+            "POST",
+            "/api/v1/equipment/import",
+            Some((format!("multipart/form-data; boundary={BOUNDARY}"), body)),
+        )
+        .await;
+
+    assert_eq!(status, StatusCode::OK, "{json:?}");
+    assert_eq!(json["added"], json!(445));
+    assert_eq!(json["updated"], json!(0));
+    assert_eq!(json["unchanged"], json!(0));
+    assert_eq!(json["orphaned"], json!(0));
+    assert_eq!(json["errors"].as_array().unwrap().len(), 0, "{json:?}");
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM registry_equipment")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 445);
+
+    let audited: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE action = 'registry.import'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(audited, 1);
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn import_endpoint_rejects_non_admin(pool: PgPool) {
+    let harness = Harness::new(&pool, "MECHANIC").await;
+    let bytes = std::fs::read(master_list_path()).unwrap();
+    let body = multipart_xlsx(&bytes);
+
+    let (status, _) = harness
+        .send(
+            "POST",
+            "/api/v1/equipment/import",
+            Some((format!("multipart/form-data; boundary={BOUNDARY}"), body)),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn equipment_crud_create_update_soft_delete_is_audited(pool: PgPool) {
+    let harness = Harness::new(&pool, "ADMIN").await;
+
+    let create_body = json!({
+        "equipment_no": "CFO25-7777",
+        "customer_name": "K&L",
+        "site_name": "케이앤엘",
+        "status": "rented",
+        "specification": "좌식",
+        "ton_text": "2.5T",
+        "management_no": "777",
+        "model": "GTS25DE",
+        "vehicle_value": 50_000_000,
+        "residual_value": 10_000_000
+    });
+    let (status, body) = harness
+        .send("POST", "/api/v1/equipment", Some(json_body(&create_body)))
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body:?}");
+    let id = body["id"].as_str().unwrap().to_owned();
+
+    // Persisted fields match.
+    let created = fetch_equipment_view(&pool, &id).await;
+    assert_eq!(created.status, "임대");
+    assert_eq!(created.model.as_deref(), Some("GTS25DE"));
+    assert_eq!(created.vehicle_value, Some(50_000_000));
+
+    // Update: flip status to 예비 and clear the model.
+    let update_body = json!({ "status": "spare", "model": null, "residual_value": 7_500_000 });
+    let (status, _) = harness
+        .send(
+            "PATCH",
+            &format!("/api/v1/equipment/{id}"),
+            Some(json_body(&update_body)),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let updated = fetch_equipment_view(&pool, &id).await;
+    assert_eq!(updated.status, "예비");
+    assert_eq!(updated.model, None);
+    assert_eq!(updated.residual_value, Some(7_500_000));
+
+    // Soft delete: marks 폐기, never removes the row.
+    let (status, _) = harness
+        .send("DELETE", &format!("/api/v1/equipment/{id}"), None)
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(fetch_equipment_view(&pool, &id).await.status, "폐기");
+
+    // A second soft delete is a conflict.
+    let (status, _) = harness
+        .send("DELETE", &format!("/api/v1/equipment/{id}"), None)
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+
+    // Every mutation produced exactly one audit row.
+    for action in ["equipment.create", "equipment.update", "equipment.delete"] {
+        assert_eq!(
+            audit_count(&pool, action).await,
+            1,
+            "audit row for {action}"
+        );
+    }
+}
+
+struct EquipmentView {
+    status: String,
+    model: Option<String>,
+    vehicle_value: Option<i64>,
+    residual_value: Option<i64>,
+}
+
+async fn fetch_equipment_view(pool: &PgPool, id: &str) -> EquipmentView {
+    let row: (String, Option<String>, Option<i64>, Option<i64>) = sqlx::query_as(
+        "SELECT status, model, vehicle_value, residual_value FROM registry_equipment WHERE id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(id).unwrap())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    EquipmentView {
+        status: row.0,
+        model: row.1,
+        vehicle_value: row.2,
+        residual_value: row.3,
+    }
+}
+
+async fn audit_count(pool: &PgPool, action: &str) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE action = $1")
+        .bind(action)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn create_equipment_rejects_non_admin(pool: PgPool) {
+    let harness = Harness::new(&pool, "MECHANIC").await;
+    let body = json!({
+        "equipment_no": "CFO25-7778",
+        "customer_name": "K&L",
+        "site_name": "케이앤엘",
+        "status": "rented",
+        "specification": "좌식",
+        "ton_text": "2.5T"
+    });
+    let (status, _) = harness
+        .send("POST", "/api/v1/equipment", Some(json_body(&body)))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+// ---------------------------------------------------------------------------
+// Harness
+// ---------------------------------------------------------------------------
+
+struct Harness {
+    service: Router,
+    token: String,
+}
+
+impl Harness {
+    async fn new(pool: &PgPool, role: &str) -> Self {
+        let signing_key = SigningKey::random(&mut OsRng);
+        let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+        let public_pem = signing_key
+            .verifying_key()
+            .to_public_key_pem(LineEnding::LF)
+            .unwrap();
+
+        let branch = seed_branch(pool).await;
+        let user = seed_user_in_branch(pool, role, branch).await;
+        let token = issue_token(
+            private_pem.as_bytes(),
+            public_pem.as_bytes(),
+            user,
+            vec![role.to_owned()],
+            vec![branch],
+        );
+        let verifier = JwtVerifier::from_es256_public_pem(
+            JwtSettings {
+                issuer: TEST_ISSUER.to_owned(),
+                audience: TEST_AUDIENCE.to_owned(),
+                access_token_ttl: Duration::minutes(15),
+            },
+            public_pem.as_bytes(),
+        )
+        .unwrap();
+        let service = router(RegistryRestState::new(
+            PgRegistryStore::new(pool.clone()),
+            Some(verifier),
+        ));
+        Self { service, token }
+    }
+
+    async fn send(
+        &self,
+        method: &str,
+        uri: &str,
+        body: Option<(String, Vec<u8>)>,
+    ) -> (StatusCode, Value) {
+        let mut builder = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header(header::AUTHORIZATION, format!("Bearer {}", self.token));
+        let request = match body {
+            Some((content_type, bytes)) => builder
+                .header(header::CONTENT_TYPE, content_type)
+                .body(Body::from(bytes))
+                .unwrap(),
+            None => {
+                builder = builder.header(header::CONTENT_TYPE, "application/json");
+                builder.body(Body::empty()).unwrap()
+            }
+        };
+        let response = self.service.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json = if bytes.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null)
+        };
+        (status, json)
+    }
+}
+
+fn json_body(value: &Value) -> (String, Vec<u8>) {
+    (
+        "application/json".to_owned(),
+        serde_json::to_vec(value).unwrap(),
+    )
+}
+
+fn multipart_xlsx(bytes: &[u8]) -> Vec<u8> {
+    let mut body = Vec::new();
+    body.extend_from_slice(format!("--{BOUNDARY}\r\n").as_bytes());
+    body.extend_from_slice(
+        b"Content-Disposition: form-data; name=\"file\"; filename=\"master-list.xlsx\"\r\n",
+    );
+    body.extend_from_slice(
+        b"Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n",
+    );
+    body.extend_from_slice(bytes);
+    body.extend_from_slice(format!("\r\n--{BOUNDARY}--\r\n").as_bytes());
+    body
+}
+
+fn issue_token(
+    private_key_pem: &[u8],
+    public_key_pem: &[u8],
+    user_id: UserId,
+    roles: Vec<String>,
+    branches: Vec<BranchId>,
+) -> String {
+    let issuer = JwtIssuer::from_es256_pem(
+        JwtSettings {
+            issuer: TEST_ISSUER.to_owned(),
+            audience: TEST_AUDIENCE.to_owned(),
+            access_token_ttl: Duration::minutes(15),
+        },
+        private_key_pem,
+        public_key_pem,
+    )
+    .unwrap();
+    issuer
+        .issue_access_token(AccessTokenInput {
+            subject: user_id,
+            roles,
+            branches,
+            issued_at: OffsetDateTime::now_utc(),
+        })
+        .unwrap()
+}
+
+// Seed helpers route through `with_audit` because this file lives on a `rest/`
+// handler surface scanned by the audit-coverage gate.
+async fn seed_branch(pool: &PgPool) -> BranchId {
+    let region_id = uuid::Uuid::new_v4();
+    let branch_id = BranchId::new();
+    let region_name = format!("Registry Admin Region {}", uuid::Uuid::new_v4());
+    let branch_name = format!("Registry Admin Branch {}", uuid::Uuid::new_v4());
+    let event = AuditEvent::new(
+        None,
+        AuditAction::new("test.seed_branch").unwrap(),
+        "branch",
+        branch_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_branch(branch_id);
+    with_audit(pool, event, |tx| {
+        Box::pin(async move {
+            sqlx::query("INSERT INTO regions (id, name) VALUES ($1, $2)")
+                .bind(region_id)
+                .bind(region_name)
+                .execute(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+            sqlx::query("INSERT INTO branches (id, region_id, name) VALUES ($1, $2, $3)")
+                .bind(*branch_id.as_uuid())
+                .bind(region_id)
+                .bind(branch_name)
+                .execute(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+            Ok::<BranchId, DbError>(branch_id)
+        })
+    })
+    .await
+    .unwrap()
+}
+
+async fn seed_user_in_branch(pool: &PgPool, role: &str, branch_id: BranchId) -> UserId {
+    let user_id = UserId::new();
+    let role = role.to_owned();
+    let event = AuditEvent::new(
+        None,
+        AuditAction::new("test.seed_user").unwrap(),
+        "user",
+        user_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_branch(branch_id);
+    with_audit(pool, event, |tx| {
+        Box::pin(async move {
+            sqlx::query("INSERT INTO users (id, display_name, roles) VALUES ($1, $2, $3)")
+                .bind(*user_id.as_uuid())
+                .bind(format!("Registry {role}"))
+                .bind(Vec::from([role]))
+                .execute(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+            sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+                .bind(*user_id.as_uuid())
+                .bind(*branch_id.as_uuid())
+                .execute(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+            Ok::<(), DbError>(())
+        })
+    })
+    .await
+    .unwrap();
+    user_id
+}

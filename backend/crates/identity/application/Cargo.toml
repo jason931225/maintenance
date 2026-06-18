@@ -1,16 +1,19 @@
 [package]
 name = "mnt-identity-application"
 version = "0.1.0"
-description = "Identity application ports, including the future Bitween provider seam."
+description = "Identity application layer: org-setup commands, DTOs, audit builders, and the future Bitween provider seam."
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
+mnt-identity-domain = { workspace = true }
 mnt-kernel-core = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 time = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

@@ -538,11 +538,59 @@ export interface paths {
         /** Autocomplete branch-scoped equipment by management number, equipment number, or model */
         get: operations["autocompleteEquipment"];
         put?: never;
-        post?: never;
+        /**
+         * Create a single equipment master row on the HQ branch
+         * @description Admin-gated (EquipmentManage). The equipment number prefix derives the manufacturer, kind, and power codes.
+         */
+        post: operations["createEquipment"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import the 지게차 master-list workbook into a fresh registry
+         * @description Admin-gated (MasterListImport) multipart upload of the K&L master-list .xlsx. Upserts equipment by equipment number and returns a created/updated/error summary.
+         */
+        post: operations["importEquipmentMasterList"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Soft-delete one equipment master row
+         * @description Admin-gated (EquipmentManage). Marks the row 폐기 (disposed) rather than hard-deleting, so work-order and substitution references stay intact.
+         */
+        delete: operations["deleteEquipment"];
+        options?: never;
+        head?: never;
+        /**
+         * Update fields on one equipment master row
+         * @description Admin-gated (EquipmentManage). Only supplied fields are written; nullable fields explicitly set to null are cleared.
+         */
+        patch: operations["updateEquipment"];
         trace?: never;
     };
     "/api/v1/sync": {
@@ -1575,6 +1623,130 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List users visible within the caller's branch scope */
+        get: operations["listUsers"];
+        put?: never;
+        /** Create a user with roles and branch memberships */
+        post: operations["createUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the authenticated user's own profile */
+        get: operations["getCurrentUser"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update the authenticated user's own display name and phone */
+        patch: operations["updateCurrentUser"];
+        trace?: never;
+    };
+    "/api/v1/users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a user by id within the caller's branch scope */
+        get: operations["getUser"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update a user's profile, roles, and branch memberships */
+        patch: operations["updateUser"];
+        trace?: never;
+    };
+    "/api/v1/users/{id}/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Deactivate (soft-disable) a user */
+        post: operations["deactivateUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/regions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List all regions */
+        get: operations["listRegions"];
+        put?: never;
+        /** Create a region */
+        post: operations["createRegion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/branches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List all branches (also backs support-ticket triage) */
+        get: operations["listBranches"];
+        put?: never;
+        /** Create a branch inside a region */
+        post: operations["createBranch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/branches/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Rename a branch or move it to another region */
+        patch: operations["updateBranch"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2301,6 +2473,112 @@ export interface components {
             items: components["schemas"]["SubstituteCandidate"][];
             total: number;
         };
+        CreateEquipmentRequest: {
+            /** @description Equipment number in AAANN-NNNN form; prefix derives manufacturer/kind/power codes. */
+            equipment_no: string;
+            customer_name: string;
+            site_name: string;
+            status: components["schemas"]["EquipmentStatus"];
+            /** @description 규격, e.g. 입식 or 좌식. */
+            specification: string;
+            /** @description 톤수 text, e.g. "2.5T"; numeric milli-tons are derived when the value ends in T. */
+            ton_text: string;
+            management_no?: string | null;
+            power_label?: string | null;
+            manager_name?: string | null;
+            placement_location?: string | null;
+            placement_no?: string | null;
+            operation_shift?: string | null;
+            maker?: string | null;
+            model?: string | null;
+            vin?: string | null;
+            /** Format: date */
+            year?: string | null;
+            /** Format: int64 */
+            hours?: number | null;
+            vehicle_registration_no?: string | null;
+            insured?: boolean | null;
+            insurer?: string | null;
+            policy_holder?: string | null;
+            insured_party?: string | null;
+            asset_owner?: string | null;
+            /** Format: date */
+            asset_registered_on?: string | null;
+            /** Format: date */
+            rental_started_on?: string | null;
+            /**
+             * Format: int64
+             * @description 임대료 in KRW.
+             */
+            rental_fee?: number | null;
+            /**
+             * Format: int64
+             * @description 취득가액 in KRW.
+             */
+            vehicle_value?: number | null;
+            /**
+             * Format: int64
+             * @description 잔존가액 in KRW.
+             */
+            residual_value?: number | null;
+            note?: string | null;
+        };
+        CreateEquipmentResponse: {
+            id: components["schemas"]["Uuid"];
+        };
+        /** @description Partial update. Absent keys are left unchanged; nullable keys set to null clear the column. */
+        UpdateEquipmentRequest: {
+            customer_name?: string;
+            site_name?: string;
+            status?: components["schemas"]["EquipmentStatus"];
+            specification?: string;
+            ton_text?: string;
+            management_no?: string | null;
+            power_label?: string | null;
+            manager_name?: string | null;
+            placement_location?: string | null;
+            placement_no?: string | null;
+            operation_shift?: string | null;
+            maker?: string | null;
+            model?: string | null;
+            vin?: string | null;
+            /** Format: date */
+            year?: string | null;
+            /** Format: int64 */
+            hours?: number | null;
+            vehicle_registration_no?: string | null;
+            insured?: boolean | null;
+            insurer?: string | null;
+            policy_holder?: string | null;
+            insured_party?: string | null;
+            asset_owner?: string | null;
+            /** Format: date */
+            asset_registered_on?: string | null;
+            /** Format: date */
+            rental_started_on?: string | null;
+            /** Format: int64 */
+            rental_fee?: number | null;
+            /** Format: int64 */
+            vehicle_value?: number | null;
+            /** Format: int64 */
+            residual_value?: number | null;
+            note?: string | null;
+        };
+        RegistryRowError: {
+            sheet: string;
+            /** Format: int64 */
+            row: number;
+            message: string;
+        };
+        RegistryImportReport: {
+            input_rows: number;
+            equipment_count: number;
+            added: number;
+            updated: number;
+            unchanged: number;
+            orphaned: number;
+            errors: components["schemas"]["RegistryRowError"][];
+        };
         /** @enum {string} */
         DepreciationMethod: "STRAIGHT_LINE" | "DECLINING_BALANCE";
         /** @enum {string} */
@@ -2508,6 +2786,58 @@ export interface components {
         };
         WorkDiaryUpdateRequest: {
             body: components["schemas"]["WorkDiaryBody"];
+        };
+        /** @enum {string} */
+        Team: "MAINTENANCE" | "PREVENTION" | "MANAGEMENT" | "RECEPTION";
+        UserSummary: {
+            id: components["schemas"]["Uuid"];
+            display_name: string;
+            phone: string | null;
+            team: components["schemas"]["Team"];
+            roles: string[];
+            branch_ids: components["schemas"]["Uuid"][];
+            is_active: boolean;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        RegionSummary: {
+            id: components["schemas"]["Uuid"];
+            name: string;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        BranchSummary: {
+            id: components["schemas"]["Uuid"];
+            region_id: components["schemas"]["Uuid"];
+            name: string;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        CreateUserRequest: {
+            display_name: string;
+            phone?: string | null;
+            team?: components["schemas"]["Team"];
+            roles?: string[];
+            branch_ids?: components["schemas"]["Uuid"][];
+        };
+        UpdateUserRequest: {
+            display_name?: string;
+            phone?: string | null;
+            team?: components["schemas"]["Team"];
+            roles?: string[];
+            branch_ids?: components["schemas"]["Uuid"][];
+        };
+        UpdateSelfProfileRequest: {
+            display_name?: string;
+            phone?: string | null;
+        };
+        CreateRegionRequest: {
+            name: string;
+        };
+        CreateBranchRequest: {
+            region_id: components["schemas"]["Uuid"];
+            name: string;
+        };
+        UpdateBranchRequest: {
+            region_id?: components["schemas"]["Uuid"];
+            name?: string;
         };
     };
     responses: {
@@ -3558,6 +3888,147 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    createEquipment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateEquipmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Equipment created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateEquipmentResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    importEquipmentMasterList: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description The master-list .xlsx workbook.
+                     */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Per-row import summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistryImportReport"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    deleteEquipment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["EquipmentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Equipment soft-deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateEquipment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["EquipmentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateEquipmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Equipment updated. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     replayOfflineSyncBatch: {
@@ -4767,6 +5238,423 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listUsers: {
+        parameters: {
+            query?: {
+                include_inactive?: boolean;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Users in the principal's branch scope. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSummary"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    createUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description User created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getCurrentUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The authenticated user's profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    updateCurrentUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSelfProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The requested user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    updateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    deactivateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deactivated user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSummary"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listRegions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description All regions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegionSummary"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    createRegion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRegionRequest"];
+            };
+        };
+        responses: {
+            /** @description Region created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegionSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listBranches: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description All branches. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchSummary"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    createBranch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateBranchRequest"];
+            };
+        };
+        responses: {
+            /** @description Branch created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    updateBranch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateBranchRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated branch. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
         };
     };
 }
