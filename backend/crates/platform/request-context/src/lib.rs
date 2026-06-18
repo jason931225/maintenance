@@ -28,7 +28,7 @@ use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
 use mnt_kernel_core::{KernelError, OrgId, UserId};
 use mnt_platform_auth::JwtVerifier;
-use mnt_platform_authz::{Principal, Role, resolve_branch_scope};
+use mnt_platform_authz::{PlatformPrincipal, Principal, Role, resolve_branch_scope};
 use sqlx::PgPool;
 use std::collections::BTreeSet;
 
@@ -66,6 +66,12 @@ pub enum RequestContextError {
     /// Resolving the live branch scope from the database failed.
     #[error("failed to resolve branch scope: {0}")]
     BranchScope(String),
+
+    /// A PLATFORM token was presented to a tenant (`/api/*`) route, or a TENANT
+    /// token was presented to a `/platform/*` route. The two tiers are strictly
+    /// separated; crossing them is rejected before any handler runs.
+    #[error("token tier is not valid for this route")]
+    WrongTokenTier,
 }
 
 impl From<RequestContextError> for KernelError {
@@ -122,6 +128,13 @@ pub async fn resolve_principal(
     let claims = verifier
         .verify_access_token(token)
         .map_err(|_| RequestContextError::InvalidToken)?;
+
+    // Tier separation: a PLATFORM token must NEVER resolve to a tenant principal.
+    // Reject it here so a platform actor can never reach a tenant `/api/*` route
+    // (and so its non-tenant `org` sentinel can never arm a real tenant GUC).
+    if claims.platform {
+        return Err(RequestContextError::WrongTokenTier);
+    }
 
     let user_id = UserId::from_str(&claims.sub)
         .map_err(|_| RequestContextError::InvalidClaim("subject is not a valid user id"))?;
@@ -200,9 +213,86 @@ fn error_response_for(err: &RequestContextError) -> Response {
     let status = match err {
         RequestContextError::VerifierUnavailable => StatusCode::SERVICE_UNAVAILABLE,
         RequestContextError::BranchScope(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        // A valid token presented to the wrong tier is an authorization failure,
+        // not an authentication one: the caller IS authenticated, just not for
+        // this route. 403 keeps it distinct from "no/!invalid token" (401).
+        RequestContextError::WrongTokenTier => StatusCode::FORBIDDEN,
         _ => StatusCode::UNAUTHORIZED,
     };
     error_response(status, &err.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Platform tier extractor + middleware
+// ---------------------------------------------------------------------------
+
+/// Resolve the authenticated [`PlatformPrincipal`] for a request from its
+/// headers.
+///
+/// Mirrors [`resolve_principal`] but for the SaaS-vendor PLATFORM tier:
+/// 1. parse + verify the bearer token,
+/// 2. REQUIRE `platform = true` — a tenant token is rejected here, so a tenant
+///    admin can never reach `/platform/*`,
+/// 3. parse the subject.
+///
+/// It deliberately resolves NO tenant org and NO branch scope: a platform
+/// principal is not tenant-scoped, and platform handlers arm the specific
+/// TARGET org themselves per action.
+pub async fn resolve_platform_principal(
+    verifier: &JwtVerifier,
+    headers: &HeaderMap,
+) -> Result<PlatformPrincipal, RequestContextError> {
+    let token = bearer_token(headers)?;
+    let claims = verifier
+        .verify_access_token(token)
+        .map_err(|_| RequestContextError::InvalidToken)?;
+
+    // Tier separation: ONLY a platform token may reach a `/platform/*` route.
+    if !claims.platform {
+        return Err(RequestContextError::WrongTokenTier);
+    }
+
+    let user_id = UserId::from_str(&claims.sub)
+        .map_err(|_| RequestContextError::InvalidClaim("subject is not a valid user id"))?;
+    Ok(PlatformPrincipal::new(user_id))
+}
+
+/// Apply the PLATFORM extractor middleware to a `/platform/*` router.
+///
+/// Resolves the [`PlatformPrincipal`] (rejecting any tenant token) and stores it
+/// in the request extensions for handlers to read as `Extension<PlatformPrincipal>`.
+/// It does NOT enter the [`CURRENT_ORG`] tenant scope: the platform tier is not
+/// tenant-scoped, and each platform write arms the TARGET org explicitly.
+///
+/// Fail-closed: a request that cannot be resolved to a platform principal is
+/// rejected before any handler runs.
+pub fn with_platform_context<S>(
+    router: axum::Router<S>,
+    verifier: Option<JwtVerifier>,
+) -> axum::Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    router.layer(axum::middleware::from_fn(
+        move |mut request: Request, next: Next| {
+            let verifier = verifier.clone();
+            async move {
+                let Some(verifier) = verifier.as_ref() else {
+                    return error_response(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "JWT verification is not configured",
+                    );
+                };
+                let principal = match resolve_platform_principal(verifier, request.headers()).await
+                {
+                    Ok(principal) => principal,
+                    Err(err) => return error_response_for(&err),
+                };
+                request.extensions_mut().insert(principal);
+                next.run(request).await
+            }
+        },
+    ))
 }
 
 /// Wrap a handler body in the tenant scope, for tests / non-router callers that

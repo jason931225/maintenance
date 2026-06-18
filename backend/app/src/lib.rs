@@ -44,7 +44,7 @@ use mnt_platform_auth_rest::{AuthRestConfig, AuthRestState};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
 use mnt_platform_db::{DbError, with_audit};
 use mnt_platform_jobs::{ApalisPostgresJobQueue, JobQueue, run_apalis_worker_until_shutdown};
-use mnt_platform_provisioning::BootstrapCredentialStore;
+use mnt_platform_provisioning::{BootstrapCredentialStore, PlatformProvisioner};
 use mnt_platform_push::{
     FcmConfig, FcmHttpV1Client, ProviderPushNotifier, PushNotifier, SolapiAlimtalkClient,
     SolapiConfig,
@@ -52,6 +52,7 @@ use mnt_platform_push::{
 use mnt_platform_realtime::{
     PgRealtimeHub, PostgresBridgeHandle, PostgresMessageNotifier, RealtimeRestState,
 };
+use mnt_platform_rest::PlatformRestState;
 use mnt_platform_storage::{EvidenceService, S3StorageConfig, SeaweedS3Storage, StorageError};
 use mnt_registry_adapter_postgres::PgRegistryStore;
 use mnt_registry_rest::RegistryRestState;
@@ -960,12 +961,21 @@ pub fn build_router(state: AppState) -> Router {
             // intentionally NOT under the org middleware: a login request has no
             // tenant yet, and the WS handler runs its own auth over the socket
             // lifetime (a task-local would not survive the upgrade anyway).
-            let router = router
-                .merge(domain_router)
-                .merge(mnt_platform_realtime::router(RealtimeRestState::new(
+            // PLATFORM tier (`/platform/*`). Mounted at the APP level behind the
+            // PLATFORM extractor — deliberately NOT under the tenant org
+            // middleware: a platform token is rejected on `/api/*` and a tenant
+            // token is rejected here. This is the only path that creates org rows.
+            let platform_router = mnt_platform_rest::router(PlatformRestState::new(
+                pool.clone(),
+                state.jwt_verifier.clone(),
+                PlatformProvisioner::new(state.config.coldstart_otp_ttl),
+            ));
+            let router = router.merge(domain_router).merge(platform_router).merge(
+                mnt_platform_realtime::router(RealtimeRestState::new(
                     realtime_hub,
                     state.jwt_verifier.clone(),
-                )));
+                )),
+            );
             match state.auth_rest.clone() {
                 Some(auth_rest) => router.merge(mnt_platform_auth_rest::router(auth_rest)),
                 None => router,

@@ -896,6 +896,7 @@ async fn issue_token_pair(
             org_id: user.org_id,
             roles: user.roles.clone(),
             branches: user.branches.clone(),
+            platform: user.org_id == OrgId::platform(),
             issued_at: now,
         })
         .map_err(|err| RestError::internal(err.to_string()))?;
@@ -932,6 +933,10 @@ fn issue_access_token(
             org_id: user.org_id,
             roles: user.roles.clone(),
             branches: user.branches.clone(),
+            // A user homed in the platform sentinel org is the PLATFORM admin:
+            // mint a platform token so it can reach `/platform/*` (and is rejected
+            // on tenant `/api/*`). Every real tenant user gets `false`.
+            platform: user.org_id == OrgId::platform(),
             issued_at: OffsetDateTime::now_utc(),
         })
         .map_err(|err| RestError::internal(err.to_string()))

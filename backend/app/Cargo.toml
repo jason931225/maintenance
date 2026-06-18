@@ -38,6 +38,7 @@ mnt-platform-request-context = { workspace = true }
 mnt-platform-db = { workspace = true }
 mnt-platform-jobs = { workspace = true }
 mnt-platform-provisioning = { path = "../crates/platform/provisioning" }
+mnt-platform-rest = { path = "../crates/platform/platform-rest" }
 mnt-platform-push = { workspace = true }
 mnt-platform-realtime = { workspace = true }
 mnt-platform-storage = { workspace = true }

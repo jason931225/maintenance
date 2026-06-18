@@ -1,0 +1,288 @@
+//! PLATFORM tier REST API — tenant onboarding and lifecycle.
+//!
+//! These routes live under `/platform/*` and are mounted behind the PLATFORM
+//! extractor ([`mnt_platform_request_context::with_platform_context`]), NOT the
+//! tenant org middleware. A TENANT token is rejected here (403) and a PLATFORM
+//! token is rejected on the tenant `/api/*` routes — the two tiers are strictly
+//! separated, so a tenant admin can never reach a platform endpoint.
+//!
+//! Every write is cross-tenant and audited to the TARGET org (so the action
+//! shows in both the platform and the tenant's audit trail).
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, patch};
+use axum::{Extension, Json, Router};
+use mnt_platform_auth::JwtVerifier;
+use mnt_platform_authz::{PlatformFeature, PlatformPrincipal};
+use mnt_platform_provisioning::{
+    OrganizationSummary, PlatformProvisioner, ProvisioningError, TenantOnboarding,
+};
+use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
+use time::OffsetDateTime;
+use uuid::Uuid;
+
+pub const PLATFORM_ORGS_PATH: &str = "/platform/orgs";
+pub const PLATFORM_ORG_PATH_TEMPLATE: &str = "/platform/orgs/{id}";
+
+#[derive(Clone)]
+pub struct PlatformRestState {
+    pool: PgPool,
+    jwt_verifier: Option<JwtVerifier>,
+    provisioner: PlatformProvisioner,
+}
+
+impl PlatformRestState {
+    #[must_use]
+    pub fn new(
+        pool: PgPool,
+        jwt_verifier: Option<JwtVerifier>,
+        provisioner: PlatformProvisioner,
+    ) -> Self {
+        Self {
+            pool,
+            jwt_verifier,
+            provisioner,
+        }
+    }
+}
+
+/// Build the `/platform/*` router behind the PLATFORM extractor.
+pub fn router(state: PlatformRestState) -> Router {
+    let verifier = state.jwt_verifier.clone();
+    let router = Router::new()
+        .route(PLATFORM_ORGS_PATH, get(list_orgs).post(create_org))
+        .route(PLATFORM_ORG_PATH_TEMPLATE, patch(update_org))
+        .with_state(state);
+    // PLATFORM extractor: resolves the PlatformPrincipal and REJECTS any tenant
+    // token. Deliberately NOT the tenant org middleware — the platform tier is
+    // not tenant-scoped, and each handler arms the TARGET org per action.
+    mnt_platform_request_context::with_platform_context(router, verifier)
+}
+
+// ---------------------------------------------------------------------------
+// DTOs
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct CreateOrgRequest {
+    slug: String,
+    name: String,
+}
+
+#[derive(Debug, Serialize)]
+struct OrgResponse {
+    id: Uuid,
+    slug: String,
+    name: String,
+    status: String,
+    created_at: OffsetDateTime,
+    updated_at: OffsetDateTime,
+}
+
+impl From<OrganizationSummary> for OrgResponse {
+    fn from(o: OrganizationSummary) -> Self {
+        Self {
+            id: o.id,
+            slug: o.slug,
+            name: o.name,
+            status: o.status,
+            created_at: o.created_at,
+            updated_at: o.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct OnboardingResponse {
+    organization: OrgResponse,
+    admin_user_id: Uuid,
+    /// The ONE-TIME OTP for the new tenant's first SUPER_ADMIN. Returned exactly
+    /// once, to be delivered out-of-band; never logged or stored in cleartext.
+    admin_otp: String,
+    admin_otp_expires_at: OffsetDateTime,
+}
+
+impl From<TenantOnboarding> for OnboardingResponse {
+    fn from(o: TenantOnboarding) -> Self {
+        Self {
+            organization: o.organization.into(),
+            admin_user_id: o.admin_user_id,
+            admin_otp: o.admin_otp.as_str().to_owned(),
+            admin_otp_expires_at: o.admin_otp_expires_at,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateOrgRequest {
+    /// New tenant status: ACTIVE | SUSPENDED | ARCHIVED.
+    status: String,
+}
+
+#[derive(Debug, Serialize)]
+struct OrgListResponse {
+    items: Vec<OrgResponse>,
+}
+
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
+
+/// POST /platform/orgs — onboard a NEW tenant (the only place org rows are
+/// created by the app), seed its first SUPER_ADMIN, and return a one-time OTP.
+async fn create_org(
+    State(state): State<PlatformRestState>,
+    Extension(principal): Extension<PlatformPrincipal>,
+    Json(body): Json<CreateOrgRequest>,
+) -> Result<Response, PlatformError> {
+    principal
+        .authorize(PlatformFeature::TenantCreate)
+        .map_err(|_| PlatformError::forbidden("platform principal cannot create tenants"))?;
+
+    let onboarding = state
+        .provisioner
+        .onboard_tenant(
+            &state.pool,
+            Some(principal.user_id),
+            &body.slug,
+            &body.name,
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(PlatformError::from_provisioning)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(OnboardingResponse::from(onboarding)),
+    )
+        .into_response())
+}
+
+/// GET /platform/orgs — list all tenants (cross-tenant, audited read).
+async fn list_orgs(
+    State(state): State<PlatformRestState>,
+    Extension(principal): Extension<PlatformPrincipal>,
+) -> Result<Response, PlatformError> {
+    principal
+        .authorize(PlatformFeature::TenantList)
+        .map_err(|_| PlatformError::forbidden("platform principal cannot list tenants"))?;
+
+    let orgs = state
+        .provisioner
+        .list_tenants(
+            &state.pool,
+            Some(principal.user_id),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(PlatformError::from_provisioning)?;
+
+    let items = orgs.into_iter().map(OrgResponse::from).collect();
+    Ok(Json(OrgListResponse { items }).into_response())
+}
+
+/// PATCH /platform/orgs/{id} — suspend / reactivate a tenant (audited).
+async fn update_org(
+    State(state): State<PlatformRestState>,
+    Extension(principal): Extension<PlatformPrincipal>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateOrgRequest>,
+) -> Result<Response, PlatformError> {
+    principal
+        .authorize(PlatformFeature::TenantSuspend)
+        .map_err(|_| PlatformError::forbidden("platform principal cannot change tenant status"))?;
+
+    let org = state
+        .provisioner
+        .set_tenant_status(
+            &state.pool,
+            Some(principal.user_id),
+            id,
+            &body.status,
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(PlatformError::from_provisioning)?;
+
+    Ok(Json(OrgResponse::from(org)).into_response())
+}
+
+// ---------------------------------------------------------------------------
+// Error mapping
+// ---------------------------------------------------------------------------
+
+#[derive(Debug)]
+struct PlatformError {
+    status: StatusCode,
+    code: &'static str,
+    message: String,
+}
+
+impl PlatformError {
+    fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            status,
+            code,
+            message: message.into(),
+        }
+    }
+
+    fn forbidden(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::FORBIDDEN, "forbidden", message)
+    }
+
+    fn validation(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::UNPROCESSABLE_ENTITY, "validation", message)
+    }
+
+    fn from_provisioning(err: ProvisioningError) -> Self {
+        match err {
+            // Caller-facing input problems map to 422; everything else is logged
+            // and collapsed to a generic 500 so no DB/constraint detail leaks.
+            ProvisioningError::InvalidRoster(message) => Self::validation(message),
+            ProvisioningError::ActiveBootstrapCredentialExists => Self::new(
+                StatusCode::CONFLICT,
+                "conflict",
+                "tenant admin already has an active bootstrap credential",
+            ),
+            other => {
+                tracing::error!(error = %other, "platform provisioning error");
+                Self::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal",
+                    "internal server error",
+                )
+            }
+        }
+    }
+}
+
+impl IntoResponse for PlatformError {
+    fn into_response(self) -> Response {
+        (
+            self.status,
+            Json(ErrorBody {
+                error: ErrorPayload {
+                    code: self.code,
+                    message: self.message,
+                },
+            }),
+        )
+            .into_response()
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ErrorBody {
+    error: ErrorPayload,
+}
+
+#[derive(Debug, Serialize)]
+struct ErrorPayload {
+    code: &'static str,
+    message: String,
+}

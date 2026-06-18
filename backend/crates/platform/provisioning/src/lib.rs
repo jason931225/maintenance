@@ -174,7 +174,10 @@ impl BootstrapCredentialStore {
 
         with_audit::<_, BootstrapCredentialIssue, ProvisioningError>(pool, audit, |tx| {
             Box::pin(async move {
-                issue_bootstrap_if_needed_tx(tx, user_id, now, ttl, true)
+                // Admin-issued OTP path: KNL today (single-tenant). The audit
+                // event carries no org here, so no GUC is armed — preserving the
+                // pre-multi-tenant behavior of this path.
+                issue_bootstrap_if_needed_tx(tx, user_id, OrgId::knl(), now, ttl, true)
                     .await?
                     .ok_or(ProvisioningError::ActiveBootstrapCredentialExists)
             })
@@ -321,16 +324,22 @@ impl BootstrapCredentialStore {
         Ok(())
     }
 
-    /// Seed a deploy-time cold-start OTP for the cold-start SUPER_ADMIN at app boot.
+    /// Seed a deploy-time cold-start OTP for the PLATFORM cold-start SUPER_ADMIN
+    /// at app boot.
     ///
-    /// The fixed first-boot constant was removed from the migration; the operator
-    /// now supplies the secret out-of-band (`MNT_COLDSTART_OTP`). This finds the
-    /// "Cold Start Admin" SUPER_ADMIN and, ONLY IF that admin has neither a
-    /// registered passkey nor an already-open bootstrap credential, inserts a
-    /// single bootstrap credential whose `token_hash = hash_token(otp)` and that
-    /// expires at `now + ttl`. The insert is audited via [`with_audit`] (action
-    /// `auth.coldstart.seed`, target = the admin user id); the OTP value is NEVER
-    /// written to the audit snapshot or any log.
+    /// The global `MNT_COLDSTART_OTP` bootstraps the PLATFORM admin — the first
+    /// account ABOVE all tenants — NOT a tenant admin. The "Cold Start Admin"
+    /// user is re-homed to the platform sentinel org [`OrgId::platform`] by
+    /// migration 0036, so this arms that sentinel as the GUC; the seeded
+    /// bootstrap credential carries the sentinel org_id. KNL's own tenant admin
+    /// is created via the per-org onboarding flow (POST /platform/orgs), not here.
+    ///
+    /// ONLY IF that admin has neither a registered passkey nor an already-open
+    /// bootstrap credential, this inserts a single bootstrap credential whose
+    /// `token_hash = hash_token(otp)` and that expires at `now + ttl`. The insert
+    /// is audited via [`with_audits`] (action `auth.coldstart.seed`, target = the
+    /// admin user id); the OTP value is NEVER written to the audit snapshot or any
+    /// log.
     ///
     /// Returns `Ok(true)` when a credential was seeded and `Ok(false)` when it was
     /// skipped (no cold-start admin, or the admin already has a passkey or an open
@@ -346,7 +355,7 @@ impl BootstrapCredentialStore {
     ) -> Result<bool, ProvisioningError> {
         let token_hash = hash_token(otp);
 
-        with_audits::<_, bool, ProvisioningError>(pool, OrgId::knl(), |tx| {
+        with_audits::<_, bool, ProvisioningError>(pool, OrgId::platform(), |tx| {
             Box::pin(async move {
                 match seed_cold_start_if_needed_tx(tx, &token_hash, now, ttl).await? {
                     Some((admin_id, credential_id)) => {
@@ -368,6 +377,254 @@ impl BootstrapCredentialStore {
             })
         })
         .await
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Platform tenant onboarding.
+// ---------------------------------------------------------------------------
+
+/// Summary of a tenant row for the platform tenant-list / status APIs.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct OrganizationSummary {
+    pub id: Uuid,
+    pub slug: String,
+    pub name: String,
+    pub status: String,
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+}
+
+/// Outcome of onboarding a new tenant: the created org plus the ONE-TIME OTP for
+/// its first SUPER_ADMIN, to be delivered out-of-band.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TenantOnboarding {
+    pub organization: OrganizationSummary,
+    pub admin_user_id: Uuid,
+    /// The one-time cold-start OTP for the new org's first SUPER_ADMIN. Returned
+    /// to the platform caller exactly once; never logged or audited.
+    pub admin_otp: BootstrapToken,
+    pub admin_otp_expires_at: OffsetDateTime,
+}
+
+/// Cross-tenant tenant-provisioning operations for the PLATFORM tier.
+///
+/// Every method here is a privileged, AUDITED, cross-tenant action. The REST
+/// layer only reaches it behind the platform extractor (a tenant token is
+/// rejected), so these can never be driven by a tenant admin.
+#[derive(Debug, Clone, Copy)]
+pub struct PlatformProvisioner {
+    onboarding_otp_ttl: Duration,
+}
+
+impl PlatformProvisioner {
+    #[must_use]
+    pub const fn new(onboarding_otp_ttl: Duration) -> Self {
+        Self { onboarding_otp_ttl }
+    }
+
+    /// Onboard a NEW tenant: create the `organizations` row, seed its first
+    /// SUPER_ADMIN user (org_id = the new org), and issue a per-org cold-start
+    /// OTP — all in ONE transaction, audited to the TARGET org so the action
+    /// shows in both the platform and the tenant's audit trail.
+    ///
+    /// The org row is INSERTed via the SECURITY DEFINER `platform_create_organization`
+    /// (migration 0036): `organizations` is SELECT-only + FORCE RLS for the app's
+    /// `mnt_rt` role, so this is the ONLY path that can create an org. The function
+    /// arms `app.current_org` to the new id, so the rest of the transaction (the
+    /// admin user + the OTP credential, both stamped with the new org) passes the
+    /// FORCE-RLS WITH CHECK on every tenant table as the non-owner role.
+    pub async fn onboard_tenant(
+        &self,
+        pool: &PgPool,
+        actor: Option<UserId>,
+        slug: &str,
+        name: &str,
+        now: OffsetDateTime,
+    ) -> Result<TenantOnboarding, ProvisioningError> {
+        let slug = slug.trim().to_owned();
+        let name = name.trim().to_owned();
+        if slug.is_empty() || name.is_empty() {
+            return Err(ProvisioningError::InvalidRoster(
+                "slug and name are required to onboard a tenant".to_owned(),
+            ));
+        }
+        let ttl = self.onboarding_otp_ttl;
+
+        let mut tx = pool.begin().await?;
+
+        // (1) Create the org via the privileged DEFINER function. It arms the GUC
+        // to the new id, so every subsequent tenant write in this tx passes RLS.
+        let org_id: Uuid = sqlx::query_scalar("SELECT platform_create_organization($1, $2)")
+            .bind(&slug)
+            .bind(&name)
+            .fetch_one(tx.as_mut())
+            .await?;
+
+        let organization = fetch_org_tx(&mut tx, org_id).await?;
+
+        // (2) Seed the first SUPER_ADMIN for the new tenant.
+        let admin_user_id: Uuid = sqlx::query_scalar(
+            r#"
+            INSERT INTO users (display_name, roles, is_active, org_id)
+            VALUES ($1, $2, true, $3)
+            RETURNING id
+            "#,
+        )
+        .bind("Tenant Admin")
+        .bind(&["SUPER_ADMIN"] as &[&str])
+        .bind(org_id)
+        .fetch_one(tx.as_mut())
+        .await?;
+
+        // (3) Issue the per-org cold-start OTP for that admin. Fresh per-org —
+        // never the removed fixed `coss0000` seed.
+        let issue = issue_bootstrap_if_needed_tx(
+            &mut tx,
+            admin_user_id,
+            OrgId::from_uuid(org_id),
+            now,
+            ttl,
+            true,
+        )
+        .await?
+        .ok_or(ProvisioningError::ActiveBootstrapCredentialExists)?;
+
+        // (4) Audit the onboarding to the TARGET org (so it lands in the tenant's
+        // trail too). The OTP value is NEVER recorded.
+        let event = AuditEvent::new(
+            actor,
+            AuditAction::new("platform.tenant.create")?,
+            "organizations",
+            org_id.to_string(),
+            TraceContext::generate(),
+            now,
+        )
+        .with_org(OrgId::from_uuid(org_id))
+        .with_snapshots(
+            None,
+            Some(serde_json::json!({
+                "org_id": org_id,
+                "slug": slug,
+                "admin_user_id": admin_user_id,
+            })),
+        );
+        insert_audit_event(&mut tx, &event).await?;
+
+        tx.commit().await?;
+
+        Ok(TenantOnboarding {
+            organization,
+            admin_user_id,
+            admin_otp: issue.token,
+            admin_otp_expires_at: issue.expires_at,
+        })
+    }
+
+    /// List all tenants (cross-tenant read) via the SECURITY DEFINER
+    /// `platform_list_organizations` so the platform tier sees every org even
+    /// though `organizations` is RLS-gated for `mnt_rt`. Audited by the caller.
+    pub async fn list_tenants(
+        &self,
+        pool: &PgPool,
+        actor: Option<UserId>,
+        now: OffsetDateTime,
+    ) -> Result<Vec<OrganizationSummary>, ProvisioningError> {
+        let mut tx = pool.begin().await?;
+        let rows = sqlx::query(
+            r#"
+            SELECT id, slug, name, status, created_at, updated_at
+            FROM platform_list_organizations()
+            ORDER BY created_at ASC, id ASC
+            "#,
+        )
+        .fetch_all(tx.as_mut())
+        .await?;
+
+        let summaries = rows
+            .into_iter()
+            .map(|row| {
+                Ok(OrganizationSummary {
+                    id: row.try_get("id")?,
+                    slug: row.try_get("slug")?,
+                    name: row.try_get("name")?,
+                    status: row.try_get("status")?,
+                    created_at: row.try_get("created_at")?,
+                    updated_at: row.try_get("updated_at")?,
+                })
+            })
+            .collect::<Result<Vec<_>, ProvisioningError>>()?;
+
+        // Audited cross-tenant read. This is a PLATFORM-tier event (no single
+        // target tenant), so it carries org_id = NULL — the audit_events WITH
+        // CHECK allows a NULL-org platform row even with no tenant GUC armed.
+        let event = AuditEvent::new(
+            actor,
+            AuditAction::new("platform.tenant.list")?,
+            "organizations",
+            "list",
+            TraceContext::generate(),
+            now,
+        )
+        .with_snapshots(None, Some(serde_json::json!({ "count": summaries.len() })));
+        insert_audit_event(&mut tx, &event).await?;
+
+        tx.commit().await?;
+        Ok(summaries)
+    }
+
+    /// Suspend / reactivate a tenant by setting its `status`. Audited to the
+    /// TARGET org. Runs via the SECURITY DEFINER `platform_set_organization_status`
+    /// (organizations is not UPDATE-able by `mnt_rt`).
+    pub async fn set_tenant_status(
+        &self,
+        pool: &PgPool,
+        actor: Option<UserId>,
+        org_id: Uuid,
+        status: &str,
+        now: OffsetDateTime,
+    ) -> Result<OrganizationSummary, ProvisioningError> {
+        if !matches!(status, "ACTIVE" | "SUSPENDED" | "ARCHIVED") {
+            return Err(ProvisioningError::InvalidRoster(format!(
+                "invalid tenant status {status:?}"
+            )));
+        }
+
+        let mut tx = pool.begin().await?;
+        let updated: Option<Uuid> =
+            sqlx::query_scalar("SELECT platform_set_organization_status($1, $2)")
+                .bind(org_id)
+                .bind(status)
+                .fetch_one(tx.as_mut())
+                .await?;
+        let Some(updated_id) = updated else {
+            tx.rollback().await?;
+            return Err(ProvisioningError::InvalidBootstrapCredential);
+        };
+        let organization = fetch_org_tx(&mut tx, updated_id).await?;
+
+        // Arm the TARGET org so the audit insert below passes the audit_events
+        // WITH CHECK (org_id = GUC). The org row write itself went through the
+        // SECURITY DEFINER function, so the GUC was not armed before now.
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(updated_id.to_string())
+            .execute(tx.as_mut())
+            .await?;
+
+        let event = AuditEvent::new(
+            actor,
+            AuditAction::new("platform.tenant.status")?,
+            "organizations",
+            org_id.to_string(),
+            TraceContext::generate(),
+            now,
+        )
+        .with_org(OrgId::from_uuid(org_id))
+        .with_snapshots(None, Some(serde_json::json!({ "status": status })));
+        insert_audit_event(&mut tx, &event).await?;
+
+        tx.commit().await?;
+        Ok(organization)
     }
 }
 
@@ -598,7 +855,8 @@ async fn apply_roster_tx(
             report.users_created += 1;
 
             if let Some(issue) =
-                issue_bootstrap_if_needed_tx(tx, user_id, now, bootstrap_ttl, false).await?
+                issue_bootstrap_if_needed_tx(tx, user_id, OrgId::knl(), now, bootstrap_ttl, false)
+                    .await?
             {
                 report.bootstrap_credentials_issued.push(issue);
             }
@@ -638,6 +896,33 @@ async fn apply_roster_tx(
     Ok(report)
 }
 
+/// Read one organization by id via the SECURITY DEFINER `platform_get_organization`
+/// so the platform path sees the row regardless of the tenant GUC state.
+async fn fetch_org_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    org_id: Uuid,
+) -> Result<OrganizationSummary, ProvisioningError> {
+    let row = sqlx::query(
+        r#"
+        SELECT id, slug, name, status, created_at, updated_at
+        FROM platform_get_organization($1)
+        "#,
+    )
+    .bind(org_id)
+    .fetch_optional(tx.as_mut())
+    .await?
+    .ok_or(ProvisioningError::InvalidBootstrapCredential)?;
+
+    Ok(OrganizationSummary {
+        id: row.try_get("id")?,
+        slug: row.try_get("slug")?,
+        name: row.try_get("name")?,
+        status: row.try_get("status")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
 async fn resolve_branch_tx(
     tx: &mut Transaction<'_, Postgres>,
     phone: &str,
@@ -665,6 +950,7 @@ async fn resolve_branch_tx(
 async fn issue_bootstrap_if_needed_tx(
     tx: &mut Transaction<'_, Postgres>,
     user_id: Uuid,
+    org: OrgId,
     now: OffsetDateTime,
     ttl: Duration,
     reject_existing: bool,
@@ -721,6 +1007,10 @@ async fn issue_bootstrap_if_needed_tx(
     let token_hash = hash_token(token.as_str());
     let expires_at = now + ttl;
 
+    // Stamp the credential with the caller-supplied tenant `org`. The caller
+    // must arm the SAME org as `app.current_org` for the transaction so the row
+    // passes the FORCE-RLS WITH CHECK on `auth_bootstrap_credentials` (KNL roster
+    // import, a newly-onboarded org, or an admin-issued OTP).
     sqlx::query(
         r#"
         INSERT INTO auth_bootstrap_credentials (
@@ -733,7 +1023,7 @@ async fn issue_bootstrap_if_needed_tx(
     .bind(token_hash)
     .bind(now)
     .bind(expires_at)
-    .bind(*OrgId::knl().as_uuid())
+    .bind(*org.as_uuid())
     .execute(tx.as_mut())
     .await?;
 
@@ -846,7 +1136,9 @@ async fn seed_cold_start_if_needed_tx(
     .bind(token_hash)
     .bind(now)
     .bind(expires_at)
-    .bind(*OrgId::knl().as_uuid())
+    // The platform admin lives in the platform sentinel org; the credential
+    // carries it so the FORCE-RLS WITH CHECK (org_id = GUC) accepts the row.
+    .bind(*OrgId::platform().as_uuid())
     .fetch_optional(tx.as_mut())
     .await?;
 

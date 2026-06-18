@@ -27,12 +27,22 @@ CREATE TABLE organizations (
 -- table and is used ONLY to run migrations; the running application must NOT
 -- connect as it. The unprivileged RUNTIME role the app connects as is `mnt_rt`,
 -- created in 0031. This DO block only guarantees the owner role exists for local
--- (non-CNPG) bootstraps; on the cluster CNPG has already created it. Idempotent
--- so a partially-applied or shared cluster does not error.
+-- (non-CNPG) bootstraps; on the cluster CNPG has already created it.
+--
+-- Roles live in CLUSTER-global pg_authid, so when sqlx::test applies every
+-- migration into many FRESH databases in parallel, an unguarded IF NOT EXISTS +
+-- CREATE ROLE TOCTOU-races the shared catalog and fails with a unique_violation
+-- on pg_authid_rolname_index. Serialize with a cluster-wide advisory xact lock
+-- (uncontended no-op for a single production applier) and also swallow the
+-- race's unique_violation in case two sessions slip between check and insert.
+SELECT pg_advisory_xact_lock(hashtext('mnt_app_role_setup'));
+
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mnt_app') THEN
         CREATE ROLE mnt_app NOLOGIN NOBYPASSRLS;
     END IF;
+EXCEPTION
+    WHEN duplicate_object OR unique_violation THEN NULL;
 END
 $$;

@@ -230,8 +230,13 @@ async fn schedule_dispatch_jobs(
     let Some(queue) = state.job_queue.as_ref() else {
         return Ok(());
     };
+    // Carry the dispatch's tenant onto every scheduled job so the background
+    // worker arms the correct `app.current_org`. This handler runs inside the
+    // request's tenant scope, so the org is the in-flight tenant.
+    let org = mnt_platform_request_context::current_org()
+        .map_err(|err| RestError::internal(err.to_string()))?;
     let accept =
-        JobRequest::dispatch_accept_window_expired(summary.id, summary.accept_window_ends_at)
+        JobRequest::dispatch_accept_window_expired(summary.id, org, summary.accept_window_ends_at)
             .map_err(RestError::from_jobs)?;
     queue
         .schedule_at(accept, summary.accept_window_ends_at)
@@ -241,7 +246,7 @@ async fn schedule_dispatch_jobs(
         .accept_window_started_at
         .checked_add(state.timers.alimtalk_no_ack_after)
         .ok_or_else(|| RestError::internal("dispatch Alimtalk timer overflows time"))?;
-    let no_ack = JobRequest::dispatch_alimtalk_no_ack(summary.id, no_ack_at)
+    let no_ack = JobRequest::dispatch_alimtalk_no_ack(summary.id, org, no_ack_at)
         .map_err(RestError::from_jobs)?;
     queue
         .schedule_at(no_ack, no_ack_at)
@@ -251,7 +256,7 @@ async fn schedule_dispatch_jobs(
         .accept_window_started_at
         .checked_add(state.timers.force_assign_alert_after)
         .ok_or_else(|| RestError::internal("dispatch manual-call timer overflows time"))?;
-    let manual_call = JobRequest::dispatch_manual_call_required(summary.id, manual_call_at)
+    let manual_call = JobRequest::dispatch_manual_call_required(summary.id, org, manual_call_at)
         .map_err(RestError::from_jobs)?;
     queue
         .schedule_at(manual_call, manual_call_at)

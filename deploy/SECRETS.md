@@ -92,6 +92,42 @@ kubectl create secret generic mnt-db-rt -n maintenance \
 unset RT_PASSWORD RT_URI
 ```
 
+## Platform-admin cold start + tenant onboarding
+
+The SaaS-vendor **PLATFORM** tier sits ABOVE every tenant. It is bootstrapped
+once, out-of-band, then drives tenant onboarding.
+
+- `MNT_COLDSTART_OTP` (optional, on `mnt-secrets`) — a one-time secret supplied
+  at boot. It seeds a single bootstrap credential for the **PLATFORM admin** (the
+  `Cold Start Admin` SUPER_ADMIN, re-homed to the platform sentinel org
+  `00000000-0000-0000-0000-00000000face` by migration 0036), NOT a tenant admin.
+  Redeeming it signs the platform admin in for first passkey enrollment; once a
+  passkey exists the OTP is dead. Leave it UNSET once the platform admin has a
+  passkey (the normal steady state). `MNT_COLDSTART_OTP_TTL_SECS` (default 3600)
+  bounds the redeem window; the value is never logged or written to audit.
+  - The platform admin's login mints a **platform token** (`platform = true` in
+    the JWT), the only token accepted on `/platform/*`. A tenant token is
+    rejected there (403), and a platform token is rejected on tenant `/api/*`.
+
+- **Tenant #1 (KNL) and every later tenant** get their own admin via the
+  platform onboarding flow, NOT via `MNT_COLDSTART_OTP`:
+  - `POST /platform/orgs {slug,name}` (platform token) creates the
+    `organizations` row, seeds that tenant's first SUPER_ADMIN, and returns a
+    fresh **per-org** one-time OTP to deliver to the tenant out-of-band. This is
+    the ONLY path that inserts org rows (the app's `mnt_rt` role is SELECT-only on
+    `organizations` under RLS; creation runs via the audited SECURITY DEFINER
+    `platform_create_organization`). The fixed `coss0000` seed removed in
+    migration 0023 is never reintroduced — every onboarding OTP is generated
+    fresh per org.
+  - `GET /platform/orgs` lists tenants (audited cross-tenant read); the platform
+    sentinel org is never listed.
+  - `PATCH /platform/orgs/{id} {status}` suspends/reactivates a tenant (audited
+    to the target org).
+
+  > KNL was historically backfilled by migration 0028 and remains tenant #1; its
+  > admin should be (re)issued through `POST /platform/orgs` semantics rather than
+  > the global cold-start OTP, which now belongs to the platform tier.
+
 ## CI / release secrets (GitHub repo settings)
 
 - `RELEASE_PLEASE_TOKEN` — fine-grained PAT (contents:write) so the release tag

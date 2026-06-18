@@ -11,7 +11,7 @@ use apalis::prelude::{BoxDynError, Data, TaskSink, WorkerBuilder, WorkerContext}
 use apalis_postgres::{Config, PgPool as ApalisPgPool, PostgresStorage};
 use apalis_sql::ext::TaskBuilderExt as _;
 use apalis_sqlx::{Connection as _, Executor as _, Row as _};
-use mnt_kernel_core::{Clock, P1DispatchId, Timestamp};
+use mnt_kernel_core::{Clock, OrgId, P1DispatchId, Timestamp};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -66,6 +66,13 @@ pub struct EscalationTimerJob {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DispatchTimerJob {
     pub dispatch_id: P1DispatchId,
+    /// The tenant that owns the dispatch. Carried on the payload so the
+    /// background worker can arm `app.current_org` to the RIGHT tenant for its
+    /// RLS-gated reads/writes — never a hardcoded bootstrap tenant. Defaults to
+    /// KNL on a legacy payload that predates this field, so jobs enqueued before
+    /// the multi-tenant rollout still process under the original single tenant.
+    #[serde(default = "OrgId::knl")]
+    pub org_id: OrgId,
     pub scheduled_for: Timestamp,
 }
 
@@ -94,11 +101,13 @@ impl JobRequest {
 
     pub fn dispatch_accept_window_expired(
         dispatch_id: P1DispatchId,
+        org_id: OrgId,
         scheduled_for: Timestamp,
     ) -> Result<Self, JobQueueError> {
         Ok(Self {
             job: PlatformJob::DispatchAcceptWindowExpired(DispatchTimerJob {
                 dispatch_id,
+                org_id,
                 scheduled_for,
             }),
             idempotency_key: IdempotencyKey::new(format!(
@@ -110,11 +119,13 @@ impl JobRequest {
 
     pub fn dispatch_alimtalk_no_ack(
         dispatch_id: P1DispatchId,
+        org_id: OrgId,
         scheduled_for: Timestamp,
     ) -> Result<Self, JobQueueError> {
         Ok(Self {
             job: PlatformJob::DispatchAlimtalkNoAck(DispatchTimerJob {
                 dispatch_id,
+                org_id,
                 scheduled_for,
             }),
             idempotency_key: IdempotencyKey::new(format!(
@@ -126,11 +137,13 @@ impl JobRequest {
 
     pub fn dispatch_manual_call_required(
         dispatch_id: P1DispatchId,
+        org_id: OrgId,
         scheduled_for: Timestamp,
     ) -> Result<Self, JobQueueError> {
         Ok(Self {
             job: PlatformJob::DispatchManualCallRequired(DispatchTimerJob {
                 dispatch_id,
+                org_id,
                 scheduled_for,
             }),
             idempotency_key: IdempotencyKey::new(format!(
@@ -698,7 +711,8 @@ mod tests {
         let dispatch_id = P1DispatchId::new();
         let scheduled_for = time::macros::datetime!(2026-06-12 09:10:00 UTC);
 
-        let request = JobRequest::dispatch_manual_call_required(dispatch_id, scheduled_for)
+        let org_id = OrgId::knl();
+        let request = JobRequest::dispatch_manual_call_required(dispatch_id, org_id, scheduled_for)
             .expect("manual-call dispatch job request should be valid");
 
         assert_eq!(
@@ -709,6 +723,7 @@ mod tests {
             request.job,
             PlatformJob::DispatchManualCallRequired(DispatchTimerJob {
                 dispatch_id,
+                org_id,
                 scheduled_for,
             })
         );

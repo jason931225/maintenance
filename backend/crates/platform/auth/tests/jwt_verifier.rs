@@ -36,6 +36,7 @@ fn public_key_verifier_accepts_es256_access_token() {
             org_id: OrgId::knl(),
             roles: vec!["ADMIN".to_owned()],
             branches: vec![branch_id],
+            platform: false,
             issued_at: OffsetDateTime::now_utc(),
         })
         .unwrap();

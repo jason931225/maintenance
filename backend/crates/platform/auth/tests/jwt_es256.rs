@@ -37,6 +37,7 @@ fn es256_access_token_round_trips_with_expected_claims() {
             org_id: OrgId::knl(),
             roles: vec!["MECHANIC".to_owned()],
             branches: vec![branch_id],
+            platform: false,
             issued_at: now,
         })
         .unwrap();

@@ -346,7 +346,10 @@ async fn seed_cold_start_credential_is_gated_and_idempotent(pool: PgPool) {
     .bind(admin_id)
     .bind("cred-id")
     .bind(serde_json::json!({}))
-    .bind(*OrgId::knl().as_uuid())
+    // The Cold Start Admin is the PLATFORM admin, re-homed to the platform
+    // sentinel org by migration 0036; its passkey must carry that same org to
+    // satisfy the (user_id, org_id) composite FK to `users`.
+    .bind(*OrgId::platform().as_uuid())
     .execute(&pool)
     .await
     .unwrap();

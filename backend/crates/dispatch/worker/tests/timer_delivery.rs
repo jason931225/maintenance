@@ -55,6 +55,7 @@ async fn timer_worker_delivers_alimtalk_and_manager_force_push(pool: PgPool) {
         worker
             .handle(PlatformJob::DispatchAlimtalkNoAck(DispatchTimerJob {
                 dispatch_id: started.id,
+                org_id: mnt_kernel_core::OrgId::knl(),
                 scheduled_for: now + timers.alimtalk_no_ack_after,
             }))
             .await
@@ -69,6 +70,7 @@ async fn timer_worker_delivers_alimtalk_and_manager_force_push(pool: PgPool) {
         worker
             .handle(PlatformJob::DispatchAcceptWindowExpired(DispatchTimerJob {
                 dispatch_id: started.id,
+                org_id: mnt_kernel_core::OrgId::knl(),
                 scheduled_for: started.accept_window_ends_at,
             }))
             .await
@@ -122,6 +124,7 @@ async fn escalation_chain_skips_unconfigured_alimtalk_flags_manual_call_and_clea
         worker
             .handle(PlatformJob::DispatchAlimtalkNoAck(DispatchTimerJob {
                 dispatch_id: started.id,
+                org_id: mnt_kernel_core::OrgId::knl(),
                 scheduled_for: now + timers.alimtalk_no_ack_after,
             }))
             .await
@@ -145,6 +148,7 @@ async fn escalation_chain_skips_unconfigured_alimtalk_flags_manual_call_and_clea
         worker
             .handle(PlatformJob::DispatchAcceptWindowExpired(DispatchTimerJob {
                 dispatch_id: started.id,
+                org_id: mnt_kernel_core::OrgId::knl(),
                 scheduled_for: started.accept_window_ends_at,
             }))
             .await
@@ -156,6 +160,7 @@ async fn escalation_chain_skips_unconfigured_alimtalk_flags_manual_call_and_clea
         worker
             .handle(PlatformJob::DispatchManualCallRequired(DispatchTimerJob {
                 dispatch_id: started.id,
+                org_id: mnt_kernel_core::OrgId::knl(),
                 scheduled_for: now + timers.force_assign_alert_after,
             }))
             .await

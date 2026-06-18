@@ -152,13 +152,28 @@ impl RefreshTokenStore {
         let token_hash = hash_token(presented_token);
         let mut tx = pool.begin().await?;
 
+        // Resolve the family's tenant from the token hash FIRST, then arm the
+        // GUC, THEN do the RLS-gated read. `auth_refresh_tokens` is FORCE RLS
+        // (migration 0035), so as the non-owner `mnt_rt` role a lookup-by-hash
+        // returns ZERO rows until `app.current_org` is set — but the org is what
+        // we need to set it. The narrow SECURITY DEFINER resolver
+        // `platform_resolve_token_org` returns only the family's org_id, breaking
+        // that chicken-and-egg so refresh works for ANY tenant (not just KNL).
+        let Some(org_uuid) = resolve_token_org(&mut tx, &token_hash).await? else {
+            tx.rollback().await?;
+            return Err(RefreshTokenUseError::InvalidToken.into());
+        };
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(org_uuid.to_string())
+            .execute(tx.as_mut())
+            .await?;
+
         let row = sqlx::query(
             r#"
             SELECT
                 t.id AS token_id,
                 t.family_id,
                 t.user_id,
-                t.org_id,
                 t.expires_at,
                 t.used_at,
                 t.revoked_at AS token_revoked_at,
@@ -181,13 +196,6 @@ impl RefreshTokenStore {
         let token_id: Uuid = row.try_get("token_id")?;
         let family_id: Uuid = row.try_get("family_id")?;
         let user_id: Uuid = row.try_get("user_id")?;
-        // The replacement token inherits the family's tenant. Arm the GUC so the
-        // subsequent INSERT/UPDATE pass the RLS WITH CHECK as the non-owner role.
-        let org_uuid: Uuid = row.try_get("org_id")?;
-        sqlx::query("SELECT set_config('app.current_org', $1, true)")
-            .bind(org_uuid.to_string())
-            .execute(tx.as_mut())
-            .await?;
         let expires_at: OffsetDateTime = row.try_get("expires_at")?;
         let used_at: Option<OffsetDateTime> = row.try_get("used_at")?;
         let token_revoked_at: Option<OffsetDateTime> = row.try_get("token_revoked_at")?;
@@ -311,12 +319,23 @@ impl RefreshTokenStore {
         let token_hash = hash_token(presented_token);
         let mut tx = pool.begin().await?;
 
+        // Resolve the family's tenant from the token hash and arm the GUC BEFORE
+        // the RLS-gated read, so logout works under `mnt_rt` for any tenant.
+        // See `rotate_inner` for the chicken-and-egg rationale.
+        let Some(org_uuid) = resolve_token_org(&mut tx, &token_hash).await? else {
+            tx.rollback().await?;
+            return Err(RefreshTokenUseError::InvalidToken.into());
+        };
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(org_uuid.to_string())
+            .execute(tx.as_mut())
+            .await?;
+
         let row = sqlx::query(
             r#"
             SELECT
                 t.family_id,
                 t.user_id,
-                t.org_id,
                 f.revoked_at AS family_revoked_at
             FROM auth_refresh_tokens t
             JOIN auth_refresh_token_families f ON f.id = t.family_id
@@ -335,13 +354,6 @@ impl RefreshTokenStore {
 
         let family_id: Uuid = row.try_get("family_id")?;
         let user_id: Uuid = row.try_get("user_id")?;
-        // Arm the tenant GUC for the family's org so the UPDATEs and the audit
-        // insert below pass RLS as the non-owner role.
-        let org_uuid: Uuid = row.try_get("org_id")?;
-        sqlx::query("SELECT set_config('app.current_org', $1, true)")
-            .bind(org_uuid.to_string())
-            .execute(tx.as_mut())
-            .await?;
         let family_revoked_at: Option<OffsetDateTime> = row.try_get("family_revoked_at")?;
 
         if family_revoked_at.is_some() {
@@ -389,6 +401,24 @@ impl RefreshTokenStore {
         tx.commit().await?;
         Ok(())
     }
+}
+
+/// Resolve a refresh-token family's tenant from a token hash, via the narrow
+/// SECURITY DEFINER resolver `platform_resolve_token_org` (migration 0036).
+///
+/// `auth_refresh_tokens` is FORCE RLS, so the app's non-owner `mnt_rt` role
+/// cannot read a token row by hash until `app.current_org` is armed — but the
+/// org is exactly what we need to arm it. This resolver returns ONLY the org_id
+/// (nothing else), breaking that chicken-and-egg without widening any read
+/// surface. Returns `None` for an unknown hash.
+async fn resolve_token_org(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    token_hash: &[u8],
+) -> Result<Option<Uuid>, AuthError> {
+    Ok(sqlx::query_scalar("SELECT platform_resolve_token_org($1)")
+        .bind(token_hash)
+        .fetch_one(tx.as_mut())
+        .await?)
 }
 
 async fn revoke_family_for_reuse(

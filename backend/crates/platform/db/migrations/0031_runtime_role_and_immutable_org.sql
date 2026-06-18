@@ -26,6 +26,11 @@
 --      cannot conflict even if the lock were unavailable.
 SELECT pg_advisory_xact_lock(hashtext('mnt_rt_role_setup'));
 
+-- The advisory lock above is best-effort (a transaction-scoped lock is ineffective
+-- if the migration runner applies statements in autocommit), so the catch below is
+-- the real guard: on a FRESH cluster every parallel sqlx::test DB races to CREATE
+-- mnt_rt, and the losers must swallow the pg_authid unique_violation. Whoever wins
+-- the CREATE sets the full attribute set, so the losers can safely no-op.
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mnt_rt') THEN
@@ -37,6 +42,8 @@ BEGIN
     ) THEN
         ALTER ROLE mnt_rt NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
     END IF;
+EXCEPTION
+    WHEN duplicate_object OR unique_violation THEN NULL;
 END
 $$;
 

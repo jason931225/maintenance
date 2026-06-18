@@ -20,9 +20,19 @@ pub struct AccessTokenInput {
     /// The tenant the authenticated user belongs to. Sourced from
     /// `users.org_id` at issuance — never a hardcoded default — and stamped into
     /// the `org` claim so every downstream request can arm `app.current_org`.
+    ///
+    /// For a PLATFORM token (`platform = true`) this carries the platform
+    /// sentinel [`OrgId::platform`]: a platform principal is NOT tenant-scoped,
+    /// so its `org` is a non-tenant marker that can never arm a real tenant's
+    /// RLS GUC.
     pub org_id: OrgId,
     pub roles: Vec<String>,
     pub branches: Vec<BranchId>,
+    /// `true` marks a SaaS-vendor PLATFORM token (the tier ABOVE all tenants).
+    /// A platform token is rejected on tenant `/api/*` routes, and a tenant
+    /// token is rejected on `/platform/*` — the two tiers are strictly
+    /// separated. Tenant tokens always set this `false`.
+    pub platform: bool,
     pub issued_at: time::OffsetDateTime,
 }
 
@@ -36,10 +46,17 @@ pub struct AccessClaims {
     pub exp: i64,
     pub jti: String,
     /// The user's tenant id, as a UUID string. Verification rejects a token
-    /// whose `org` does not parse as a UUID, so callers can trust it.
+    /// whose `org` does not parse as a UUID, so callers can trust it. On a
+    /// PLATFORM token this is the platform sentinel [`OrgId::platform`].
     pub org: String,
     pub roles: Vec<String>,
     pub branches: Vec<String>,
+    /// `true` for a SaaS-vendor PLATFORM token (cross-tenant, NOT tenant-scoped).
+    /// Absent in legacy tokens → defaults to `false` (a tenant token), so old
+    /// tenant tokens keep their exact meaning and can never be mistaken for a
+    /// platform token.
+    #[serde(default)]
+    pub platform: bool,
     pub alg: String,
 }
 
@@ -87,6 +104,7 @@ impl JwtIssuer {
                 .into_iter()
                 .map(|branch| branch.to_string())
                 .collect(),
+            platform: input.platform,
             alg: "ES256".to_owned(),
         };
 

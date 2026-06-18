@@ -115,6 +115,7 @@ fn issue_token(
             org_id: OrgId::knl(),
             roles,
             branches,
+            platform: false,
             issued_at: OffsetDateTime::now_utc(),
         })
         .unwrap()

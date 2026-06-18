@@ -224,6 +224,7 @@ fn issue_token(
             org_id: org,
             roles,
             branches: Vec::<BranchId>::new(),
+            platform: false,
             issued_at: OffsetDateTime::now_utc(),
         })
         .unwrap()

@@ -77,6 +77,22 @@ impl OrgId {
     pub const fn knl() -> Self {
         Self(uuid::Uuid::from_u128(0xa1))
     }
+
+    /// The PLATFORM sentinel — the SaaS-vendor tier that sits ABOVE every
+    /// tenant. It is deliberately NOT a real tenant: no `organizations` row has
+    /// this id, no tenant data carries it as `org_id`, and arming it as
+    /// `app.current_org` selects ZERO tenant rows (every RLS policy compares the
+    /// GUC to a real per-tenant `org_id`, which can never equal this marker).
+    ///
+    /// A platform token stamps this into its `org` claim purely so the claim is
+    /// a valid UUID; the platform tier is authorized by the `platform = true`
+    /// claim, never by this value. Distinct from `knl()` (`0xa1`) and from the
+    /// nil UUID so it can never be confused with an unset/zeroed id. The marker
+    /// is `0x...00face` (a recognizable non-tenant byte pattern).
+    #[must_use]
+    pub const fn platform() -> Self {
+        Self(uuid::Uuid::from_u128(0x00face_u128))
+    }
 }
 typed_id!(
     /// An organizational branch (지점). Day-1 scoping concept: every
