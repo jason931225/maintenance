@@ -26,6 +26,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "kpi",
     "ops",
     "equipment",
+    "financial",
     "users",
     "org",
     "profile",
@@ -42,6 +43,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "kpi",
     "ops",
     "equipment",
+    "financial",
     "users",
     "org",
     "profile",
@@ -56,6 +58,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "support",
     "kpi",
     "equipment",
+    "financial",
     "profile",
     "location",
   ],
@@ -68,6 +71,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "messenger",
     "support",
     "equipment",
+    "financial",
     "profile",
     "location",
   ],
@@ -78,6 +82,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "messenger",
     "support",
     "equipment",
+    "financial",
     "profile",
     "location",
   ],
@@ -128,7 +133,7 @@ describe("nav role gating", () => {
 
   it("shows shared pages to all roles", () => {
     for (const role of Object.values(ROLES)) {
-      for (const key of ["dispatch", "intake", "messenger", "support", "equipment", "location", "profile"]) {
+      for (const key of ["dispatch", "intake", "messenger", "support", "equipment", "financial", "location", "profile"]) {
         expect(isNavItemVisible(key, [role])).toBe(true);
       }
     }

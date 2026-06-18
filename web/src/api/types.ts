@@ -81,6 +81,28 @@ export type AddCommentRequest =
   components["schemas"]["AddCommentRequest"];
 export type SupportIntakeAck = components["schemas"]["SupportIntakeAck"];
 
+export type FinancialConfigSnapshot =
+  components["schemas"]["FinancialConfigSnapshot"];
+export type DepreciationMethod = components["schemas"]["DepreciationMethod"];
+export type PurchaseStatus = components["schemas"]["PurchaseStatus"];
+export type PurchaseRequestSummary =
+  components["schemas"]["PurchaseRequestSummary"];
+export type CreatePurchaseRequest =
+  components["schemas"]["CreatePurchaseRequest"];
+export type PrepareExpenditureRequest =
+  components["schemas"]["PrepareExpenditureRequest"];
+export type RejectPurchaseRequest =
+  components["schemas"]["RejectPurchaseRequest"];
+export type RestartPurchaseRequest =
+  components["schemas"]["RestartPurchaseRequest"];
+export type RentalQuoteSummary = components["schemas"]["RentalQuoteSummary"];
+export type CreateRentalQuoteRequest =
+  components["schemas"]["CreateRentalQuoteRequest"];
+export type CostLedgerEntrySummary =
+  components["schemas"]["CostLedgerEntrySummary"];
+export type CostLedgerSource = components["schemas"]["CostLedgerSource"];
+export type QuoteLine = components["schemas"]["QuoteLine"];
+
 export type Team = components["schemas"]["Team"];
 export type UserSummary = components["schemas"]["UserSummary"];
 export type CreateUserRequest = components["schemas"]["CreateUserRequest"];

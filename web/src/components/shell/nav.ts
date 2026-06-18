@@ -9,6 +9,7 @@ import {
   LifeBuoy,
   MapPin,
   MessageSquare,
+  Receipt,
   ShieldCheck,
   UserCircle,
   Users,
@@ -119,6 +120,12 @@ export const NAV_GROUPS = [
       { key: "kpi",       href: "/kpi",       labelKey: "nav.kpi",       Icon: BarChart2 },
       { key: "ops",       href: "/ops",       labelKey: "nav.ops",       Icon: Gauge },
       { key: "equipment", href: "/equipment", labelKey: "nav.equipment", Icon: Wrench },
+      // financial: the page surfaces purchase requests, whose read gate
+      // (PurchaseRequestRead) is at least Limited for every role
+      // ([A, L, A, A, A] in the backend matrix), so the item is ungated like the
+      // other shared pages. Per-action controls inside the page are role-gated
+      // to their specific backend Feature.
+      { key: "financial", href: "/financial", labelKey: "nav.financial", Icon: Receipt },
     ],
   },
   {

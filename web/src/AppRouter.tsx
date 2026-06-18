@@ -47,6 +47,9 @@ const SupportPage = lazy(() =>
 const EquipmentPage = lazy(() =>
   import("./pages/EquipmentPage").then((m) => ({ default: m.EquipmentPage })),
 );
+const FinancialPage = lazy(() =>
+  import("./pages/FinancialPage").then((m) => ({ default: m.FinancialPage })),
+);
 const LocationSettingsPage = lazy(() =>
   import("./pages/LocationSettingsPage").then((m) => ({
     default: m.LocationSettingsPage,
@@ -133,6 +136,7 @@ export function AppRouter() {
           <Route path="/messenger" element={<MessengerPage />} />
           <Route path="/support" element={<SupportPage />} />
           <Route path="/equipment" element={<EquipmentPage />} />
+          <Route path="/financial" element={<FinancialPage />} />
           <Route path="/settings" element={<Navigate to="/settings/profile" replace />} />
           <Route path="/settings/profile" element={<ProfilePage />} />
           <Route path="/settings/location" element={<LocationSettingsPage />} />
