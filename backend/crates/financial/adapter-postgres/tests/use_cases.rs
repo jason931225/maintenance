@@ -21,166 +21,169 @@ static REQUEST_NO_SEQUENCE: AtomicUsize = AtomicUsize::new(901);
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn quote_ledger_and_purchase_chain_are_audited_and_feed_residuals(pool: PgPool) {
-    let seeded = seed_financial_context(&pool).await;
-    let store = PgFinancialStore::new(pool.clone());
-    let occurred_at = datetime!(2026-06-12 12:00 UTC);
-    let config = financial_config();
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_financial_context(&pool).await;
+        let store = PgFinancialStore::new(pool.clone());
+        let occurred_at = datetime!(2026-06-12 12:00 UTC);
+        let config = financial_config();
 
-    let quote = store
-        .create_rental_quote(CreateRentalQuoteCommand {
-            actor: seeded.receptionist,
-            branch_id: seeded.branch_id,
-            equipment_id: seeded.negative_residual_equipment,
-            config: config.clone(),
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
-        .await
-        .unwrap();
-    assert!(quote.residual_was_floored);
-    assert!(quote.monthly_total.amount() > 0);
-
-    let manual_entry = store
-        .append_cost_ledger_entry(AppendCostLedgerEntryCommand {
-            actor: seeded.admin,
-            branch_id: seeded.branch_id,
-            equipment_id: seeded.normal_equipment,
-            work_order_id: Some(seeded.work_order_id),
-            source: CostLedgerSource::ManualAdmin,
-            amount_won: 1_500_000,
-            memo: "Hydraulic pump repair".to_owned(),
-            config: config.clone(),
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
-        .await
-        .unwrap();
-    assert_eq!(manual_entry.residual_after_won, 5_100_000);
-
-    let purchase = store
-        .create_purchase_request(CreatePurchaseRequestCommand {
-            actor: seeded.mechanic,
-            branch_id: seeded.branch_id,
-            equipment_id: seeded.normal_equipment,
-            work_order_id: Some(seeded.work_order_id),
-            statement_evidence_id: seeded.statement_evidence_id,
-            vendor_name: "Parts Supplier".to_owned(),
-            amount_won: 3_000_000,
-            memo: "Pump assembly".to_owned(),
-            config: config.clone(),
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
-        .await
-        .unwrap();
-    assert_eq!(purchase.status, PurchaseStatus::StatementAttached);
-
-    let submitted = store
-        .submit_purchase_request(PurchaseSubmitCommand {
-            actor: seeded.receptionist,
-            purchase_request_id: purchase.id,
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
-        .await
-        .unwrap();
-    assert_eq!(submitted.status, PurchaseStatus::RequestSubmitted);
-
-    let rejected = store
-        .reject_purchase_request(RejectPurchaseCommand {
-            actor: seeded.admin,
-            purchase_request_id: purchase.id,
-            memo: "Attach corrected quotation".to_owned(),
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
-        .await
-        .unwrap();
-    assert_eq!(rejected.status, PurchaseStatus::Rejected);
-
-    let restarted = store
-        .restart_purchase_request(PurchaseRestartCommand {
-            actor: seeded.receptionist,
-            purchase_request_id: purchase.id,
-            statement_evidence_id: seeded.statement_evidence_id,
-            amount_won: 3_000_000,
-            memo: "Corrected quotation attached".to_owned(),
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
-        .await
-        .unwrap();
-    assert_eq!(restarted.status, PurchaseStatus::StatementAttached);
-
-    store
-        .submit_purchase_request(PurchaseSubmitCommand {
-            actor: seeded.receptionist,
-            purchase_request_id: purchase.id,
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
-        .await
-        .unwrap();
-    store
-        .approve_purchase_admin(PurchaseApprovalCommand {
-            actor: seeded.admin,
-            purchase_request_id: purchase.id,
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
-        .await
-        .unwrap();
-    let executive_pending = store
-        .prepare_expenditure(PrepareExpenditureCommand {
-            actor: seeded.receptionist,
-            purchase_request_id: purchase.id,
-            expenditure_no: "EXP-20260612-001".to_owned(),
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
-        .await
-        .unwrap();
-    assert_eq!(executive_pending.status, PurchaseStatus::ExecutivePending);
-
-    store
-        .approve_purchase_executive(PurchaseApprovalCommand {
-            actor: seeded.executive,
-            purchase_request_id: purchase.id,
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
-        .await
-        .unwrap();
-
-    let executed = store
-        .execute_purchase(ExecutePurchaseCommand {
-            actor: seeded.receptionist,
-            purchase_request_id: purchase.id,
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
-        .await
-        .unwrap();
-    assert_eq!(executed.status, PurchaseStatus::Executed);
-
-    let residual: i64 =
-        sqlx::query_scalar("SELECT residual_value FROM registry_equipment WHERE id = $1")
-            .bind(*seeded.normal_equipment.as_uuid())
-            .fetch_one(&pool)
+        let quote = store
+            .create_rental_quote(CreateRentalQuoteCommand {
+                actor: seeded.receptionist,
+                branch_id: seeded.branch_id,
+                equipment_id: seeded.negative_residual_equipment,
+                config: config.clone(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
             .await
             .unwrap();
-    assert_eq!(residual, 2_100_000);
+        assert!(quote.residual_was_floored);
+        assert!(quote.monthly_total.amount() > 0);
 
-    let actions: Vec<String> = sqlx::query_scalar(
-        "SELECT action FROM audit_events WHERE branch_id = $1 ORDER BY occurred_at, created_at",
-    )
-    .bind(*seeded.branch_id.as_uuid())
-    .fetch_all(&pool)
-    .await
-    .unwrap();
-    assert!(actions.contains(&"financial.quote.create".to_owned()));
-    assert!(actions.contains(&"equipment.residual.recompute".to_owned()));
-    assert!(actions.contains(&"purchase.execute".to_owned()));
+        let manual_entry = store
+            .append_cost_ledger_entry(AppendCostLedgerEntryCommand {
+                actor: seeded.admin,
+                branch_id: seeded.branch_id,
+                equipment_id: seeded.normal_equipment,
+                work_order_id: Some(seeded.work_order_id),
+                source: CostLedgerSource::ManualAdmin,
+                amount_won: 1_500_000,
+                memo: "Hydraulic pump repair".to_owned(),
+                config: config.clone(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+        assert_eq!(manual_entry.residual_after_won, 5_100_000);
+
+        let purchase = store
+            .create_purchase_request(CreatePurchaseRequestCommand {
+                actor: seeded.mechanic,
+                branch_id: seeded.branch_id,
+                equipment_id: seeded.normal_equipment,
+                work_order_id: Some(seeded.work_order_id),
+                statement_evidence_id: seeded.statement_evidence_id,
+                vendor_name: "Parts Supplier".to_owned(),
+                amount_won: 3_000_000,
+                memo: "Pump assembly".to_owned(),
+                config: config.clone(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+        assert_eq!(purchase.status, PurchaseStatus::StatementAttached);
+
+        let submitted = store
+            .submit_purchase_request(PurchaseSubmitCommand {
+                actor: seeded.receptionist,
+                purchase_request_id: purchase.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+        assert_eq!(submitted.status, PurchaseStatus::RequestSubmitted);
+
+        let rejected = store
+            .reject_purchase_request(RejectPurchaseCommand {
+                actor: seeded.admin,
+                purchase_request_id: purchase.id,
+                memo: "Attach corrected quotation".to_owned(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+        assert_eq!(rejected.status, PurchaseStatus::Rejected);
+
+        let restarted = store
+            .restart_purchase_request(PurchaseRestartCommand {
+                actor: seeded.receptionist,
+                purchase_request_id: purchase.id,
+                statement_evidence_id: seeded.statement_evidence_id,
+                amount_won: 3_000_000,
+                memo: "Corrected quotation attached".to_owned(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+        assert_eq!(restarted.status, PurchaseStatus::StatementAttached);
+
+        store
+            .submit_purchase_request(PurchaseSubmitCommand {
+                actor: seeded.receptionist,
+                purchase_request_id: purchase.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+        store
+            .approve_purchase_admin(PurchaseApprovalCommand {
+                actor: seeded.admin,
+                purchase_request_id: purchase.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+        let executive_pending = store
+            .prepare_expenditure(PrepareExpenditureCommand {
+                actor: seeded.receptionist,
+                purchase_request_id: purchase.id,
+                expenditure_no: "EXP-20260612-001".to_owned(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+        assert_eq!(executive_pending.status, PurchaseStatus::ExecutivePending);
+
+        store
+            .approve_purchase_executive(PurchaseApprovalCommand {
+                actor: seeded.executive,
+                purchase_request_id: purchase.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+
+        let executed = store
+            .execute_purchase(ExecutePurchaseCommand {
+                actor: seeded.receptionist,
+                purchase_request_id: purchase.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+        assert_eq!(executed.status, PurchaseStatus::Executed);
+
+        let residual: i64 =
+            sqlx::query_scalar("SELECT residual_value FROM registry_equipment WHERE id = $1")
+                .bind(*seeded.normal_equipment.as_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(residual, 2_100_000);
+
+        let actions: Vec<String> = sqlx::query_scalar(
+            "SELECT action FROM audit_events WHERE branch_id = $1 ORDER BY occurred_at, created_at",
+        )
+        .bind(*seeded.branch_id.as_uuid())
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert!(actions.contains(&"financial.quote.create".to_owned()));
+        assert!(actions.contains(&"equipment.residual.recompute".to_owned()));
+        assert!(actions.contains(&"purchase.execute".to_owned()));
+    })
+    .await;
 }
 
 // FIX 5 regression: a unit with a genuinely negative current residual must
@@ -190,306 +193,325 @@ async fn quote_ledger_and_purchase_chain_are_audited_and_feed_residuals(pool: Pg
 // negative value for audit.
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn negative_residual_quote_persists_with_flooring_disabled(pool: PgPool) {
-    let seeded = seed_financial_context(&pool).await;
-    let store = PgFinancialStore::new(pool.clone());
-    let occurred_at = datetime!(2026-06-12 12:00 UTC);
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_financial_context(&pool).await;
+        let store = PgFinancialStore::new(pool.clone());
+        let occurred_at = datetime!(2026-06-12 12:00 UTC);
 
-    let quote = store
-        .create_rental_quote(CreateRentalQuoteCommand {
-            actor: seeded.receptionist,
-            branch_id: seeded.branch_id,
-            equipment_id: seeded.negative_residual_equipment,
-            config: financial_config_no_floor(),
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
+        let quote = store
+            .create_rental_quote(CreateRentalQuoteCommand {
+                actor: seeded.receptionist,
+                branch_id: seeded.branch_id,
+                equipment_id: seeded.negative_residual_equipment,
+                config: financial_config_no_floor(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+
+        // The persisted effective residual is floored to 0 and flagged, even
+        // though the flooring config flag is false.
+        assert!(quote.residual_was_floored);
+        assert_eq!(quote.effective_residual_value.amount(), 0);
+        assert!(quote.monthly_total.amount() > 0);
+
+        let row: (i64, i64, bool, bool) = sqlx::query_as(
+            r#"
+            SELECT current_residual_value_won, effective_residual_value_won,
+                   residual_was_floored, floor_negative_quote_residual
+            FROM financial_rental_quotes
+            WHERE id = $1
+            "#,
+        )
+        .bind(*quote.id.as_uuid())
+        .fetch_one(&pool)
         .await
         .unwrap();
-
-    // The persisted effective residual is floored to 0 and flagged, even
-    // though the flooring config flag is false.
-    assert!(quote.residual_was_floored);
-    assert_eq!(quote.effective_residual_value.amount(), 0);
-    assert!(quote.monthly_total.amount() > 0);
-
-    let row: (i64, i64, bool, bool) = sqlx::query_as(
-        r#"
-        SELECT current_residual_value_won, effective_residual_value_won,
-               residual_was_floored, floor_negative_quote_residual
-        FROM financial_rental_quotes
-        WHERE id = $1
-        "#,
-    )
-    .bind(*quote.id.as_uuid())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    // Real negative residual preserved for audit (no >=0 check on this column).
-    assert_eq!(row.0, -1_250_000);
-    // Persisted effective residual floored to 0 (DB CHECK >= 0).
-    assert_eq!(row.1, 0);
-    assert!(row.2, "residual_was_floored must be true");
-    assert!(!row.3, "flooring config flag was disabled");
+        // Real negative residual preserved for audit (no >=0 check on this column).
+        assert_eq!(row.0, -1_250_000);
+        // Persisted effective residual floored to 0 (DB CHECK >= 0).
+        assert_eq!(row.1, 0);
+        assert!(row.2, "residual_was_floored must be true");
+        assert!(!row.3, "flooring config flag was disabled");
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn financial_inputs_reject_cross_scope_evidence_and_work_orders(pool: PgPool) {
-    let seeded = seed_financial_context(&pool).await;
-    let other_branch = seed_branch(&pool).await;
-    let other_user = seed_user(&pool, "Other Mechanic", "MECHANIC", other_branch).await;
-    let other_equipment = seed_equipment(
-        &pool,
-        other_branch,
-        "DEF12-1302",
-        "1302",
-        8_000_000,
-        5_000_000,
-    )
-    .await;
-    let other_work_order = seed_work_order(&pool, other_branch, other_user, other_equipment).await;
-    let other_statement = seed_statement_evidence(&pool, other_work_order, other_user).await;
-    let pending_statement = seed_evidence(
-        &pool,
-        seeded.work_order_id,
-        seeded.mechanic,
-        "REQUEST",
-        "PENDING",
-    )
-    .await;
-    let wrong_equipment_work_order = seed_work_order(
-        &pool,
-        seeded.branch_id,
-        seeded.receptionist,
-        seeded.negative_residual_equipment,
-    )
-    .await;
-    let store = PgFinancialStore::new(pool.clone());
-    let occurred_at = datetime!(2026-06-12 12:00 UTC);
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_financial_context(&pool).await;
+        let other_branch = seed_branch(&pool).await;
+        let other_user = seed_user(&pool, "Other Mechanic", "MECHANIC", other_branch).await;
+        let other_equipment = seed_equipment(
+            &pool,
+            other_branch,
+            "DEF12-1302",
+            "1302",
+            8_000_000,
+            5_000_000,
+        )
+        .await;
+        let other_work_order =
+            seed_work_order(&pool, other_branch, other_user, other_equipment).await;
+        let other_statement = seed_statement_evidence(&pool, other_work_order, other_user).await;
+        let pending_statement = seed_evidence(
+            &pool,
+            seeded.work_order_id,
+            seeded.mechanic,
+            "REQUEST",
+            "PENDING",
+        )
+        .await;
+        let wrong_equipment_work_order = seed_work_order(
+            &pool,
+            seeded.branch_id,
+            seeded.receptionist,
+            seeded.negative_residual_equipment,
+        )
+        .await;
+        let store = PgFinancialStore::new(pool.clone());
+        let occurred_at = datetime!(2026-06-12 12:00 UTC);
 
-    let cross_scope = store
-        .create_purchase_request(CreatePurchaseRequestCommand {
-            actor: seeded.mechanic,
-            branch_id: seeded.branch_id,
-            equipment_id: seeded.normal_equipment,
-            work_order_id: Some(seeded.work_order_id),
-            statement_evidence_id: other_statement,
-            vendor_name: "Wrong Scope Vendor".to_owned(),
-            amount_won: 500_000,
-            memo: "wrong evidence".to_owned(),
-            config: financial_config(),
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
-        .await
-        .unwrap_err();
-    assert!(cross_scope.to_string().contains("outside"));
+        let cross_scope = store
+            .create_purchase_request(CreatePurchaseRequestCommand {
+                actor: seeded.mechanic,
+                branch_id: seeded.branch_id,
+                equipment_id: seeded.normal_equipment,
+                work_order_id: Some(seeded.work_order_id),
+                statement_evidence_id: other_statement,
+                vendor_name: "Wrong Scope Vendor".to_owned(),
+                amount_won: 500_000,
+                memo: "wrong evidence".to_owned(),
+                config: financial_config(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap_err();
+        assert!(cross_scope.to_string().contains("outside"));
 
-    let unverified = store
-        .create_purchase_request(CreatePurchaseRequestCommand {
-            actor: seeded.mechanic,
-            branch_id: seeded.branch_id,
-            equipment_id: seeded.normal_equipment,
-            work_order_id: Some(seeded.work_order_id),
-            statement_evidence_id: pending_statement,
-            vendor_name: "Pending Vendor".to_owned(),
-            amount_won: 500_000,
-            memo: "pending evidence".to_owned(),
-            config: financial_config(),
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
-        .await
-        .unwrap_err();
-    assert!(unverified.to_string().contains("verified REQUEST"));
+        let unverified = store
+            .create_purchase_request(CreatePurchaseRequestCommand {
+                actor: seeded.mechanic,
+                branch_id: seeded.branch_id,
+                equipment_id: seeded.normal_equipment,
+                work_order_id: Some(seeded.work_order_id),
+                statement_evidence_id: pending_statement,
+                vendor_name: "Pending Vendor".to_owned(),
+                amount_won: 500_000,
+                memo: "pending evidence".to_owned(),
+                config: financial_config(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap_err();
+        assert!(unverified.to_string().contains("verified REQUEST"));
 
-    let wrong_work_order = store
-        .append_cost_ledger_entry(AppendCostLedgerEntryCommand {
-            actor: seeded.admin,
-            branch_id: seeded.branch_id,
-            equipment_id: seeded.normal_equipment,
-            work_order_id: Some(wrong_equipment_work_order),
-            source: CostLedgerSource::ManualAdmin,
-            amount_won: 750_000,
-            memo: "wrong work order".to_owned(),
-            config: financial_config(),
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
-        .await
-        .unwrap_err();
-    assert!(wrong_work_order.to_string().contains("work order"));
+        let wrong_work_order = store
+            .append_cost_ledger_entry(AppendCostLedgerEntryCommand {
+                actor: seeded.admin,
+                branch_id: seeded.branch_id,
+                equipment_id: seeded.normal_equipment,
+                work_order_id: Some(wrong_equipment_work_order),
+                source: CostLedgerSource::ManualAdmin,
+                amount_won: 750_000,
+                memo: "wrong work order".to_owned(),
+                config: financial_config(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap_err();
+        assert!(wrong_work_order.to_string().contains("work order"));
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn concurrent_cost_ledger_recomputes_from_serialized_equipment_lock(pool: PgPool) {
-    let seeded = seed_financial_context(&pool).await;
-    let store = PgFinancialStore::new(pool.clone());
-    let occurred_at = datetime!(2026-06-12 12:00 UTC);
-    let mut tx = pool.begin().await.unwrap();
-    sqlx::query("SELECT id FROM registry_equipment WHERE id = $1 FOR UPDATE")
-        .bind(*seeded.normal_equipment.as_uuid())
-        .execute(tx.as_mut())
-        .await
-        .unwrap();
-    let admin = seeded.admin;
-    let branch_id = seeded.branch_id;
-    let equipment_id = seeded.normal_equipment;
-    let work_order_id = seeded.work_order_id;
-
-    let first_store = store.clone();
-    let first = tokio::spawn({
-        let config = financial_config();
-        async move {
-            first_store
-                .append_cost_ledger_entry(AppendCostLedgerEntryCommand {
-                    actor: admin,
-                    branch_id,
-                    equipment_id,
-                    work_order_id: Some(work_order_id),
-                    source: CostLedgerSource::ManualAdmin,
-                    amount_won: 1_000_000,
-                    memo: "first concurrent cost".to_owned(),
-                    config,
-                    trace: TraceContext::generate(),
-                    occurred_at,
-                })
-                .await
-        }
-    });
-    let second_store = store.clone();
-    let second = tokio::spawn({
-        let config = financial_config();
-        async move {
-            second_store
-                .append_cost_ledger_entry(AppendCostLedgerEntryCommand {
-                    actor: admin,
-                    branch_id,
-                    equipment_id,
-                    work_order_id: Some(work_order_id),
-                    source: CostLedgerSource::ManualAdmin,
-                    amount_won: 2_000_000,
-                    memo: "second concurrent cost".to_owned(),
-                    config,
-                    trace: TraceContext::generate(),
-                    occurred_at,
-                })
-                .await
-        }
-    });
-
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    tx.rollback().await.unwrap();
-    first.await.unwrap().unwrap();
-    second.await.unwrap().unwrap();
-
-    let residual: i64 =
-        sqlx::query_scalar("SELECT residual_value FROM registry_equipment WHERE id = $1")
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_financial_context(&pool).await;
+        let store = PgFinancialStore::new(pool.clone());
+        let occurred_at = datetime!(2026-06-12 12:00 UTC);
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("SELECT id FROM registry_equipment WHERE id = $1 FOR UPDATE")
             .bind(*seeded.normal_equipment.as_uuid())
-            .fetch_one(&pool)
+            .execute(tx.as_mut())
             .await
             .unwrap();
-    assert_eq!(residual, 3_600_000);
-    let entries = store
-        .cost_ledger_for_equipment(seeded.normal_equipment)
-        .await
-        .unwrap();
-    assert_eq!(entries.len(), 2);
-    assert!(
-        entries
-            .iter()
-            .any(|entry| entry.residual_after_won == 3_600_000)
-    );
+        let admin = seeded.admin;
+        let branch_id = seeded.branch_id;
+        let equipment_id = seeded.normal_equipment;
+        let work_order_id = seeded.work_order_id;
+
+        let first_store = store.clone();
+        let first = tokio::spawn({
+            let config = financial_config();
+            async move {
+                mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+                    first_store
+                        .append_cost_ledger_entry(AppendCostLedgerEntryCommand {
+                            actor: admin,
+                            branch_id,
+                            equipment_id,
+                            work_order_id: Some(work_order_id),
+                            source: CostLedgerSource::ManualAdmin,
+                            amount_won: 1_000_000,
+                            memo: "first concurrent cost".to_owned(),
+                            config,
+                            trace: TraceContext::generate(),
+                            occurred_at,
+                        })
+                        .await
+                })
+                .await
+            }
+        });
+        let second_store = store.clone();
+        let second = tokio::spawn({
+            let config = financial_config();
+            async move {
+                mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+                    second_store
+                        .append_cost_ledger_entry(AppendCostLedgerEntryCommand {
+                            actor: admin,
+                            branch_id,
+                            equipment_id,
+                            work_order_id: Some(work_order_id),
+                            source: CostLedgerSource::ManualAdmin,
+                            amount_won: 2_000_000,
+                            memo: "second concurrent cost".to_owned(),
+                            config,
+                            trace: TraceContext::generate(),
+                            occurred_at,
+                        })
+                        .await
+                })
+                .await
+            }
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        tx.rollback().await.unwrap();
+        first.await.unwrap().unwrap();
+        second.await.unwrap().unwrap();
+
+        let residual: i64 =
+            sqlx::query_scalar("SELECT residual_value FROM registry_equipment WHERE id = $1")
+                .bind(*seeded.normal_equipment.as_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(residual, 3_600_000);
+        let entries = store
+            .cost_ledger_for_equipment(seeded.normal_equipment)
+            .await
+            .unwrap();
+        assert_eq!(entries.len(), 2);
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.residual_after_won == 3_600_000)
+        );
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn purchase_execute_rolls_back_if_ledger_update_fails(pool: PgPool) {
-    let seeded = seed_financial_context(&pool).await;
-    let store = PgFinancialStore::new(pool.clone());
-    let occurred_at = datetime!(2026-06-12 12:00 UTC);
-    let purchase = store
-        .create_purchase_request(CreatePurchaseRequestCommand {
-            actor: seeded.mechanic,
-            branch_id: seeded.branch_id,
-            equipment_id: seeded.normal_equipment,
-            work_order_id: Some(seeded.work_order_id),
-            statement_evidence_id: seeded.statement_evidence_id,
-            vendor_name: "Rollback Parts".to_owned(),
-            amount_won: 1_000_000,
-            memo: "rollback fixture".to_owned(),
-            config: financial_config(),
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
-        .await
-        .unwrap();
-    store
-        .submit_purchase_request(PurchaseSubmitCommand {
-            actor: seeded.receptionist,
-            purchase_request_id: purchase.id,
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
-        .await
-        .unwrap();
-    store
-        .approve_purchase_admin(PurchaseApprovalCommand {
-            actor: seeded.admin,
-            purchase_request_id: purchase.id,
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
-        .await
-        .unwrap();
-    let ready = store
-        .prepare_expenditure(PrepareExpenditureCommand {
-            actor: seeded.receptionist,
-            purchase_request_id: purchase.id,
-            expenditure_no: "EXP-ROLLBACK-001".to_owned(),
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
-        .await
-        .unwrap();
-    assert_eq!(ready.status, PurchaseStatus::ReadyToExecute);
-
-    sqlx::query("UPDATE registry_equipment SET vehicle_value = NULL WHERE id = $1")
-        .bind(*seeded.normal_equipment.as_uuid())
-        .execute(&pool)
-        .await
-        .unwrap();
-    let err = store
-        .execute_purchase(ExecutePurchaseCommand {
-            actor: seeded.receptionist,
-            purchase_request_id: purchase.id,
-            trace: TraceContext::generate(),
-            occurred_at,
-        })
-        .await
-        .unwrap_err();
-    assert!(err.to_string().contains("vehicle value is required"));
-
-    let status: String =
-        sqlx::query_scalar("SELECT status FROM financial_purchase_requests WHERE id = $1")
-            .bind(*purchase.id.as_uuid())
-            .fetch_one(&pool)
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_financial_context(&pool).await;
+        let store = PgFinancialStore::new(pool.clone());
+        let occurred_at = datetime!(2026-06-12 12:00 UTC);
+        let purchase = store
+            .create_purchase_request(CreatePurchaseRequestCommand {
+                actor: seeded.mechanic,
+                branch_id: seeded.branch_id,
+                equipment_id: seeded.normal_equipment,
+                work_order_id: Some(seeded.work_order_id),
+                statement_evidence_id: seeded.statement_evidence_id,
+                vendor_name: "Rollback Parts".to_owned(),
+                amount_won: 1_000_000,
+                memo: "rollback fixture".to_owned(),
+                config: financial_config(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
             .await
             .unwrap();
-    assert_eq!(status, "READY_TO_EXECUTE");
-    let ledger_rows: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*)::BIGINT FROM equipment_cost_ledger WHERE purchase_request_id = $1",
-    )
-    .bind(*purchase.id.as_uuid())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(ledger_rows, 0);
-    let execute_audits: i64 =
-        sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM audit_events WHERE action = 'purchase.execute' AND target_id = $1")
-            .bind(purchase.id.to_string())
-            .fetch_one(&pool)
+        store
+            .submit_purchase_request(PurchaseSubmitCommand {
+                actor: seeded.receptionist,
+                purchase_request_id: purchase.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
             .await
             .unwrap();
-    assert_eq!(execute_audits, 0);
+        store
+            .approve_purchase_admin(PurchaseApprovalCommand {
+                actor: seeded.admin,
+                purchase_request_id: purchase.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+        let ready = store
+            .prepare_expenditure(PrepareExpenditureCommand {
+                actor: seeded.receptionist,
+                purchase_request_id: purchase.id,
+                expenditure_no: "EXP-ROLLBACK-001".to_owned(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+        assert_eq!(ready.status, PurchaseStatus::ReadyToExecute);
+
+        sqlx::query("UPDATE registry_equipment SET vehicle_value = NULL WHERE id = $1")
+            .bind(*seeded.normal_equipment.as_uuid())
+            .execute(&pool)
+            .await
+            .unwrap();
+        let err = store
+            .execute_purchase(ExecutePurchaseCommand {
+                actor: seeded.receptionist,
+                purchase_request_id: purchase.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("vehicle value is required"));
+
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM financial_purchase_requests WHERE id = $1")
+                .bind(*purchase.id.as_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(status, "READY_TO_EXECUTE");
+        let ledger_rows: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::BIGINT FROM equipment_cost_ledger WHERE purchase_request_id = $1",
+        )
+        .bind(*purchase.id.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(ledger_rows, 0);
+        let execute_audits: i64 =
+            sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM audit_events WHERE action = 'purchase.execute' AND target_id = $1")
+                .bind(purchase.id.to_string())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(execute_audits, 0);
+    })
+    .await;
 }
 
 struct SeededFinancialContext {

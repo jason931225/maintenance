@@ -17,268 +17,286 @@ use time::{Duration, OffsetDateTime};
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn message_send_persists_audit_before_post_commit_notify(pool: PgPool) {
-    let seeded = seed_context(&pool).await;
-    let notifier = Arc::new(RecordingNotifier::new(pool.clone()));
-    let store = PgMessengerStore::new(pool.clone()).with_notifier(notifier.clone());
-    let thread = create_team_thread(&store, &seeded).await;
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_context(&pool).await;
+        let notifier = Arc::new(RecordingNotifier::new(pool.clone()));
+        let store = PgMessengerStore::new(pool.clone()).with_notifier(notifier.clone());
+        let thread = create_team_thread(&store, &seeded).await;
 
-    let message = store
-        .send_message(SendMessageCommand {
-            actor: seeded.sender,
-            branch_scope: BranchScope::single(seeded.branch),
-            thread_id: thread.id,
-            body: "지게차 누유 사진 확인했습니다".to_owned(),
-            attachment_evidence_ids: Vec::new(),
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap();
+        let message = store
+            .send_message(SendMessageCommand {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.branch),
+                thread_id: thread.id,
+                body: "지게차 누유 사진 확인했습니다".to_owned(),
+                attachment_evidence_ids: Vec::new(),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
 
-    assert_eq!(message.thread_id, thread.id);
-    assert_eq!(message.sender_id, seeded.sender);
-    assert_eq!(message.body, "지게차 누유 사진 확인했습니다");
+        assert_eq!(message.thread_id, thread.id);
+        assert_eq!(message.sender_id, seeded.sender);
+        assert_eq!(message.body, "지게차 누유 사진 확인했습니다");
 
-    let calls = notifier.calls.lock().unwrap().clone();
-    assert_eq!(
-        calls,
-        vec![MessagePostedNotification {
-            message_id: message.id,
-            thread_id: thread.id,
-            branch_id: seeded.branch,
-        }]
-    );
+        let calls = notifier.calls.lock().unwrap().clone();
+        assert_eq!(
+            calls,
+            vec![MessagePostedNotification {
+                message_id: message.id,
+                thread_id: thread.id,
+                branch_id: seeded.branch,
+            }]
+        );
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn work_order_thread_auto_create_is_idempotent_and_members_actor(pool: PgPool) {
-    let seeded = seed_context(&pool).await;
-    let work_order_id = seed_work_order(&pool, &seeded).await;
-    let store = PgMessengerStore::new(pool.clone());
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_context(&pool).await;
+        let work_order_id = seed_work_order(&pool, &seeded).await;
+        let store = PgMessengerStore::new(pool.clone());
 
-    let first = store
-        .ensure_work_order_thread(EnsureWorkOrderThreadCommand {
-            actor: seeded.sender,
-            branch_id: seeded.branch,
-            work_order_id,
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap();
-    let second = store
-        .ensure_work_order_thread(EnsureWorkOrderThreadCommand {
-            actor: seeded.sender,
-            branch_id: seeded.branch,
-            work_order_id,
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap();
-
-    assert_eq!(first.id, second.id);
-    assert_eq!(first.kind, ThreadKind::WorkOrder);
-    assert_eq!(first.work_order_id, Some(work_order_id));
-
-    let thread_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM messenger_threads WHERE work_order_id = $1")
-            .bind(*work_order_id.as_uuid())
-            .fetch_one(&pool)
+        let first = store
+            .ensure_work_order_thread(EnsureWorkOrderThreadCommand {
+                actor: seeded.sender,
+                branch_id: seeded.branch,
+                work_order_id,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
             .await
             .unwrap();
-    assert_eq!(thread_count, 1);
+        let second = store
+            .ensure_work_order_thread(EnsureWorkOrderThreadCommand {
+                actor: seeded.sender,
+                branch_id: seeded.branch,
+                work_order_id,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
 
-    let member_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM messenger_thread_members WHERE thread_id = $1 AND user_id = $2",
-    )
-    .bind(*first.id.as_uuid())
-    .bind(*seeded.sender.as_uuid())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(member_count, 1);
+        assert_eq!(first.id, second.id);
+        assert_eq!(first.kind, ThreadKind::WorkOrder);
+        assert_eq!(first.work_order_id, Some(work_order_id));
+
+        let thread_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM messenger_threads WHERE work_order_id = $1")
+                .bind(*work_order_id.as_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(thread_count, 1);
+
+        let member_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM messenger_thread_members WHERE thread_id = $1 AND user_id = $2",
+        )
+        .bind(*first.id.as_uuid())
+        .bind(*seeded.sender.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(member_count, 1);
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn membership_and_branch_scope_are_default_deny(pool: PgPool) {
-    let seeded = seed_context(&pool).await;
-    let store = PgMessengerStore::new(pool.clone());
-    let thread = create_team_thread(&store, &seeded).await;
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_context(&pool).await;
+        let store = PgMessengerStore::new(pool.clone());
+        let thread = create_team_thread(&store, &seeded).await;
 
-    let outsider = seed_user(&pool, "Outsider", "MECHANIC", seeded.branch).await;
-    let not_member = store
-        .send_message(SendMessageCommand {
-            actor: outsider,
-            branch_scope: BranchScope::single(seeded.branch),
-            thread_id: thread.id,
-            body: "should not land".to_owned(),
-            attachment_evidence_ids: Vec::new(),
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap_err();
-    assert_eq!(not_member.kind(), ErrorKind::Forbidden);
+        let outsider = seed_user(&pool, "Outsider", "MECHANIC", seeded.branch).await;
+        let not_member = store
+            .send_message(SendMessageCommand {
+                actor: outsider,
+                branch_scope: BranchScope::single(seeded.branch),
+                thread_id: thread.id,
+                body: "should not land".to_owned(),
+                attachment_evidence_ids: Vec::new(),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(not_member.kind(), ErrorKind::Forbidden);
 
-    let wrong_scope = store
-        .send_message(SendMessageCommand {
-            actor: seeded.sender,
-            branch_scope: BranchScope::single(seeded.other_branch),
-            thread_id: thread.id,
-            body: "wrong branch scope".to_owned(),
-            attachment_evidence_ids: Vec::new(),
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap_err();
-    assert_eq!(wrong_scope.kind(), ErrorKind::Forbidden);
+        let wrong_scope = store
+            .send_message(SendMessageCommand {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.other_branch),
+                thread_id: thread.id,
+                body: "wrong branch scope".to_owned(),
+                attachment_evidence_ids: Vec::new(),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(wrong_scope.kind(), ErrorKind::Forbidden);
 
-    let visible = store
-        .list_threads(ListThreadsQuery {
-            actor: seeded.sender,
-            branch_scope: BranchScope::single(seeded.other_branch),
-            limit: 20,
-        })
-        .await
-        .unwrap();
-    assert!(visible.is_empty());
+        let visible = store
+            .list_threads(ListThreadsQuery {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.other_branch),
+                limit: 20,
+            })
+            .await
+            .unwrap();
+        assert!(visible.is_empty());
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn fts_search_returns_korean_message_hits(pool: PgPool) {
-    let seeded = seed_context(&pool).await;
-    let store = PgMessengerStore::new(pool.clone());
-    let thread = create_team_thread(&store, &seeded).await;
-    let message = send_at(
-        &store,
-        &seeded,
-        thread.id,
-        "긴급 지게차 누유 점검 필요",
-        OffsetDateTime::now_utc(),
-    )
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_context(&pool).await;
+        let store = PgMessengerStore::new(pool.clone());
+        let thread = create_team_thread(&store, &seeded).await;
+        let message = send_at(
+            &store,
+            &seeded,
+            thread.id,
+            "긴급 지게차 누유 점검 필요",
+            OffsetDateTime::now_utc(),
+        )
+        .await;
+
+        let hits = store
+            .search_messages(SearchMessagesQuery {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.branch),
+                query: "누유".to_owned(),
+                limit: 10,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, message.id);
+    })
     .await;
-
-    let hits = store
-        .search_messages(SearchMessagesQuery {
-            actor: seeded.sender,
-            branch_scope: BranchScope::single(seeded.branch),
-            query: "누유".to_owned(),
-            limit: 10,
-        })
-        .await
-        .unwrap();
-
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].id, message.id);
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn cursor_pagination_is_stable_when_newer_messages_arrive(pool: PgPool) {
-    let seeded = seed_context(&pool).await;
-    let store = PgMessengerStore::new(pool.clone());
-    let thread = create_team_thread(&store, &seeded).await;
-    let base = OffsetDateTime::now_utc();
-    let first = send_at(&store, &seeded, thread.id, "first", base).await;
-    let second = send_at(
-        &store,
-        &seeded,
-        thread.id,
-        "second",
-        base + Duration::seconds(1),
-    )
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_context(&pool).await;
+        let store = PgMessengerStore::new(pool.clone());
+        let thread = create_team_thread(&store, &seeded).await;
+        let base = OffsetDateTime::now_utc();
+        let first = send_at(&store, &seeded, thread.id, "first", base).await;
+        let second = send_at(
+            &store,
+            &seeded,
+            thread.id,
+            "second",
+            base + Duration::seconds(1),
+        )
+        .await;
+        let third = send_at(
+            &store,
+            &seeded,
+            thread.id,
+            "third",
+            base + Duration::seconds(2),
+        )
+        .await;
+
+        let first_page = store
+            .message_page(MessagePageQuery {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.branch),
+                thread_id: thread.id,
+                before_message_id: None,
+                limit: 2,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            first_page
+                .items
+                .iter()
+                .map(|message| message.id)
+                .collect::<Vec<_>>(),
+            vec![third.id, second.id]
+        );
+        assert_eq!(first_page.next_cursor, Some(second.id));
+
+        let _newer = send_at(
+            &store,
+            &seeded,
+            thread.id,
+            "newer",
+            base + Duration::seconds(3),
+        )
+        .await;
+
+        let second_page = store
+            .message_page(MessagePageQuery {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.branch),
+                thread_id: thread.id,
+                before_message_id: first_page.next_cursor,
+                limit: 2,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(second_page.items.len(), 1);
+        assert_eq!(second_page.items[0].id, first.id);
+        assert_eq!(second_page.next_cursor, None);
+    })
     .await;
-    let third = send_at(
-        &store,
-        &seeded,
-        thread.id,
-        "third",
-        base + Duration::seconds(2),
-    )
-    .await;
-
-    let first_page = store
-        .message_page(MessagePageQuery {
-            actor: seeded.sender,
-            branch_scope: BranchScope::single(seeded.branch),
-            thread_id: thread.id,
-            before_message_id: None,
-            limit: 2,
-        })
-        .await
-        .unwrap();
-
-    assert_eq!(
-        first_page
-            .items
-            .iter()
-            .map(|message| message.id)
-            .collect::<Vec<_>>(),
-        vec![third.id, second.id]
-    );
-    assert_eq!(first_page.next_cursor, Some(second.id));
-
-    let _newer = send_at(
-        &store,
-        &seeded,
-        thread.id,
-        "newer",
-        base + Duration::seconds(3),
-    )
-    .await;
-
-    let second_page = store
-        .message_page(MessagePageQuery {
-            actor: seeded.sender,
-            branch_scope: BranchScope::single(seeded.branch),
-            thread_id: thread.id,
-            before_message_id: first_page.next_cursor,
-            limit: 2,
-        })
-        .await
-        .unwrap();
-
-    assert_eq!(second_page.items.len(), 1);
-    assert_eq!(second_page.items[0].id, first.id);
-    assert_eq!(second_page.next_cursor, None);
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn read_receipt_coalesces_to_latest_message_and_audits_once(pool: PgPool) {
-    let seeded = seed_context(&pool).await;
-    let store = PgMessengerStore::new(pool.clone());
-    let thread = create_team_thread(&store, &seeded).await;
-    let base = OffsetDateTime::now_utc();
-    let _first = send_at(&store, &seeded, thread.id, "first read", base).await;
-    let second = send_at(
-        &store,
-        &seeded,
-        thread.id,
-        "second read",
-        base + Duration::seconds(1),
-    )
-    .await;
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_context(&pool).await;
+        let store = PgMessengerStore::new(pool.clone());
+        let thread = create_team_thread(&store, &seeded).await;
+        let base = OffsetDateTime::now_utc();
+        let _first = send_at(&store, &seeded, thread.id, "first read", base).await;
+        let second = send_at(
+            &store,
+            &seeded,
+            thread.id,
+            "second read",
+            base + Duration::seconds(1),
+        )
+        .await;
 
-    let receipt = store
-        .mark_thread_read(MarkThreadReadCommand {
-            actor: seeded.sender,
-            branch_scope: BranchScope::single(seeded.branch),
-            thread_id: thread.id,
-            last_read_message_id: second.id,
-            trace: TraceContext::generate(),
-            occurred_at: base + Duration::seconds(2),
-        })
-        .await
-        .unwrap();
-
-    assert_eq!(receipt.last_read_message_id, second.id);
-    let audit_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE action = 'message.read'")
-            .fetch_one(&pool)
+        let receipt = store
+            .mark_thread_read(MarkThreadReadCommand {
+                actor: seeded.sender,
+                branch_scope: BranchScope::single(seeded.branch),
+                thread_id: thread.id,
+                last_read_message_id: second.id,
+                trace: TraceContext::generate(),
+                occurred_at: base + Duration::seconds(2),
+            })
             .await
             .unwrap();
-    assert_eq!(audit_count, 1);
+
+        assert_eq!(receipt.last_read_message_id, second.id);
+        let audit_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE action = 'message.read'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(audit_count, 1);
+    })
+    .await;
 }
 
 #[derive(Debug, Clone, Copy)]

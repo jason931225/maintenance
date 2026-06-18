@@ -10,6 +10,7 @@ mnt-financial-application = { path = "../application" }
 mnt-financial-domain = { path = "../domain" }
 mnt-kernel-core.workspace = true
 mnt-platform-db.workspace = true
+mnt-platform-request-context.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true

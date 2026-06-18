@@ -4,14 +4,15 @@
 use std::io::Cursor;
 
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, BranchScope, KernelError, OrgId, RegionId, Timestamp,
-    TraceContext, UserId,
+    AuditAction, AuditEvent, BranchId, BranchScope, KernelError, RegionId, Timestamp, TraceContext,
+    UserId,
 };
-use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_excel::{
     CellWrite, DAILY_STATUS_TEMPLATE, DailyStatusSection, SectionFill, TemplateRow,
     fill_template_bytes, umya_spreadsheet,
 };
+use mnt_platform_request_context::current_org;
 use mnt_reporting_application::{
     ExportedWorkbook, KpiQuery, KpiQueryError, KpiQueryPort, ReportingExportError,
     ReportingExportPort, ReportingExportQuery, WorkDiaryConfirmCommand, WorkDiaryDraftPort,
@@ -196,11 +197,12 @@ impl PgKpiRepository {
         builder.push(" ORDER BY completion_approval.approved_at, w.id LIMIT ");
         builder.push_bind(MAX_LIST_ROWS);
 
-        let rows = builder
-            .build()
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|err| KpiQueryError::Database(err.to_string()))?;
+        let org = current_org().map_err(|e| KpiQueryError::Database(e.to_string()))?;
+        let rows = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await
+        .map_err(|e| KpiQueryError::Database(e.to_string()))?;
 
         rows.iter()
             .map(record_from_row)
@@ -282,11 +284,12 @@ impl PgKpiRepository {
         builder.push(" ORDER BY s.due_date, s.id LIMIT ");
         builder.push_bind(MAX_LIST_ROWS);
 
-        let rows = builder
-            .build()
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|err| KpiQueryError::Database(err.to_string()))?;
+        let org = current_org().map_err(|e| KpiQueryError::Database(e.to_string()))?;
+        let rows = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await
+        .map_err(|e| KpiQueryError::Database(e.to_string()))?;
         rows.iter()
             .map(inspection_record_from_row)
             .collect::<Result<Vec<_>, _>>()
@@ -358,6 +361,8 @@ impl PgKpiRepository {
         &self,
         query: WorkDiaryQuery,
     ) -> Result<WorkDiaryDraft, PgReportingError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let scope_key = scope_key(&query.branch_scope);
         if let Some(draft) = self.fetch_work_diary(query.date, &scope_key).await? {
             return Ok(draft);
@@ -375,7 +380,8 @@ impl PgKpiRepository {
             branch_id,
             query.trace,
             query.occurred_at,
-        )?;
+        )?
+        .with_org(org);
 
         let actor = *query.actor.as_uuid();
         let date = query.date;
@@ -402,7 +408,7 @@ impl PgKpiRepository {
                 .bind(body_value)
                 .bind(actor)
                 .bind(occurred_at)
-                .bind(*OrgId::knl().as_uuid())
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
                 Ok(())
@@ -592,6 +598,8 @@ impl PgKpiRepository {
         &self,
         command: ExportLogCommand<'_>,
     ) -> Result<(), PgReportingError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let log_id = uuid::Uuid::new_v4();
         let branch_id = single_branch(&command.branch_scope);
         // scope_key (NOT NULL) is the authoritative scope discriminator: "ALL" for
@@ -607,7 +615,8 @@ impl PgKpiRepository {
             branch_id,
             command.trace,
             command.occurred_at,
-        )?;
+        )?
+        .with_org(org);
         let actor_uuid = *command.actor.as_uuid();
         let branch_uuid = branch_id.map(|id| *id.as_uuid());
         let scope_key = scope_key(&command.branch_scope);
@@ -637,7 +646,7 @@ impl PgKpiRepository {
                 .bind(file_name)
                 .bind(source_notes)
                 .bind(occurred_at)
-                .bind(*OrgId::knl().as_uuid())
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
                 Ok(())
@@ -651,17 +660,24 @@ impl PgKpiRepository {
         date: Date,
         scope_key: &str,
     ) -> Result<Option<WorkDiaryDraft>, PgReportingError> {
-        let row = sqlx::query(
-            r#"
+        let scope_key = scope_key.to_owned();
+        let org = current_org().map_err(KernelError::from)?;
+        let row = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query(
+                    r#"
             SELECT id, diary_date, status, body, confirmed_by, confirmed_at
             FROM work_diary_drafts
             WHERE diary_date = $1
               AND scope_key = $2
             "#,
-        )
-        .bind(date)
-        .bind(scope_key)
-        .fetch_optional(&self.pool)
+                )
+                .bind(date)
+                .bind(scope_key)
+                .fetch_optional(tx.as_mut())
+                .await?)
+            })
+        })
         .await?;
 
         row.map(|row| draft_from_row(&row)).transpose()
@@ -722,7 +738,11 @@ impl PgKpiRepository {
         builder.push(" ORDER BY completion_approval.approved_at, w.request_no LIMIT ");
         builder.push_bind(MAX_LIST_ROWS);
 
-        let rows = builder.build().fetch_all(&self.pool).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
         rows.iter().map(daily_status_row_from_row).collect()
     }
 
@@ -761,7 +781,11 @@ impl PgKpiRepository {
         builder.push(" ORDER BY u.display_name, i.sort_order, i.id LIMIT ");
         builder.push_bind(MAX_LIST_ROWS);
 
-        let rows = builder.build().fetch_all(&self.pool).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
         rows.iter().map(daily_status_row_from_row).collect()
     }
 
@@ -804,7 +828,11 @@ impl PgKpiRepository {
         builder.push(" ORDER BY w.created_at, w.request_no LIMIT ");
         builder.push_bind(MAX_LIST_ROWS);
 
-        let rows = builder.build().fetch_all(&self.pool).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
         rows.iter().map(daily_status_row_from_row).collect()
     }
 
@@ -845,7 +873,11 @@ impl PgKpiRepository {
         builder.push(" ORDER BY completion_approval.approved_at, w.request_no LIMIT ");
         builder.push_bind(MAX_LIST_ROWS);
 
-        let rows = builder.build().fetch_all(&self.pool).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
         rows.iter().map(action_entry_from_row).collect()
     }
 
@@ -903,7 +935,11 @@ impl PgKpiRepository {
         builder.push(" ORDER BY site.name, e.management_no, s.id LIMIT ");
         builder.push_bind(MAX_LIST_ROWS);
 
-        let rows = builder.build().fetch_all(&self.pool).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
         rows.iter().map(periodic_inspection_row_from_row).collect()
     }
 

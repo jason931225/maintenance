@@ -8,7 +8,7 @@ use mnt_dispatch_adapter_postgres::{
     PendingAlimtalkAlert, PendingFcmPush, PgDispatchError, PgDispatchStore,
 };
 use mnt_dispatch_application::ExpireP1DispatchCommand;
-use mnt_kernel_core::{P1DispatchAlertId, TraceContext};
+use mnt_kernel_core::{OrgId, P1DispatchAlertId, TraceContext};
 use mnt_platform_jobs::{
     BoxFuture, DispatchTimerJob, JobQueueError, PlatformJob, PlatformJobHandler,
 };
@@ -70,6 +70,16 @@ impl DispatchWorker {
     }
 
     pub async fn handle(&self, job: PlatformJob) -> Result<(), DispatchWorkerError> {
+        // The timer worker is a background (non-request) processor, so it has no
+        // request task-local org. Its adapter reads/writes still need
+        // `app.current_org` armed under the non-owner RLS role, so we enter the
+        // tenant scope here. The deployment is single-tenant (KNL) today; when a
+        // second tenant lands, the job payload must carry the dispatch's org and
+        // this should scope to that instead of the bootstrap tenant.
+        mnt_platform_request_context::scope_org(OrgId::knl(), self.handle_inner(job)).await
+    }
+
+    async fn handle_inner(&self, job: PlatformJob) -> Result<(), DispatchWorkerError> {
         match job {
             PlatformJob::DispatchAcceptWindowExpired(job) => {
                 self.handle_accept_window(job).await?;

@@ -15,8 +15,9 @@ use mnt_identity_application::{
 use mnt_identity_domain::{
     Team, normalize_optional_phone, validate_display_name, validate_org_name,
 };
-use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, KernelError, OrgId, RegionId, UserId};
-use mnt_platform_db::{DbError, with_audit};
+use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, KernelError, RegionId, UserId};
+use mnt_platform_db::{DbError, with_audit, with_org_conn};
+use mnt_platform_request_context::current_org;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row, Transaction};
 
 const DEFAULT_USER_LIMIT: i64 = 50;
@@ -83,6 +84,8 @@ impl PgOrgStore {
     /// already validated against the authz matrix at the REST boundary; the DB
     /// CHECK constraint is the final backstop.
     pub async fn create_user(&self, command: CreateUserCommand) -> Result<UserSummary, PgOrgError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let display_name = validate_display_name(&command.display_name)?;
         let phone = normalize_optional_phone(command.phone.as_deref())?;
         let team_db = command.team.map(Team::as_db_str);
@@ -105,7 +108,8 @@ impl PgOrgStore {
                 "branch_ids": command.branch_ids.iter().map(ToString::to_string).collect::<Vec<_>>(),
                 "is_active": true,
             })),
-        );
+        )
+        .with_org(org);
 
         let roles = command.roles.clone();
         with_audit::<_, UserSummary, PgOrgError>(&self.pool, event, |tx| {
@@ -122,11 +126,11 @@ impl PgOrgStore {
                 .bind(&roles)
                 .bind(team_db)
                 .bind(command.occurred_at)
-                .bind(*OrgId::knl().as_uuid())
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
 
-                replace_user_branches(tx, user_id, &branch_ids).await?;
+                replace_user_branches(tx, user_id, &branch_ids, org_uuid).await?;
                 fetch_user_tx(tx, user_id).await
             })
         })
@@ -135,6 +139,8 @@ impl PgOrgStore {
 
     /// Partial update of a user's profile, roles, and/or memberships.
     pub async fn update_user(&self, command: UpdateUserCommand) -> Result<UserSummary, PgOrgError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let display_name = command
             .display_name
             .as_deref()
@@ -161,7 +167,8 @@ impl PgOrgStore {
             user_id,
             command.trace.clone(),
             command.occurred_at,
-        )?;
+        )?
+        .with_org(org);
 
         with_audit::<_, UserSummary, PgOrgError>(&self.pool, event, |tx| {
             Box::pin(async move {
@@ -204,7 +211,7 @@ impl PgOrgStore {
                         .await?;
                 }
                 if let Some(branch_ids) = &branch_ids {
-                    replace_user_branches(tx, user_id, branch_ids).await?;
+                    replace_user_branches(tx, user_id, branch_ids, org_uuid).await?;
                 }
 
                 fetch_user_tx(tx, user_id).await
@@ -360,10 +367,16 @@ impl PgOrgStore {
             .push(" ORDER BY u.created_at DESC, u.id DESC LIMIT ")
             .push_bind(limit);
 
-        let ids: Vec<uuid::Uuid> = builder
-            .build_query_scalar::<uuid::Uuid>()
-            .fetch_all(&self.pool)
-            .await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let ids: Vec<uuid::Uuid> = with_org_conn::<_, _, PgOrgError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(builder
+                    .build_query_scalar::<uuid::Uuid>()
+                    .fetch_all(tx.as_mut())
+                    .await?)
+            })
+        })
+        .await?;
 
         let mut summaries = Vec::with_capacity(ids.len());
         for id in ids {
@@ -380,6 +393,8 @@ impl PgOrgStore {
         &self,
         command: CreateRegionCommand,
     ) -> Result<RegionSummary, PgOrgError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let name = validate_org_name(&command.name)?;
         let region_id = RegionId::new();
         let event = region_audit_event(
@@ -389,7 +404,8 @@ impl PgOrgStore {
             command.trace.clone(),
             command.occurred_at,
         )?
-        .with_snapshots(None, Some(serde_json::json!({ "name": name })));
+        .with_snapshots(None, Some(serde_json::json!({ "name": name })))
+        .with_org(org);
 
         with_audit::<_, RegionSummary, PgOrgError>(&self.pool, event, |tx| {
             Box::pin(async move {
@@ -399,7 +415,7 @@ impl PgOrgStore {
                 .bind(*region_id.as_uuid())
                 .bind(&name)
                 .bind(command.occurred_at)
-                .bind(*OrgId::knl().as_uuid())
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
                 fetch_region_tx(tx, region_id).await
@@ -409,9 +425,17 @@ impl PgOrgStore {
     }
 
     pub async fn list_regions(&self) -> Result<Vec<RegionSummary>, PgOrgError> {
-        let rows = sqlx::query("SELECT id, name, created_at FROM regions ORDER BY name")
-            .fetch_all(&self.pool)
-            .await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgOrgError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(
+                    sqlx::query("SELECT id, name, created_at FROM regions ORDER BY name")
+                        .fetch_all(tx.as_mut())
+                        .await?,
+                )
+            })
+        })
+        .await?;
         rows.iter().map(region_from_row).collect()
     }
 
@@ -423,6 +447,8 @@ impl PgOrgStore {
         &self,
         command: CreateBranchCommand,
     ) -> Result<BranchSummary, PgOrgError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let name = validate_org_name(&command.name)?;
         let branch_id = BranchId::new();
         let region_id = command.region_id;
@@ -439,7 +465,8 @@ impl PgOrgStore {
                 "region_id": region_id.to_string(),
                 "name": name,
             })),
-        );
+        )
+        .with_org(org);
 
         with_audit::<_, BranchSummary, PgOrgError>(&self.pool, event, |tx| {
             Box::pin(async move {
@@ -450,7 +477,7 @@ impl PgOrgStore {
                 .bind(*region_id.as_uuid())
                 .bind(&name)
                 .bind(command.occurred_at)
-                .bind(*OrgId::knl().as_uuid())
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
                 fetch_branch_tx(tx, branch_id).await
@@ -508,10 +535,17 @@ impl PgOrgStore {
 
     /// List all branches. Used both for org setup and support-ticket triage.
     pub async fn list_branches(&self) -> Result<Vec<BranchSummary>, PgOrgError> {
-        let rows =
-            sqlx::query("SELECT id, region_id, name, created_at FROM branches ORDER BY name")
-                .fetch_all(&self.pool)
-                .await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgOrgError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query(
+                    "SELECT id, region_id, name, created_at FROM branches ORDER BY name",
+                )
+                .fetch_all(tx.as_mut())
+                .await?)
+            })
+        })
+        .await?;
         rows.iter().map(branch_from_row).collect()
     }
 }
@@ -524,6 +558,7 @@ async fn replace_user_branches(
     tx: &mut Transaction<'_, Postgres>,
     user_id: UserId,
     branch_ids: &[uuid::Uuid],
+    org_uuid: uuid::Uuid,
 ) -> Result<(), PgOrgError> {
     sqlx::query("DELETE FROM user_branches WHERE user_id = $1")
         .bind(*user_id.as_uuid())
@@ -536,7 +571,7 @@ async fn replace_user_branches(
         )
         .bind(*user_id.as_uuid())
         .bind(branch_id)
-        .bind(*OrgId::knl().as_uuid())
+        .bind(org_uuid)
         .execute(tx.as_mut())
         .await?;
     }
@@ -552,39 +587,57 @@ async fn user_in_scope(
     user_id: UserId,
     scope: &BranchScope,
 ) -> Result<bool, PgOrgError> {
+    let org = current_org().map_err(KernelError::from)?;
     match scope {
         BranchScope::All => {
             let exists: Option<uuid::Uuid> =
-                sqlx::query_scalar("SELECT id FROM users WHERE id = $1")
-                    .bind(*user_id.as_uuid())
-                    .fetch_optional(pool)
-                    .await?;
+                with_org_conn::<_, _, PgOrgError>(pool, org, move |tx| {
+                    Box::pin(async move {
+                        Ok(sqlx::query_scalar("SELECT id FROM users WHERE id = $1")
+                            .bind(*user_id.as_uuid())
+                            .fetch_optional(tx.as_mut())
+                            .await?)
+                    })
+                })
+                .await?;
             Ok(exists.is_some())
         }
         BranchScope::Branches(branches) if branches.is_empty() => Ok(false),
         BranchScope::Branches(branches) => {
             let branch_ids: Vec<uuid::Uuid> = branches.iter().map(|b| *b.as_uuid()).collect();
-            let found: Option<uuid::Uuid> = sqlx::query_scalar(
-                "SELECT user_id FROM user_branches WHERE user_id = $1 AND branch_id = ANY($2) LIMIT 1",
-            )
-            .bind(*user_id.as_uuid())
-            .bind(&branch_ids)
-            .fetch_optional(pool)
-            .await?;
+            let found: Option<uuid::Uuid> =
+                with_org_conn::<_, _, PgOrgError>(pool, org, move |tx| {
+                    Box::pin(async move {
+                        Ok(sqlx::query_scalar(
+                            "SELECT user_id FROM user_branches WHERE user_id = $1 AND branch_id = ANY($2) LIMIT 1",
+                        )
+                        .bind(*user_id.as_uuid())
+                        .bind(&branch_ids)
+                        .fetch_optional(tx.as_mut())
+                        .await?)
+                    })
+                })
+                .await?;
             Ok(found.is_some())
         }
     }
 }
 
 async fn fetch_user(pool: &PgPool, user_id: UserId) -> Result<UserSummary, PgOrgError> {
-    let row = sqlx::query(
-        r#"
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgOrgError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
         SELECT id, display_name, phone, roles, team, is_active, created_at
         FROM users WHERE id = $1
         "#,
-    )
-    .bind(*user_id.as_uuid())
-    .fetch_one(pool)
+            )
+            .bind(*user_id.as_uuid())
+            .fetch_one(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     let branch_ids = fetch_user_branch_ids(pool, user_id).await?;
     user_from_row(&row, branch_ids)
@@ -617,11 +670,17 @@ async fn fetch_user_branch_ids(
     pool: &PgPool,
     user_id: UserId,
 ) -> Result<Vec<BranchId>, PgOrgError> {
-    let rows: Vec<uuid::Uuid> = sqlx::query_scalar(
-        "SELECT branch_id FROM user_branches WHERE user_id = $1 ORDER BY branch_id",
-    )
-    .bind(*user_id.as_uuid())
-    .fetch_all(pool)
+    let org = current_org().map_err(KernelError::from)?;
+    let rows: Vec<uuid::Uuid> = with_org_conn::<_, _, PgOrgError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query_scalar(
+                "SELECT branch_id FROM user_branches WHERE user_id = $1 ORDER BY branch_id",
+            )
+            .bind(*user_id.as_uuid())
+            .fetch_all(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     Ok(rows.into_iter().map(BranchId::from_uuid).collect())
 }

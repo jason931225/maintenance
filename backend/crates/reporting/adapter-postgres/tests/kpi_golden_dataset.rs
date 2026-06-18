@@ -12,188 +12,212 @@ const PERIOD_END: OffsetDateTime = datetime!(2026-07-01 00:00 UTC);
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn completed_count_uses_approval_period_priority_weights_and_exclusions(pool: PgPool) {
-    let seeded = seed_golden_dataset(&pool).await;
-    let report = company_report(&pool).await;
-    let company = report.rollup(&KpiRollupScope::Company).unwrap();
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_golden_dataset(&pool).await;
+        let report = company_report(&pool).await;
+        let company = report.rollup(&KpiRollupScope::Company).unwrap();
 
-    assert_eq!(company.completed_count, 3);
-    assert_eq!(company.weighted_completed_points, 6);
-    assert!(company.work_order_ids.contains(&seeded.p1_completed));
-    assert!(
-        company
-            .work_order_ids
-            .contains(&seeded.p2_revoked_exclusion_completed)
-    );
-    assert!(company.work_order_ids.contains(&seeded.p3_completed));
-    assert!(!company.work_order_ids.contains(&seeded.p1_boolean_excluded));
-    assert!(!company.work_order_ids.contains(&seeded.p2_active_exclusion));
-    assert!(!company.work_order_ids.contains(&seeded.p1_outside_period));
+        assert_eq!(company.completed_count, 3);
+        assert_eq!(company.weighted_completed_points, 6);
+        assert!(company.work_order_ids.contains(&seeded.p1_completed));
+        assert!(
+            company
+                .work_order_ids
+                .contains(&seeded.p2_revoked_exclusion_completed)
+        );
+        assert!(company.work_order_ids.contains(&seeded.p3_completed));
+        assert!(!company.work_order_ids.contains(&seeded.p1_boolean_excluded));
+        assert!(!company.work_order_ids.contains(&seeded.p2_active_exclusion));
+        assert!(!company.work_order_ids.contains(&seeded.p1_outside_period));
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn average_response_speed_uses_first_in_progress_status_history(pool: PgPool) {
-    seed_golden_dataset(&pool).await;
-    let report = company_report(&pool).await;
-    let company = report.rollup(&KpiRollupScope::Company).unwrap();
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        seed_golden_dataset(&pool).await;
+        let report = company_report(&pool).await;
+        let company = report.rollup(&KpiRollupScope::Company).unwrap();
 
-    assert_eq!(company.average_response_seconds, Some(7_200));
+        assert_eq!(company.average_response_seconds, Some(7_200));
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn completion_duration_and_due_compliance_use_final_approval_timestamp(pool: PgPool) {
-    seed_golden_dataset(&pool).await;
-    let report = company_report(&pool).await;
-    let company = report.rollup(&KpiRollupScope::Company).unwrap();
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        seed_golden_dataset(&pool).await;
+        let report = company_report(&pool).await;
+        let company = report.rollup(&KpiRollupScope::Company).unwrap();
 
-    assert_eq!(company.average_completion_seconds, Some(172_800));
-    assert_eq!(company.target_due_compliance_bps, Some(5_000));
+        assert_eq!(company.average_completion_seconds, Some(172_800));
+        assert_eq!(company.target_due_compliance_bps, Some(5_000));
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn revisit_rate_uses_revisit_required_approved_reports(pool: PgPool) {
-    seed_golden_dataset(&pool).await;
-    let report = company_report(&pool).await;
-    let company = report.rollup(&KpiRollupScope::Company).unwrap();
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        seed_golden_dataset(&pool).await;
+        let report = company_report(&pool).await;
+        let company = report.rollup(&KpiRollupScope::Company).unwrap();
 
-    assert_eq!(company.revisit_rate_bps, 2_500);
+        assert_eq!(company.revisit_rate_bps, 2_500);
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn delay_rate_and_reason_distribution_ignore_excluded_records(pool: PgPool) {
-    seed_golden_dataset(&pool).await;
-    let report = company_report(&pool).await;
-    let company = report.rollup(&KpiRollupScope::Company).unwrap();
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        seed_golden_dataset(&pool).await;
+        let report = company_report(&pool).await;
+        let company = report.rollup(&KpiRollupScope::Company).unwrap();
 
-    assert_eq!(company.delay_rate_bps, 2_500);
-    assert_eq!(
-        company
-            .delay_reason_distribution
-            .get("MECHANIC_OVERLOADED")
-            .copied(),
-        Some(1)
-    );
-    assert_eq!(
-        company
-            .delay_reason_distribution
-            .get("OUTSOURCE_DELAY")
-            .copied(),
-        None
-    );
+        assert_eq!(company.delay_rate_bps, 2_500);
+        assert_eq!(
+            company
+                .delay_reason_distribution
+                .get("MECHANIC_OVERLOADED")
+                .copied(),
+            Some(1)
+        );
+        assert_eq!(
+            company
+                .delay_reason_distribution
+                .get("OUTSOURCE_DELAY")
+                .copied(),
+            None
+        );
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn inspection_plan_completion_uses_regular_inspection_schedules(pool: PgPool) {
-    let seeded = seed_golden_dataset(&pool).await;
-    seed_inspection_schedule(
-        &pool,
-        seeded.branch_a,
-        seeded.equipment_a,
-        seeded.tech_a,
-        time::macros::date!(2026 - 06 - 10),
-        Some(PERIOD_START + Duration::days(9) + Duration::hours(10)),
-    )
-    .await;
-    seed_inspection_schedule(
-        &pool,
-        seeded.branch_a,
-        seeded.equipment_a,
-        seeded.tech_a,
-        time::macros::date!(2026 - 06 - 20),
-        None,
-    )
-    .await;
-    seed_inspection_schedule(
-        &pool,
-        seeded.branch_b,
-        seeded.equipment_b,
-        seeded.tech_b,
-        time::macros::date!(2026 - 06 - 15),
-        Some(PERIOD_START + Duration::days(14) + Duration::hours(9)),
-    )
-    .await;
-    seed_inspection_schedule(
-        &pool,
-        seeded.branch_a,
-        seeded.equipment_a,
-        seeded.tech_a,
-        time::macros::date!(2026 - 07 - 01),
-        Some(PERIOD_END + Duration::hours(9)),
-    )
-    .await;
-    let report = company_report(&pool).await;
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_golden_dataset(&pool).await;
+        seed_inspection_schedule(
+            &pool,
+            seeded.branch_a,
+            seeded.equipment_a,
+            seeded.tech_a,
+            time::macros::date!(2026 - 06 - 10),
+            Some(PERIOD_START + Duration::days(9) + Duration::hours(10)),
+        )
+        .await;
+        seed_inspection_schedule(
+            &pool,
+            seeded.branch_a,
+            seeded.equipment_a,
+            seeded.tech_a,
+            time::macros::date!(2026 - 06 - 20),
+            None,
+        )
+        .await;
+        seed_inspection_schedule(
+            &pool,
+            seeded.branch_b,
+            seeded.equipment_b,
+            seeded.tech_b,
+            time::macros::date!(2026 - 06 - 15),
+            Some(PERIOD_START + Duration::days(14) + Duration::hours(9)),
+        )
+        .await;
+        seed_inspection_schedule(
+            &pool,
+            seeded.branch_a,
+            seeded.equipment_a,
+            seeded.tech_a,
+            time::macros::date!(2026 - 07 - 01),
+            Some(PERIOD_END + Duration::hours(9)),
+        )
+        .await;
+        let report = company_report(&pool).await;
 
-    assert!(
-        report
-            .unavailable_metric(KpiMetric::InspectionPlanCompletionRate)
-            .is_none()
-    );
-    let company = report.rollup(&KpiRollupScope::Company).unwrap();
-    assert_eq!(company.inspection_schedule_due_count, 3);
-    assert_eq!(company.inspection_schedule_completed_count, 2);
-    assert_eq!(company.inspection_plan_completion_bps, Some(6_666));
+        assert!(
+            report
+                .unavailable_metric(KpiMetric::InspectionPlanCompletionRate)
+                .is_none()
+        );
+        let company = report.rollup(&KpiRollupScope::Company).unwrap();
+        assert_eq!(company.inspection_schedule_due_count, 3);
+        assert_eq!(company.inspection_schedule_completed_count, 2);
+        assert_eq!(company.inspection_plan_completion_bps, Some(6_666));
 
-    let branch_a = report
-        .rollup(&KpiRollupScope::Branch(seeded.branch_a))
-        .unwrap();
-    assert_eq!(branch_a.inspection_schedule_due_count, 2);
-    assert_eq!(branch_a.inspection_schedule_completed_count, 1);
-    assert_eq!(branch_a.inspection_plan_completion_bps, Some(5_000));
+        let branch_a = report
+            .rollup(&KpiRollupScope::Branch(seeded.branch_a))
+            .unwrap();
+        assert_eq!(branch_a.inspection_schedule_due_count, 2);
+        assert_eq!(branch_a.inspection_schedule_completed_count, 1);
+        assert_eq!(branch_a.inspection_plan_completion_bps, Some(5_000));
 
-    let tech_b = report
-        .rollup(&KpiRollupScope::Technician(seeded.tech_b))
-        .unwrap();
-    assert_eq!(tech_b.inspection_schedule_due_count, 1);
-    assert_eq!(tech_b.inspection_schedule_completed_count, 1);
-    assert_eq!(tech_b.inspection_plan_completion_bps, Some(10_000));
+        let tech_b = report
+            .rollup(&KpiRollupScope::Technician(seeded.tech_b))
+            .unwrap();
+        assert_eq!(tech_b.inspection_schedule_due_count, 1);
+        assert_eq!(tech_b.inspection_schedule_completed_count, 1);
+        assert_eq!(tech_b.inspection_plan_completion_bps, Some(10_000));
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn p1_acceptance_rate_is_honestly_unavailable_without_dispatch_tables(pool: PgPool) {
-    seed_golden_dataset(&pool).await;
-    let report = company_report(&pool).await;
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        seed_golden_dataset(&pool).await;
+        let report = company_report(&pool).await;
 
-    let unavailable = report
-        .unavailable_metric(KpiMetric::P1AcceptanceRate)
-        .unwrap();
-    assert_eq!(unavailable.source_domain, "dispatch");
-    assert!(unavailable.reason.contains("P1 dispatch broadcast"));
+        let unavailable = report
+            .unavailable_metric(KpiMetric::P1AcceptanceRate)
+            .unwrap();
+        assert_eq!(unavailable.source_domain, "dispatch");
+        assert!(unavailable.reason.contains("P1 dispatch broadcast"));
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn rollups_respect_branch_scope_across_two_branches(pool: PgPool) {
-    let seeded = seed_golden_dataset(&pool).await;
-    let repo = PgKpiRepository::new(pool.clone());
-    let report = repo
-        .query_kpis(KpiQuery {
-            period: period(),
-            scope: KpiScope::Company,
-            branch_scope: BranchScope::single(seeded.branch_a),
-        })
-        .await
-        .unwrap();
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_golden_dataset(&pool).await;
+        let repo = PgKpiRepository::new(pool.clone());
+        let report = repo
+            .query_kpis(KpiQuery {
+                period: period(),
+                scope: KpiScope::Company,
+                branch_scope: BranchScope::single(seeded.branch_a),
+            })
+            .await
+            .unwrap();
 
-    assert!(
-        report
-            .rollup(&KpiRollupScope::Branch(seeded.branch_a))
-            .is_some()
-    );
-    assert!(
-        report
-            .rollup(&KpiRollupScope::Branch(seeded.branch_b))
-            .is_none()
-    );
-    assert_eq!(
-        report
-            .rollup(&KpiRollupScope::Technician(seeded.tech_a))
-            .unwrap()
-            .completed_count,
-        2
-    );
-    assert!(
-        report
-            .rollup(&KpiRollupScope::Technician(seeded.tech_b))
-            .is_none()
-    );
+        assert!(
+            report
+                .rollup(&KpiRollupScope::Branch(seeded.branch_a))
+                .is_some()
+        );
+        assert!(
+            report
+                .rollup(&KpiRollupScope::Branch(seeded.branch_b))
+                .is_none()
+        );
+        assert_eq!(
+            report
+                .rollup(&KpiRollupScope::Technician(seeded.tech_a))
+                .unwrap()
+                .completed_count,
+            2
+        );
+        assert!(
+            report
+                .rollup(&KpiRollupScope::Technician(seeded.tech_b))
+                .is_none()
+        );
+    })
+    .await;
 }
 
 async fn company_report(pool: &PgPool) -> mnt_reporting_domain::KpiReport {

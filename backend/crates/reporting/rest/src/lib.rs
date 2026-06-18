@@ -10,7 +10,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, KernelError, RegionId, TraceContext, UserId,
+    BranchId, BranchScope, ErrorKind, KernelError, OrgId, RegionId, TraceContext, UserId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
@@ -54,13 +54,16 @@ impl KpiRestState {
 }
 
 pub fn router(state: KpiRestState) -> Router {
-    Router::new()
+    let verifier = state.jwt_verifier.clone();
+    let pool = state.repository.pool().clone();
+    let router = Router::new()
         .route(KPI_PATH, get(get_kpis))
         .route(DAILY_STATUS_EXPORT_PATH, get(get_daily_status_export))
         .route(WORK_DIARY_EXPORT_PATH, get(get_work_diary_export))
         .route(WORK_DIARY_PATH, get(get_work_diary).put(update_work_diary))
         .route(WORK_DIARY_CONFIRM_PATH, post(confirm_work_diary))
-        .with_state(state)
+        .with_state(state);
+    mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
 
 #[derive(Debug, Deserialize)]
@@ -472,7 +475,9 @@ fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
         BranchScope::Branches(branches)
     };
 
-    Ok(Principal::new(user_id, roles, branch_scope))
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 
 fn status_for_error_kind(kind: ErrorKind) -> StatusCode {

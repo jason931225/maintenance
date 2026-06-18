@@ -25,6 +25,7 @@ uuid = { workspace = true }
 mnt-messenger-domain = { workspace = true }
 mnt-messenger-adapter-postgres = { workspace = true }
 mnt-platform-db = { workspace = true }
+mnt-platform-request-context = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 
 [lints]

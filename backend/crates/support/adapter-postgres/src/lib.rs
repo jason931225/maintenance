@@ -7,10 +7,10 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, KernelError, OrgId, SupportTicketCommentId, SupportTicketId,
-    UserId,
+    BranchId, BranchScope, ErrorKind, KernelError, SupportTicketCommentId, SupportTicketId, UserId,
 };
-use mnt_platform_db::{DbError, with_audit, with_audits};
+use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
+use mnt_platform_request_context::current_org;
 use mnt_support_application::{
     AddCommentCommand, AssignTicketCommand, CommentAudience, CommentView,
     CreateCustomerIntakeCommand, CreateInternalTicketCommand, ListTicketsQuery, TicketDetail,
@@ -86,6 +86,8 @@ impl PgSupportStore {
         &self,
         command: CreateInternalTicketCommand,
     ) -> Result<TicketSummary, PgSupportError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let title = require_non_empty(&command.title, "support ticket title is required")?;
         require_max_chars(&title, MAX_TITLE_CHARS, "support ticket title is too long")?;
         let body = require_non_empty(&command.body, "support ticket body is required")?;
@@ -133,7 +135,7 @@ impl PgSupportStore {
                 .bind(*command.actor.as_uuid())
                 .bind(due_at)
                 .bind(command.occurred_at)
-                .bind(*OrgId::knl().as_uuid())
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
 
@@ -150,6 +152,8 @@ impl PgSupportStore {
         &self,
         command: CreateCustomerIntakeCommand,
     ) -> Result<TicketSummary, PgSupportError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let title = require_non_empty(&command.title, "support ticket title is required")?;
         require_max_chars(&title, MAX_TITLE_CHARS, "support ticket title is too long")?;
         let body = require_non_empty(&command.body, "support ticket body is required")?;
@@ -212,7 +216,7 @@ impl PgSupportStore {
                 .bind(&requester_contact)
                 .bind(due_at)
                 .bind(command.occurred_at)
-                .bind(*OrgId::knl().as_uuid())
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
 
@@ -229,9 +233,10 @@ impl PgSupportStore {
         &self,
         command: AssignTicketCommand,
     ) -> Result<(TicketSummary, Vec<TicketNotification>), PgSupportError> {
+        let org = current_org().map_err(KernelError::from)?;
         with_audits::<_, (TicketSummary, Vec<TicketNotification>), PgSupportError>(
             &self.pool,
-            OrgId::knl(),
+            org,
             |tx| {
                 Box::pin(async move {
                     let ticket = lock_ticket_tx(tx, command.ticket_id).await?;
@@ -304,9 +309,10 @@ impl PgSupportStore {
         &self,
         command: TransitionTicketCommand,
     ) -> Result<(TicketSummary, Vec<TicketNotification>), PgSupportError> {
+        let org = current_org().map_err(KernelError::from)?;
         with_audits::<_, (TicketSummary, Vec<TicketNotification>), PgSupportError>(
             &self.pool,
-            OrgId::knl(),
+            org,
             |tx| {
                 Box::pin(async move {
                     let ticket = lock_ticket_tx(tx, command.ticket_id).await?;
@@ -368,10 +374,12 @@ impl PgSupportStore {
         &self,
         command: AddCommentCommand,
     ) -> Result<(CommentView, Vec<TicketNotification>), PgSupportError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let body = require_non_empty(&command.body, "comment body is required")?;
         let comment_id = SupportTicketCommentId::new();
 
-        with_audits::<_, (CommentView, Vec<TicketNotification>), PgSupportError>(&self.pool, OrgId::knl(), |tx| {
+        with_audits::<_, (CommentView, Vec<TicketNotification>), PgSupportError>(&self.pool, org, |tx| {
             Box::pin(async move {
                 let ticket = lock_ticket_tx(tx, command.ticket_id).await?;
                 ensure_author_visible_to_ticket(tx, command.actor, &ticket).await?;
@@ -390,7 +398,7 @@ impl PgSupportStore {
                 .bind(&body)
                 .bind(command.is_internal_note)
                 .bind(command.occurred_at)
-                .bind(*OrgId::knl().as_uuid())
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
 
@@ -492,7 +500,11 @@ impl PgSupportStore {
         builder.push(" ORDER BY created_at DESC, id DESC LIMIT ");
         builder.push_bind(limit);
 
-        let rows = builder.build().fetch_all(&self.pool).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgSupportError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
         rows.iter().map(summary_from_row).collect()
     }
 
@@ -520,11 +532,12 @@ impl PgSupportStore {
         // A branch-less customer ticket is only visible to cross-branch staff.
         push_branch_scope(&mut builder, branch_scope, true);
         builder.push(")");
-        let row = builder
-            .build()
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| KernelError::not_found("support ticket was not found"))?;
+        let org = current_org().map_err(KernelError::from)?;
+        let row = with_org_conn::<_, _, PgSupportError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_optional(tx.as_mut()).await?) })
+        })
+        .await?
+        .ok_or_else(|| KernelError::not_found("support ticket was not found"))?;
         let ticket = summary_from_row(&row)?;
 
         let comments = self.list_comments(ticket_id, audience).await?;
@@ -549,7 +562,11 @@ impl PgSupportStore {
             builder.push(" AND is_internal_note = FALSE");
         }
         builder.push(" ORDER BY created_at, id");
-        let rows = builder.build().fetch_all(&self.pool).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgSupportError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
         rows.iter().map(comment_from_row).collect()
     }
 
@@ -586,18 +603,25 @@ impl PgSupportStore {
 
     /// Active push tokens for a staff recipient, for notification fan-out.
     pub async fn active_push_tokens(&self, user_id: UserId) -> Result<Vec<String>, PgSupportError> {
-        let tokens: Vec<String> = sqlx::query_scalar(
-            r#"
+        let org = current_org().map_err(KernelError::from)?;
+        let tokens: Vec<String> =
+            with_org_conn::<_, _, PgSupportError>(&self.pool, org, move |tx| {
+                Box::pin(async move {
+                    Ok(sqlx::query_scalar(
+                        r#"
             SELECT push_token
             FROM registered_devices
             WHERE user_id = $1
               AND push_token IS NOT NULL
               AND btrim(push_token) <> ''
             "#,
-        )
-        .bind(*user_id.as_uuid())
-        .fetch_all(&self.pool)
-        .await?;
+                    )
+                    .bind(*user_id.as_uuid())
+                    .fetch_all(tx.as_mut())
+                    .await?)
+                })
+            })
+            .await?;
         Ok(tokens)
     }
 
@@ -613,11 +637,12 @@ impl PgSupportStore {
         builder.push(" AND (");
         push_branch_scope(&mut builder, branch_scope, true);
         builder.push(")");
-        let row = builder
-            .build()
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| KernelError::not_found("support ticket was not found"))?;
+        let org = current_org().map_err(KernelError::from)?;
+        let row = with_org_conn::<_, _, PgSupportError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_optional(tx.as_mut()).await?) })
+        })
+        .await?
+        .ok_or_else(|| KernelError::not_found("support ticket was not found"))?;
         let branch_id: Option<uuid::Uuid> = row.try_get("branch_id")?;
         Ok(branch_id.map(BranchId::from_uuid))
     }
@@ -775,11 +800,19 @@ async fn ticket_cursor(
     pool: &PgPool,
     ticket_id: SupportTicketId,
 ) -> Result<(OffsetDateTime, uuid::Uuid), PgSupportError> {
-    let row = sqlx::query("SELECT created_at, id FROM support_tickets WHERE id = $1")
-        .bind(*ticket_id.as_uuid())
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| KernelError::not_found("support ticket cursor was not found"))?;
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgSupportError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(
+                sqlx::query("SELECT created_at, id FROM support_tickets WHERE id = $1")
+                    .bind(*ticket_id.as_uuid())
+                    .fetch_optional(tx.as_mut())
+                    .await?,
+            )
+        })
+    })
+    .await?
+    .ok_or_else(|| KernelError::not_found("support ticket cursor was not found"))?;
     Ok((row.try_get("created_at")?, row.try_get("id")?))
 }
 

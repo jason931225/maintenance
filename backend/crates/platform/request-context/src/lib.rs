@@ -1,0 +1,215 @@
+//! Per-request tenant context for the multi-tenant FSM.
+//!
+//! The application connects to Postgres as the non-owner, RLS-enforced `mnt_rt`
+//! role. Every tenant-scoped query must arm the `app.current_org` GUC with the
+//! org of the *authenticated request*, or RLS returns zero rows (fail-closed).
+//!
+//! This crate is the single source of that org for the lifetime of one request:
+//!
+//! * [`CURRENT_ORG`] is a tokio [`task_local!`] holding the request's [`OrgId`].
+//!   The shared middleware enters it with [`tokio::task::LocalKey::scope`] around
+//!   the downstream handler, so any code running on that task can read it.
+//! * [`current_org`] reads it and FAILS CLOSED when unset — it never defaults to
+//!   a tenant. Adapter read paths call `with_org_conn(pool, current_org()?, ..)`.
+//! * [`resolve_principal`] is the one merged copy of the per-crate
+//!   `principal_from_headers` extractors: bearer → verify → claims → org from the
+//!   verified `org` claim → branch scope re-resolved from the DB (the safer
+//!   policy: a membership revocation takes effect immediately).
+//!
+//! Note on `tokio::spawn`: a freshly spawned task does NOT inherit the
+//! task-local. A handler that spawns work which itself touches tenant-scoped
+//! tables must re-enter the scope, e.g. `CURRENT_ORG.scope(org, async { .. })`.
+
+use std::str::FromStr;
+
+use axum::extract::Request;
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
+use http::{HeaderMap, StatusCode};
+use mnt_kernel_core::{KernelError, OrgId, UserId};
+use mnt_platform_auth::JwtVerifier;
+use mnt_platform_authz::{Principal, Role, resolve_branch_scope};
+use sqlx::PgPool;
+use std::collections::BTreeSet;
+
+tokio::task_local! {
+    /// The tenant of the in-flight request. Set once per request by the shared
+    /// middleware; read by [`current_org`].
+    pub static CURRENT_ORG: OrgId;
+}
+
+/// Why a request could not be given a tenant context.
+#[derive(Debug, thiserror::Error)]
+pub enum RequestContextError {
+    /// No tenant is bound to the current task — the request never passed through
+    /// the org middleware, or read code ran outside the request task (e.g. a bare
+    /// `tokio::spawn` that did not re-enter [`CURRENT_ORG`]). Fail closed.
+    #[error("no tenant context is bound to the current request")]
+    MissingOrg,
+
+    /// The Authorization header was absent or malformed.
+    #[error("missing or malformed bearer token")]
+    MissingBearer,
+
+    /// The bearer token failed verification.
+    #[error("invalid bearer token")]
+    InvalidToken,
+
+    /// A claim in an otherwise-valid token did not parse (subject, role, or org).
+    #[error("token claim is invalid: {0}")]
+    InvalidClaim(&'static str),
+
+    /// JWT verification is not configured for this deployment.
+    #[error("jwt verification is not configured")]
+    VerifierUnavailable,
+
+    /// Resolving the live branch scope from the database failed.
+    #[error("failed to resolve branch scope: {0}")]
+    BranchScope(String),
+}
+
+impl From<RequestContextError> for KernelError {
+    /// Adapters surface tenancy failures through their domain error, which
+    /// already converts from [`KernelError`]. A missing/invalid request context
+    /// at a data-access site is an internal invariant violation (a tenant-scoped
+    /// query reached the DB without a bound org), so it maps to an internal
+    /// error — the request never produces tenant data on this path.
+    fn from(err: RequestContextError) -> Self {
+        KernelError::internal(err.to_string())
+    }
+}
+
+/// Read the tenant bound to the current request task.
+///
+/// FAILS CLOSED: returns [`RequestContextError::MissingOrg`] when no org is in
+/// scope. It NEVER falls back to a default tenant. Adapter reads wrap their query
+/// in `with_org_conn(&self.pool, current_org()?, ..)`.
+pub fn current_org() -> Result<OrgId, RequestContextError> {
+    CURRENT_ORG
+        .try_with(|org| *org)
+        .map_err(|_| RequestContextError::MissingOrg)
+}
+
+/// Extract the raw bearer token from an Authorization header.
+fn bearer_token(headers: &HeaderMap) -> Result<&str, RequestContextError> {
+    headers
+        .get(http::header::AUTHORIZATION)
+        .ok_or(RequestContextError::MissingBearer)?
+        .to_str()
+        .map_err(|_| RequestContextError::MissingBearer)?
+        .strip_prefix("Bearer ")
+        .filter(|token| !token.trim().is_empty())
+        .ok_or(RequestContextError::MissingBearer)
+}
+
+/// Resolve the authenticated [`Principal`] for a request from its headers.
+///
+/// This is the single merged copy of the formerly-duplicated
+/// `principal_from_headers` extractors:
+/// 1. parse the bearer token,
+/// 2. verify it (the verifier already rejects a token whose `org` claim is not a
+///    valid UUID),
+/// 3. parse subject and roles,
+/// 4. take the tenant from the verified `org` claim,
+/// 5. re-resolve the live branch scope from the database rather than trusting the
+///    token's `branches` claim, so a membership revocation takes effect at once.
+pub async fn resolve_principal(
+    verifier: &JwtVerifier,
+    pool: &PgPool,
+    headers: &HeaderMap,
+) -> Result<Principal, RequestContextError> {
+    let token = bearer_token(headers)?;
+    let claims = verifier
+        .verify_access_token(token)
+        .map_err(|_| RequestContextError::InvalidToken)?;
+
+    let user_id = UserId::from_str(&claims.sub)
+        .map_err(|_| RequestContextError::InvalidClaim("subject is not a valid user id"))?;
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RequestContextError::InvalidClaim("org is not a valid uuid"))?;
+    let roles = claims
+        .roles
+        .iter()
+        .map(|role| {
+            Role::from_str(role).map_err(|_| RequestContextError::InvalidClaim("unknown role"))
+        })
+        .collect::<Result<BTreeSet<_>, _>>()?;
+
+    let role_vec = roles.iter().copied().collect::<Vec<_>>();
+    let branch_scope = resolve_branch_scope(pool, user_id, &role_vec)
+        .await
+        .map_err(|err| RequestContextError::BranchScope(err.to_string()))?;
+
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
+}
+
+// ---------------------------------------------------------------------------
+// Axum middleware
+// ---------------------------------------------------------------------------
+
+/// Apply the per-request tenant-context middleware to one authenticated router.
+///
+/// Called by each domain `router()` (so the behavior is testable per crate and
+/// composes in the app). For every route on `router` it resolves the
+/// [`Principal`], stores it in the request extensions (handlers can read
+/// `Extension<Principal>`), and runs the downstream handler inside the
+/// [`CURRENT_ORG`] scope — arming the request's tenant for every adapter
+/// read/write.
+///
+/// Fail-closed: a request that cannot be resolved to a principal is rejected
+/// before any handler runs, so no tenant-scoped query can execute without an org.
+///
+/// Pass the router's own `jwt_verifier` and a clone of its `pool`. Do NOT apply
+/// it to pre-auth routes (login/refresh) or the realtime WS upgrade.
+pub fn with_request_context<S>(
+    router: axum::Router<S>,
+    verifier: Option<JwtVerifier>,
+    pool: PgPool,
+) -> axum::Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    router.layer(axum::middleware::from_fn(
+        move |mut request: Request, next: Next| {
+            let verifier = verifier.clone();
+            let pool = pool.clone();
+            async move {
+                let Some(verifier) = verifier.as_ref() else {
+                    return error_response(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "JWT verification is not configured",
+                    );
+                };
+                let principal = match resolve_principal(verifier, &pool, request.headers()).await {
+                    Ok(principal) => principal,
+                    Err(err) => return error_response_for(&err),
+                };
+                let org = principal.org_id;
+                request.extensions_mut().insert(principal);
+                CURRENT_ORG.scope(org, next.run(request)).await
+            }
+        },
+    ))
+}
+
+fn error_response(status: StatusCode, message: &str) -> Response {
+    (status, message.to_owned()).into_response()
+}
+
+fn error_response_for(err: &RequestContextError) -> Response {
+    let status = match err {
+        RequestContextError::VerifierUnavailable => StatusCode::SERVICE_UNAVAILABLE,
+        RequestContextError::BranchScope(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        _ => StatusCode::UNAUTHORIZED,
+    };
+    error_response(status, &err.to_string())
+}
+
+/// Wrap a handler body in the tenant scope, for tests / non-router callers that
+/// need to execute adapter code with a known tenant bound.
+pub async fn scope_org<F, T>(org: OrgId, fut: F) -> T
+where
+    F: std::future::Future<Output = T>,
+{
+    CURRENT_ORG.scope(org, fut).await
+}

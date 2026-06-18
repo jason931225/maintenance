@@ -79,6 +79,7 @@ impl Harness {
         issuer
             .issue_access_token(AccessTokenInput {
                 subject: user_id,
+                org_id: OrgId::knl(),
                 roles: roles.iter().map(|r| (*r).to_owned()).collect(),
                 branches,
                 issued_at: OffsetDateTime::now_utc(),

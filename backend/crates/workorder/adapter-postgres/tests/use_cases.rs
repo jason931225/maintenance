@@ -20,377 +20,392 @@ use time::{Duration, OffsetDateTime, macros::date};
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn lifecycle_mutations_persist_state_and_audit_in_order(pool: PgPool) {
-    let seeded = seed_operational_context(&pool).await;
-    let store = PgWorkOrderStore::new(pool.clone());
-    let created = store
-        .create_work_order(CreateWorkOrderCommand {
-            actor: seeded.receptionist,
-            branch_id: seeded.branch_id,
-            management_no: "#290".to_owned(),
-            symptom: "Hydraulic oil leak".to_owned(),
-            customer_request: Some("Inspect before afternoon shift".to_owned()),
-            target_due_at: Some(OffsetDateTime::now_utc() + Duration::days(1)),
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap();
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_operational_context(&pool).await;
+        let store = PgWorkOrderStore::new(pool.clone());
+        let created = store
+            .create_work_order(CreateWorkOrderCommand {
+                actor: seeded.receptionist,
+                branch_id: seeded.branch_id,
+                management_no: "#290".to_owned(),
+                symptom: "Hydraulic oil leak".to_owned(),
+                customer_request: Some("Inspect before afternoon shift".to_owned()),
+                target_due_at: Some(OffsetDateTime::now_utc() + Duration::days(1)),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
 
-    assert_eq!(created.branch_id, seeded.branch_id);
-    assert_eq!(created.status, WorkOrderStatus::Received);
-    assert_eq!(created.priority, PriorityLevel::Unset);
-    assert_eq!(*created.equipment_id.as_uuid(), seeded.equipment_id);
-    assert!(created.request_no.ends_with("-001"));
+        assert_eq!(created.branch_id, seeded.branch_id);
+        assert_eq!(created.status, WorkOrderStatus::Received);
+        assert_eq!(created.priority, PriorityLevel::Unset);
+        assert_eq!(*created.equipment_id.as_uuid(), seeded.equipment_id);
+        assert!(created.request_no.ends_with("-001"));
 
-    let prioritized = store
-        .update_priority(UpdatePriorityCommand {
-            actor: seeded.admin,
-            work_order_id: created.id,
-            priority: PriorityLevel::P2,
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(prioritized.priority, PriorityLevel::P2);
+        let prioritized = store
+            .update_priority(UpdatePriorityCommand {
+                actor: seeded.admin,
+                work_order_id: created.id,
+                priority: PriorityLevel::P2,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(prioritized.priority, PriorityLevel::P2);
 
-    let assigned = store
-        .assign_work_order(WorkOrderAssignmentCommand {
-            actor: seeded.admin,
-            work_order_id: created.id,
-            assignments: vec![
-                AssignmentInput {
-                    mechanic_id: seeded.mechanic,
-                    role: AssignmentRole::Primary,
-                },
-                AssignmentInput {
-                    mechanic_id: seeded.helper,
-                    role: AssignmentRole::Secondary,
-                },
-            ],
-            admin_approver_id: Some(seeded.admin),
-            executive_approver_id: Some(seeded.executive),
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(assigned.status, WorkOrderStatus::Assigned);
+        let assigned = store
+            .assign_work_order(WorkOrderAssignmentCommand {
+                actor: seeded.admin,
+                work_order_id: created.id,
+                assignments: vec![
+                    AssignmentInput {
+                        mechanic_id: seeded.mechanic,
+                        role: AssignmentRole::Primary,
+                    },
+                    AssignmentInput {
+                        mechanic_id: seeded.helper,
+                        role: AssignmentRole::Secondary,
+                    },
+                ],
+                admin_approver_id: Some(seeded.admin),
+                executive_approver_id: Some(seeded.executive),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(assigned.status, WorkOrderStatus::Assigned);
 
-    let started = store
-        .start_work(WorkOrderStartCommand {
-            actor: seeded.mechanic,
-            work_order_id: created.id,
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(started.status, WorkOrderStatus::InProgress);
+        let started = store
+            .start_work(WorkOrderStartCommand {
+                actor: seeded.mechanic,
+                work_order_id: created.id,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(started.status, WorkOrderStatus::InProgress);
 
-    let reported = store
-        .submit_report(SubmitReportCommand {
-            actor: seeded.mechanic,
-            work_order_id: created.id,
-            result_type: WorkResultType::Completed,
-            diagnosis: "Hose fitting loosened under load".to_owned(),
-            action_taken: "Retightened fitting and pressure-tested".to_owned(),
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(reported.status, WorkOrderStatus::ReportSubmitted);
+        let reported = store
+            .submit_report(SubmitReportCommand {
+                actor: seeded.mechanic,
+                work_order_id: created.id,
+                result_type: WorkResultType::Completed,
+                diagnosis: "Hose fitting loosened under load".to_owned(),
+                action_taken: "Retightened fitting and pressure-tested".to_owned(),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(reported.status, WorkOrderStatus::ReportSubmitted);
 
-    let admin_review = store
-        .approve_work_order(WorkOrderApprovalCommand {
-            actor: seeded.admin,
-            work_order_id: created.id,
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(admin_review.status, WorkOrderStatus::AdminReview);
+        let admin_review = store
+            .approve_work_order(WorkOrderApprovalCommand {
+                actor: seeded.admin,
+                work_order_id: created.id,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(admin_review.status, WorkOrderStatus::AdminReview);
 
-    let blocked = store
-        .approve_work_order(WorkOrderApprovalCommand {
-            actor: seeded.executive,
-            work_order_id: created.id,
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap_err();
-    assert_eq!(blocked.kind(), ErrorKind::Conflict);
-    assert_eq!(
-        store.work_order(created.id).await.unwrap().status,
-        WorkOrderStatus::AdminReview
-    );
+        let blocked = store
+            .approve_work_order(WorkOrderApprovalCommand {
+                actor: seeded.executive,
+                work_order_id: created.id,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(blocked.kind(), ErrorKind::Conflict);
+        assert_eq!(
+            store.work_order(created.id).await.unwrap().status,
+            WorkOrderStatus::AdminReview
+        );
 
-    insert_evidence_media(
-        &pool,
-        created.id,
-        seeded.mechanic,
-        AttachmentStage::Report,
-        "VERIFIED",
-    )
+        insert_evidence_media(
+            &pool,
+            created.id,
+            seeded.mechanic,
+            AttachmentStage::Report,
+            "VERIFIED",
+        )
+        .await;
+
+        let completed = store
+            .approve_work_order(WorkOrderApprovalCommand {
+                actor: seeded.executive,
+                work_order_id: created.id,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(completed.status, WorkOrderStatus::FinalCompleted);
+
+        let actions = audit_actions_for(&pool, created.id).await;
+        assert_eq!(
+            actions,
+            vec![
+                "work_order.create",
+                "work_order.priority",
+                "work_order.assign",
+                "work_order.start",
+                "work_order.report",
+                "work_order.approve",
+                "work_order.approve",
+            ]
+        );
+    })
     .await;
-
-    let completed = store
-        .approve_work_order(WorkOrderApprovalCommand {
-            actor: seeded.executive,
-            work_order_id: created.id,
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(completed.status, WorkOrderStatus::FinalCompleted);
-
-    let actions = audit_actions_for(&pool, created.id).await;
-    assert_eq!(
-        actions,
-        vec![
-            "work_order.create",
-            "work_order.priority",
-            "work_order.assign",
-            "work_order.start",
-            "work_order.report",
-            "work_order.approve",
-            "work_order.approve",
-        ]
-    );
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn final_completion_ignores_legacy_flag_and_blocks_unverified_completion_evidence(
     pool: PgPool,
 ) {
-    let seeded = seed_operational_context(&pool).await;
-    let store = PgWorkOrderStore::new(pool.clone());
-    let created = create_reported_work_order(&store, &seeded).await;
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_operational_context(&pool).await;
+        let store = PgWorkOrderStore::new(pool.clone());
+        let created = create_reported_work_order(&store, &seeded).await;
 
-    let admin_review = store
-        .approve_work_order(WorkOrderApprovalCommand {
-            actor: seeded.admin,
-            work_order_id: created.id,
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(admin_review.status, WorkOrderStatus::AdminReview);
+        let admin_review = store
+            .approve_work_order(WorkOrderApprovalCommand {
+                actor: seeded.admin,
+                work_order_id: created.id,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(admin_review.status, WorkOrderStatus::AdminReview);
 
-    sqlx::query("UPDATE work_orders SET evidence_verified = true WHERE id = $1")
-        .bind(*created.id.as_uuid())
-        .execute(&pool)
-        .await
-        .unwrap();
-    insert_evidence_media(
-        &pool,
-        created.id,
-        seeded.mechanic,
-        AttachmentStage::After,
-        "PENDING",
-    )
+        sqlx::query("UPDATE work_orders SET evidence_verified = true WHERE id = $1")
+            .bind(*created.id.as_uuid())
+            .execute(&pool)
+            .await
+            .unwrap();
+        insert_evidence_media(
+            &pool,
+            created.id,
+            seeded.mechanic,
+            AttachmentStage::After,
+            "PENDING",
+        )
+        .await;
+
+        let blocked = store
+            .approve_work_order(WorkOrderApprovalCommand {
+                actor: seeded.executive,
+                work_order_id: created.id,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(blocked.kind(), ErrorKind::Conflict);
+        assert_eq!(
+            store.work_order(created.id).await.unwrap().status,
+            WorkOrderStatus::AdminReview
+        );
+    })
     .await;
-
-    let blocked = store
-        .approve_work_order(WorkOrderApprovalCommand {
-            actor: seeded.executive,
-            work_order_id: created.id,
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap_err();
-    assert_eq!(blocked.kind(), ErrorKind::Conflict);
-    assert_eq!(
-        store.work_order(created.id).await.unwrap().status,
-        WorkOrderStatus::AdminReview
-    );
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn request_numbers_are_race_safe_and_sequential_per_day(pool: PgPool) {
-    let seeded = seed_operational_context(&pool).await;
-    let store = PgWorkOrderStore::new(pool.clone());
-    let now = OffsetDateTime::now_utc();
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_operational_context(&pool).await;
+        let store = PgWorkOrderStore::new(pool.clone());
+        let now = OffsetDateTime::now_utc();
 
-    let first = store.create_work_order(CreateWorkOrderCommand {
-        actor: seeded.receptionist,
-        branch_id: seeded.branch_id,
-        management_no: "290".to_owned(),
-        symptom: "First concurrent intake".to_owned(),
-        customer_request: None,
-        target_due_at: None,
-        trace: TraceContext::generate(),
-        occurred_at: now,
-    });
-    let second = store.create_work_order(CreateWorkOrderCommand {
-        actor: seeded.receptionist,
-        branch_id: seeded.branch_id,
-        management_no: "290".to_owned(),
-        symptom: "Second concurrent intake".to_owned(),
-        customer_request: None,
-        target_due_at: None,
-        trace: TraceContext::generate(),
-        occurred_at: now,
-    });
+        let first = store.create_work_order(CreateWorkOrderCommand {
+            actor: seeded.receptionist,
+            branch_id: seeded.branch_id,
+            management_no: "290".to_owned(),
+            symptom: "First concurrent intake".to_owned(),
+            customer_request: None,
+            target_due_at: None,
+            trace: TraceContext::generate(),
+            occurred_at: now,
+        });
+        let second = store.create_work_order(CreateWorkOrderCommand {
+            actor: seeded.receptionist,
+            branch_id: seeded.branch_id,
+            management_no: "290".to_owned(),
+            symptom: "Second concurrent intake".to_owned(),
+            customer_request: None,
+            target_due_at: None,
+            trace: TraceContext::generate(),
+            occurred_at: now,
+        });
 
-    let (first, second) = tokio::join!(first, second);
-    let mut request_numbers = vec![first.unwrap().request_no, second.unwrap().request_no];
-    request_numbers.sort();
+        let (first, second) = tokio::join!(first, second);
+        let mut request_numbers = vec![first.unwrap().request_no, second.unwrap().request_no];
+        request_numbers.sort();
 
-    let ymd = now.date();
-    let prefix = format!(
-        "{:04}{:02}{:02}",
-        ymd.year(),
-        u8::from(ymd.month()),
-        ymd.day()
-    );
-    assert_eq!(
-        request_numbers,
-        vec![format!("{prefix}-001"), format!("{prefix}-002")]
-    );
+        let ymd = now.date();
+        let prefix = format!(
+            "{:04}{:02}{:02}",
+            ymd.year(),
+            u8::from(ymd.month()),
+            ymd.day()
+        );
+        assert_eq!(
+            request_numbers,
+            vec![format!("{prefix}-001"), format!("{prefix}-002")]
+        );
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn create_work_order_emits_post_commit_created_event(pool: PgPool) {
-    let seeded = seed_operational_context(&pool).await;
-    let listener = Arc::new(RecordingCreatedListener::new(pool.clone()));
-    let store = PgWorkOrderStore::new(pool.clone()).with_created_listener(listener.clone());
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_operational_context(&pool).await;
+        let listener = Arc::new(RecordingCreatedListener::new(pool.clone()));
+        let store = PgWorkOrderStore::new(pool.clone()).with_created_listener(listener.clone());
 
-    let created = store
-        .create_work_order(CreateWorkOrderCommand {
-            actor: seeded.receptionist,
-            branch_id: seeded.branch_id,
-            management_no: "290".to_owned(),
-            symptom: "Create messenger thread".to_owned(),
-            customer_request: None,
-            target_due_at: None,
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap();
+        let created = store
+            .create_work_order(CreateWorkOrderCommand {
+                actor: seeded.receptionist,
+                branch_id: seeded.branch_id,
+                management_no: "290".to_owned(),
+                symptom: "Create messenger thread".to_owned(),
+                customer_request: None,
+                target_due_at: None,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
 
-    let events = listener.events.lock().unwrap().clone();
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0].work_order_id, created.id);
-    assert_eq!(events[0].branch_id, seeded.branch_id);
-    assert_eq!(events[0].actor, seeded.receptionist);
+        let events = listener.events.lock().unwrap().clone();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].work_order_id, created.id);
+        assert_eq!(events[0].branch_id, seeded.branch_id);
+        assert_eq!(events[0].actor, seeded.receptionist);
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn target_change_daily_plan_and_outsource_flows_are_audited(pool: PgPool) {
-    let seeded = seed_operational_context(&pool).await;
-    let store = PgWorkOrderStore::new(pool.clone());
-    let work_order = create_assigned_work_order(&store, &seeded).await;
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_operational_context(&pool).await;
+        let store = PgWorkOrderStore::new(pool.clone());
+        let work_order = create_assigned_work_order(&store, &seeded).await;
 
-    let target_request = store
-        .request_target_change(TargetChangeRequestCommand {
-            actor: seeded.mechanic,
-            work_order_id: work_order.id,
-            requested_target_due_at: OffsetDateTime::now_utc() + Duration::days(3),
-            reason: "Customer kept equipment in production".to_owned(),
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
+        let target_request = store
+            .request_target_change(TargetChangeRequestCommand {
+                actor: seeded.mechanic,
+                work_order_id: work_order.id,
+                requested_target_due_at: OffsetDateTime::now_utc() + Duration::days(3),
+                reason: "Customer kept equipment in production".to_owned(),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        let reviewed = store
+            .review_target_change(ReviewTargetChangeCommand {
+                actor: seeded.admin,
+                request_id: target_request.id,
+                decision: TargetChangeDecision::Approved,
+                memo: Some("Customer schedule confirmed".to_owned()),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(reviewed.status, TargetChangeDecision::Approved.into());
+
+        let daily_plan = store
+            .create_daily_plan(CreateDailyPlanCommand {
+                actor: seeded.mechanic,
+                branch_id: seeded.branch_id,
+                mechanic_id: seeded.mechanic,
+                plan_date: date!(2026 - 06 - 12),
+                items: vec![DailyPlanItemInput {
+                    work_order_id: Some(work_order.id),
+                    description: "Repair hydraulic leak".to_owned(),
+                }],
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(daily_plan.status, DailyPlanStatus::Draft);
+
+        let requested = store
+            .request_daily_plan_review(SendDailyPlanForReviewCommand {
+                actor: seeded.mechanic,
+                plan_id: daily_plan.id,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(requested.status, DailyPlanStatus::Requested);
+
+        let approved = store
+            .review_daily_plan(ReviewDailyPlanCommand {
+                actor: seeded.admin,
+                plan_id: daily_plan.id,
+                decision: DailyPlanStatus::Approved,
+                memo: Some("Plan accepted".to_owned()),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(approved.status, DailyPlanStatus::Approved);
+
+        let confirmed = store
+            .confirm_daily_plan(SendDailyPlanForReviewCommand {
+                actor: seeded.mechanic,
+                plan_id: daily_plan.id,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(confirmed.status, DailyPlanStatus::FinalConfirmed);
+
+        let outsource = store
+            .create_outsource_work(CreateOutsourceWorkCommand {
+                actor: seeded.admin,
+                work_order_id: work_order.id,
+                vendor_name: "Reliable Forklift Service".to_owned(),
+                vendor_contact: Some("ops@example.invalid".to_owned()),
+                reason: "Requires vendor diagnostic tool".to_owned(),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(outsource.vendor_name, "Reliable Forklift Service");
+
+        let actions = audit_actions_for(&pool, work_order.id).await;
+        assert!(actions.contains(&"target_change.request".to_owned()));
+        assert!(actions.contains(&"target_change.review".to_owned()));
+        assert!(actions.contains(&"work_order.outsource".to_owned()));
+
+        let plan_audits: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM audit_events WHERE target_type = 'daily_work_plan'",
+        )
+        .fetch_one(&pool)
         .await
         .unwrap();
-    let reviewed = store
-        .review_target_change(ReviewTargetChangeCommand {
-            actor: seeded.admin,
-            request_id: target_request.id,
-            decision: TargetChangeDecision::Approved,
-            memo: Some("Customer schedule confirmed".to_owned()),
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(reviewed.status, TargetChangeDecision::Approved.into());
-
-    let daily_plan = store
-        .create_daily_plan(CreateDailyPlanCommand {
-            actor: seeded.mechanic,
-            branch_id: seeded.branch_id,
-            mechanic_id: seeded.mechanic,
-            plan_date: date!(2026 - 06 - 12),
-            items: vec![DailyPlanItemInput {
-                work_order_id: Some(work_order.id),
-                description: "Repair hydraulic leak".to_owned(),
-            }],
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(daily_plan.status, DailyPlanStatus::Draft);
-
-    let requested = store
-        .request_daily_plan_review(SendDailyPlanForReviewCommand {
-            actor: seeded.mechanic,
-            plan_id: daily_plan.id,
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(requested.status, DailyPlanStatus::Requested);
-
-    let approved = store
-        .review_daily_plan(ReviewDailyPlanCommand {
-            actor: seeded.admin,
-            plan_id: daily_plan.id,
-            decision: DailyPlanStatus::Approved,
-            memo: Some("Plan accepted".to_owned()),
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(approved.status, DailyPlanStatus::Approved);
-
-    let confirmed = store
-        .confirm_daily_plan(SendDailyPlanForReviewCommand {
-            actor: seeded.mechanic,
-            plan_id: daily_plan.id,
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(confirmed.status, DailyPlanStatus::FinalConfirmed);
-
-    let outsource = store
-        .create_outsource_work(CreateOutsourceWorkCommand {
-            actor: seeded.admin,
-            work_order_id: work_order.id,
-            vendor_name: "Reliable Forklift Service".to_owned(),
-            vendor_contact: Some("ops@example.invalid".to_owned()),
-            reason: "Requires vendor diagnostic tool".to_owned(),
-            trace: TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(outsource.vendor_name, "Reliable Forklift Service");
-
-    let actions = audit_actions_for(&pool, work_order.id).await;
-    assert!(actions.contains(&"target_change.request".to_owned()));
-    assert!(actions.contains(&"target_change.review".to_owned()));
-    assert!(actions.contains(&"work_order.outsource".to_owned()));
-
-    let plan_audits: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM audit_events WHERE target_type = 'daily_work_plan'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(plan_audits, 4);
+        assert_eq!(plan_audits, 4);
+    })
+    .await;
 }
 
 struct SeededContext {

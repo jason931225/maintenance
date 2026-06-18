@@ -14,7 +14,8 @@ use mnt_kernel_core::{
     BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId, KernelError, OrgId, TraceContext,
     UserId,
 };
-use mnt_platform_db::{DbError, with_audit, with_audits};
+use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
+use mnt_platform_request_context::current_org;
 use mnt_registry_application::{
     CreateEquipmentCommand, DeleteEquipmentCommand, ImportSheet, MasterListEquipment,
     ParsedMasterList, RegistryImportReport, RegistryRowError, SubstituteAssignment,
@@ -122,10 +123,15 @@ impl PgRegistryStore {
         let trace = command.trace;
         let occurred_at = command.occurred_at;
 
-        with_audits::<_, EquipmentId, PgRegistryError>(&self.pool, OrgId::knl(), move |tx| {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+
+        with_audits::<_, EquipmentId, PgRegistryError>(&self.pool, org, move |tx| {
             Box::pin(async move {
-                let customer_id = upsert_customer(tx, branch_uuid, &row.customer_name).await?;
-                let site_id = upsert_site(tx, branch_uuid, customer_id, &row.site_name).await?;
+                let customer_id =
+                    upsert_customer(tx, branch_uuid, &row.customer_name, org_uuid).await?;
+                let site_id =
+                    upsert_site(tx, branch_uuid, customer_id, &row.site_name, org_uuid).await?;
                 let existing: Option<uuid::Uuid> =
                     sqlx::query_scalar("SELECT id FROM registry_equipment WHERE equipment_no = $1")
                         .bind(row.equipment_no.as_str())
@@ -138,7 +144,7 @@ impl PgRegistryStore {
                     ))
                     .into());
                 }
-                insert_equipment(tx, branch_uuid, customer_id, site_id, &row).await?;
+                insert_equipment(tx, branch_uuid, customer_id, site_id, &row, org_uuid).await?;
                 let id: uuid::Uuid =
                     sqlx::query_scalar("SELECT id FROM registry_equipment WHERE equipment_no = $1")
                         .bind(row.equipment_no.as_str())
@@ -172,6 +178,8 @@ impl PgRegistryStore {
         let existing = fetch_equipment_admin_row(self.pool(), command.equipment_id)
             .await?
             .ok_or_else(|| KernelError::not_found("equipment was not found"))?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let event = equipment_update_audit_event(
             command.actor,
             existing.branch_id,
@@ -180,7 +188,8 @@ impl PgRegistryStore {
             update_after_snapshot(&existing.snapshot, &command.fields),
             command.trace.clone(),
             command.occurred_at,
-        )?;
+        )?
+        .with_org(org);
         let equipment_id = command.equipment_id;
         let branch_uuid = *existing.branch_id.as_uuid();
         let fields = command.fields;
@@ -188,12 +197,14 @@ impl PgRegistryStore {
         with_audit::<_, (), PgRegistryError>(&self.pool, event, move |tx| {
             Box::pin(async move {
                 if let Some(customer_name) = fields.customer_name.as_deref() {
-                    let customer_id = upsert_customer(tx, branch_uuid, customer_name).await?;
+                    let customer_id =
+                        upsert_customer(tx, branch_uuid, customer_name, org_uuid).await?;
                     let site_name = fields
                         .site_name
                         .clone()
                         .unwrap_or_else(|| customer_name.to_owned());
-                    let site_id = upsert_site(tx, branch_uuid, customer_id, &site_name).await?;
+                    let site_id =
+                        upsert_site(tx, branch_uuid, customer_id, &site_name, org_uuid).await?;
                     sqlx::query(
                         "UPDATE registry_equipment SET customer_id = $2, site_id = $3, updated_at = now() WHERE id = $1",
                     )
@@ -209,7 +220,8 @@ impl PgRegistryStore {
                     .bind(*equipment_id.as_uuid())
                     .fetch_one(tx.as_mut())
                     .await?;
-                    let site_id = upsert_site(tx, branch_uuid, customer_id, site_name).await?;
+                    let site_id =
+                        upsert_site(tx, branch_uuid, customer_id, site_name, org_uuid).await?;
                     sqlx::query(
                         "UPDATE registry_equipment SET site_id = $2, updated_at = now() WHERE id = $1",
                     )
@@ -238,6 +250,7 @@ impl PgRegistryStore {
         if existing.status == EquipmentStatus::Disposed {
             return Err(KernelError::conflict("equipment is already disposed").into());
         }
+        let org = current_org().map_err(KernelError::from)?;
         let event = equipment_delete_audit_event(
             command.actor,
             existing.branch_id,
@@ -246,7 +259,8 @@ impl PgRegistryStore {
             existing.status,
             command.trace.clone(),
             command.occurred_at,
-        )?;
+        )?
+        .with_org(org);
         let equipment_id = command.equipment_id;
 
         with_audit::<_, (), PgRegistryError>(&self.pool, event, move |tx| {
@@ -270,6 +284,8 @@ impl PgRegistryStore {
         actor: Option<UserId>,
         source_name: &str,
     ) -> Result<RegistryImportReport, PgRegistryError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let parsed = parse_master_list(path)?;
         let branch_id = self.ensure_default_hq_branch().await?;
         let event = equipment_import_event(actor, branch_id, source_name, &parsed)?;
@@ -291,7 +307,7 @@ impl PgRegistryStore {
 
                 for row in equipment {
                     imported_equipment_numbers.push(row.equipment_no.as_str().to_string());
-                    match upsert_equipment(tx, branch_uuid, &row).await? {
+                    match upsert_equipment(tx, branch_uuid, &row, org_uuid).await? {
                         UpsertOutcome::Added => report.added += 1,
                         UpsertOutcome::Updated => report.updated += 1,
                         UpsertOutcome::Unchanged => report.unchanged += 1,
@@ -323,18 +339,24 @@ impl PgRegistryStore {
         &self,
         management_no: &str,
     ) -> Result<Option<String>, PgRegistryError> {
-        let normalized = management_no.trim().trim_start_matches('#');
-        let model = sqlx::query_scalar(
-            r#"
+        let normalized = management_no.trim().trim_start_matches('#').to_owned();
+        let org = current_org().map_err(KernelError::from)?;
+        let model = with_org_conn::<_, _, PgRegistryError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query_scalar(
+                    r#"
             SELECT model
             FROM registry_equipment
             WHERE management_no = $1
             ORDER BY updated_at DESC
             LIMIT 1
             "#,
-        )
-        .bind(normalized)
-        .fetch_optional(&self.pool)
+                )
+                .bind(normalized)
+                .fetch_optional(tx.as_mut())
+                .await?)
+            })
+        })
         .await?;
         Ok(model.flatten())
     }
@@ -343,11 +365,18 @@ impl PgRegistryStore {
         &self,
         equipment_no: &str,
     ) -> Result<Option<i64>, PgRegistryError> {
-        let residual = sqlx::query_scalar(
-            "SELECT residual_value FROM registry_equipment WHERE equipment_no = $1",
-        )
-        .bind(equipment_no)
-        .fetch_optional(&self.pool)
+        let equipment_no = equipment_no.to_owned();
+        let org = current_org().map_err(KernelError::from)?;
+        let residual = with_org_conn::<_, _, PgRegistryError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query_scalar(
+                    "SELECT residual_value FROM registry_equipment WHERE equipment_no = $1",
+                )
+                .bind(equipment_no)
+                .fetch_optional(tx.as_mut())
+                .await?)
+            })
+        })
         .await?;
         Ok(residual.flatten())
     }
@@ -397,7 +426,10 @@ impl PgRegistryStore {
             .ok_or_else(|| KernelError::not_found("substitute equipment was not found"))?;
         validate_substitute_pair(&source, &candidate)?;
 
-        let event = substitute_assign_audit_event(&command, source.branch_id, substitution_id)?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let event = substitute_assign_audit_event(&command, source.branch_id, substitution_id)?
+            .with_org(org);
         let actor = command.actor;
         let source_id = command.source_equipment_id;
         let substitute_id = command.substitute_equipment_id;
@@ -433,7 +465,7 @@ impl PgRegistryStore {
                 .bind(assigned_to.map(|user_id| *user_id.as_uuid()))
                 .bind(assignment_location.as_str())
                 .bind(assigned_at)
-                .bind(*OrgId::knl().as_uuid())
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
 
@@ -467,7 +499,8 @@ impl PgRegistryStore {
                 KernelError::conflict("substitution assignment was already returned").into(),
             );
         }
-        let event = substitute_return_audit_event(&command, &before)?;
+        let org = current_org().map_err(KernelError::from)?;
+        let event = substitute_return_audit_event(&command, &before)?.with_org(org);
         let actor = command.actor;
         let substitution_id = command.substitution_id;
         let returned_at = command.returned_at;
@@ -819,9 +852,10 @@ async fn upsert_equipment(
     tx: &mut Transaction<'_, Postgres>,
     branch_id: uuid::Uuid,
     row: &MasterListEquipment,
+    org_uuid: uuid::Uuid,
 ) -> Result<UpsertOutcome, PgRegistryError> {
-    let customer_id = upsert_customer(tx, branch_id, &row.customer_name).await?;
-    let site_id = upsert_site(tx, branch_id, customer_id, &row.site_name).await?;
+    let customer_id = upsert_customer(tx, branch_id, &row.customer_name, org_uuid).await?;
+    let site_id = upsert_site(tx, branch_id, customer_id, &row.site_name, org_uuid).await?;
     let equipment_no = row.equipment_no.as_str();
 
     let existing_id: Option<uuid::Uuid> =
@@ -831,7 +865,7 @@ async fn upsert_equipment(
             .await?;
 
     if existing_id.is_none() {
-        insert_equipment(tx, branch_id, customer_id, site_id, row).await?;
+        insert_equipment(tx, branch_id, customer_id, site_id, row, org_uuid).await?;
         return Ok(UpsertOutcome::Added);
     }
 
@@ -934,6 +968,7 @@ async fn upsert_customer(
     tx: &mut Transaction<'_, Postgres>,
     branch_id: uuid::Uuid,
     name: &str,
+    org_uuid: uuid::Uuid,
 ) -> Result<uuid::Uuid, PgRegistryError> {
     let id = sqlx::query_scalar(
         r#"
@@ -946,7 +981,7 @@ async fn upsert_customer(
     )
     .bind(branch_id)
     .bind(name)
-    .bind(*OrgId::knl().as_uuid())
+    .bind(org_uuid)
     .fetch_one(tx.as_mut())
     .await?;
     Ok(id)
@@ -957,6 +992,7 @@ async fn upsert_site(
     branch_id: uuid::Uuid,
     customer_id: uuid::Uuid,
     name: &str,
+    org_uuid: uuid::Uuid,
 ) -> Result<uuid::Uuid, PgRegistryError> {
     let id = sqlx::query_scalar(
         r#"
@@ -970,7 +1006,7 @@ async fn upsert_site(
     .bind(branch_id)
     .bind(customer_id)
     .bind(name)
-    .bind(*OrgId::knl().as_uuid())
+    .bind(org_uuid)
     .fetch_one(tx.as_mut())
     .await?;
     Ok(id)
@@ -982,6 +1018,7 @@ async fn insert_equipment(
     customer_id: uuid::Uuid,
     site_id: uuid::Uuid,
     row: &MasterListEquipment,
+    org_uuid: uuid::Uuid,
 ) -> Result<(), PgRegistryError> {
     bind_equipment_insert(
         sqlx::query(
@@ -1013,7 +1050,7 @@ async fn insert_equipment(
         site_id,
         row,
     )
-    .bind(*OrgId::knl().as_uuid())
+    .bind(org_uuid)
     .execute(tx.as_mut())
     .await?;
     Ok(())

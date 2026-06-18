@@ -1,6 +1,7 @@
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
-use mnt_kernel_core::{BranchId, UserId};
+use mnt_kernel_core::{BranchId, OrgId, UserId};
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use time::Duration;
 use uuid::Uuid;
 
@@ -16,6 +17,10 @@ pub struct JwtSettings {
 #[derive(Debug, Clone)]
 pub struct AccessTokenInput {
     pub subject: UserId,
+    /// The tenant the authenticated user belongs to. Sourced from
+    /// `users.org_id` at issuance — never a hardcoded default — and stamped into
+    /// the `org` claim so every downstream request can arm `app.current_org`.
+    pub org_id: OrgId,
     pub roles: Vec<String>,
     pub branches: Vec<BranchId>,
     pub issued_at: time::OffsetDateTime,
@@ -30,6 +35,9 @@ pub struct AccessClaims {
     pub nbf: i64,
     pub exp: i64,
     pub jti: String,
+    /// The user's tenant id, as a UUID string. Verification rejects a token
+    /// whose `org` does not parse as a UUID, so callers can trust it.
+    pub org: String,
     pub roles: Vec<String>,
     pub branches: Vec<String>,
     pub alg: String,
@@ -72,6 +80,7 @@ impl JwtIssuer {
             nbf: issued_at,
             exp: expires_at,
             jti: Uuid::new_v4().to_string(),
+            org: input.org_id.to_string(),
             roles: input.roles,
             branches: input
                 .branches
@@ -119,5 +128,12 @@ fn verify_access_token(
     validation.set_audience(&[settings.audience.as_str()]);
     validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
     let token = decode::<AccessClaims>(token, decoding_key, &validation)?;
+    // Fail closed on a malformed tenant claim: the `org` claim arms
+    // `app.current_org` for RLS, so a token whose `org` is not a valid UUID must
+    // never be accepted — it could otherwise reach the DB with an unparseable or
+    // empty tenant context.
+    OrgId::from_str(&token.claims.org).map_err(|_| {
+        AuthError::InvalidStoredData("token org claim is not a valid uuid".to_owned())
+    })?;
     Ok(token.claims)
 }

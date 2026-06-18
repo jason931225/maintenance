@@ -34,7 +34,8 @@ use mnt_identity_rest::IdentityRestState;
 use mnt_inspection_adapter_postgres::PgInspectionStore;
 use mnt_inspection_rest::InspectionRestState;
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, TraceContext, UserId,
+    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, OrgId, TraceContext,
+    UserId,
 };
 use mnt_messenger_adapter_postgres::PgMessengerStore;
 use mnt_messenger_rest::MessengerRestState;
@@ -828,7 +829,6 @@ pub fn build_router(state: AppState) -> Router {
     let router = Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
-        .route("/api/audit", get(audit_log))
         .route("/openapi/openapi.yaml", get(openapi_yaml))
         .layer(
             TraceLayer::new_for_http()
@@ -890,7 +890,19 @@ pub fn build_router(state: AppState) -> Router {
             let org_store = PgOrgStore::new(pool.clone());
             let work_order_store = PgWorkOrderStore::new(pool.clone())
                 .with_created_listener(Arc::new(messenger_store.clone()));
-            let router = router
+            // Authenticated domain routers (tenant-scoped data). Each domain
+            // `router()` self-applies the per-request org middleware (so the
+            // behavior is testable per crate), arming `app.current_org` for every
+            // route. `/api/audit` is an app-level route, so it gets the same
+            // middleware applied directly here.
+            let audit_router = mnt_platform_request_context::with_request_context(
+                Router::new()
+                    .route("/api/audit", get(audit_log))
+                    .with_state(state.clone()),
+                state.jwt_verifier.clone(),
+                pool.clone(),
+            );
+            let domain_router = audit_router
                 .merge(mnt_dispatch_rest::router(DispatchRestState::new(
                     dispatch_store,
                     state.jwt_verifier.clone(),
@@ -943,7 +955,13 @@ pub fn build_router(state: AppState) -> Router {
                 .merge(mnt_messenger_rest::router(MessengerRestState::new(
                     messenger_store,
                     state.jwt_verifier.clone(),
-                )))
+                )));
+            // The realtime WS upgrade and the pre-auth login/refresh endpoints are
+            // intentionally NOT under the org middleware: a login request has no
+            // tenant yet, and the WS handler runs its own auth over the socket
+            // lifetime (a task-local would not survive the upgrade anyway).
+            let router = router
+                .merge(domain_router)
                 .merge(mnt_platform_realtime::router(RealtimeRestState::new(
                     realtime_hub,
                     state.jwt_verifier.clone(),
@@ -1106,7 +1124,9 @@ fn principal_from_claims(claims: AccessClaims) -> Result<Principal, ApiError> {
         BranchScope::Branches(branches)
     };
 
-    Ok(Principal::new(user_id, roles, branch_scope))
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| ApiError::unauthorized("token contains an invalid org id"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 
 fn authorize_audit_read(principal: &Principal) -> Result<(), ApiError> {

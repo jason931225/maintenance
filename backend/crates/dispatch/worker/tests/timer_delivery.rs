@@ -21,175 +21,181 @@ use dispatch_worker_fixtures::seed_dispatch_context;
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn timer_worker_delivers_alimtalk_and_manager_force_push(pool: PgPool) {
-    let seeded = seed_dispatch_context(&pool).await;
-    let store = PgDispatchStore::new(pool.clone());
-    let now = datetime!(2026-06-12 09:00 UTC);
-    let timers = DispatchTimerConfig::default();
-    let started = store
-        .start_dispatch(
-            StartP1DispatchCommand {
-                actor: seeded.receptionist,
-                work_order_id: seeded.work_order_id,
-                incident_location: Some(IncidentLocationInput {
-                    latitude: 37.5651,
-                    longitude: 126.9895,
-                }),
-                include_region: false,
-                trace: TraceContext::generate(),
-                occurred_at: now,
-            },
-            timers,
-        )
-        .await
-        .unwrap();
-    assert_eq!(started.target_count, 3);
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_dispatch_context(&pool).await;
+        let store = PgDispatchStore::new(pool.clone());
+        let now = datetime!(2026-06-12 09:00 UTC);
+        let timers = DispatchTimerConfig::default();
+        let started = store
+            .start_dispatch(
+                StartP1DispatchCommand {
+                    actor: seeded.receptionist,
+                    work_order_id: seeded.work_order_id,
+                    incident_location: Some(IncidentLocationInput {
+                        latitude: 37.5651,
+                        longitude: 126.9895,
+                    }),
+                    include_region: false,
+                    trace: TraceContext::generate(),
+                    occurred_at: now,
+                },
+                timers,
+            )
+            .await
+            .unwrap();
+        assert_eq!(started.target_count, 3);
 
-    let notifier = Arc::new(RecordingNotifier::default());
-    let worker = DispatchWorker::new(
-        store.clone(),
-        Some(notifier.clone()),
-        AlimtalkEscalationPolicy::enabled(),
-    );
+        let notifier = Arc::new(RecordingNotifier::default());
+        let worker = DispatchWorker::new(
+            store.clone(),
+            Some(notifier.clone()),
+            AlimtalkEscalationPolicy::enabled(),
+        );
 
-    worker
-        .handle(PlatformJob::DispatchAlimtalkNoAck(DispatchTimerJob {
-            dispatch_id: started.id,
-            scheduled_for: now + timers.alimtalk_no_ack_after,
-        }))
-        .await
-        .unwrap();
+        worker
+            .handle(PlatformJob::DispatchAlimtalkNoAck(DispatchTimerJob {
+                dispatch_id: started.id,
+                scheduled_for: now + timers.alimtalk_no_ack_after,
+            }))
+            .await
+            .unwrap();
 
-    assert_eq!(notifier.alimtalk_count(), 2);
-    assert_eq!(
-        alert_count(&pool, started.id, "ALIMTALK_NO_ACK", "SENT").await,
-        2
-    );
+        assert_eq!(notifier.alimtalk_count(), 2);
+        assert_eq!(
+            alert_count(&pool, started.id, "ALIMTALK_NO_ACK", "SENT").await,
+            2
+        );
 
-    worker
-        .handle(PlatformJob::DispatchAcceptWindowExpired(DispatchTimerJob {
-            dispatch_id: started.id,
-            scheduled_for: started.accept_window_ends_at,
-        }))
-        .await
-        .unwrap();
+        worker
+            .handle(PlatformJob::DispatchAcceptWindowExpired(DispatchTimerJob {
+                dispatch_id: started.id,
+                scheduled_for: started.accept_window_ends_at,
+            }))
+            .await
+            .unwrap();
 
-    let expired = store.dispatch(started.id).await.unwrap();
-    assert_eq!(expired.status, DispatchStatus::ManagerForcePending);
-    assert_eq!(notifier.fcm_count(), 1);
-    assert_eq!(
-        alert_count(&pool, started.id, "MANAGER_FORCE_ASSIGN", "SENT").await,
-        1
-    );
+        let expired = store.dispatch(started.id).await.unwrap();
+        assert_eq!(expired.status, DispatchStatus::ManagerForcePending);
+        assert_eq!(notifier.fcm_count(), 1);
+        assert_eq!(
+            alert_count(&pool, started.id, "MANAGER_FORCE_ASSIGN", "SENT").await,
+            1
+        );
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn escalation_chain_skips_unconfigured_alimtalk_flags_manual_call_and_clears_on_force_assign(
     pool: PgPool,
 ) {
-    let seeded = seed_dispatch_context(&pool).await;
-    let store = PgDispatchStore::new(pool.clone());
-    let now = datetime!(2026-06-12 09:00 UTC);
-    let timers = DispatchTimerConfig {
-        accept_window: time::Duration::minutes(5),
-        alimtalk_no_ack_after: time::Duration::minutes(2),
-        force_assign_alert_after: time::Duration::minutes(10),
-        gps_ping_freshness: time::Duration::minutes(15),
-    };
-    let started = store
-        .start_dispatch(
-            StartP1DispatchCommand {
-                actor: seeded.receptionist,
-                work_order_id: seeded.work_order_id,
-                incident_location: Some(IncidentLocationInput {
-                    latitude: 37.5651,
-                    longitude: 126.9895,
-                }),
-                include_region: false,
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_dispatch_context(&pool).await;
+        let store = PgDispatchStore::new(pool.clone());
+        let now = datetime!(2026-06-12 09:00 UTC);
+        let timers = DispatchTimerConfig {
+            accept_window: time::Duration::minutes(5),
+            alimtalk_no_ack_after: time::Duration::minutes(2),
+            force_assign_alert_after: time::Duration::minutes(10),
+            gps_ping_freshness: time::Duration::minutes(15),
+        };
+        let started = store
+            .start_dispatch(
+                StartP1DispatchCommand {
+                    actor: seeded.receptionist,
+                    work_order_id: seeded.work_order_id,
+                    incident_location: Some(IncidentLocationInput {
+                        latitude: 37.5651,
+                        longitude: 126.9895,
+                    }),
+                    include_region: false,
+                    trace: TraceContext::generate(),
+                    occurred_at: now,
+                },
+                timers,
+            )
+            .await
+            .unwrap();
+
+        let worker = DispatchWorker::new(store.clone(), None, AlimtalkEscalationPolicy::disabled());
+
+        worker
+            .handle(PlatformJob::DispatchAlimtalkNoAck(DispatchTimerJob {
+                dispatch_id: started.id,
+                scheduled_for: now + timers.alimtalk_no_ack_after,
+            }))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            alert_count_without_sent_at(&pool, started.id, "ALIMTALK_NO_ACK", "SKIPPED").await,
+            2
+        );
+        // FIX 7a: the disabled path skips PENDING -> SKIPPED directly and must never
+        // transiently enter SENDING (no lease is claimed for non-deliverable alerts).
+        assert_eq!(
+            alert_count_without_sent_at(&pool, started.id, "ALIMTALK_NO_ACK", "SENDING").await,
+            0
+        );
+        assert_eq!(
+            skipped_alert_reason(&pool, started.id, "ALIMTALK_NO_ACK").await,
+            "Solapi Alimtalk disabled: approved dispatch template id is not configured"
+        );
+
+        worker
+            .handle(PlatformJob::DispatchAcceptWindowExpired(DispatchTimerJob {
+                dispatch_id: started.id,
+                scheduled_for: started.accept_window_ends_at,
+            }))
+            .await
+            .unwrap();
+
+        let manager_pending = store.dispatch(started.id).await.unwrap();
+        assert_eq!(manager_pending.status, DispatchStatus::ManagerForcePending);
+
+        worker
+            .handle(PlatformJob::DispatchManualCallRequired(DispatchTimerJob {
+                dispatch_id: started.id,
+                scheduled_for: now + timers.force_assign_alert_after,
+            }))
+            .await
+            .unwrap();
+
+        let flagged = store.dispatch(started.id).await.unwrap();
+        assert!(flagged.manual_call_required);
+        assert_eq!(
+            flagged.manual_call_required_at,
+            Some(now + timers.force_assign_alert_after)
+        );
+        assert_eq!(flagged.manual_call_cleared_at, None);
+        assert_eq!(
+            audit_count(
+                &pool,
+                started.id,
+                "dispatch.escalation.manual_call_required"
+            )
+            .await,
+            1
+        );
+
+        let forced = store
+            .force_assign(mnt_dispatch_application::ForceAssignP1DispatchCommand {
+                actor: seeded.manager,
+                dispatch_id: started.id,
+                mechanic_id: seeded.near_mechanic,
                 trace: TraceContext::generate(),
-                occurred_at: now,
-            },
-            timers,
-        )
-        .await
-        .unwrap();
+                occurred_at: now + time::Duration::minutes(11),
+            })
+            .await
+            .unwrap();
 
-    let worker = DispatchWorker::new(store.clone(), None, AlimtalkEscalationPolicy::disabled());
-
-    worker
-        .handle(PlatformJob::DispatchAlimtalkNoAck(DispatchTimerJob {
-            dispatch_id: started.id,
-            scheduled_for: now + timers.alimtalk_no_ack_after,
-        }))
-        .await
-        .unwrap();
-
-    assert_eq!(
-        alert_count_without_sent_at(&pool, started.id, "ALIMTALK_NO_ACK", "SKIPPED").await,
-        2
-    );
-    // FIX 7a: the disabled path skips PENDING -> SKIPPED directly and must never
-    // transiently enter SENDING (no lease is claimed for non-deliverable alerts).
-    assert_eq!(
-        alert_count_without_sent_at(&pool, started.id, "ALIMTALK_NO_ACK", "SENDING").await,
-        0
-    );
-    assert_eq!(
-        skipped_alert_reason(&pool, started.id, "ALIMTALK_NO_ACK").await,
-        "Solapi Alimtalk disabled: approved dispatch template id is not configured"
-    );
-
-    worker
-        .handle(PlatformJob::DispatchAcceptWindowExpired(DispatchTimerJob {
-            dispatch_id: started.id,
-            scheduled_for: started.accept_window_ends_at,
-        }))
-        .await
-        .unwrap();
-
-    let manager_pending = store.dispatch(started.id).await.unwrap();
-    assert_eq!(manager_pending.status, DispatchStatus::ManagerForcePending);
-
-    worker
-        .handle(PlatformJob::DispatchManualCallRequired(DispatchTimerJob {
-            dispatch_id: started.id,
-            scheduled_for: now + timers.force_assign_alert_after,
-        }))
-        .await
-        .unwrap();
-
-    let flagged = store.dispatch(started.id).await.unwrap();
-    assert!(flagged.manual_call_required);
-    assert_eq!(
-        flagged.manual_call_required_at,
-        Some(now + timers.force_assign_alert_after)
-    );
-    assert_eq!(flagged.manual_call_cleared_at, None);
-    assert_eq!(
-        audit_count(
-            &pool,
-            started.id,
-            "dispatch.escalation.manual_call_required"
-        )
-        .await,
-        1
-    );
-
-    let forced = store
-        .force_assign(mnt_dispatch_application::ForceAssignP1DispatchCommand {
-            actor: seeded.manager,
-            dispatch_id: started.id,
-            mechanic_id: seeded.near_mechanic,
-            trace: TraceContext::generate(),
-            occurred_at: now + time::Duration::minutes(11),
-        })
-        .await
-        .unwrap();
-
-    assert!(!forced.manual_call_required);
-    assert_eq!(
-        forced.manual_call_cleared_at,
-        Some(now + time::Duration::minutes(11))
-    );
+        assert!(!forced.manual_call_required);
+        assert_eq!(
+            forced.manual_call_cleared_at,
+            Some(now + time::Duration::minutes(11))
+        );
+    })
+    .await;
 }
 
 // FIX 4: a worker crash after the provider send but before the SENT mark must
@@ -200,115 +206,118 @@ async fn escalation_chain_skips_unconfigured_alimtalk_flags_manual_call_and_clea
 async fn crash_after_send_yields_exactly_one_sent_row_and_stable_idempotency_key(pool: PgPool) {
     use mnt_dispatch_adapter_postgres::ALERT_LEASE_TTL;
 
-    let seeded = seed_dispatch_context(&pool).await;
-    let store = PgDispatchStore::new(pool.clone());
-    let now = datetime!(2026-06-12 09:00 UTC);
-    let timers = DispatchTimerConfig::default();
-    let started = store
-        .start_dispatch(
-            StartP1DispatchCommand {
-                actor: seeded.receptionist,
-                work_order_id: seeded.work_order_id,
-                incident_location: Some(IncidentLocationInput {
-                    latitude: 37.5651,
-                    longitude: 126.9895,
-                }),
-                include_region: false,
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_dispatch_context(&pool).await;
+        let store = PgDispatchStore::new(pool.clone());
+        let now = datetime!(2026-06-12 09:00 UTC);
+        let timers = DispatchTimerConfig::default();
+        let started = store
+            .start_dispatch(
+                StartP1DispatchCommand {
+                    actor: seeded.receptionist,
+                    work_order_id: seeded.work_order_id,
+                    incident_location: Some(IncidentLocationInput {
+                        latitude: 37.5651,
+                        longitude: 126.9895,
+                    }),
+                    include_region: false,
+                    trace: TraceContext::generate(),
+                    occurred_at: now,
+                },
+                timers,
+            )
+            .await
+            .unwrap();
+
+        // Materialize the PENDING ALIMTALK_NO_ACK alerts (normally done by the
+        // worker's no-ack handler before fanout).
+        let no_ack_at = now + timers.alimtalk_no_ack_after;
+        store
+            .mark_alimtalk_no_ack(mnt_dispatch_application::ExpireP1DispatchCommand {
+                dispatch_id: started.id,
                 trace: TraceContext::generate(),
-                occurred_at: now,
-            },
-            timers,
-        )
-        .await
-        .unwrap();
-
-    // Materialize the PENDING ALIMTALK_NO_ACK alerts (normally done by the
-    // worker's no-ack handler before fanout).
-    let no_ack_at = now + timers.alimtalk_no_ack_after;
-    store
-        .mark_alimtalk_no_ack(mnt_dispatch_application::ExpireP1DispatchCommand {
-            dispatch_id: started.id,
-            trace: TraceContext::generate(),
-            occurred_at: no_ack_at,
-        })
-        .await
-        .unwrap();
-
-    // --- First worker run: claim + "send", then CRASH before marking SENT. ---
-    let notifier = Arc::new(RecordingNotifier::default());
-    let claimed = store
-        .claim_alimtalk_no_ack_alerts(started.id, no_ack_at)
-        .await
-        .unwrap();
-    assert_eq!(claimed.len(), 2, "two technicians have phones");
-    let first_keys: Vec<String> = claimed.iter().map(|a| a.idempotency_key.clone()).collect();
-    for alert in &claimed {
-        // simulate the provider call succeeding...
-        let _ = notifier
-            .send_alimtalk(AlimtalkMessage {
-                to: alert.phone.clone(),
-                variables: std::collections::BTreeMap::new(),
-                idempotency_key: alert.idempotency_key.clone(),
+                occurred_at: no_ack_at,
             })
-            .await;
-        // ...then the worker crashes here, before mark_alert_sent.
-    }
-    // Alerts remain SENDING (leased), none SENT yet.
-    assert_eq!(
-        alert_count_without_sent_at(&pool, started.id, "ALIMTALK_NO_ACK", "SENDING").await,
-        2
-    );
-    assert_eq!(
-        alert_count(&pool, started.id, "ALIMTALK_NO_ACK", "SENT").await,
-        0
-    );
+            .await
+            .unwrap();
 
-    // A retry BEFORE the lease expires claims nothing (no double-send window).
-    let blocked = store
-        .claim_alimtalk_no_ack_alerts(started.id, no_ack_at + time::Duration::seconds(1))
-        .await
-        .unwrap();
-    assert!(blocked.is_empty(), "leased alerts must not be re-claimable");
-
-    // --- Recovery worker run AFTER the lease expires: reclaim + deliver. ---
-    let recovery_now = no_ack_at + ALERT_LEASE_TTL + time::Duration::seconds(1);
-    let worker = DispatchWorker::new(
-        store.clone(),
-        Some(notifier.clone()),
-        AlimtalkEscalationPolicy::enabled(),
-    );
-    // The worker reclaims expired leases inside its claim step.
-    worker
-        .deliver_alimtalk_no_ack_alerts_at(started.id, recovery_now)
-        .await
-        .unwrap();
-
-    // Exactly one SENT row per recipient (two technicians) — no duplicates.
-    assert_eq!(
-        alert_count(&pool, started.id, "ALIMTALK_NO_ACK", "SENT").await,
-        2
-    );
-    assert_eq!(
-        alert_count_without_sent_at(&pool, started.id, "ALIMTALK_NO_ACK", "SENDING").await,
-        0
-    );
-
-    // The idempotency key is stable across the crash + retry: the keys observed
-    // by the provider on the recovery send equal the keys from the first claim.
-    let sent_messages = notifier.alimtalk_messages();
-    let recovery_keys: Vec<String> = sent_messages
-        .iter()
-        .skip(2)
-        .map(|m| m.idempotency_key.clone())
-        .collect();
-    assert_eq!(recovery_keys.len(), 2);
-    for key in &recovery_keys {
-        assert!(
-            first_keys.contains(key),
-            "idempotency key must be stable across retries: {key}"
+        // --- First worker run: claim + "send", then CRASH before marking SENT. ---
+        let notifier = Arc::new(RecordingNotifier::default());
+        let claimed = store
+            .claim_alimtalk_no_ack_alerts(started.id, no_ack_at)
+            .await
+            .unwrap();
+        assert_eq!(claimed.len(), 2, "two technicians have phones");
+        let first_keys: Vec<String> = claimed.iter().map(|a| a.idempotency_key.clone()).collect();
+        for alert in &claimed {
+            // simulate the provider call succeeding...
+            let _ = notifier
+                .send_alimtalk(AlimtalkMessage {
+                    to: alert.phone.clone(),
+                    variables: std::collections::BTreeMap::new(),
+                    idempotency_key: alert.idempotency_key.clone(),
+                })
+                .await;
+            // ...then the worker crashes here, before mark_alert_sent.
+        }
+        // Alerts remain SENDING (leased), none SENT yet.
+        assert_eq!(
+            alert_count_without_sent_at(&pool, started.id, "ALIMTALK_NO_ACK", "SENDING").await,
+            2
         );
-        assert!(key.contains(':'), "key must be dispatch_id:alert_id");
-    }
+        assert_eq!(
+            alert_count(&pool, started.id, "ALIMTALK_NO_ACK", "SENT").await,
+            0
+        );
+
+        // A retry BEFORE the lease expires claims nothing (no double-send window).
+        let blocked = store
+            .claim_alimtalk_no_ack_alerts(started.id, no_ack_at + time::Duration::seconds(1))
+            .await
+            .unwrap();
+        assert!(blocked.is_empty(), "leased alerts must not be re-claimable");
+
+        // --- Recovery worker run AFTER the lease expires: reclaim + deliver. ---
+        let recovery_now = no_ack_at + ALERT_LEASE_TTL + time::Duration::seconds(1);
+        let worker = DispatchWorker::new(
+            store.clone(),
+            Some(notifier.clone()),
+            AlimtalkEscalationPolicy::enabled(),
+        );
+        // The worker reclaims expired leases inside its claim step.
+        worker
+            .deliver_alimtalk_no_ack_alerts_at(started.id, recovery_now)
+            .await
+            .unwrap();
+
+        // Exactly one SENT row per recipient (two technicians) — no duplicates.
+        assert_eq!(
+            alert_count(&pool, started.id, "ALIMTALK_NO_ACK", "SENT").await,
+            2
+        );
+        assert_eq!(
+            alert_count_without_sent_at(&pool, started.id, "ALIMTALK_NO_ACK", "SENDING").await,
+            0
+        );
+
+        // The idempotency key is stable across the crash + retry: the keys observed
+        // by the provider on the recovery send equal the keys from the first claim.
+        let sent_messages = notifier.alimtalk_messages();
+        let recovery_keys: Vec<String> = sent_messages
+            .iter()
+            .skip(2)
+            .map(|m| m.idempotency_key.clone())
+            .collect();
+        assert_eq!(recovery_keys.len(), 2);
+        for key in &recovery_keys {
+            assert!(
+                first_keys.contains(key),
+                "idempotency key must be stable across retries: {key}"
+            );
+            assert!(key.contains(':'), "key must be dispatch_id:alert_id");
+        }
+    })
+    .await;
 }
 
 #[derive(Default)]

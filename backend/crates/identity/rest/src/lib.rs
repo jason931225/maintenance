@@ -28,7 +28,7 @@ use mnt_identity_application::{
 };
 use mnt_identity_domain::Team;
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, KernelError, RegionId, TraceContext, UserId,
+    BranchId, BranchScope, ErrorKind, KernelError, OrgId, RegionId, TraceContext, UserId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize, resolve_branch_scope};
@@ -78,7 +78,9 @@ impl IdentityRestState {
 }
 
 pub fn router(state: IdentityRestState) -> Router {
-    Router::new()
+    let verifier = state.jwt_verifier.clone();
+    let pool = state.pool().clone();
+    let router = Router::new()
         // `/users/me` MUST be registered before `/users/{id}` so the literal
         // segment wins over the path capture.
         .route(USERS_ME_PATH, get(get_me).patch(update_me))
@@ -88,7 +90,11 @@ pub fn router(state: IdentityRestState) -> Router {
         .route(REGIONS_PATH, get(list_regions).post(create_region))
         .route(BRANCHES_PATH, get(list_branches).post(create_branch))
         .route(BRANCH_PATH_TEMPLATE, patch(update_branch))
-        .with_state(state)
+        .with_state(state);
+    // Per-request tenant context: resolves the Principal and arms `CURRENT_ORG`
+    // for every authenticated route on this router, so adapter reads/writes run
+    // scoped to the request's tenant.
+    mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
 
 // ---------------------------------------------------------------------------
@@ -598,7 +604,9 @@ async fn principal_from_claims(
         .await
         .map_err(|err| RestError::internal(err.to_string()))?;
 
-    Ok(Principal::new(user_id, roles, branch_scope))
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 
 // ---------------------------------------------------------------------------

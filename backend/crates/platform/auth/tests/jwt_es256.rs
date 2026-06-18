@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use mnt_kernel_core::{BranchId, UserId};
+use mnt_kernel_core::{BranchId, OrgId, UserId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings};
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
@@ -34,6 +34,7 @@ fn es256_access_token_round_trips_with_expected_claims() {
     let token = issuer
         .issue_access_token(AccessTokenInput {
             subject: user_id,
+            org_id: OrgId::knl(),
             roles: vec!["MECHANIC".to_owned()],
             branches: vec![branch_id],
             issued_at: now,

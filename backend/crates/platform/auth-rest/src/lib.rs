@@ -12,7 +12,9 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
-use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, BranchScope, TraceContext, UserId};
+use mnt_kernel_core::{
+    AuditAction, AuditEvent, BranchId, BranchScope, OrgId, TraceContext, UserId,
+};
 use mnt_platform_auth::{
     AccessClaims, AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier,
     PasskeyAuthenticationCredential, PasskeyRegistrationCredential, PasskeyRegistrationStart,
@@ -854,6 +856,7 @@ impl AuthRestState {
 #[derive(Debug)]
 struct UserAuthContext {
     user_id: UserId,
+    org_id: OrgId,
     display_name: String,
     username: String,
     roles: Vec<String>,
@@ -890,6 +893,7 @@ async fn issue_token_pair(
         .jwt_issuer
         .issue_access_token(AccessTokenInput {
             subject: user.user_id,
+            org_id: user.org_id,
             roles: user.roles.clone(),
             branches: user.branches.clone(),
             issued_at: now,
@@ -900,6 +904,7 @@ async fn issue_token_pair(
         .issue_family(
             pool,
             *user.user_id.as_uuid(),
+            user.org_id,
             now,
             services.refresh_token_ttl,
         )
@@ -924,6 +929,7 @@ fn issue_access_token(
         .jwt_issuer
         .issue_access_token(AccessTokenInput {
             subject: user.user_id,
+            org_id: user.org_id,
             roles: user.roles.clone(),
             branches: user.branches.clone(),
             issued_at: OffsetDateTime::now_utc(),
@@ -937,7 +943,7 @@ async fn load_user_auth_context(
 ) -> Result<UserAuthContext, RestError> {
     let row = sqlx::query(
         r#"
-        SELECT display_name, phone, roles, is_active
+        SELECT display_name, phone, roles, is_active, org_id
         FROM users
         WHERE id = $1
         "#,
@@ -951,6 +957,12 @@ async fn load_user_auth_context(
     let display_name: String = row
         .try_get("display_name")
         .map_err(|err| RestError::internal(err.to_string()))?;
+    // The user's tenant. `users.org_id` is NOT NULL post-migration 0029, so a
+    // successful login always carries a real org into the access token.
+    let org_uuid: Uuid = row
+        .try_get("org_id")
+        .map_err(|err| RestError::internal(err.to_string()))?;
+    let org_id = OrgId::from_uuid(org_uuid);
     let phone: Option<String> = row
         .try_get("phone")
         .map_err(|err| RestError::internal(err.to_string()))?;
@@ -990,6 +1002,7 @@ async fn load_user_auth_context(
 
     Ok(UserAuthContext {
         user_id: UserId::from_uuid(user_id),
+        org_id,
         display_name,
         username: phone.unwrap_or_else(|| user_id.to_string()),
         roles,
@@ -1140,7 +1153,9 @@ async fn principal_from_headers(
     let branch_scope = resolve_branch_scope(pool, user_id, &role_vec)
         .await
         .map_err(|err| RestError::internal(err.to_string()))?;
-    Ok(Principal::new(user_id, roles, branch_scope))
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token org claim is not a valid uuid"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 
 // ---------------------------------------------------------------------------

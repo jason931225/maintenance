@@ -13,9 +13,10 @@ use mnt_compliance_domain::{
     LocationConsent, LocationConsentState, LocationPing, PersistedLocationConsent,
 };
 use mnt_kernel_core::{
-    BranchId, BranchScope, ConsentId, ErrorKind, KernelError, OrgId, Timestamp, UserId,
+    BranchId, BranchScope, ConsentId, ErrorKind, KernelError, Timestamp, UserId,
 };
-use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_db::{DbError, with_audit, with_org_conn};
+use mnt_platform_request_context::current_org;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 
 #[derive(Debug, thiserror::Error)]
@@ -61,16 +62,23 @@ impl PgComplianceStore {
         Self { pool }
     }
 
+    #[must_use]
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
     pub async fn transition_consent(
         &self,
         command: ConsentTransitionCommand,
     ) -> Result<LocationConsent, PgComplianceError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let before = self
             .current_or_unrecorded(command.user_id, command.branch_id)
             .await?;
         let mut after = before.clone();
         let transition = command.kind.apply(&mut after, command.occurred_at)?;
-        let event = consent_audit_event(&command, &before, &after)?;
+        let event = consent_audit_event(&command, &before, &after)?.with_org(org);
 
         let user_uuid = *command.user_id.as_uuid();
         let branch_uuid = *command.branch_id.as_uuid();
@@ -115,7 +123,6 @@ impl PgComplianceStore {
 
                 match (current, expected_id, expected_status.as_deref()) {
                     (None, None, None) => {
-                        let knl_org = *OrgId::knl().as_uuid();
                         sqlx::query!(
                             r#"
                             INSERT INTO location_consents (
@@ -134,7 +141,7 @@ impl PgComplianceStore {
                             resumed_at,
                             withdrawn_at,
                             updated_at,
-                            knl_org,
+                            org_uuid,
                         )
                         .execute(tx.as_mut())
                         .await?;
@@ -177,7 +184,6 @@ impl PgComplianceStore {
                     }
                 }
 
-                let ledger_org = *OrgId::knl().as_uuid();
                 sqlx::query!(
                     r#"
                     INSERT INTO location_consent_ledger (
@@ -194,7 +200,7 @@ impl PgComplianceStore {
                     from_status,
                     to_status,
                     occurred_at,
-                    ledger_org,
+                    org_uuid,
                 )
                 .execute(tx.as_mut())
                 .await?;
@@ -247,82 +253,84 @@ impl PgComplianceStore {
         let accuracy_m = ping.accuracy_m();
         let recorded_at = ping.recorded_at();
 
-        let mut tx = self.pool.begin().await?;
+        let on_duty = ping.on_duty();
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        with_org_conn::<_, _, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                sqlx::query_scalar!("SELECT location_pings_ensure_partition($1)", recorded_at,)
+                    .fetch_one(tx.as_mut())
+                    .await?;
 
-        sqlx::query_scalar!("SELECT location_pings_ensure_partition($1)", recorded_at,)
-            .fetch_one(tx.as_mut())
-            .await?;
-
-        let consent = sqlx::query!(
-            r#"
+                let consent = sqlx::query!(
+                    r#"
             SELECT status
             FROM location_consents
             WHERE user_id = $1
             FOR SHARE
             "#,
-            user_uuid,
-        )
-        .fetch_optional(tx.as_mut())
-        .await?;
-
-        match consent.as_ref().map(|row| row.status.as_str()) {
-            Some("GRANTED") => {}
-            Some("SUSPENDED" | "WITHDRAWN") | None => {
-                let _ = tx.rollback().await;
-                return Err(KernelError::forbidden(
-                    "location consent is not granted for ping collection",
+                    user_uuid,
                 )
-                .into());
-            }
-            Some(other) => {
-                let _ = tx.rollback().await;
-                return Err(KernelError::validation(format!(
-                    "unknown location consent status {other:?}"
-                ))
-                .into());
-            }
-        }
+                .fetch_optional(tx.as_mut())
+                .await?;
 
-        let knl_org = *OrgId::knl().as_uuid();
-        sqlx::query!(
-            r#"
+                match consent.as_ref().map(|row| row.status.as_str()) {
+                    Some("GRANTED") => {}
+                    Some("SUSPENDED" | "WITHDRAWN") | None => {
+                        return Err(KernelError::forbidden(
+                            "location consent is not granted for ping collection",
+                        )
+                        .into());
+                    }
+                    Some(other) => {
+                        return Err(KernelError::validation(format!(
+                            "unknown location consent status {other:?}"
+                        ))
+                        .into());
+                    }
+                }
+
+                sqlx::query!(
+                    r#"
             INSERT INTO location_pings (
                 id, user_id, branch_id, latitude, longitude,
                 accuracy_m, recorded_at, on_duty, org_id
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             "#,
-            ping_uuid,
-            user_uuid,
-            branch_uuid,
-            latitude,
-            longitude,
-            accuracy_m,
-            recorded_at,
-            ping.on_duty(),
-            knl_org,
-        )
-        .execute(tx.as_mut())
-        .await?;
+                    ping_uuid,
+                    user_uuid,
+                    branch_uuid,
+                    latitude,
+                    longitude,
+                    accuracy_m,
+                    recorded_at,
+                    on_duty,
+                    org_uuid,
+                )
+                .execute(tx.as_mut())
+                .await?;
 
-        sqlx::query!(
-            r#"
+                sqlx::query!(
+                    r#"
             INSERT INTO location_collection_logs (
                 user_id, branch_id, ping_id, recorded_at, reason, org_id
             )
             VALUES ($1, $2, $3, $4, 'on_duty_location_ping', $5)
             "#,
-            user_uuid,
-            branch_uuid,
-            ping_uuid,
-            recorded_at,
-            knl_org,
-        )
-        .execute(tx.as_mut())
-        .await?;
+                    user_uuid,
+                    branch_uuid,
+                    ping_uuid,
+                    recorded_at,
+                    org_uuid,
+                )
+                .execute(tx.as_mut())
+                .await?;
 
-        tx.commit().await?;
-        Ok(())
+                Ok(())
+            })
+        })
+        .await
     }
 
     pub async fn purge_expired_location_data(
@@ -367,7 +375,11 @@ impl PgComplianceStore {
         builder.push(" OFFSET ");
         builder.push_bind(query.offset);
 
-        let rows = builder.build().fetch_all(&self.pool).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
         let mut items = Vec::with_capacity(rows.len());
         for row in rows {
             let id: uuid::Uuid = row.try_get("id")?;
@@ -413,7 +425,11 @@ impl PgComplianceStore {
             "#,
         );
         push_location_consent_ledger_filters(&mut builder, branch_scope, query);
-        let total: i64 = builder.build_query_scalar().fetch_one(&self.pool).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let total: i64 = with_org_conn::<_, _, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build_query_scalar().fetch_one(tx.as_mut()).await?) })
+        })
+        .await?;
         Ok(total)
     }
 
@@ -423,16 +439,22 @@ impl PgComplianceStore {
         branch_id: BranchId,
     ) -> Result<LocationConsent, PgComplianceError> {
         let user_uuid = *user_id.as_uuid();
-        let row = sqlx::query!(
-            r#"
+        let org = current_org().map_err(KernelError::from)?;
+        let row = with_org_conn::<_, _, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query!(
+                    r#"
             SELECT id, user_id, branch_id, status,
                    granted_at, suspended_at, resumed_at, withdrawn_at, updated_at
             FROM location_consents
             WHERE user_id = $1
             "#,
-            user_uuid,
-        )
-        .fetch_optional(&self.pool)
+                    user_uuid,
+                )
+                .fetch_optional(tx.as_mut())
+                .await?)
+            })
+        })
         .await?;
 
         let Some(row) = row else {

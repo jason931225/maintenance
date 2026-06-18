@@ -24,106 +24,109 @@ const TEST_AUDIENCE: &str = "mnt-api";
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn messenger_rest_polling_send_read_and_search_are_authorized(pool: PgPool) {
-    let signing_key = SigningKey::random(&mut OsRng);
-    let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
-    let public_key_pem = signing_key
-        .verifying_key()
-        .to_public_key_pem(LineEnding::LF)
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let signing_key = SigningKey::random(&mut OsRng);
+        let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+        let public_key_pem = signing_key
+            .verifying_key()
+            .to_public_key_pem(LineEnding::LF)
+            .unwrap();
+        let branch_id = seed_branch(&pool, "Messenger REST Region", "Messenger REST Branch").await;
+        let other_branch_id = seed_branch(
+            &pool,
+            "Messenger REST Other Region",
+            "Messenger REST Other Branch",
+        )
+        .await;
+        let sender = UserId::new();
+        let recipient = UserId::new();
+        seed_user_with_branch(&pool, sender, "MECHANIC", branch_id).await;
+        seed_user_with_branch(&pool, recipient, "ADMIN", branch_id).await;
+        let store = PgMessengerStore::new(pool.clone());
+        let thread = store
+            .create_thread(CreateThreadCommand {
+                actor: sender,
+                branch_scope: BranchScope::single(branch_id),
+                branch_id,
+                kind: ThreadKind::Team,
+                title: Some("정비팀".to_owned()),
+                work_order_id: None,
+                member_ids: vec![sender, recipient],
+                trace: mnt_kernel_core::TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        let token = issue_token(
+            private_pem.as_bytes(),
+            public_key_pem.as_bytes(),
+            sender,
+            vec!["MECHANIC".to_owned()],
+            vec![branch_id],
+        )
         .unwrap();
-    let branch_id = seed_branch(&pool, "Messenger REST Region", "Messenger REST Branch").await;
-    let other_branch_id = seed_branch(
-        &pool,
-        "Messenger REST Other Region",
-        "Messenger REST Other Branch",
-    )
-    .await;
-    let sender = UserId::new();
-    let recipient = UserId::new();
-    seed_user_with_branch(&pool, sender, "MECHANIC", branch_id).await;
-    seed_user_with_branch(&pool, recipient, "ADMIN", branch_id).await;
-    let store = PgMessengerStore::new(pool.clone());
-    let thread = store
-        .create_thread(CreateThreadCommand {
-            actor: sender,
-            branch_scope: BranchScope::single(branch_id),
-            branch_id,
-            kind: ThreadKind::Team,
-            title: Some("정비팀".to_owned()),
-            work_order_id: None,
-            member_ids: vec![sender, recipient],
-            trace: mnt_kernel_core::TraceContext::generate(),
-            occurred_at: OffsetDateTime::now_utc(),
-        })
-        .await
+        let wrong_branch_token = issue_token(
+            private_pem.as_bytes(),
+            public_key_pem.as_bytes(),
+            sender,
+            vec!["MECHANIC".to_owned()],
+            vec![other_branch_id],
+        )
         .unwrap();
-    let token = issue_token(
-        private_pem.as_bytes(),
-        public_key_pem.as_bytes(),
-        sender,
-        vec!["MECHANIC".to_owned()],
-        vec![branch_id],
-    )
-    .unwrap();
-    let wrong_branch_token = issue_token(
-        private_pem.as_bytes(),
-        public_key_pem.as_bytes(),
-        sender,
-        vec!["MECHANIC".to_owned()],
-        vec![other_branch_id],
-    )
-    .unwrap();
-    let verifier = JwtVerifier::from_es256_public_pem(
-        JwtSettings {
-            issuer: TEST_ISSUER.to_owned(),
-            audience: TEST_AUDIENCE.to_owned(),
-            access_token_ttl: Duration::minutes(15),
-        },
-        public_key_pem.as_bytes(),
-    )
-    .unwrap();
-    let service = router(MessengerRestState::new(store, Some(verifier)));
+        let verifier = JwtVerifier::from_es256_public_pem(
+            JwtSettings {
+                issuer: TEST_ISSUER.to_owned(),
+                audience: TEST_AUDIENCE.to_owned(),
+                access_token_ttl: Duration::minutes(15),
+            },
+            public_key_pem.as_bytes(),
+        )
+        .unwrap();
+        let service = router(MessengerRestState::new(store, Some(verifier)));
 
-    let denied = post_json(
-        service.clone(),
-        &format!("/api/messenger/threads/{}/messages", thread.id),
-        &wrong_branch_token,
-        json!({ "body": "wrong scope" }),
-    )
+        let denied = post_json(
+            service.clone(),
+            &format!("/api/messenger/threads/{}/messages", thread.id),
+            &wrong_branch_token,
+            json!({ "body": "wrong scope" }),
+        )
+        .await;
+        assert_eq!(denied.status, StatusCode::FORBIDDEN, "{:?}", denied.json);
+
+        let sent = post_json(
+            service.clone(),
+            &format!("/api/messenger/threads/{}/messages", thread.id),
+            &token,
+            json!({ "body": "긴급 누유 확인" }),
+        )
+        .await;
+        assert_eq!(sent.status, StatusCode::CREATED, "{:?}", sent.json);
+        let message_id = sent.json["id"].as_str().unwrap().to_owned();
+
+        let page = get_json(
+            service.clone(),
+            &format!("/api/messenger/threads/{}/messages?limit=20", thread.id),
+            &token,
+        )
+        .await;
+        assert_eq!(page.status, StatusCode::OK, "{:?}", page.json);
+        assert_eq!(page.json["items"][0]["id"], message_id);
+
+        let read = put_json(
+            service.clone(),
+            &format!("/api/messenger/threads/{}/read-receipt", thread.id),
+            &token,
+            json!({ "last_read_message_id": message_id }),
+        )
+        .await;
+        assert_eq!(read.status, StatusCode::OK, "{:?}", read.json);
+        assert_eq!(read.json["last_read_message_id"], message_id);
+
+        let search = get_json(service, "/api/messenger/search?q=누유&limit=10", &token).await;
+        assert_eq!(search.status, StatusCode::OK, "{:?}", search.json);
+        assert_eq!(search.json["items"][0]["id"], message_id);
+    })
     .await;
-    assert_eq!(denied.status, StatusCode::FORBIDDEN, "{:?}", denied.json);
-
-    let sent = post_json(
-        service.clone(),
-        &format!("/api/messenger/threads/{}/messages", thread.id),
-        &token,
-        json!({ "body": "긴급 누유 확인" }),
-    )
-    .await;
-    assert_eq!(sent.status, StatusCode::CREATED, "{:?}", sent.json);
-    let message_id = sent.json["id"].as_str().unwrap().to_owned();
-
-    let page = get_json(
-        service.clone(),
-        &format!("/api/messenger/threads/{}/messages?limit=20", thread.id),
-        &token,
-    )
-    .await;
-    assert_eq!(page.status, StatusCode::OK, "{:?}", page.json);
-    assert_eq!(page.json["items"][0]["id"], message_id);
-
-    let read = put_json(
-        service.clone(),
-        &format!("/api/messenger/threads/{}/read-receipt", thread.id),
-        &token,
-        json!({ "last_read_message_id": message_id }),
-    )
-    .await;
-    assert_eq!(read.status, StatusCode::OK, "{:?}", read.json);
-    assert_eq!(read.json["last_read_message_id"], message_id);
-
-    let search = get_json(service, "/api/messenger/search?q=누유&limit=10", &token).await;
-    assert_eq!(search.status, StatusCode::OK, "{:?}", search.json);
-    assert_eq!(search.json["items"][0]["id"], message_id);
 }
 
 #[derive(Debug)]
@@ -195,6 +198,7 @@ fn issue_token(
 
     Ok(issuer.issue_access_token(AccessTokenInput {
         subject: user_id,
+        org_id: OrgId::knl(),
         roles,
         branches,
         issued_at: OffsetDateTime::now_utc(),

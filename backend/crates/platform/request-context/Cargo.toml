@@ -1,0 +1,20 @@
+[package]
+name = "mnt-platform-request-context"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+mnt-kernel-core = { workspace = true }
+mnt-platform-auth = { path = "../auth" }
+mnt-platform-authz = { path = "../authz" }
+axum = { workspace = true }
+http = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

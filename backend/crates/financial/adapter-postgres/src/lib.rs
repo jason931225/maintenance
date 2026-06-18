@@ -14,10 +14,10 @@ use mnt_financial_domain::{
     validate_purchase_transition,
 };
 use mnt_kernel_core::{
-    AuditEvent, BranchId, EquipmentId, KernelError, OrgId, PurchaseRequestId, QuoteId, UserId,
-    WorkOrderId,
+    AuditEvent, BranchId, EquipmentId, KernelError, PurchaseRequestId, QuoteId, UserId, WorkOrderId,
 };
-use mnt_platform_db::{DbError, with_audit, with_audits};
+use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
+use mnt_platform_request_context::current_org;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use time::{Date, OffsetDateTime};
 
@@ -47,11 +47,18 @@ impl PgFinancialStore {
         Self { pool }
     }
 
+    #[must_use]
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
     pub async fn create_rental_quote(
         &self,
         command: CreateRentalQuoteCommand,
     ) -> Result<RentalQuoteSummary, PgFinancialError> {
         let quote_id = QuoteId::new();
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let event = financial_audit_event(
             "financial.quote.create",
             command.actor,
@@ -60,7 +67,8 @@ impl PgFinancialStore {
             quote_id,
             command.trace,
             command.occurred_at,
-        )?;
+        )?
+        .with_org(org);
 
         with_audit::<_, RentalQuoteSummary, PgFinancialError>(&self.pool, event, |tx| {
             Box::pin(async move {
@@ -87,6 +95,7 @@ impl PgFinancialStore {
                     &command.config,
                     &quote,
                     command.occurred_at,
+                    org_uuid,
                 )
                 .await?;
                 rental_quote_by_id_tx(tx, quote_id).await
@@ -114,6 +123,8 @@ impl PgFinancialStore {
         }
 
         let purchase_request_id = PurchaseRequestId::new();
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let event = financial_audit_event(
             "purchase.statement.attach",
             command.actor,
@@ -122,7 +133,8 @@ impl PgFinancialStore {
             purchase_request_id,
             command.trace,
             command.occurred_at,
-        )?;
+        )?
+        .with_org(org);
 
         with_audit::<_, PurchaseRequestSummary, PgFinancialError>(&self.pool, event, |tx| {
             Box::pin(async move {
@@ -176,7 +188,7 @@ impl PgFinancialStore {
                 .bind(command.config.floor_negative_quote_residual)
                 .bind(command.config.executive_approval_threshold_won)
                 .bind(command.occurred_at)
-                .bind(*OrgId::knl().as_uuid())
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
                 insert_purchase_history_tx(
@@ -188,6 +200,7 @@ impl PgFinancialStore {
                     PurchaseStatus::StatementAttached,
                     Some(command.memo.trim()),
                     command.occurred_at,
+                    org_uuid,
                 )
                 .await?;
                 purchase_by_id_tx(tx, purchase_request_id).await
@@ -297,6 +310,8 @@ impl PgFinancialStore {
             return Err(KernelError::validation("purchase amount must be positive").into());
         }
         let event_purchase = self.purchase_request(command.purchase_request_id).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let event = financial_audit_event(
             "purchase.restart",
             command.actor,
@@ -305,7 +320,8 @@ impl PgFinancialStore {
             command.purchase_request_id,
             command.trace,
             command.occurred_at,
-        )?;
+        )?
+        .with_org(org);
 
         with_audit::<_, PurchaseRequestSummary, PgFinancialError>(&self.pool, event, |tx| {
             Box::pin(async move {
@@ -363,6 +379,7 @@ impl PgFinancialStore {
                     PurchaseStatus::StatementAttached,
                     Some(command.memo.trim()),
                     command.occurred_at,
+                    org_uuid,
                 )
                 .await?;
                 purchase_by_id_tx(tx, command.purchase_request_id).await
@@ -375,7 +392,9 @@ impl PgFinancialStore {
         &self,
         command: ExecutePurchaseCommand,
     ) -> Result<PurchaseRequestSummary, PgFinancialError> {
-        with_audits::<_, PurchaseRequestSummary, PgFinancialError>(&self.pool, OrgId::knl(), |tx| {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        with_audits::<_, PurchaseRequestSummary, PgFinancialError>(&self.pool, org, |tx| {
             Box::pin(async move {
                 let row = lock_purchase_tx(tx, command.purchase_request_id).await?;
                 validate_purchase_transition(PurchaseTransition {
@@ -409,6 +428,7 @@ impl PgFinancialStore {
                     PurchaseStatus::Executed,
                     None,
                     command.occurred_at,
+                    org_uuid,
                 )
                 .await?;
 
@@ -428,6 +448,7 @@ impl PgFinancialStore {
                     tx,
                     ledger_command,
                     Some(command.purchase_request_id),
+                    org_uuid,
                 )
                 .await?;
                 let purchase = purchase_by_id_tx(tx, command.purchase_request_id).await?;
@@ -486,10 +507,12 @@ impl PgFinancialStore {
             return Err(KernelError::validation("cost ledger amount must be positive").into());
         }
 
-        with_audits::<_, CostLedgerEntrySummary, PgFinancialError>(&self.pool, OrgId::knl(), |tx| {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        with_audits::<_, CostLedgerEntrySummary, PgFinancialError>(&self.pool, org, |tx| {
             Box::pin(async move {
                 let (entry, event) =
-                    append_cost_ledger_entry_tx(tx, command, purchase_request_id).await?;
+                    append_cost_ledger_entry_tx(tx, command, purchase_request_id, org_uuid).await?;
                 Ok((entry, vec![event]))
             })
         })
@@ -509,6 +532,8 @@ impl PgFinancialStore {
         occurred_at: OffsetDateTime,
     ) -> Result<PurchaseRequestSummary, PgFinancialError> {
         let purchase = self.purchase_request(purchase_request_id).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let event = financial_audit_event(
             action,
             actor,
@@ -517,7 +542,8 @@ impl PgFinancialStore {
             purchase_request_id,
             trace,
             occurred_at,
-        )?;
+        )?
+        .with_org(org);
 
         with_audit::<_, PurchaseRequestSummary, PgFinancialError>(&self.pool, event, |tx| {
             Box::pin(async move {
@@ -584,6 +610,7 @@ impl PgFinancialStore {
                     to,
                     memo_trimmed,
                     occurred_at,
+                    org_uuid,
                 )
                 .await?;
                 purchase_by_id_tx(tx, purchase_request_id).await
@@ -621,15 +648,21 @@ async fn equipment_economics(
     pool: &PgPool,
     equipment_id: EquipmentId,
 ) -> Result<EquipmentEconomics, PgFinancialError> {
-    let row = sqlx::query(
-        r#"
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgFinancialError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
         SELECT branch_id, vehicle_value, residual_value, asset_registered_on
         FROM registry_equipment
         WHERE id = $1
         "#,
-    )
-    .bind(*equipment_id.as_uuid())
-    .fetch_optional(pool)
+            )
+            .bind(*equipment_id.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?)
+        })
+    })
     .await?
     .ok_or_else(|| KernelError::not_found("equipment was not found"))?;
     equipment_economics_from_row(&row)
@@ -692,6 +725,7 @@ async fn append_cost_ledger_entry_tx(
     tx: &mut Transaction<'_, Postgres>,
     command: AppendCostLedgerEntryCommand,
     purchase_request_id: Option<PurchaseRequestId>,
+    org_uuid: uuid::Uuid,
 ) -> Result<(CostLedgerEntrySummary, AuditEvent), PgFinancialError> {
     let locked = equipment_economics_tx(tx, command.equipment_id).await?;
     ensure_branch(locked.branch_id, command.branch_id)?;
@@ -734,7 +768,7 @@ async fn append_cost_ledger_entry_tx(
     .bind(residual_after)
     .bind(command.occurred_at)
     .bind(*command.actor.as_uuid())
-    .bind(*OrgId::knl().as_uuid())
+    .bind(org_uuid)
     .execute(tx.as_mut())
     .await?;
 
@@ -856,6 +890,7 @@ async fn insert_quote_tx(
     config: &FinancialConfigSnapshot,
     quote: &mnt_financial_domain::ComputedRentalQuote,
     occurred_at: OffsetDateTime,
+    org_uuid: uuid::Uuid,
 ) -> Result<(), PgFinancialError> {
     sqlx::query(
         r#"
@@ -898,7 +933,7 @@ async fn insert_quote_tx(
     .bind(config.floor_negative_quote_residual)
     .bind(quote.monthly_total.amount())
     .bind(occurred_at)
-    .bind(*OrgId::knl().as_uuid())
+    .bind(org_uuid)
     .execute(tx.as_mut())
     .await?;
 
@@ -918,7 +953,7 @@ async fn insert_quote_tx(
         .bind(&line.code)
         .bind(&line.label)
         .bind(line.amount.amount())
-        .bind(*OrgId::knl().as_uuid())
+        .bind(org_uuid)
         .execute(tx.as_mut())
         .await?;
     }
@@ -950,8 +985,13 @@ async fn rental_quote_by_id(
     pool: &PgPool,
     quote_id: QuoteId,
 ) -> Result<RentalQuoteSummary, PgFinancialError> {
-    let row = sqlx::query(
-        r#"
+    // Both reads (the quote and its lines) run in ONE tenant-scoped transaction
+    // so they are consistent and both narrowed to the request's org by RLS.
+    let org = current_org().map_err(KernelError::from)?;
+    let (row, lines) = with_org_conn::<_, _, PgFinancialError>(pool, org, move |tx| {
+        Box::pin(async move {
+            let row = sqlx::query(
+                r#"
         SELECT id, branch_id, equipment_id, acquisition_value_won,
                current_residual_value_won, effective_residual_value_won,
                residual_was_floored, cumulative_repair_cost_won,
@@ -959,12 +999,16 @@ async fn rental_quote_by_id(
         FROM financial_rental_quotes
         WHERE id = $1
         "#,
-    )
-    .bind(*quote_id.as_uuid())
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| KernelError::not_found("rental quote was not found"))?;
-    let lines = quote_lines(pool, quote_id).await?;
+            )
+            .bind(*quote_id.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?
+            .ok_or_else(|| KernelError::not_found("rental quote was not found"))?;
+            let lines = quote_lines_tx(tx, quote_id).await?;
+            Ok((row, lines))
+        })
+    })
+    .await?;
     rental_quote_from_row(&row, lines)
 }
 
@@ -1001,32 +1045,6 @@ async fn quote_lines_tx(
     )
     .bind(*quote_id.as_uuid())
     .fetch_all(tx.as_mut())
-    .await?;
-    rows.into_iter()
-        .map(|row| {
-            Ok(mnt_financial_domain::QuoteLine {
-                code: row.try_get("code")?,
-                label: row.try_get("label")?,
-                amount: MoneyInput::won(row.try_get("amount_won")?),
-            })
-        })
-        .collect()
-}
-
-async fn quote_lines(
-    pool: &PgPool,
-    quote_id: QuoteId,
-) -> Result<Vec<mnt_financial_domain::QuoteLine>, PgFinancialError> {
-    let rows = sqlx::query(
-        r#"
-        SELECT code, label, amount_won
-        FROM financial_rental_quote_lines
-        WHERE quote_id = $1
-        ORDER BY line_order
-        "#,
-    )
-    .bind(*quote_id.as_uuid())
-    .fetch_all(pool)
     .await?;
     rows.into_iter()
         .map(|row| {
@@ -1089,11 +1107,17 @@ async fn purchase_by_id(
     pool: &PgPool,
     purchase_request_id: PurchaseRequestId,
 ) -> Result<PurchaseRequestSummary, PgFinancialError> {
-    let row = sqlx::query(purchase_select_sql())
-        .bind(*purchase_request_id.as_uuid())
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| KernelError::not_found("purchase request was not found"))?;
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgFinancialError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(purchase_select_sql())
+                .bind(*purchase_request_id.as_uuid())
+                .fetch_optional(tx.as_mut())
+                .await?)
+        })
+    })
+    .await?
+    .ok_or_else(|| KernelError::not_found("purchase request was not found"))?;
     purchase_from_row(&row)
 }
 
@@ -1151,6 +1175,7 @@ async fn insert_purchase_history_tx(
     to_status: PurchaseStatus,
     memo: Option<&str>,
     occurred_at: OffsetDateTime,
+    org_uuid: uuid::Uuid,
 ) -> Result<(), PgFinancialError> {
     sqlx::query(
         r#"
@@ -1167,7 +1192,7 @@ async fn insert_purchase_history_tx(
     .bind(to_status.as_db_str())
     .bind(memo)
     .bind(occurred_at)
-    .bind(*OrgId::knl().as_uuid())
+    .bind(org_uuid)
     .execute(tx.as_mut())
     .await?;
     Ok(())
@@ -1196,8 +1221,11 @@ async fn cost_ledger_for_equipment(
     pool: &PgPool,
     equipment_id: EquipmentId,
 ) -> Result<Vec<CostLedgerEntrySummary>, PgFinancialError> {
-    let rows = sqlx::query(
-        r#"
+    let org = current_org().map_err(KernelError::from)?;
+    let rows = with_org_conn::<_, _, PgFinancialError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
         SELECT id, branch_id, equipment_id, work_order_id, purchase_request_id,
                source, amount_won, memo, residual_before_won, residual_after_won,
                entry_at
@@ -1205,9 +1233,12 @@ async fn cost_ledger_for_equipment(
         WHERE equipment_id = $1
         ORDER BY entry_at DESC, id DESC
         "#,
-    )
-    .bind(*equipment_id.as_uuid())
-    .fetch_all(pool)
+            )
+            .bind(*equipment_id.as_uuid())
+            .fetch_all(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     rows.into_iter()
         .map(|row| cost_ledger_from_row(&row))

@@ -24,7 +24,10 @@ async fn refresh_token_reuse_revokes_the_whole_family(pool: PgPool) {
     let now = OffsetDateTime::now_utc();
     let ttl = Duration::days(30);
 
-    let first = store.issue_family(&pool, user_id, now, ttl).await.unwrap();
+    let first = store
+        .issue_family(&pool, user_id, OrgId::knl(), now, ttl)
+        .await
+        .unwrap();
     let second = store
         .rotate(&pool, first.token.as_str(), now + Duration::minutes(1), ttl)
         .await

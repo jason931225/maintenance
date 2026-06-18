@@ -20,6 +20,7 @@ use mnt_kernel_core::{
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, BranchColumn, Feature, Principal, Role, authorize};
 use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_request_context::current_org;
 use mnt_platform_storage::{
     EvidenceService, EvidenceUploadCommand, EvidenceUploadTicket, PresignedUpload, S3ObjectStore,
     StorageError, WormReplicaStatus,
@@ -99,7 +100,9 @@ impl<S> MobileRestState<S> {
 }
 
 pub fn router(state: WorkOrderRestState) -> Router {
-    Router::new()
+    let verifier = state.jwt_verifier.clone();
+    let pool = state.store.pool().clone();
+    let router = Router::new()
         .route("/api/v1/work-orders", get(list_work_orders))
         .route(
             "/api/v1/work-orders/{work_order_id}",
@@ -155,14 +158,17 @@ pub fn router(state: WorkOrderRestState) -> Router {
             "/api/work-orders/{work_order_id}/outsource-works",
             post(create_outsource_work),
         )
-        .with_state(state)
+        .with_state(state);
+    mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
 
 pub fn mobile_router<S>(state: MobileRestState<S>) -> Router
 where
     S: S3ObjectStore + Clone + Send + Sync + 'static,
 {
-    Router::new()
+    let verifier = state.jwt_verifier.clone();
+    let pool = state.pool.clone();
+    let router = Router::new()
         .route(SYNC_PATH, post(sync_batch::<S>))
         .route(DEVICES_PATH, post(register_device::<S>))
         .route(EVIDENCE_PRESIGN_PATH, post(presign_evidence::<S>))
@@ -170,7 +176,8 @@ where
             "/api/v1/evidence/{evidence_id}/confirm",
             post(confirm_evidence::<S>),
         )
-        .with_state(state)
+        .with_state(state);
+    mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
 
 #[derive(Debug, Deserialize)]
@@ -1122,6 +1129,8 @@ async fn claim_sync_request(
     payload_hash: &str,
     payload_envelope: &serde_json::Value,
 ) -> Result<SyncClaim, RestError> {
+    let org = current_org().map_err(|err| RestError::from_kernel(err.into()))?;
+    let org_uuid = *org.as_uuid();
     let event: AuditEvent = AuditEvent::new(
         Some(actor),
         AuditAction::new("offline_sync.receive").map_err(RestError::from_kernel)?,
@@ -1130,6 +1139,7 @@ async fn claim_sync_request(
         TraceContext::generate(),
         time::OffsetDateTime::now_utc(),
     )
+    .with_org(org)
     .with_snapshots(
         None,
         Some(serde_json::json!({
@@ -1200,7 +1210,7 @@ async fn claim_sync_request(
             .bind(client_created_at)
             .bind(&payload_hash)
             .bind(&payload_envelope)
-            .bind(*OrgId::knl().as_uuid())
+            .bind(org_uuid)
             .fetch_one(tx.as_mut())
             .await?;
             Ok(SyncClaim::Claimed(id))
@@ -1272,6 +1282,7 @@ where
     let device_hash = device_hash_from_headers(&headers)?;
     let app_version = normalize_non_empty(body.app_version, "app_version")?;
     let now = time::OffsetDateTime::now_utc();
+    let org_uuid = *principal.org_id.as_uuid();
     let event: AuditEvent = AuditEvent::new(
         Some(principal.user_id),
         AuditAction::new("device.register").map_err(RestError::from_kernel)?,
@@ -1280,6 +1291,7 @@ where
         TraceContext::generate(),
         now,
     )
+    .with_org(principal.org_id)
     .with_branch(audit_branch_for_principal(&principal)?)
     .with_snapshots(
         None,
@@ -1316,7 +1328,7 @@ where
                 .bind(body.push_token.as_deref().map(str::trim))
                 .bind(&app_version)
                 .bind(now)
-                .bind(*OrgId::knl().as_uuid())
+                .bind(org_uuid)
                 .fetch_one(tx.as_mut())
                 .await?;
                 device_registration_from_row(&row)
@@ -2844,7 +2856,9 @@ fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
         BranchScope::Branches(branches)
     };
 
-    Ok(Principal::new(user_id, roles, branch_scope))
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 
 fn device_hash_from_headers(headers: &HeaderMap) -> Result<String, RestError> {

@@ -15,7 +15,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_kernel_core::{
-    BranchId, BranchScope, EquipmentId, ErrorKind, KernelError, TraceContext, UserId,
+    BranchId, BranchScope, EquipmentId, ErrorKind, KernelError, OrgId, TraceContext, UserId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize, resolve_branch_scope};
@@ -61,7 +61,9 @@ impl RegistryRestState {
 }
 
 pub fn router(state: RegistryRestState) -> Router {
-    Router::new()
+    let verifier = state.jwt_verifier.clone();
+    let pool = state.store.pool().clone();
+    let router = Router::new()
         .route(
             EQUIPMENT_SUBSTITUTES_PATH_TEMPLATE,
             get(list_equipment_substitutes),
@@ -80,7 +82,8 @@ pub fn router(state: RegistryRestState) -> Router {
             EQUIPMENT_ID_PATH_TEMPLATE,
             axum::routing::patch(update_equipment).delete(delete_equipment),
         )
-        .with_state(state)
+        .with_state(state);
+    mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
 
 #[derive(Debug, Deserialize)]
@@ -566,7 +569,9 @@ async fn principal_from_headers_db(
         .await
         .map_err(RestError::from_kernel)?;
     let roles = role_vec.iter().copied().collect::<BTreeSet<_>>();
-    Ok(Principal::new(user_id, roles, branch_scope))
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 
 fn authorize_read_access(principal: &Principal) -> Result<(), RestError> {
@@ -643,7 +648,9 @@ fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
         BranchScope::Branches(branches)
     };
 
-    Ok(Principal::new(user_id, roles, branch_scope))
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 
 #[derive(Debug)]

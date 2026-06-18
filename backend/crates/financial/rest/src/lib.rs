@@ -18,8 +18,8 @@ use mnt_financial_application::{
 };
 use mnt_financial_domain::{MoneyInput, RentalQuoteInput, compute_rental_quote};
 use mnt_kernel_core::{
-    BranchId, BranchScope, EquipmentId, ErrorKind, EvidenceId, KernelError, PurchaseRequestId,
-    QuoteId, TraceContext, UserId, WorkOrderId,
+    BranchId, BranchScope, EquipmentId, ErrorKind, EvidenceId, KernelError, OrgId,
+    PurchaseRequestId, QuoteId, TraceContext, UserId, WorkOrderId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
@@ -43,7 +43,9 @@ impl FinancialRestState {
 }
 
 pub fn router(state: FinancialRestState) -> Router {
-    Router::new()
+    let verifier = state.jwt_verifier.clone();
+    let pool = state.store.pool().clone();
+    let router = Router::new()
         .route(
             "/api/v1/financial/rental-quotes/compute",
             post(compute_quote),
@@ -97,7 +99,8 @@ pub fn router(state: FinancialRestState) -> Router {
             "/api/v1/financial/purchase-requests/{purchase_request_id}/execute",
             post(execute_purchase),
         )
-        .with_state(state)
+        .with_state(state);
+    mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
 
 #[derive(Debug, Deserialize)]
@@ -637,7 +640,9 @@ fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
         BranchScope::Branches(branches)
     };
 
-    Ok(Principal::new(user_id, roles, branch_scope))
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 
 #[derive(Debug)]

@@ -151,6 +151,7 @@ fn issue_token(
 
     Ok(issuer.issue_access_token(AccessTokenInput {
         subject: user_id,
+        org_id: OrgId::knl(),
         roles,
         branches,
         issued_at: OffsetDateTime::now_utc(),

@@ -11,7 +11,7 @@
 use std::collections::BTreeSet;
 use std::str::FromStr;
 
-use mnt_kernel_core::{BranchId, BranchScope, KernelError, UserId};
+use mnt_kernel_core::{BranchId, BranchScope, KernelError, OrgId, UserId};
 use sqlx::PgPool;
 
 /// Canonical role codes stored in `users.roles`.
@@ -277,15 +277,24 @@ impl Action {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Principal {
     pub user_id: UserId,
+    /// The tenant this principal belongs to, taken from the verified token's
+    /// `org` claim. Used to arm `app.current_org` for RLS on this request.
+    pub org_id: OrgId,
     pub roles: BTreeSet<Role>,
     pub branch_scope: BranchScope,
 }
 
 impl Principal {
     #[must_use]
-    pub const fn new(user_id: UserId, roles: BTreeSet<Role>, branch_scope: BranchScope) -> Self {
+    pub const fn new(
+        user_id: UserId,
+        org_id: OrgId,
+        roles: BTreeSet<Role>,
+        branch_scope: BranchScope,
+    ) -> Self {
         Self {
             user_id,
+            org_id,
             roles,
             branch_scope,
         }

@@ -33,119 +33,129 @@ fn master_list_path() -> PathBuf {
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn import_endpoint_loads_reference_master_list(pool: PgPool) {
-    let harness = Harness::new(&pool, "ADMIN").await;
-    let bytes = std::fs::read(master_list_path()).unwrap();
-    let body = multipart_xlsx(&bytes);
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let harness = Harness::new(&pool, "ADMIN").await;
+        let bytes = std::fs::read(master_list_path()).unwrap();
+        let body = multipart_xlsx(&bytes);
 
-    let (status, json) = harness
-        .send(
-            "POST",
-            "/api/v1/equipment/import",
-            Some((format!("multipart/form-data; boundary={BOUNDARY}"), body)),
-        )
-        .await;
+        let (status, json) = harness
+            .send(
+                "POST",
+                "/api/v1/equipment/import",
+                Some((format!("multipart/form-data; boundary={BOUNDARY}"), body)),
+            )
+            .await;
 
-    assert_eq!(status, StatusCode::OK, "{json:?}");
-    assert_eq!(json["added"], json!(445));
-    assert_eq!(json["updated"], json!(0));
-    assert_eq!(json["unchanged"], json!(0));
-    assert_eq!(json["orphaned"], json!(0));
-    assert_eq!(json["errors"].as_array().unwrap().len(), 0, "{json:?}");
+        assert_eq!(status, StatusCode::OK, "{json:?}");
+        assert_eq!(json["added"], json!(445));
+        assert_eq!(json["updated"], json!(0));
+        assert_eq!(json["unchanged"], json!(0));
+        assert_eq!(json["orphaned"], json!(0));
+        assert_eq!(json["errors"].as_array().unwrap().len(), 0, "{json:?}");
 
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM registry_equipment")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!(count, 445);
-
-    let audited: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE action = 'registry.import'")
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM registry_equipment")
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(audited, 1);
+        assert_eq!(count, 445);
+
+        let audited: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM audit_events WHERE action = 'registry.import'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(audited, 1);
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn import_endpoint_rejects_non_admin(pool: PgPool) {
-    let harness = Harness::new(&pool, "MECHANIC").await;
-    let bytes = std::fs::read(master_list_path()).unwrap();
-    let body = multipart_xlsx(&bytes);
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let harness = Harness::new(&pool, "MECHANIC").await;
+        let bytes = std::fs::read(master_list_path()).unwrap();
+        let body = multipart_xlsx(&bytes);
 
-    let (status, _) = harness
-        .send(
-            "POST",
-            "/api/v1/equipment/import",
-            Some((format!("multipart/form-data; boundary={BOUNDARY}"), body)),
-        )
-        .await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
+        let (status, _) = harness
+            .send(
+                "POST",
+                "/api/v1/equipment/import",
+                Some((format!("multipart/form-data; boundary={BOUNDARY}"), body)),
+            )
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn equipment_crud_create_update_soft_delete_is_audited(pool: PgPool) {
-    let harness = Harness::new(&pool, "ADMIN").await;
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let harness = Harness::new(&pool, "ADMIN").await;
 
-    let create_body = json!({
-        "equipment_no": "CFO25-7777",
-        "customer_name": "K&L",
-        "site_name": "케이앤엘",
-        "status": "rented",
-        "specification": "좌식",
-        "ton_text": "2.5T",
-        "management_no": "777",
-        "model": "GTS25DE",
-        "vehicle_value": 50_000_000,
-        "residual_value": 10_000_000
-    });
-    let (status, body) = harness
-        .send("POST", "/api/v1/equipment", Some(json_body(&create_body)))
-        .await;
-    assert_eq!(status, StatusCode::CREATED, "{body:?}");
-    let id = body["id"].as_str().unwrap().to_owned();
+        let create_body = json!({
+            "equipment_no": "CFO25-7777",
+            "customer_name": "K&L",
+            "site_name": "케이앤엘",
+            "status": "rented",
+            "specification": "좌식",
+            "ton_text": "2.5T",
+            "management_no": "777",
+            "model": "GTS25DE",
+            "vehicle_value": 50_000_000,
+            "residual_value": 10_000_000
+        });
+        let (status, body) = harness
+            .send("POST", "/api/v1/equipment", Some(json_body(&create_body)))
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{body:?}");
+        let id = body["id"].as_str().unwrap().to_owned();
 
-    // Persisted fields match.
-    let created = fetch_equipment_view(&pool, &id).await;
-    assert_eq!(created.status, "임대");
-    assert_eq!(created.model.as_deref(), Some("GTS25DE"));
-    assert_eq!(created.vehicle_value, Some(50_000_000));
+        // Persisted fields match.
+        let created = fetch_equipment_view(&pool, &id).await;
+        assert_eq!(created.status, "임대");
+        assert_eq!(created.model.as_deref(), Some("GTS25DE"));
+        assert_eq!(created.vehicle_value, Some(50_000_000));
 
-    // Update: flip status to 예비 and clear the model.
-    let update_body = json!({ "status": "spare", "model": null, "residual_value": 7_500_000 });
-    let (status, _) = harness
-        .send(
-            "PATCH",
-            &format!("/api/v1/equipment/{id}"),
-            Some(json_body(&update_body)),
-        )
-        .await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
-    let updated = fetch_equipment_view(&pool, &id).await;
-    assert_eq!(updated.status, "예비");
-    assert_eq!(updated.model, None);
-    assert_eq!(updated.residual_value, Some(7_500_000));
+        // Update: flip status to 예비 and clear the model.
+        let update_body = json!({ "status": "spare", "model": null, "residual_value": 7_500_000 });
+        let (status, _) = harness
+            .send(
+                "PATCH",
+                &format!("/api/v1/equipment/{id}"),
+                Some(json_body(&update_body)),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let updated = fetch_equipment_view(&pool, &id).await;
+        assert_eq!(updated.status, "예비");
+        assert_eq!(updated.model, None);
+        assert_eq!(updated.residual_value, Some(7_500_000));
 
-    // Soft delete: marks 폐기, never removes the row.
-    let (status, _) = harness
-        .send("DELETE", &format!("/api/v1/equipment/{id}"), None)
-        .await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
-    assert_eq!(fetch_equipment_view(&pool, &id).await.status, "폐기");
+        // Soft delete: marks 폐기, never removes the row.
+        let (status, _) = harness
+            .send("DELETE", &format!("/api/v1/equipment/{id}"), None)
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(fetch_equipment_view(&pool, &id).await.status, "폐기");
 
-    // A second soft delete is a conflict.
-    let (status, _) = harness
-        .send("DELETE", &format!("/api/v1/equipment/{id}"), None)
-        .await;
-    assert_eq!(status, StatusCode::CONFLICT);
+        // A second soft delete is a conflict.
+        let (status, _) = harness
+            .send("DELETE", &format!("/api/v1/equipment/{id}"), None)
+            .await;
+        assert_eq!(status, StatusCode::CONFLICT);
 
-    // Every mutation produced exactly one audit row.
-    for action in ["equipment.create", "equipment.update", "equipment.delete"] {
-        assert_eq!(
-            audit_count(&pool, action).await,
-            1,
-            "audit row for {action}"
-        );
-    }
+        // Every mutation produced exactly one audit row.
+        for action in ["equipment.create", "equipment.update", "equipment.delete"] {
+            assert_eq!(
+                audit_count(&pool, action).await,
+                1,
+                "audit row for {action}"
+            );
+        }
+    })
+    .await;
 }
 
 struct EquipmentView {
@@ -181,19 +191,22 @@ async fn audit_count(pool: &PgPool, action: &str) -> i64 {
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn create_equipment_rejects_non_admin(pool: PgPool) {
-    let harness = Harness::new(&pool, "MECHANIC").await;
-    let body = json!({
-        "equipment_no": "CFO25-7778",
-        "customer_name": "K&L",
-        "site_name": "케이앤엘",
-        "status": "rented",
-        "specification": "좌식",
-        "ton_text": "2.5T"
-    });
-    let (status, _) = harness
-        .send("POST", "/api/v1/equipment", Some(json_body(&body)))
-        .await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let harness = Harness::new(&pool, "MECHANIC").await;
+        let body = json!({
+            "equipment_no": "CFO25-7778",
+            "customer_name": "K&L",
+            "site_name": "케이앤엘",
+            "status": "rented",
+            "specification": "좌식",
+            "ton_text": "2.5T"
+        });
+        let (status, _) = harness
+            .send("POST", "/api/v1/equipment", Some(json_body(&body)))
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    })
+    .await;
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +325,7 @@ fn issue_token(
     issuer
         .issue_access_token(AccessTokenInput {
             subject: user_id,
+            org_id: OrgId::knl(),
             roles,
             branches,
             issued_at: OffsetDateTime::now_utc(),

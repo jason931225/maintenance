@@ -17,8 +17,8 @@ use mnt_dispatch_application::{
 };
 use mnt_dispatch_domain::{DispatchResponseKind, DispatchTimerConfig};
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, KernelError, P1DispatchAlertId, P1DispatchId, TraceContext,
-    UserId, WorkOrderId,
+    BranchId, BranchScope, ErrorKind, KernelError, OrgId, P1DispatchAlertId, P1DispatchId,
+    TraceContext, UserId, WorkOrderId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
@@ -55,7 +55,9 @@ impl DispatchRestState {
 }
 
 pub fn router(state: DispatchRestState) -> Router {
-    Router::new()
+    let verifier = state.jwt_verifier.clone();
+    let pool = state.store.pool().clone();
+    let router = Router::new()
         .route(
             "/api/v1/work-orders/{work_order_id}/p1-dispatch",
             post(start_dispatch),
@@ -69,7 +71,8 @@ pub fn router(state: DispatchRestState) -> Router {
             "/api/v1/p1-dispatches/{dispatch_id}/force-assign",
             post(force_assign),
         )
-        .with_state(state)
+        .with_state(state);
+    mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
 
 #[derive(Debug, Deserialize)]
@@ -396,7 +399,9 @@ fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
         BranchScope::Branches(branches)
     };
 
-    Ok(Principal::new(user_id, roles, branch_scope))
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 
 fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {

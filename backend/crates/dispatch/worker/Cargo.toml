@@ -13,6 +13,7 @@ mnt-dispatch-application = { workspace = true }
 mnt-kernel-core = { workspace = true }
 mnt-platform-jobs = { workspace = true }
 mnt-platform-push = { workspace = true }
+mnt-platform-request-context = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
 tracing = { workspace = true }

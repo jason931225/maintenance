@@ -22,7 +22,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, KernelError, SupportTicketId, TraceContext, UserId,
+    BranchId, BranchScope, ErrorKind, KernelError, OrgId, SupportTicketId, TraceContext, UserId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize, resolve_branch_scope};
@@ -115,7 +115,10 @@ impl SupportRestState {
 }
 
 pub fn router(state: SupportRestState) -> Router {
-    Router::new()
+    let verifier = state.jwt_verifier.clone();
+    let pool = state.pool().clone();
+    // Authenticated routes — every handler here requires a resolved Principal.
+    let authed = Router::new()
         .route(
             SUPPORT_TICKETS_PATH,
             get(list_tickets).post(create_internal_ticket),
@@ -127,8 +130,23 @@ pub fn router(state: SupportRestState) -> Router {
             post(transition_ticket),
         )
         .route(SUPPORT_TICKET_COMMENTS_PATH_TEMPLATE, post(add_comment))
+        .with_state(state.clone());
+    let authed = mnt_platform_request_context::with_request_context(authed, verifier, pool);
+    // Unauthenticated intake route — no JWT required, but still needs a tenant
+    // context for the store. Customer intake always belongs to the KNL org.
+    let intake = Router::new()
         .route(SUPPORT_INTAKE_PATH, post(customer_intake))
         .with_state(state)
+        .layer(axum::middleware::from_fn(
+            |req: axum::extract::Request, next: axum::middleware::Next| async move {
+                mnt_platform_request_context::scope_org(
+                    mnt_kernel_core::OrgId::knl(),
+                    next.run(req),
+                )
+                .await
+            },
+        ));
+    authed.merge(intake)
 }
 
 // ---------------------------------------------------------------------------
@@ -650,7 +668,9 @@ async fn principal_from_claims(
         .await
         .map_err(|err| RestError::internal(err.to_string()))?;
 
-    Ok(Principal::new(user_id, roles, branch_scope))
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 
 // ---------------------------------------------------------------------------

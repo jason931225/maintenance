@@ -37,76 +37,85 @@ fn intake_request(ip: &str) -> Request<Body> {
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn intake_succeeds_then_rate_limits_past_cap(pool: PgPool) {
-    let app = build(pool.clone());
-    let ip = "203.0.113.42";
-    // Per-IP cap is 5; the 6th request in the window must be 429.
-    let cap = 5;
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let app = build(pool.clone());
+        let ip = "203.0.113.42";
+        // Per-IP cap is 5; the 6th request in the window must be 429.
+        let cap = 5;
 
-    for i in 0..cap {
-        let response = app.clone().oneshot(intake_request(ip)).await.unwrap();
-        assert_eq!(
-            response.status(),
-            StatusCode::ACCEPTED,
-            "request {i} should be accepted"
-        );
-    }
+        for i in 0..cap {
+            let response = app.clone().oneshot(intake_request(ip)).await.unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::ACCEPTED,
+                "request {i} should be accepted"
+            );
+        }
 
-    let limited = app.clone().oneshot(intake_request(ip)).await.unwrap();
-    assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+        let limited = app.clone().oneshot(intake_request(ip)).await.unwrap();
+        assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
 
-    // A different IP is independent and still accepted.
-    let other = app
-        .clone()
-        .oneshot(intake_request("198.51.100.1"))
-        .await
-        .unwrap();
-    assert_eq!(other.status(), StatusCode::ACCEPTED);
+        // A different IP is independent and still accepted.
+        let other = app
+            .clone()
+            .oneshot(intake_request("198.51.100.1"))
+            .await
+            .unwrap();
+        assert_eq!(other.status(), StatusCode::ACCEPTED);
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn intake_rejects_missing_fields_generically(pool: PgPool) {
-    let app = build(pool);
-    let body = serde_json::json!({
-        "category": "OTHER",
-        "priority": "LOW",
-        "title": "   ",
-        "body": "x",
-        "requester_name": "Cust",
-        "requester_contact": "c@example.com"
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let app = build(pool);
+        let body = serde_json::json!({
+            "category": "OTHER",
+            "priority": "LOW",
+            "title": "   ",
+            "body": "x",
+            "requester_name": "Cust",
+            "requester_contact": "c@example.com"
+        })
+        .to_string();
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/v1/support/intake")
+            .header("content-type", "application/json")
+            .header("x-forwarded-for", "203.0.113.99")
+            .body(Body::from(body))
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     })
-    .to_string();
-    let request = Request::builder()
-        .method("POST")
-        .uri("/api/v1/support/intake")
-        .header("content-type", "application/json")
-        .header("x-forwarded-for", "203.0.113.99")
-        .body(Body::from(body))
-        .unwrap();
-    let response = app.oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn intake_rejects_over_length_fields_generically(pool: PgPool) {
-    let app = build(pool);
-    // One scalar past the store-side body bound: must be rejected at the edge
-    // with a generic 400, before any persistence.
-    let body = serde_json::json!({
-        "category": "OTHER",
-        "priority": "LOW",
-        "title": "Late delivery",
-        "body": "x".repeat(MAX_BODY_CHARS + 1),
-        "requester_name": "Cust",
-        "requester_contact": "c@example.com"
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let app = build(pool);
+        // One scalar past the store-side body bound: must be rejected at the edge
+        // with a generic 400, before any persistence.
+        let body = serde_json::json!({
+            "category": "OTHER",
+            "priority": "LOW",
+            "title": "Late delivery",
+            "body": "x".repeat(MAX_BODY_CHARS + 1),
+            "requester_name": "Cust",
+            "requester_contact": "c@example.com"
+        })
+        .to_string();
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/v1/support/intake")
+            .header("content-type", "application/json")
+            .header("x-forwarded-for", "203.0.113.77")
+            .body(Body::from(body))
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     })
-    .to_string();
-    let request = Request::builder()
-        .method("POST")
-        .uri("/api/v1/support/intake")
-        .header("content-type", "application/json")
-        .header("x-forwarded-for", "203.0.113.77")
-        .body(Body::from(body))
-        .unwrap();
-    let response = app.oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    .await;
 }

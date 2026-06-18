@@ -48,6 +48,7 @@ impl RefreshTokenStore {
         &self,
         pool: &PgPool,
         user_id: Uuid,
+        org_id: OrgId,
         now: OffsetDateTime,
         ttl: Duration,
     ) -> Result<RefreshTokenIssue, AuthError> {
@@ -56,7 +57,11 @@ impl RefreshTokenStore {
         let token = generate_refresh_token();
         let token_hash = hash_token(token.as_str());
         let expires_at = now + ttl;
+        let org_uuid = *org_id.as_uuid();
 
+        // `with_org` arms `app.current_org` for the transaction, so the RLS
+        // WITH CHECK on `auth_refresh_token_families`/`auth_refresh_tokens`
+        // accepts these tenant rows when the app writes as the non-owner role.
         let audit = AuditEvent::new(
             Some(UserId::from_uuid(user_id)),
             AuditAction::new("auth.refresh.issue")?,
@@ -65,6 +70,7 @@ impl RefreshTokenStore {
             TraceContext::generate(),
             now,
         )
+        .with_org(org_id)
         .with_snapshots(
             None,
             Some(serde_json::json!({
@@ -86,7 +92,7 @@ impl RefreshTokenStore {
                 .bind(family_id)
                 .bind(user_id)
                 .bind(now)
-                .bind(*OrgId::knl().as_uuid())
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
 
@@ -103,7 +109,7 @@ impl RefreshTokenStore {
                 .bind(token_hash)
                 .bind(now)
                 .bind(expires_at)
-                .bind(*OrgId::knl().as_uuid())
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
 
@@ -152,6 +158,7 @@ impl RefreshTokenStore {
                 t.id AS token_id,
                 t.family_id,
                 t.user_id,
+                t.org_id,
                 t.expires_at,
                 t.used_at,
                 t.revoked_at AS token_revoked_at,
@@ -174,6 +181,13 @@ impl RefreshTokenStore {
         let token_id: Uuid = row.try_get("token_id")?;
         let family_id: Uuid = row.try_get("family_id")?;
         let user_id: Uuid = row.try_get("user_id")?;
+        // The replacement token inherits the family's tenant. Arm the GUC so the
+        // subsequent INSERT/UPDATE pass the RLS WITH CHECK as the non-owner role.
+        let org_uuid: Uuid = row.try_get("org_id")?;
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(org_uuid.to_string())
+            .execute(tx.as_mut())
+            .await?;
         let expires_at: OffsetDateTime = row.try_get("expires_at")?;
         let used_at: Option<OffsetDateTime> = row.try_get("used_at")?;
         let token_revoked_at: Option<OffsetDateTime> = row.try_get("token_revoked_at")?;
@@ -231,7 +245,7 @@ impl RefreshTokenStore {
         .bind(replacement_hash)
         .bind(now)
         .bind(replacement_expires_at)
-        .bind(*OrgId::knl().as_uuid())
+        .bind(org_uuid)
         .execute(tx.as_mut())
         .await?;
 
@@ -302,6 +316,7 @@ impl RefreshTokenStore {
             SELECT
                 t.family_id,
                 t.user_id,
+                t.org_id,
                 f.revoked_at AS family_revoked_at
             FROM auth_refresh_tokens t
             JOIN auth_refresh_token_families f ON f.id = t.family_id
@@ -320,6 +335,13 @@ impl RefreshTokenStore {
 
         let family_id: Uuid = row.try_get("family_id")?;
         let user_id: Uuid = row.try_get("user_id")?;
+        // Arm the tenant GUC for the family's org so the UPDATEs and the audit
+        // insert below pass RLS as the non-owner role.
+        let org_uuid: Uuid = row.try_get("org_id")?;
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(org_uuid.to_string())
+            .execute(tx.as_mut())
+            .await?;
         let family_revoked_at: Option<OffsetDateTime> = row.try_get("family_revoked_at")?;
 
         if family_revoked_at.is_some() {

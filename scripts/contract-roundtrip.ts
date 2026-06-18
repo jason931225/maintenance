@@ -13,6 +13,10 @@ const port = Number(process.env.CONTRACT_APP_PORT ?? "18081");
 const baseUrl = `http://127.0.0.1:${port}`;
 const issuer = "mnt-platform-auth";
 const audience = "mnt-api";
+// KNL is tenant #1, seeded by migration 0028 (OrgId::knl()). Every tenant-scoped
+// row now carries org_id, so the contract seed stamps the same tenant. Declared
+// at module top so the top-level seed IIFE can reference it (no TDZ).
+const KNL_ORG_ID = "00000000-0000-0000-0000-0000000000a1";
 
 if (!databaseUrl) {
   throw new Error("CONTRACT_DATABASE_URL is required for the generated-client contract test");
@@ -116,10 +120,6 @@ async function resetLocalContractDatabase(client: pg.Client, connectionString: s
   await client.query("DROP SCHEMA IF EXISTS public CASCADE");
   await client.query("CREATE SCHEMA public");
 }
-
-// KNL is tenant #1, seeded by migration 0028 (OrgId::knl()). Every tenant-scoped
-// row now carries org_id, so the contract seed stamps the same tenant.
-const KNL_ORG_ID = "00000000-0000-0000-0000-0000000000a1";
 
 async function seedContractData(client: pg.Client, actorId: string, scopedBranchId: string) {
   const regionId = randomUUID();

@@ -16,7 +16,8 @@ use mnt_compliance_application::{
 };
 use mnt_compliance_domain::{LocationConsent, LocationConsentState, LocationPing};
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, KernelError, LocationPingId, Timestamp, TraceContext, UserId,
+    BranchId, BranchScope, ErrorKind, KernelError, LocationPingId, OrgId, Timestamp, TraceContext,
+    UserId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
@@ -50,7 +51,9 @@ impl ComplianceRestState {
 }
 
 pub fn router(state: ComplianceRestState) -> Router {
-    Router::new()
+    let verifier = state.jwt_verifier.clone();
+    let pool = state.store.pool().clone();
+    let router = Router::new()
         .route("/api/v1/location-consent/status", get(get_status))
         .route("/api/v1/location-consent/grant", post(grant_consent))
         .route("/api/v1/location-consent/suspend", post(suspend_consent))
@@ -62,7 +65,8 @@ pub fn router(state: ComplianceRestState) -> Router {
             "/api/v1/location-consents/ledger.csv",
             get(export_ledger_csv),
         )
-        .with_state(state)
+        .with_state(state);
+    mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
 
 #[derive(Debug, Deserialize)]
@@ -435,7 +439,9 @@ fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
         BranchScope::Branches(branches)
     };
 
-    Ok(Principal::new(user_id, roles, branch_scope))
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 
 fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {

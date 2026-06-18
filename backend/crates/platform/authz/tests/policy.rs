@@ -74,7 +74,7 @@ fn expected_matrix() -> [(Feature, [PermissionLevel; 5]); 35] {
 }
 
 fn principal(role: Role, scope: BranchScope) -> Principal {
-    Principal::new(UserId::new(), BTreeSet::from([role]), scope)
+    Principal::new(UserId::new(), OrgId::knl(), BTreeSet::from([role]), scope)
 }
 
 #[test]

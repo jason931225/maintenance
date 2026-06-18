@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use mnt_kernel_core::{BranchId, UserId};
+use mnt_kernel_core::{BranchId, OrgId, UserId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
@@ -33,6 +33,7 @@ fn public_key_verifier_accepts_es256_access_token() {
     let token = issuer
         .issue_access_token(AccessTokenInput {
             subject: user_id,
+            org_id: OrgId::knl(),
             roles: vec!["ADMIN".to_owned()],
             branches: vec![branch_id],
             issued_at: OffsetDateTime::now_utc(),
