@@ -180,6 +180,7 @@ function issueAccessToken(subject: string, scopedBranchId: string) {
     jti: randomUUID(),
     roles: ["ADMIN"],
     branches: [scopedBranchId],
+    org: KNL_ORG_ID,
     alg: "ES256",
   };
   const signingInput = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(payload))}`;
