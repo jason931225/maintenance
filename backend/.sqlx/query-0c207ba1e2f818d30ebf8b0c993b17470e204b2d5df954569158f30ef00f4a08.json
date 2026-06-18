@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO regions (name) VALUES ($1) RETURNING id",
+  "query": "INSERT INTO users (display_name, roles, org_id) VALUES ($1, $2, $3) RETURNING id",
   "describe": {
     "columns": [
       {
@@ -9,7 +9,7 @@
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "regions",
+            "table": "users",
             "name": "id"
           }
         }
@@ -17,12 +17,14 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Text",
+        "TextArray",
+        "Uuid"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "8c03482c862d241644e2a55bde3538f57b17f60875dcf7ade92b5bee6a43ea98"
+  "hash": "0c207ba1e2f818d30ebf8b0c993b17470e204b2d5df954569158f30ef00f4a08"
 }

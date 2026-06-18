@@ -60,6 +60,14 @@ macro_rules! typed_id {
 }
 
 typed_id!(
+    /// A tenant — one maintenance company (정비 회사). The top of the
+    /// hierarchy (org → region → branch → user) and the hard multi-tenant
+    /// isolation boundary: every tenant-scoped row carries an `org_id`, and
+    /// Postgres RLS keyed on `app.current_org` makes cross-tenant access
+    /// impossible. KNL Logistics is tenant #1.
+    OrgId
+);
+typed_id!(
     /// An organizational branch (지점). Day-1 scoping concept: every
     /// work order, user membership, equipment row, KPI rollup, and chat
     /// team-channel carries one.

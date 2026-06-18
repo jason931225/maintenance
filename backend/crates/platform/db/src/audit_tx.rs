@@ -7,10 +7,27 @@
 //! If the closure returns `Err`, the transaction is rolled back and NEITHER
 //! the mutation nor the audit row persists — atomicity is the hard contract.
 
-use mnt_kernel_core::AuditEvent;
+use mnt_kernel_core::{AuditEvent, OrgId};
 use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::error::DbError;
+
+/// Bind the tenant to the transaction-local `app.current_org` GUC.
+///
+/// `set_config(name, value, true)` scopes the setting to the current
+/// transaction (`is_local = true`), so it is automatically cleared on
+/// COMMIT/ROLLBACK and never leaks to the next checkout of a pooled
+/// connection. Postgres RLS policies read this GUC; an unset GUC fails closed
+/// (no rows visible, no writes accepted).
+async fn set_current_org(tx: &mut Transaction<'_, Postgres>, org: OrgId) -> Result<(), DbError> {
+    let org_text = org.as_uuid().to_string();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(org_text)
+        .execute(tx.as_mut())
+        .await
+        .map_err(DbError::Sqlx)?;
+    Ok(())
+}
 
 /// Execute a mutation closure inside a Postgres transaction, then append an
 /// audit row in the **same** transaction before committing.
@@ -46,6 +63,15 @@ where
     E: From<DbError>,
 {
     let mut tx = pool.begin().await.map_err(|e| E::from(DbError::Sqlx(e)))?;
+
+    // Tenant gate: bind the org to the transaction-local `app.current_org` GUC
+    // BEFORE the caller's closure runs, so Postgres RLS scopes every
+    // INSERT/UPDATE/SELECT the closure performs (and the audit insert below) to
+    // this tenant. `None` leaves the GUC unset — legacy, pre-multi-tenant
+    // callers keep their existing behavior.
+    if let Some(org) = event.org_id {
+        set_current_org(&mut tx, org).await.map_err(E::from)?;
+    }
 
     // Run the caller's mutation closure.
     let result = f(&mut tx).await;
@@ -160,6 +186,48 @@ pub async fn insert_audit_event(
     insert_audit_event_tx(tx, event).await
 }
 
+/// Run a read-only (or otherwise non-audited) closure inside a tenant-scoped
+/// transaction.
+///
+/// Read paths do not flow through `with_audit`, so they need their own way to
+/// arm the `app.current_org` GUC before issuing tenant-scoped SELECTs. This
+/// opens a transaction, binds the org GUC transaction-locally, runs the
+/// caller's closure, and commits. RLS narrows every row the closure sees to
+/// `org`.
+///
+/// # Example
+/// ```ignore
+/// let orders = with_org_conn(&pool, org, |tx| Box::pin(async move {
+///     sqlx::query_scalar!("SELECT count(*) FROM work_orders")
+///         .fetch_one(tx.as_mut())
+///         .await
+///         .map_err(DbError::Sqlx)
+/// })).await?;
+/// ```
+pub async fn with_org_conn<F, T, E>(pool: &PgPool, org: OrgId, f: F) -> Result<T, E>
+where
+    F: for<'tx> FnOnce(
+        &'tx mut Transaction<'_, Postgres>,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<T, E>> + Send + 'tx>,
+    >,
+    E: From<DbError>,
+{
+    let mut tx = pool.begin().await.map_err(|e| E::from(DbError::Sqlx(e)))?;
+    set_current_org(&mut tx, org).await.map_err(E::from)?;
+
+    match f(&mut tx).await {
+        Err(e) => {
+            let _ = tx.rollback().await;
+            Err(e)
+        }
+        Ok(value) => {
+            tx.commit().await.map_err(|e| E::from(DbError::Sqlx(e)))?;
+            Ok(value)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, TraceContext, UserId};
@@ -168,6 +236,20 @@ mod tests {
 
     use super::with_audit;
     use crate::error::DbError;
+
+    /// Seed an organization and return its id. `org_id` is now NOT NULL on the
+    /// slice tables (multi-tenant phase 1), so every seeded region/branch/user
+    /// must carry one.
+    async fn seed_org(pool: &PgPool) -> uuid::Uuid {
+        sqlx::query_scalar!(
+            "INSERT INTO organizations (slug, name) VALUES ($1, $2) RETURNING id",
+            format!("t{}", &uuid::Uuid::new_v4().simple().to_string()[..12]),
+            "Test Org",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
 
     /// Convenience: build a minimal valid AuditEvent for test use.
     fn make_event(action: &str) -> AuditEvent {
@@ -187,28 +269,33 @@ mod tests {
     // -----------------------------------------------------------------------
     #[sqlx::test]
     async fn happy_path_mutation_and_audit_both_persist(pool: PgPool) {
-        // Seed prerequisite rows (region → branch → user).
+        // Seed prerequisite rows (org → region → branch → user).
+        let org_id = seed_org(&pool).await;
+
         let region_id: uuid::Uuid = sqlx::query_scalar!(
-            "INSERT INTO regions (name) VALUES ($1) RETURNING id",
-            "Test Region"
+            "INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id",
+            "Test Region",
+            org_id,
         )
         .fetch_one(&pool)
         .await
         .unwrap();
 
         let branch_id: uuid::Uuid = sqlx::query_scalar!(
-            "INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id",
+            "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
             region_id,
-            "Test Branch"
+            "Test Branch",
+            org_id,
         )
         .fetch_one(&pool)
         .await
         .unwrap();
 
         let user_id: uuid::Uuid = sqlx::query_scalar!(
-            "INSERT INTO users (display_name, roles) VALUES ($1, $2) RETURNING id",
+            "INSERT INTO users (display_name, roles, org_id) VALUES ($1, $2, $3) RETURNING id",
             "Alice",
             &["MECHANIC"] as &[&str],
+            org_id,
         )
         .fetch_one(&pool)
         .await
@@ -274,27 +361,32 @@ mod tests {
     // -----------------------------------------------------------------------
     #[sqlx::test]
     async fn atomicity_rollback_drops_both_mutation_and_audit(pool: PgPool) {
+        let org_id = seed_org(&pool).await;
+
         let region_id: uuid::Uuid = sqlx::query_scalar!(
-            "INSERT INTO regions (name) VALUES ($1) RETURNING id",
-            "Rollback Region"
+            "INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id",
+            "Rollback Region",
+            org_id,
         )
         .fetch_one(&pool)
         .await
         .unwrap();
 
         let _branch_id: uuid::Uuid = sqlx::query_scalar!(
-            "INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id",
+            "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
             region_id,
-            "Rollback Branch"
+            "Rollback Branch",
+            org_id,
         )
         .fetch_one(&pool)
         .await
         .unwrap();
 
         let user_id: uuid::Uuid = sqlx::query_scalar!(
-            "INSERT INTO users (display_name, roles) VALUES ($1, $2) RETURNING id",
+            "INSERT INTO users (display_name, roles, org_id) VALUES ($1, $2, $3) RETURNING id",
             "Bob",
             &["MECHANIC"] as &[&str],
+            org_id,
         )
         .fetch_one(&pool)
         .await
@@ -343,18 +435,22 @@ mod tests {
         // Insert a legitimate audit row directly (bypassing with_audit for
         // test setup simplicity — the trigger fires regardless of how the row
         // was inserted).
+        let org_id = seed_org(&pool).await;
+
         let region_id: uuid::Uuid = sqlx::query_scalar!(
-            "INSERT INTO regions (name) VALUES ($1) RETURNING id",
-            "AO Region"
+            "INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id",
+            "AO Region",
+            org_id,
         )
         .fetch_one(&pool)
         .await
         .unwrap();
 
         let branch_id: uuid::Uuid = sqlx::query_scalar!(
-            "INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id",
+            "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
             region_id,
-            "AO Branch"
+            "AO Branch",
+            org_id,
         )
         .fetch_one(&pool)
         .await
@@ -418,18 +514,22 @@ mod tests {
     // -----------------------------------------------------------------------
     #[sqlx::test]
     async fn append_only_delete_on_audit_events_is_rejected(pool: PgPool) {
+        let org_id = seed_org(&pool).await;
+
         let region_id: uuid::Uuid = sqlx::query_scalar!(
-            "INSERT INTO regions (name) VALUES ($1) RETURNING id",
-            "Del Region"
+            "INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id",
+            "Del Region",
+            org_id,
         )
         .fetch_one(&pool)
         .await
         .unwrap();
 
         let branch_id: uuid::Uuid = sqlx::query_scalar!(
-            "INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id",
+            "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
             region_id,
-            "Del Branch"
+            "Del Branch",
+            org_id,
         )
         .fetch_one(&pool)
         .await
