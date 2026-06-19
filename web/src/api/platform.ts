@@ -1,4 +1,5 @@
 import { getDeviceId } from "./device";
+import { isAuthPath, singleFlightRefresh } from "./refresh";
 
 /**
  * Vendor platform-admin (multi-tenant) API. These `/platform/*` routes are an
@@ -70,11 +71,33 @@ async function platformFetch(
     headers.set("X-Device-Id", deviceId);
   }
 
-  return fetch(`${platformBaseUrl()}${path}`, {
+  const response = await fetch(`${platformBaseUrl()}${path}`, {
     ...init,
     headers,
     credentials: "include",
   });
+
+  // On a 401 from a non-auth endpoint: single-flight refresh then retry once.
+  if (response.status === 401 && !isAuthPath(`${platformBaseUrl()}${path}`)) {
+    let newToken: string;
+    try {
+      newToken = await singleFlightRefresh();
+    } catch {
+      // singleFlightRefresh already called onUnauthenticated(); return the 401
+      // so the caller sees a PlatformApiError with status 401.
+      return response;
+    }
+
+    const retryHeaders = new Headers(headers);
+    retryHeaders.set("Authorization", `Bearer ${newToken}`);
+    return fetch(`${platformBaseUrl()}${path}`, {
+      ...init,
+      headers: retryHeaders,
+      credentials: "include",
+    });
+  }
+
+  return response;
 }
 
 async function parseError(response: Response): Promise<PlatformApiError> {

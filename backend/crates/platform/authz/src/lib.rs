@@ -438,6 +438,52 @@ pub async fn resolve_branch_scope(
     ))
 }
 
+/// Resolve branch scope under an explicitly-armed tenant, for callers that run
+/// BEFORE the per-request tenant middleware (the pre-auth auth-rest routes).
+///
+/// `user_branches` is FORCE RLS, so on the non-owner `mnt_rt` role the bare-pool
+/// [`resolve_branch_scope`] returns ZERO branches when `app.current_org` is unset
+/// — silently narrowing a non-super admin's scope to nothing. This variant opens
+/// a transaction, arms the GUC to `org` (the caller's verified-token tenant),
+/// then runs the same query, so RLS narrows to exactly that org's memberships.
+pub async fn resolve_branch_scope_in_org(
+    pool: &PgPool,
+    org: OrgId,
+    user_id: UserId,
+    roles: &[Role],
+) -> Result<BranchScope, KernelError> {
+    if roles
+        .iter()
+        .any(|role| matches!(role, Role::SuperAdmin | Role::Executive))
+    {
+        return Ok(BranchScope::All);
+    }
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|err| KernelError::internal(format!("failed to resolve branch scope: {err}")))?;
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(org.as_uuid().to_string())
+        .execute(tx.as_mut())
+        .await
+        .map_err(|err| KernelError::internal(format!("failed to resolve branch scope: {err}")))?;
+    let rows: Vec<uuid::Uuid> = sqlx::query_scalar(
+        "SELECT branch_id FROM user_branches WHERE user_id = $1 ORDER BY branch_id",
+    )
+    .bind(*user_id.as_uuid())
+    .fetch_all(tx.as_mut())
+    .await
+    .map_err(|err| KernelError::internal(format!("failed to resolve branch scope: {err}")))?;
+    tx.commit()
+        .await
+        .map_err(|err| KernelError::internal(format!("failed to resolve branch scope: {err}")))?;
+
+    Ok(BranchScope::Branches(
+        rows.into_iter().map(BranchId::from_uuid).collect(),
+    ))
+}
+
 /// A validated SQL identifier for a branch column, e.g. `work_orders.branch_id`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BranchColumn(&'static str);

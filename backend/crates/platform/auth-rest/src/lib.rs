@@ -20,8 +20,10 @@ use mnt_platform_auth::{
     PasskeyAuthenticationCredential, PasskeyRegistrationCredential, PasskeyRegistrationStart,
     PasskeyService, RefreshTokenStore, RefreshTokenUseError, WebauthnSettings,
 };
-use mnt_platform_authz::{Action, Feature, Principal, Role, authorize, resolve_branch_scope};
-use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_authz::{
+    Action, Feature, Principal, Role, authorize, resolve_branch_scope_in_org,
+};
+use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_provisioning::{BootstrapCredentialStore, ProvisioningError};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
@@ -445,12 +447,13 @@ async fn start_registration(
     Json(body): Json<RegisterStartRequest>,
 ) -> Result<Json<RegisterStartResponse>, RestError> {
     let services = state.services()?;
-    let user_id = authenticated_user_id(services, &headers)?;
-    let user = load_user_auth_context(&state.pool, user_id).await?;
+    let (user_id, org_id) = authenticated_user_context(services, &headers)?;
+    let user = load_user_auth_context_in_org(&state.pool, org_id, user_id).await?;
     let ceremony = services
         .passkeys
         .start_registration(
             &state.pool,
+            org_id,
             PasskeyRegistrationStart {
                 user_id,
                 username: body.username.unwrap_or(user.username),
@@ -475,7 +478,7 @@ async fn finish_registration(
     Json(body): Json<RegisterFinishRequest>,
 ) -> Result<(StatusCode, Json<RegisterFinishResponse>), RestError> {
     let services = state.services()?;
-    let user_id = authenticated_user_id(services, &headers)?;
+    let (user_id, org_id) = authenticated_user_context(services, &headers)?;
     ensure_registration_ceremony_owner(&state.pool, body.ceremony_id, user_id).await?;
     let now = OffsetDateTime::now_utc();
 
@@ -490,7 +493,7 @@ async fn finish_registration(
         .map_err(|err| RestError::internal(err.to_string()))?;
     let passkey = services
         .passkeys
-        .finish_registration_in_tx(&mut tx, body.ceremony_id, body.credential, now)
+        .finish_registration_in_tx(&mut tx, org_id, body.ceremony_id, body.credential, now)
         .await
         .map_err(|err| RestError::internal(err.to_string()))?;
     services
@@ -553,7 +556,10 @@ async fn finish_login(
         .finish_authentication(&state.pool, body.ceremony_id, body.credential)
         .await
         .map_err(|err| RestError::unauthorized(err.to_string()))?;
-    let user = load_user_auth_context(&state.pool, outcome.user_id).await?;
+    // Passkey login is a pre-auth route (no tenant middleware): arm the GUC with
+    // the org resolved from the asserted credential so the `users` read + session
+    // mint run under the credential's tenant.
+    let user = load_user_auth_context_in_org(&state.pool, outcome.org_id, outcome.user_id).await?;
     let tokens = issue_token_pair(&state.pool, services, &user).await?;
     record_auth_audit(
         &state.pool,
@@ -613,7 +619,11 @@ async fn redeem_otp(
         }
     };
 
-    let user = load_user_auth_context(&state.pool, redemption.user_id).await?;
+    // OTP redeem is a pre-auth route (no tenant middleware): arm the GUC with the
+    // org resolved from the redeemed credential so the `users` read + session mint
+    // run under the credential's tenant.
+    let user =
+        load_user_auth_context_in_org(&state.pool, redemption.org_id, redemption.user_id).await?;
     let tokens = issue_token_pair(&state.pool, services, &user).await?;
     record_auth_audit(
         &state.pool,
@@ -675,8 +685,10 @@ async fn issue_admin_otp(
 
     // Resolve the TARGET's real roles. A missing or inactive target is a 403 here
     // (the caller is authenticated; it is the requested target that is invalid),
-    // not the 401 the sign-in paths use.
-    let target = load_user_auth_context(&state.pool, body.user_id)
+    // not the 401 the sign-in paths use. The target lives in the caller's tenant
+    // (an admin can only manage users in its own org), so arm the GUC with the
+    // caller's verified org for this RLS-gated read.
+    let target = load_user_auth_context_in_org(&state.pool, principal.org_id, body.user_id)
         .await
         .map_err(forbidden_if_unauthorized)?;
     let target_roles = parse_roles(&target.roles)?;
@@ -696,9 +708,10 @@ async fn issue_admin_otp(
     // Resolve the target's REAL branch scope and require the caller to be
     // authorized against every one of the target's branches. A target with All
     // scope (SUPER_ADMIN/EXECUTIVE) or no branches cannot be issued for here.
-    let target_scope = resolve_branch_scope(&state.pool, target.user_id, &target_roles)
-        .await
-        .map_err(|err| RestError::internal(err.to_string()))?;
+    let target_scope =
+        resolve_branch_scope_in_org(&state.pool, principal.org_id, target.user_id, &target_roles)
+            .await
+            .map_err(|err| RestError::internal(err.to_string()))?;
     let target_branches = match target_scope {
         BranchScope::Branches(branches) if !branches.is_empty() => branches,
         _ => {
@@ -730,7 +743,7 @@ async fn issue_admin_otp(
     let now = OffsetDateTime::now_utc();
     let issue = services
         .bootstrap_credentials
-        .issue_for_zero_credential_user(&state.pool, body.user_id, now, ttl)
+        .issue_for_zero_credential_user(&state.pool, body.user_id, principal.org_id, now, ttl)
         .await
         .map_err(RestError::from_provisioning)?;
 
@@ -741,8 +754,8 @@ async fn issue_admin_otp(
     }))
 }
 
-/// Remap the `401` that `load_user_auth_context` returns for a missing/inactive
-/// user into a `403` for the admin issue-OTP path, where the CALLER is
+/// Remap the `401` that `load_user_auth_context_in_org` returns for a
+/// missing/inactive user into a `403` for the admin issue-OTP path, where the CALLER is
 /// authenticated and it is the requested TARGET that is invalid. Other statuses
 /// (e.g. internal DB errors) pass through unchanged.
 fn forbidden_if_unauthorized(err: RestError) -> RestError {
@@ -790,7 +803,9 @@ async fn refresh_token(
         .rotate(&state.pool, &refresh, now, services.refresh_token_ttl)
         .await
         .map_err(RestError::from_refresh)?;
-    let user = load_user_auth_context(&state.pool, issue.user_id).await?;
+    // Refresh is a pre-auth route (no tenant middleware): arm the GUC with the org
+    // the rotated token belongs to so the `users` read runs under that tenant.
+    let user = load_user_auth_context_in_org(&state.pool, issue.org_id, issue.user_id).await?;
     let access_token = issue_access_token(services, &user)?;
     if cookie_mode {
         let max_age = (issue.expires_at - now).whole_seconds();
@@ -942,8 +957,28 @@ fn issue_access_token(
         .map_err(|err| RestError::internal(err.to_string()))
 }
 
-async fn load_user_auth_context(
+/// Load a user's auth context when the caller already holds the request's tenant
+/// (e.g. from the verified JWT `org` claim, before the org middleware arms the
+/// GUC). `users` and `user_branches` are FORCE RLS, so as the non-owner `mnt_rt`
+/// role these reads return ZERO rows unless the GUC is armed; this variant arms
+/// it from `org` for the read transaction. A user whose row is not visible under
+/// `org` (wrong tenant, or no such user) is an unauthorized request.
+async fn load_user_auth_context_in_org(
     pool: &PgPool,
+    org: OrgId,
+    user_id: Uuid,
+) -> Result<UserAuthContext, RestError> {
+    with_org_conn::<_, UserAuthContext, RestError>(pool, org, move |tx| {
+        Box::pin(async move { load_user_auth_context_tx(tx, user_id).await })
+    })
+    .await
+}
+
+/// Load a user's auth context inside an EXISTING tenant-scoped transaction (the
+/// `app.current_org` GUC must already be armed by the caller). Shared core of
+/// [`load_user_auth_context_in_org`].
+async fn load_user_auth_context_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     user_id: Uuid,
 ) -> Result<UserAuthContext, RestError> {
     let row = sqlx::query(
@@ -954,7 +989,7 @@ async fn load_user_auth_context(
         "#,
     )
     .bind(user_id)
-    .fetch_optional(pool)
+    .fetch_optional(tx.as_mut())
     .await
     .map_err(|err| RestError::internal(err.to_string()))?
     .ok_or_else(|| RestError::unauthorized("user not found"))?;
@@ -993,7 +1028,7 @@ async fn load_user_auth_context(
         "#,
     )
     .bind(user_id)
-    .fetch_all(pool)
+    .fetch_all(tx.as_mut())
     .await
     .map_err(|err| RestError::internal(err.to_string()))?;
     let branches = branch_rows
@@ -1047,13 +1082,27 @@ async fn ensure_registration_ceremony_owner(
     }
 }
 
-fn authenticated_user_id(services: &AuthServices, headers: &HeaderMap) -> Result<Uuid, RestError> {
+/// Verify the bearer token and return BOTH the authenticated user id AND the
+/// tenant from the verified `org` claim.
+///
+/// The passkey registration/start paths are pre-auth-middleware (no
+/// `app.current_org` is armed by the router), but the caller IS authenticated:
+/// the verified token carries the tenant. Using the JWT's org — never a `users`
+/// read under RLS — breaks the chicken-and-egg and stamps every passkey write
+/// with the correct tenant.
+fn authenticated_user_context(
+    services: &AuthServices,
+    headers: &HeaderMap,
+) -> Result<(Uuid, OrgId), RestError> {
     let token = bearer_token(headers)?;
     let claims = services
         .jwt_verifier
         .verify_access_token(token)
         .map_err(|_| RestError::unauthorized("invalid bearer token"))?;
-    user_id_from_claims(claims)
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token org claim is not a valid uuid"))?;
+    let user_id = user_id_from_claims(claims)?;
+    Ok((user_id, org_id))
 }
 
 fn user_id_from_claims(claims: AccessClaims) -> Result<Uuid, RestError> {
@@ -1153,13 +1202,16 @@ async fn principal_from_headers(
         })
         .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
     let role_vec = roles.iter().copied().collect::<Vec<_>>();
-    // Resolve the live branch scope from the database rather than trusting the
-    // token's branch claim, matching the authz model's branch-membership gate.
-    let branch_scope = resolve_branch_scope(pool, user_id, &role_vec)
-        .await
-        .map_err(|err| RestError::internal(err.to_string()))?;
     let org_id = OrgId::from_str(&claims.org)
         .map_err(|_| RestError::unauthorized("token org claim is not a valid uuid"))?;
+    // Resolve the live branch scope from the database rather than trusting the
+    // token's branch claim, matching the authz model's branch-membership gate.
+    // This auth-rest route runs BEFORE the tenant middleware, so arm the GUC with
+    // the verified-token org: `user_branches` is FORCE RLS and would otherwise
+    // return zero branches for a non-super admin under `mnt_rt`.
+    let branch_scope = resolve_branch_scope_in_org(pool, org_id, user_id, &role_vec)
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
     Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 

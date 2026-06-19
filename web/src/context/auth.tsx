@@ -9,6 +9,7 @@ import React, {
 
 import { createConsoleApiClient } from "../api/client";
 import type { ConsoleApiClient } from "../api/client";
+import { setRefreshCallbacks } from "../api/refresh";
 import {
   finishPasskeyLogin,
   logout as logoutWebAuthn,
@@ -155,6 +156,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => createConsoleApiClient(session?.access_token),
     [session?.access_token],
   );
+
+  // Wire the single-flight refresh interceptor (client.ts / platform.ts) to this
+  // provider's refresh logic. Runs on every api/session change so the interceptor
+  // always holds a closure over the current token-bearing api instance.
+  useEffect(() => {
+    setRefreshCallbacks(
+      async () => {
+        const tokens = await refreshTokenFn(api);
+        setSession((current) =>
+          current
+            ? {
+                ...current,
+                access_token: tokens.access_token,
+                ...decodeAccessClaims(tokens.access_token),
+              }
+            : current,
+        );
+        return { access_token: tokens.access_token };
+      },
+      () => {
+        setSession(undefined);
+      },
+    );
+  }, [api]);
 
   // Boot-time silent refresh: POST /refresh with the HttpOnly cookie. Success ->
   // authenticated with a fresh access token; any failure (e.g. 401, no cookie)

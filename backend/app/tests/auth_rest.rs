@@ -581,6 +581,7 @@ async fn cookie_mode_redeem_sets_httponly_cookie_and_omits_body_refresh(pool: Pg
         .issue_for_zero_credential_user(
             &pool,
             *user_id.as_uuid(),
+            OrgId::knl(),
             OffsetDateTime::now_utc(),
             Duration::hours(24),
         )
@@ -650,6 +651,7 @@ async fn cookie_mode_login_then_refresh_reads_and_rotates_cookie(pool: PgPool) {
         .issue_for_zero_credential_user(
             &pool,
             *user_id.as_uuid(),
+            OrgId::knl(),
             OffsetDateTime::now_utc(),
             Duration::hours(24),
         )
@@ -751,6 +753,7 @@ async fn body_mode_without_header_is_unchanged_and_sets_no_cookie(pool: PgPool) 
         .issue_for_zero_credential_user(
             &pool,
             *user_id.as_uuid(),
+            OrgId::knl(),
             OffsetDateTime::now_utc(),
             Duration::hours(24),
         )
@@ -849,6 +852,7 @@ async fn admin_session_via_otp(service: &axum::Router, pool: &PgPool, user_id: U
         .issue_for_zero_credential_user(
             pool,
             *user_id.as_uuid(),
+            OrgId::knl(),
             OffsetDateTime::now_utc(),
             Duration::hours(24),
         )

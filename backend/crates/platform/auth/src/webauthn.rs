@@ -62,6 +62,11 @@ pub struct StoredPasskey {
 pub struct AuthenticationOutcome {
     pub user_id: Uuid,
     pub passkey_id: Uuid,
+    /// The tenant the asserting credential belongs to, resolved from the
+    /// credential id BEFORE the RLS-gated read. The login handler uses it to arm
+    /// the GUC for the subsequent `users` read + session mint, since the passkey
+    /// login route runs before the tenant middleware.
+    pub org_id: OrgId,
 }
 
 impl PasskeyService {
@@ -80,9 +85,14 @@ impl PasskeyService {
     pub async fn start_registration(
         &self,
         pool: &PgPool,
+        org: OrgId,
         input: PasskeyRegistrationStart,
     ) -> Result<RegistrationCeremony, AuthError> {
-        let existing = load_user_passkeys(pool, input.user_id).await?;
+        // Authenticated path: `org` comes from the verified JWT's `org` claim.
+        // `load_user_passkeys` reads the FORCE-RLS `auth_webauthn_credentials`, so
+        // the org is armed inside it to avoid an empty exclude-credentials list
+        // (which would let a user re-register an already-registered authenticator).
+        let existing = load_user_passkeys(pool, org, input.user_id).await?;
         let exclude_credentials = existing
             .into_iter()
             .map(|passkey| passkey.cred_id().clone())
@@ -124,13 +134,14 @@ impl PasskeyService {
     pub async fn finish_registration(
         &self,
         pool: &PgPool,
+        org: OrgId,
         ceremony_id: Uuid,
         credential: RegisterPublicKeyCredential,
     ) -> Result<StoredPasskey, AuthError> {
         let now = OffsetDateTime::now_utc();
         let mut tx = pool.begin().await?;
         let stored = self
-            .finish_registration_in_tx(&mut tx, ceremony_id, credential, now)
+            .finish_registration_in_tx(&mut tx, org, ceremony_id, credential, now)
             .await?;
         tx.commit().await?;
         Ok(stored)
@@ -146,10 +157,22 @@ impl PasskeyService {
     pub async fn finish_registration_in_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        org: OrgId,
         ceremony_id: Uuid,
         credential: RegisterPublicKeyCredential,
         now: OffsetDateTime,
     ) -> Result<StoredPasskey, AuthError> {
+        // The caller is AUTHENTICATED: `org` comes from the verified JWT's `org`
+        // claim (never read from a user row under RLS — chicken-and-egg). Arm the
+        // tenant GUC for this transaction so the FORCE-RLS WITH CHECK on
+        // `auth_webauthn_credentials` (migration 0035) accepts the passkey INSERT
+        // stamped with THIS org, and the consume of the bootstrap credential in
+        // the same caller transaction also passes.
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(org.as_uuid().to_string())
+            .execute(tx.as_mut())
+            .await?;
+
         // Claim the ceremony atomically: the UPDATE marks it consumed only if it
         // is still unconsumed and unexpired. A racing finish sees 0 rows and is
         // rejected, so one ceremony can never mint two passkeys.
@@ -185,7 +208,7 @@ impl PasskeyService {
         .bind(&credential_id)
         .bind(passkey_json)
         .bind(now)
-        .bind(*OrgId::knl().as_uuid())
+        .bind(*org.as_uuid())
         .execute(tx.as_mut())
         .await?;
 
@@ -281,6 +304,26 @@ impl PasskeyService {
         // present we additionally require it to match the credential's owner.
         let credential_id =
             serialize_to_string(&credential.raw_id, "authentication credential id")?;
+
+        // Resolve the credential's tenant from its credential id FIRST, then arm
+        // the GUC, THEN do the RLS-gated read/update. `auth_webauthn_credentials`
+        // is FORCE RLS (migration 0035), so as the non-owner `mnt_rt` role a
+        // lookup-by-credential-id returns ZERO rows until `app.current_org` is set
+        // — but the org is what we need to set it. The narrow SECURITY DEFINER
+        // resolver `platform_resolve_credential_org` (migration 0038) returns only
+        // the credential's org_id, breaking that chicken-and-egg so passkey login
+        // works for ANY tenant. A NULL means the credential is unknown: keep the
+        // existing "not registered" error.
+        let Some(org_uuid) = resolve_credential_org(&mut tx, &credential_id).await? else {
+            return Err(AuthError::InvalidStoredData(
+                "asserted credential is not registered".to_owned(),
+            ));
+        };
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(org_uuid.to_string())
+            .execute(tx.as_mut())
+            .await?;
+
         let row = sqlx::query(
             r#"
             SELECT id, user_id, passkey_json
@@ -345,6 +388,7 @@ impl PasskeyService {
         Ok(AuthenticationOutcome {
             user_id,
             passkey_id,
+            org_id: OrgId::from_uuid(org_uuid),
         })
     }
 }
@@ -427,13 +471,46 @@ async fn claim_ceremony_tx(
     }))
 }
 
-async fn load_user_passkeys(pool: &PgPool, user_id: Uuid) -> Result<Vec<Passkey>, AuthError> {
+/// Resolve a webauthn credential's tenant from its credential id, via the narrow
+/// SECURITY DEFINER resolver `platform_resolve_credential_org` (migration 0038).
+///
+/// `auth_webauthn_credentials` is FORCE RLS, so the app's non-owner `mnt_rt` role
+/// cannot read a credential row by credential id until `app.current_org` is armed
+/// — but the org is exactly what we need to arm it. This resolver returns ONLY the
+/// org_id, breaking that chicken-and-egg without widening any read surface.
+/// Returns `None` for an unknown credential id.
+async fn resolve_credential_org(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    credential_id: &str,
+) -> Result<Option<Uuid>, AuthError> {
+    Ok(
+        sqlx::query_scalar("SELECT platform_resolve_credential_org($1)")
+            .bind(credential_id)
+            .fetch_one(tx.as_mut())
+            .await?,
+    )
+}
+
+async fn load_user_passkeys(
+    pool: &PgPool,
+    org: OrgId,
+    user_id: Uuid,
+) -> Result<Vec<Passkey>, AuthError> {
+    // `auth_webauthn_credentials` is FORCE RLS; arm the tenant GUC for this
+    // transaction so the non-owner `mnt_rt` role sees the user's existing
+    // passkeys. The org is the authenticated request's verified tenant.
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(org.as_uuid().to_string())
+        .execute(tx.as_mut())
+        .await?;
     let rows = sqlx::query(
         "SELECT passkey_json FROM auth_webauthn_credentials WHERE user_id = $1 ORDER BY created_at",
     )
     .bind(user_id)
-    .fetch_all(pool)
+    .fetch_all(tx.as_mut())
     .await?;
+    tx.commit().await?;
 
     rows.into_iter()
         .map(|row| {

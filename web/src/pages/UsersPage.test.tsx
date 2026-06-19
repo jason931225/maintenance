@@ -173,6 +173,57 @@ describe("UsersPage create", () => {
   });
 });
 
+describe("UsersPage no-credential UX", () => {
+  it("shows the no-credential banner and a prominent OTP button after creating a user", async () => {
+    const user = userEvent.setup();
+    const newUser = {
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      display_name: "정민규",
+      phone: null,
+      team: "MAINTENANCE",
+      roles: ["MECHANIC"],
+      branch_ids: [BRANCH_A],
+      is_active: true,
+      created_at: "2026-01-02T00:00:00Z",
+    };
+
+    server.use(
+      // Initially empty user list, then returns the new user after creation.
+      http.get("*/api/v1/users", () => HttpResponse.json([])),
+      http.get("*/api/v1/branches", () => HttpResponse.json(branches)),
+      http.post("*/api/v1/users", () =>
+        HttpResponse.json(newUser, { status: 201 }),
+      ),
+    );
+
+    renderApp("/settings/users", makeAuthContext(adminSession));
+    await screen.findByText("등록된 사용자가 없습니다.");
+
+    // Update the GET handler to return the newly created user.
+    server.use(
+      http.get("*/api/v1/users", () => HttpResponse.json([newUser])),
+    );
+
+    // Fill in the create form and submit.
+    await user.type(screen.getByLabelText("이름"), "정민규");
+    await user.click(screen.getByLabelText("정비사"));
+    await user.click(screen.getByLabelText("강남지점"));
+    await user.click(screen.getByRole("button", { name: "사용자 등록" }));
+
+    // The no-credential prompt banner should appear.
+    expect(
+      await screen.findByText(
+        "사용자가 등록되었습니다. 로그인 자격증명이 없으므로 아래에서 일회용 코드를 발급해 전달하세요.",
+      ),
+    ).toBeVisible();
+
+    // The no-credential badge should appear in the new user's row.
+    const row = (await screen.findByText("정민규")).closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText("로그인 불가")).toBeVisible();
+  });
+});
+
 describe("UsersPage OTP issue", () => {
   it("issues a sign-in OTP and shows the code", async () => {
     const user = userEvent.setup();

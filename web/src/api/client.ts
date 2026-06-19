@@ -1,6 +1,7 @@
 import { createMaintenanceApiClient } from "@maintenance/api-client-ts";
 
 import { getDeviceId } from "./device";
+import { isAuthPath, singleFlightRefresh } from "./refresh";
 
 export function createConsoleApiClient(bearerToken?: string) {
   const client = createMaintenanceApiClient({
@@ -30,6 +31,33 @@ export function createConsoleApiClient(bearerToken?: string) {
       // `credentials` is immutable, so we return a credentials-augmented clone
       // that inherits the headers set above.
       return new Request(request, { credentials: "include" });
+    },
+
+    async onResponse({ response, request }) {
+      // On a 401 from a non-auth endpoint: perform a single-flight token refresh
+      // and retry the original request once with the new bearer token.
+      // Auth endpoints are excluded to avoid refresh loops on login/refresh/logout.
+      if (response.status !== 401 || isAuthPath(request.url)) {
+        return response;
+      }
+
+      let newToken: string;
+      try {
+        newToken = await singleFlightRefresh();
+      } catch {
+        // singleFlightRefresh already called onUnauthenticated(); just abort.
+        return response;
+      }
+
+      // Retry the original request with the fresh token.
+      const retryRequest = new Request(request, {
+        headers: (() => {
+          const h = new Headers(request.headers);
+          h.set("Authorization", `Bearer ${newToken}`);
+          return h;
+        })(),
+      });
+      return fetch(retryRequest);
     },
   });
 

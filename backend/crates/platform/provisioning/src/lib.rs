@@ -130,6 +130,11 @@ impl RosterProvisioner {
             TraceContext::generate(),
             now,
         )
+        // Roster import stamps every row with KNL today (single-tenant import).
+        // Arm KNL as the GUC so the FORCE-RLS WITH CHECK on `users`,
+        // `user_branches`, and `auth_bootstrap_credentials` accepts these writes
+        // under the non-owner `mnt_rt` role.
+        .with_org(OrgId::knl())
         .with_snapshots(
             None,
             Some(serde_json::json!({
@@ -153,6 +158,7 @@ impl BootstrapCredentialStore {
         &self,
         pool: &PgPool,
         user_id: Uuid,
+        org: OrgId,
         now: OffsetDateTime,
         ttl: Duration,
     ) -> Result<BootstrapCredentialIssue, ProvisioningError> {
@@ -164,6 +170,7 @@ impl BootstrapCredentialStore {
             TraceContext::generate(),
             now,
         )
+        .with_org(org)
         .with_snapshots(
             None,
             Some(serde_json::json!({
@@ -174,10 +181,13 @@ impl BootstrapCredentialStore {
 
         with_audit::<_, BootstrapCredentialIssue, ProvisioningError>(pool, audit, |tx| {
             Box::pin(async move {
-                // Admin-issued OTP path: KNL today (single-tenant). The audit
-                // event carries no org here, so no GUC is armed — preserving the
-                // pre-multi-tenant behavior of this path.
-                issue_bootstrap_if_needed_tx(tx, user_id, OrgId::knl(), now, ttl, true)
+                // Admin-issued OTP path: the request's tenant `org` is threaded in
+                // from the authenticated admin's verified token. `with_audit` arms
+                // `app.current_org` to that org from the audit event above (the
+                // `.with_org(org)` call), so the FORCE-RLS WITH CHECK on
+                // `auth_bootstrap_credentials` accepts the row for ANY tenant — not
+                // just KNL — and the credential is stamped with the real org.
+                issue_bootstrap_if_needed_tx(tx, user_id, org, now, ttl, true)
                     .await?
                     .ok_or(ProvisioningError::ActiveBootstrapCredentialExists)
             })
@@ -224,6 +234,25 @@ impl BootstrapCredentialStore {
         // unexpired — exactly the harden-1 invariant, so a redeemed OTP can never
         // be replayed.
         let mut tx = pool.begin().await?;
+
+        // Resolve the credential's tenant from the token hash FIRST, then arm the
+        // GUC, THEN do the RLS-gated read. `auth_bootstrap_credentials` is FORCE
+        // RLS (migration 0035), so as the non-owner `mnt_rt` role a lookup-by-hash
+        // returns ZERO rows until `app.current_org` is set — but the org is what we
+        // need to set it. The narrow SECURITY DEFINER resolver
+        // `platform_resolve_bootstrap_org` (migration 0038) returns only the
+        // credential's org_id, breaking that chicken-and-egg so OTP first sign-in
+        // works for ANY tenant. A NULL means the token is unknown: keep the same
+        // generic invalid-OTP error (no row), revealing nothing.
+        let Some(org_uuid) = resolve_bootstrap_org(&mut tx, &token_hash).await? else {
+            tx.rollback().await?;
+            return Err(ProvisioningError::InvalidBootstrapCredential);
+        };
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(org_uuid.to_string())
+            .execute(tx.as_mut())
+            .await?;
+
         // Verify-ONLY: a redeem mints a session but does NOT consume the code.
         // Single-use is enforced at passkey REGISTRATION (consume_open_credentials_tx,
         // atomic with the passkey insert via the harden-1 pattern), so an incomplete
@@ -275,6 +304,7 @@ impl BootstrapCredentialStore {
 
         Ok(OtpRedemption {
             user_id,
+            org_id: OrgId::from_uuid(org_uuid),
             requires_passkey_setup,
         })
     }
@@ -712,6 +742,11 @@ pub struct OtpRedemption {
     /// The pre-provisioned user the OTP belonged to; the caller mints a session
     /// for this user.
     pub user_id: Uuid,
+    /// The tenant the redeemed credential belongs to, resolved from the token
+    /// hash BEFORE the RLS-gated read. The caller arms the GUC with it to load
+    /// the user and mint the session, since the OTP redeem route runs before the
+    /// tenant middleware.
+    pub org_id: OrgId,
     /// True when the user has no registered passkey yet, so the frontend should
     /// force passkey enrollment during initial settings.
     pub requires_passkey_setup: bool,
@@ -1221,6 +1256,26 @@ async fn seed_cold_start_if_needed_tx(
     .await?;
 
     Ok(opened_id.map(|credential_id| (admin_id, credential_id)))
+}
+
+/// Resolve a bootstrap credential's tenant from its token hash, via the narrow
+/// SECURITY DEFINER resolver `platform_resolve_bootstrap_org` (migration 0038).
+///
+/// `auth_bootstrap_credentials` is FORCE RLS, so the app's non-owner `mnt_rt`
+/// role cannot read a credential row by hash until `app.current_org` is armed —
+/// but the org is exactly what we need to arm it. This resolver returns ONLY the
+/// org_id (nothing else), breaking that chicken-and-egg without widening any read
+/// surface. Returns `None` for an unknown hash.
+async fn resolve_bootstrap_org(
+    tx: &mut Transaction<'_, Postgres>,
+    token_hash: &[u8],
+) -> Result<Option<Uuid>, ProvisioningError> {
+    Ok(
+        sqlx::query_scalar("SELECT platform_resolve_bootstrap_org($1)")
+            .bind(token_hash)
+            .fetch_one(tx.as_mut())
+            .await?,
+    )
 }
 
 async fn count_user_passkeys_tx(

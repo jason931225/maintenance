@@ -37,7 +37,7 @@ async fn concurrent_consume_burns_the_otp_exactly_once(pool: PgPool) {
     let now = OffsetDateTime::now_utc();
 
     let issue = store
-        .issue_for_zero_credential_user(&pool, user_id, now, Duration::hours(24))
+        .issue_for_zero_credential_user(&pool, user_id, OrgId::knl(), now, Duration::hours(24))
         .await
         .unwrap();
 

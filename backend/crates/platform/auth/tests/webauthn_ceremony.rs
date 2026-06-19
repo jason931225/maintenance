@@ -62,6 +62,7 @@ async fn discoverable_passkey_registration_and_usernameless_login(pool: PgPool) 
     let registration = service
         .start_registration(
             &pool,
+            OrgId::knl(),
             PasskeyRegistrationStart {
                 user_id,
                 username: "passkey.user".to_owned(),
@@ -88,7 +89,7 @@ async fn discoverable_passkey_registration_and_usernameless_login(pool: PgPool) 
         .unwrap();
 
     let stored_passkey = service
-        .finish_registration(&pool, registration.ceremony_id, credential)
+        .finish_registration(&pool, OrgId::knl(), registration.ceremony_id, credential)
         .await
         .unwrap();
     assert_eq!(stored_passkey.user_id, user_id);

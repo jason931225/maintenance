@@ -171,6 +171,9 @@ export const ko = {
       createFailed: "사용자를 등록하지 못했습니다. 다시 시도하세요.",
       saveFailed: "변경 사항을 저장하지 못했습니다. 다시 시도하세요.",
     },
+    noCredentialBadge: "로그인 불가",
+    noCredentialPrompt:
+      "사용자가 등록되었습니다. 로그인 자격증명이 없으므로 아래에서 일회용 코드를 발급해 전달하세요.",
     otp: {
       issue: "일회용 코드 발급",
       issuing: "발급 중",

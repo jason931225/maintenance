@@ -33,7 +33,7 @@ async fn issued_otp_is_eight_char_alphanumeric_special(pool: PgPool) {
     let user_id = seed_user(&pool).await;
     let now = OffsetDateTime::now_utc();
     let issue = BootstrapCredentialStore
-        .issue_for_zero_credential_user(&pool, user_id, now, Duration::hours(24))
+        .issue_for_zero_credential_user(&pool, user_id, OrgId::knl(), now, Duration::hours(24))
         .await
         .unwrap();
 
@@ -69,7 +69,7 @@ async fn redeem_verifies_without_consuming_then_registration_consumes(pool: PgPo
     let now = OffsetDateTime::now_utc();
 
     let issue = store
-        .issue_for_zero_credential_user(&pool, user_id, now, Duration::hours(24))
+        .issue_for_zero_credential_user(&pool, user_id, OrgId::knl(), now, Duration::hours(24))
         .await
         .unwrap();
 
@@ -135,7 +135,7 @@ async fn wrong_guess_does_not_consume_the_otp(pool: PgPool) {
     let now = OffsetDateTime::now_utc();
 
     let issue = store
-        .issue_for_zero_credential_user(&pool, user_id, now, Duration::hours(24))
+        .issue_for_zero_credential_user(&pool, user_id, OrgId::knl(), now, Duration::hours(24))
         .await
         .unwrap();
 
@@ -172,7 +172,7 @@ async fn otp_expiry_is_enforced_on_redeem(pool: PgPool) {
     let now = OffsetDateTime::now_utc();
 
     let issue = store
-        .issue_for_zero_credential_user(&pool, user_id, now, Duration::hours(24))
+        .issue_for_zero_credential_user(&pool, user_id, OrgId::knl(), now, Duration::hours(24))
         .await
         .unwrap();
     assert_eq!(issue.expires_at, now + Duration::hours(24));
@@ -197,7 +197,7 @@ async fn otp_expiry_is_enforced_on_redeem(pool: PgPool) {
     .await
     .unwrap();
     let issue2 = store
-        .issue_for_zero_credential_user(&pool, user2, now, Duration::hours(1))
+        .issue_for_zero_credential_user(&pool, user2, OrgId::knl(), now, Duration::hours(1))
         .await
         .unwrap();
     let after_expiry = issue2.expires_at + Duration::seconds(1);

@@ -47,6 +47,8 @@ export function UsersPage() {
   // The OTP target user, when the issue dialog is open.
   const [otpUser, setOtpUser] = useState<UserSummary | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
+  // Track the most-recently created user so we can nudge the admin to issue OTP.
+  const [newUserId, setNewUserId] = useState<string | undefined>(undefined);
 
   const loadUsers = useCallback(async () => {
     setListState("loading");
@@ -84,6 +86,7 @@ export function UsersPage() {
   async function createUser(body: CreateUserRequest): Promise<void> {
     const response = await api.POST("/api/v1/users", { body });
     if (!response.data) throw new Error("createUser failed");
+    setNewUserId(response.data.id);
     setFeedback(ko.users.form.created);
     await loadUsers();
   }
@@ -142,6 +145,16 @@ export function UsersPage() {
         </p>
       ) : null}
 
+      {newUserId ? (
+        <p
+          role="alert"
+          aria-live="polite"
+          className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-900"
+        >
+          {ko.users.noCredentialPrompt}
+        </p>
+      ) : null}
+
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <div className="grid gap-4">
           <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -167,17 +180,21 @@ export function UsersPage() {
             <UserTable
               users={users}
               isLoading={listState === "loading"}
+              newUserId={newUserId}
               branchName={branchName}
               onEdit={(user) => {
                 setFeedback(undefined);
+                setNewUserId(undefined);
                 setEditing(user);
               }}
               onDeactivate={(user) => {
                 setFeedback(undefined);
+                setNewUserId(undefined);
                 void deactivateUser(user);
               }}
               onIssueOtp={(user) => {
                 setFeedback(undefined);
+                if (user.id === newUserId) setNewUserId(undefined);
                 setOtpUser(user);
               }}
             />
@@ -219,6 +236,7 @@ export function UsersPage() {
 function UserTable({
   users,
   isLoading,
+  newUserId,
   branchName,
   onEdit,
   onDeactivate,
@@ -226,6 +244,7 @@ function UserTable({
 }: {
   users: UserSummary[];
   isLoading: boolean;
+  newUserId: string | undefined;
   branchName: (id: string) => string;
   onEdit: (user: UserSummary) => void;
   onDeactivate: (user: UserSummary) => void;
@@ -309,6 +328,11 @@ function UserTable({
               </td>
               <td className="px-4 py-3">
                 <div className="flex flex-wrap items-center justify-end gap-2">
+                  {user.id === newUserId ? (
+                    <Badge className="border-amber-300 bg-amber-50 text-amber-800">
+                      {ko.users.noCredentialBadge}
+                    </Badge>
+                  ) : null}
                   <Button
                     type="button"
                     variant="secondary"
@@ -322,7 +346,7 @@ function UserTable({
                   </Button>
                   <Button
                     type="button"
-                    variant="secondary"
+                    variant={user.id === newUserId ? "default" : "secondary"}
                     size="sm"
                     onClick={() => {
                       onIssueOtp(user);

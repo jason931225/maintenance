@@ -23,6 +23,7 @@ pub struct RefreshTokenIssue {
     pub family_id: Uuid,
     pub token_id: Uuid,
     pub user_id: Uuid,
+    pub org_id: OrgId,
     pub expires_at: OffsetDateTime,
 }
 
@@ -123,6 +124,7 @@ impl RefreshTokenStore {
             family_id,
             token_id,
             user_id,
+            org_id,
             expires_at,
         })
     }
@@ -292,6 +294,7 @@ impl RefreshTokenStore {
             family_id,
             token_id: replacement_id,
             user_id,
+            org_id: OrgId::from_uuid(org_uuid),
             expires_at: replacement_expires_at,
         })
     }
