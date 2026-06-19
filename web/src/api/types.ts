@@ -1,5 +1,6 @@
 import type { components } from "@maintenance/api-client-ts";
 
+export type PasskeySummary = components["schemas"]["PasskeySummary"];
 export type WorkOrderSummary = components["schemas"]["WorkOrderSummary"];
 export type WorkOrderListItem = components["schemas"]["WorkOrderListItem"];
 export type WorkOrderListPage = components["schemas"]["WorkOrderListPage"];

@@ -7,6 +7,7 @@ import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { PageError } from "../components/states/PageError";
 import { PageHeader } from "../components/shell/PageHeader";
+import { SecurityPanel } from "../features/auth/SecurityPanel";
 import { useAuth } from "../context/auth";
 import { roleLabel, teamLabel } from "../features/org/org-format";
 import { ko } from "../i18n/ko";
@@ -171,6 +172,10 @@ export function ProfilePage() {
             </Button>
           </Card>
         )}
+
+        <div className="mt-6">
+          <SecurityPanel />
+        </div>
       </div>
     </>
   );

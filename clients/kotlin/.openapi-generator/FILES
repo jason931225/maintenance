@@ -123,6 +123,7 @@ src/main/kotlin/com/maintenance/api/client/model/PasskeyRegisterFinishRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyRegisterFinishResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyRegisterStartRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyRegisterStartResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/PasskeySummary.kt
 src/main/kotlin/com/maintenance/api/client/model/Period.kt
 src/main/kotlin/com/maintenance/api/client/model/PrepareExpenditureRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PresignedUpload.kt

@@ -19,7 +19,7 @@ use std::str::FromStr;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, patch, post};
+use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use mnt_identity_adapter_postgres::{PgOrgError, PgOrgStore};
 use mnt_identity_application::{
@@ -28,15 +28,19 @@ use mnt_identity_application::{
 };
 use mnt_identity_domain::Team;
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, KernelError, OrgId, RegionId, TraceContext, UserId,
+    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, OrgId, RegionId,
+    TraceContext, UserId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{
     Action, Feature, Principal, Role, authorize, resolve_branch_scope_in_org,
 };
+use mnt_platform_db::{DbError, with_audits, with_org_conn};
+use mnt_platform_request_context::{RequestContextError, current_org};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
 // Route paths (exported for the openapi_drift test)
@@ -49,6 +53,8 @@ pub const USER_DEACTIVATE_PATH_TEMPLATE: &str = "/api/v1/users/{id}/deactivate";
 pub const REGIONS_PATH: &str = "/api/v1/regions";
 pub const BRANCHES_PATH: &str = "/api/v1/branches";
 pub const BRANCH_PATH_TEMPLATE: &str = "/api/v1/branches/{id}";
+pub const PASSKEYS_PATH: &str = "/api/v1/passkeys";
+pub const PASSKEY_PATH_TEMPLATE: &str = "/api/v1/passkeys/{id}";
 pub const IDENTITY_ROUTE_PATHS: &[&str] = &[
     USERS_PATH,
     USERS_ME_PATH,
@@ -57,6 +63,8 @@ pub const IDENTITY_ROUTE_PATHS: &[&str] = &[
     REGIONS_PATH,
     BRANCHES_PATH,
     BRANCH_PATH_TEMPLATE,
+    PASSKEYS_PATH,
+    PASSKEY_PATH_TEMPLATE,
 ];
 
 #[derive(Clone)]
@@ -92,6 +100,8 @@ pub fn router(state: IdentityRestState) -> Router {
         .route(REGIONS_PATH, get(list_regions).post(create_region))
         .route(BRANCHES_PATH, get(list_branches).post(create_branch))
         .route(BRANCH_PATH_TEMPLATE, patch(update_branch))
+        .route(PASSKEYS_PATH, get(list_passkeys))
+        .route(PASSKEY_PATH_TEMPLATE, delete(delete_passkey))
         .with_state(state);
     // Per-request tenant context: resolves the Principal and arms `CURRENT_ORG`
     // for every authenticated route on this router, so adapter reads/writes run
@@ -163,6 +173,18 @@ struct UpdateBranchRequest {
     region_id: Option<RegionId>,
     #[serde(default)]
     name: Option<String>,
+}
+
+/// A passkey credential summary for the self-service management surface.
+///
+/// Deliberately carries NO secret material: never the `passkey_json` blob, the
+/// public key, or the raw `credential_id`. Only the opaque row id (for the delete
+/// route) and the registration / last-use timestamps are exposed.
+#[derive(Debug, Serialize)]
+struct PasskeySummary {
+    id: Uuid,
+    created_at: OffsetDateTime,
+    last_used_at: Option<OffsetDateTime>,
 }
 
 #[derive(Debug, Serialize)]
@@ -476,6 +498,166 @@ async fn update_branch(
 }
 
 // ---------------------------------------------------------------------------
+// Passkey self-management handlers (any authenticated user, OWN credentials)
+// ---------------------------------------------------------------------------
+
+/// List the AUTHENTICATED user's OWN passkey credentials.
+///
+/// Scoped to BOTH the caller (`principal.user_id`) AND the request's tenant: the
+/// read runs inside `with_org_conn(.., current_org()?, ..)`, which arms the
+/// `app.current_org` GUC so the FORCE-RLS `auth_webauthn_credentials` rows for
+/// this org become visible to the non-owner `mnt_rt` role. The `WHERE user_id`
+/// filter then narrows to the caller's own credentials. No secret material
+/// (passkey_json / public key / credential_id) ever leaves this handler.
+async fn list_passkeys(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    // Self-service surface: every authenticated user may manage its own passkeys.
+    authorize_org_manage(&principal, Feature::Login)?;
+    let org = current_org()?;
+    let user_id = *principal.user_id.as_uuid();
+
+    let summaries =
+        with_org_conn::<_, Vec<PasskeySummary>, RestError>(state.pool(), org, move |tx| {
+            Box::pin(async move {
+                let rows = sqlx::query(
+                    r#"
+                SELECT id, created_at, last_used_at
+                FROM auth_webauthn_credentials
+                WHERE user_id = $1
+                ORDER BY created_at
+                "#,
+                )
+                .bind(user_id)
+                .fetch_all(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+                rows.into_iter()
+                    .map(|row| {
+                        Ok(PasskeySummary {
+                            id: row.try_get("id").map_err(DbError::Sqlx)?,
+                            created_at: row.try_get("created_at").map_err(DbError::Sqlx)?,
+                            last_used_at: row.try_get("last_used_at").map_err(DbError::Sqlx)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, RestError>>()
+            })
+        })
+        .await?;
+
+    Ok(Json(summaries))
+}
+
+/// Revoke ONE of the authenticated user's OWN passkey credentials.
+///
+/// IDOR guard: the DELETE is constrained to `id = $1 AND user_id = $2`, so a user
+/// can never delete another user's credential even within the same org; a
+/// credential that is not the caller's own matches zero rows and yields 404.
+///
+/// Lockout guard: refuses to delete the caller's LAST remaining passkey. A user
+/// whose only login method is a single passkey would otherwise lock themselves
+/// out; deleting it returns 409 with a clear message. (A fresh sign-in OTP can
+/// only be minted by an admin, so the floor is enforced here rather than relying
+/// on a self-service recovery path.)
+///
+/// The whole operation runs in ONE tenant-armed transaction via `with_audits`:
+/// the count check, the ownership-scoped DELETE, and the audit row commit (or roll
+/// back) atomically together.
+async fn delete_passkey(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::Login)?;
+    let org = current_org()?;
+    let actor = principal.user_id;
+    let user_id = *actor.as_uuid();
+    let now = OffsetDateTime::now_utc();
+
+    with_audits::<_, (), RestError>(state.pool(), org, move |tx| {
+        Box::pin(async move {
+            // Count the caller's own credentials INSIDE the tenant-armed tx so the
+            // last-passkey floor is computed against the same RLS-scoped view the
+            // DELETE acts on.
+            let total: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM auth_webauthn_credentials WHERE user_id = $1",
+            )
+            .bind(user_id)
+            .fetch_one(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+
+            // Ownership-scoped delete (IDOR guard): only the caller's OWN row by id
+            // can be removed. A non-matching id (unknown, or another user's) returns
+            // zero rows -> 404.
+            let credential_id: Option<String> = sqlx::query_scalar(
+                r#"
+                SELECT credential_id
+                FROM auth_webauthn_credentials
+                WHERE id = $1 AND user_id = $2
+                "#,
+            )
+            .bind(id)
+            .bind(user_id)
+            .fetch_optional(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+
+            let Some(credential_id) = credential_id else {
+                return Err(RestError::new(
+                    StatusCode::NOT_FOUND,
+                    "not_found",
+                    "passkey not found",
+                ));
+            };
+
+            // Lockout floor: never remove the caller's only login method.
+            if total <= 1 {
+                return Err(RestError::new(
+                    StatusCode::CONFLICT,
+                    "conflict",
+                    "cannot delete your last passkey; register another first",
+                ));
+            }
+
+            sqlx::query("DELETE FROM auth_webauthn_credentials WHERE id = $1 AND user_id = $2")
+                .bind(id)
+                .bind(user_id)
+                .execute(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+            let event = AuditEvent::new(
+                Some(actor),
+                AuditAction::new("auth.passkey.revoke")
+                    .map_err(|err| RestError::internal(err.to_string()))?,
+                "auth_webauthn_credential",
+                id.to_string(),
+                TraceContext::generate(),
+                now,
+            )
+            .with_org(org)
+            .with_snapshots(
+                Some(serde_json::json!({
+                    "credential_id": credential_id,
+                    "user_id": user_id,
+                })),
+                None,
+            );
+
+            Ok(((), vec![event]))
+        })
+    })
+    .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ---------------------------------------------------------------------------
 // Authz helpers
 // ---------------------------------------------------------------------------
 
@@ -696,6 +878,27 @@ impl RestError {
                 }
             }
         }
+    }
+}
+
+/// A bare `DbError` surfaced from a `with_org_conn`/`with_audits` closure (the
+/// passkey self-management reads/writes) is an internal failure: it must never
+/// leak a raw sqlx string / constraint name to the caller (schema disclosure,
+/// OWASP A05). Log server-side and return a generic 500.
+impl From<DbError> for RestError {
+    fn from(error: DbError) -> Self {
+        tracing::error!(error = %error, "identity passkey database error");
+        Self::internal("internal server error")
+    }
+}
+
+/// A missing/invalid request context at a tenant-scoped data-access site is an
+/// internal invariant violation (the request reached a tenant read without an
+/// armed org). It never produces tenant data, so it maps to a generic 500.
+impl From<RequestContextError> for RestError {
+    fn from(error: RequestContextError) -> Self {
+        tracing::error!(error = %error, "identity request context error");
+        Self::internal("internal server error")
     }
 }
 
