@@ -4,6 +4,7 @@ namespace: maintenance
 resources:
   - namespace.yaml
   - configmap.yaml
+  - migrate-job.yaml
   - backend.yaml
   - web.yaml
   - worker.yaml

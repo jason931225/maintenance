@@ -106,11 +106,24 @@ const MAX_REQUEST_BODY_BYTES: usize = 2 * 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const OPENAPI_YAML: &str = include_str!("../../openapi/openapi.yaml");
 
+/// Embedded schema migrations, compiled into the binary at build time from the
+/// canonical `mnt-platform-db` migration directory (the same `0001..NNNN_*.sql`
+/// files applied to prod). `migrate` mode runs these in version order; sqlx
+/// tracks applied versions + per-file checksums in `_sqlx_migrations`, so re-runs
+/// are idempotent and a mutated already-applied file is rejected rather than
+/// silently re-run. The path is relative to this crate's manifest (`backend/app`).
+static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../crates/platform/db/migrations");
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AppRole {
     Api,
     Worker,
+    /// One-shot schema-migration mode. Connects to `DATABASE_URL` as the table
+    /// OWNER, runs the embedded migrations, then exits — it never serves HTTP.
+    /// Invoked out of band (an Argo CD PreSync Job) before the api/worker
+    /// Deployments roll, so the runtime `mnt_rt` role never needs DDL.
+    Migrate,
 }
 
 impl Display for AppRole {
@@ -118,6 +131,7 @@ impl Display for AppRole {
         match self {
             Self::Api => f.write_str("api"),
             Self::Worker => f.write_str("worker"),
+            Self::Migrate => f.write_str("migrate"),
         }
     }
 }
@@ -129,8 +143,9 @@ impl std::str::FromStr for AppRole {
         match value {
             "api" => Ok(Self::Api),
             "worker" => Ok(Self::Worker),
+            "migrate" => Ok(Self::Migrate),
             other => Err(AppError::Config(format!(
-                "MNT_APP_ROLE must be api or worker, got {other:?}"
+                "MNT_APP_ROLE must be api, worker, or migrate, got {other:?}"
             ))),
         }
     }
@@ -1437,7 +1452,78 @@ pub async fn serve(config: AppConfig, state: AppState) -> Result<(), AppError> {
     match config.role {
         AppRole::Api => serve_api(config, state).await,
         AppRole::Worker => run_dispatch_worker(config, state).await,
+        // Migrate mode never builds an AppState (no HTTP server, no JWT/S3
+        // wiring); it is dispatched in `main` before `from_config` runs.
+        AppRole::Migrate => run_migrations(&config).await,
     }
+}
+
+/// Apply the embedded schema migrations against `DATABASE_URL`, then return.
+///
+/// This is the `migrate` run-mode (an Argo CD PreSync Job). It is deliberately
+/// lean: it needs ONLY `DATABASE_URL` (the OWNER `mnt_app` connection that can
+/// run DDL) — no JWT keys, S3 creds, or any other app config — so a migration
+/// Job can run with a minimal environment. It opens a tiny single-connection
+/// pool, runs the migrator (idempotent: sqlx skips versions already recorded in
+/// `_sqlx_migrations`), logs how many were applied, then returns so the process
+/// can exit 0. Any DDL/connection error propagates so the Job fails (non-zero)
+/// and Argo blocks the sync.
+pub async fn run_migrations(config: &AppConfig) -> Result<(), AppError> {
+    let database_url = config
+        .database_url
+        .as_deref()
+        .ok_or_else(|| AppError::Config("migrate role requires DATABASE_URL".to_owned()))?;
+
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(Duration::from_secs(10))
+        .connect(database_url)
+        .await
+        .map_err(AppError::Database)?;
+
+    let applied_before = applied_migration_count(&pool).await?;
+    let embedded = MIGRATOR.iter().count();
+
+    tracing::info!(
+        embedded,
+        applied_before,
+        "applying schema migrations (migrate mode)"
+    );
+
+    MIGRATOR
+        .run(&pool)
+        .await
+        .map_err(|err| AppError::Internal(format!("migration run failed: {err}")))?;
+
+    let applied_after = applied_migration_count(&pool).await?;
+    let newly_applied = applied_after.saturating_sub(applied_before);
+
+    if newly_applied == 0 {
+        tracing::info!(
+            applied = applied_after,
+            "schema is up to date; nothing to apply"
+        );
+    } else {
+        tracing::info!(
+            newly_applied,
+            applied = applied_after,
+            "schema migrations applied"
+        );
+    }
+
+    pool.close().await;
+    Ok(())
+}
+
+/// Count rows in sqlx's `_sqlx_migrations` ledger, returning 0 before the table
+/// exists (a fresh database, before the first `MIGRATOR.run`). Used only to log
+/// how many migrations a `migrate` run newly applied.
+async fn applied_migration_count(pool: &PgPool) -> Result<usize, AppError> {
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations WHERE success")
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0);
+    Ok(usize::try_from(count).unwrap_or(0))
 }
 
 async fn serve_api(config: AppConfig, state: AppState) -> Result<(), AppError> {

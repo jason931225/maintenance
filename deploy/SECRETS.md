@@ -57,7 +57,7 @@ The cluster has **two** roles, with two secrets, deliberately separated:
 
 | Role | Secret | Used by | Privileges |
 |---|---|---|---|
-| `mnt_app` (owner) | `mnt-db-app` | **migrations only**, applied out of band | owns every table; runs DDL |
+| `mnt_app` (owner) | `mnt-db-app` | **migrations only**, via the `mnt-migrate` PreSync Job | owns every table; runs DDL |
 | `mnt_rt` (runtime) | `mnt-db-rt` | `mnt-app` / `mnt-worker` `DATABASE_URL` | least-privilege DML, **subject to RLS** |
 
 The running application **never** connects as the owner. Connecting as the owner
@@ -69,8 +69,19 @@ nothing, and only receives the GRANTs from migration `0031`.
 ### `mnt-db-app` — owner / migration connection (auto-generated)
 
 Created by CloudNativePG for the `mnt-db` cluster's `mnt_app` owner user. **Do
-not create this manually.** Use it **only** to apply schema migrations (the
-out-of-band `sqlx migrate run` / migration Job), never for a serving workload.
+not create this manually.** It is consumed **only** by the `mnt-migrate` Job,
+which runs schema migrations automatically as an Argo CD **PreSync hook** (the
+`mnt-app` image in `MNT_APP_ROLE=migrate` mode reads its `uri` key) — never by a
+serving workload. The PreSync Job completes before the `mnt-app`/`mnt-worker`
+Deployments roll, so the runtime `mnt_rt` role never needs DDL. See the
+"Database migrations" section in [`README.md`](README.md). Migrations are
+idempotent (sqlx `_sqlx_migrations` ledger), so the Job is safe to re-run on
+every sync.
+
+> Cutover ordering: create the **`mnt-db-rt`** runtime secret (below) **before**
+> the first sync. The de-owned `mnt_rt` role (NOSUPERUSER, NOBYPASSRLS, owns
+> nothing — migration 0031) is what makes the owner/runtime split meaningful;
+> without that secret CNPG cannot bind the role and the app cannot start.
 
 ### `mnt-db-rt` — runtime connection (you create this)
 
