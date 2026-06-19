@@ -18,6 +18,23 @@ window is the safe, simple way to guarantee that.
 
 ## 0. Pre-flight (do BEFORE the window; none of this touches live data)
 
+0. **Take the `maintenance` Argo app off auto-sync FIRST.** It is
+   `automated: { prune: true, selfHeal: true }` (`deploy/argocd/apps/maintenance.yaml`),
+   so a merge to `main` would otherwise *immediately* apply the whole cutover
+   (the PreSync migrate Job enables RLS on the live DB, and the app Deployment
+   flips `DATABASE_URL` to `mnt-db-rt`) as an uncontrolled rolling update — an
+   outage. Switching to manual sync is **non-disruptive**: running workloads keep
+   running; Argo just stops auto-applying git. Do this before the merge:
+   ```sh
+   kubectl -n argocd patch application maintenance --type merge \
+     -p '{"spec":{"syncPolicy":{"automated":null}}}'
+   # or: argocd app set maintenance --sync-policy none
+   ```
+   (Re-enable auto-sync in §4 once the cutover is verified.) Note the root
+   app-of-apps also self-heals; if it reverts this patch, set the override on the
+   root too, or pause the root briefly.
+
+
 1. **Branch is merged + images built.** `feat/multi-tenant-phase1` is merged to
    `main`, CI green; `image-release` has built+signed new `mnt-app` and `mnt-web`
    images by digest. Record the two `sha256:` digests.
@@ -82,7 +99,16 @@ window is the safe, simple way to guarantee that.
    ```
 5. **Pin the new signed digests** in
    `deploy/apps/maintenance/overlays/prod/kustomization.yaml` (`mnt-app` +
-   `mnt-web`), commit to `main`, and let Argo sync — OR `argocd app sync` it.
+   `mnt-web`), commit to `main`. Auto-sync is OFF (§0.0), so Argo will NOT apply
+   yet — it shows OutOfSync and waits. Trigger the cutover deliberately with a
+   **manual sync**, which runs the PreSync `migrate-job` (migrations 0026–0037,
+   incl. RLS enable) to completion first, then rolls the Deployments to the new
+   digest (now connecting as `mnt_rt`):
+   ```sh
+   argocd app sync maintenance        # PreSync migrate Job → then app/worker/web
+   # or: kubectl -n argocd annotate application maintenance argocd.argoproj.io/sync=...
+   ```
+   Watch the `mnt-migrate` Job to Completed before the Deployments roll.
 6. **Scale the app back up** (Argo will, as it deploys the new Deployment which
    now reads `DATABASE_URL` from `mnt-db-rt`). The new app connects as the
    non-owner role and sets `app.current_org` per request, so RLS resolves to the
@@ -141,6 +167,15 @@ Pick based on how far the cutover got:
 
 ## 4. Post-cutover follow-ups (not blocking the window)
 
+- **Re-enable auto-sync** (reverse of §0.0) once verified, so GitOps drift-
+  correction resumes:
+  ```sh
+  kubectl -n argocd patch application maintenance --type merge \
+    -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
+  ```
+  (and the root app if you overrode it). From here, routine deploys are normal:
+  merge to `main` → image-release signs → bump the prod digest → auto-sync runs
+  the idempotent `migrate-job` (a no-op once up to date) then rolls the app.
 - Remove the maintenance page; confirm Argo shows the app Healthy/Synced on the
   new digests.
 - Confirm the next routine deploy runs the PreSync `migrate-job` cleanly (it is
