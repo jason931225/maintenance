@@ -19,7 +19,9 @@ use mnt_kernel_core::{
     TraceContext, UserId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
-use mnt_platform_authz::{Action, Feature, Principal, Role, authorize, resolve_branch_scope};
+use mnt_platform_authz::{
+    Action, Feature, Principal, Role, authorize, resolve_branch_scope_in_org,
+};
 use mnt_registry_adapter_postgres::{PgRegistryError, PgRegistryStore};
 use mnt_registry_application::{
     CreateEquipmentCommand, DeleteEquipmentCommand, RegistryImportReport, SubstituteAssignment,
@@ -681,12 +683,14 @@ async fn principal_from_headers_db(
                 .map_err(|_| RestError::unauthorized("token contains an unknown role"))
         })
         .collect::<Result<_, _>>()?;
-    let branch_scope = resolve_branch_scope(state.store.pool(), user_id, &role_vec)
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
+    // Arm the verified-token org explicitly: this path resolves the principal and
+    // may run before the per-request tenant middleware has set CURRENT_ORG.
+    let branch_scope = resolve_branch_scope_in_org(state.store.pool(), org_id, user_id, &role_vec)
         .await
         .map_err(RestError::from_kernel)?;
     let roles = role_vec.iter().copied().collect::<BTreeSet<_>>();
-    let org_id = OrgId::from_str(&claims.org)
-        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
     Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 

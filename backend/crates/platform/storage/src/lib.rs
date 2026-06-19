@@ -14,7 +14,7 @@ use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, EvidenceId, KernelError, Timestamp, TraceContext, UserId,
     WorkOrderId,
 };
-use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
 use mnt_workorder_domain::AttachmentStage;
 use reqwest::header::{CONTENT_LENGTH, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
@@ -1103,12 +1103,19 @@ async fn branch_for_work_order(
     pool: &PgPool,
     work_order_id: WorkOrderId,
 ) -> Result<BranchId, StorageError> {
-    let branch_uuid: uuid::Uuid =
-        sqlx::query_scalar("SELECT branch_id FROM work_orders WHERE id = $1")
-            .bind(*work_order_id.as_uuid())
-            .fetch_optional(pool)
-            .await?
-            .ok_or_else(|| KernelError::not_found("work order was not found"))?;
+    let org = current_org().map_err(KernelError::from)?;
+    let branch_uuid: uuid::Uuid = with_org_conn::<_, _, StorageError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(
+                sqlx::query_scalar("SELECT branch_id FROM work_orders WHERE id = $1")
+                    .bind(*work_order_id.as_uuid())
+                    .fetch_optional(tx.as_mut())
+                    .await?,
+            )
+        })
+    })
+    .await?
+    .ok_or_else(|| KernelError::not_found("work order was not found"))?;
     Ok(BranchId::from_uuid(branch_uuid))
 }
 
@@ -1193,8 +1200,11 @@ async fn evidence_media_by_id(
     pool: &PgPool,
     id: EvidenceId,
 ) -> Result<EvidenceMedia, StorageError> {
-    let row = sqlx::query(
-        r#"
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, StorageError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
         SELECT id, work_order_id, stage, s3_key, content_type, size_bytes,
                checksum_sha256, uploaded_by, worm_replica_status, retry_count,
                next_retry_at, last_error, verified_at, upload_confirmed_at,
@@ -1202,9 +1212,12 @@ async fn evidence_media_by_id(
         FROM evidence_media
         WHERE id = $1
         "#,
-    )
-    .bind(*id.as_uuid())
-    .fetch_optional(pool)
+            )
+            .bind(*id.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?)
+        })
+    })
     .await?
     .ok_or_else(|| KernelError::not_found("evidence media was not found"))?;
     evidence_media_from_row(&row)

@@ -31,7 +31,9 @@ use mnt_kernel_core::{
     BranchId, BranchScope, ErrorKind, KernelError, OrgId, RegionId, TraceContext, UserId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
-use mnt_platform_authz::{Action, Feature, Principal, Role, authorize, resolve_branch_scope};
+use mnt_platform_authz::{
+    Action, Feature, Principal, Role, authorize, resolve_branch_scope_in_org,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use time::OffsetDateTime;
@@ -598,14 +600,16 @@ async fn principal_from_claims(
         })
         .collect::<Result<BTreeSet<_>, _>>()?;
     let role_vec = roles.iter().copied().collect::<Vec<_>>();
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
     // Re-resolve the live branch scope from the database rather than trusting the
     // token's `branches` claim, so a membership revocation takes effect at once.
-    let branch_scope = resolve_branch_scope(pool, user_id, &role_vec)
+    // Arm the verified-token org explicitly: this path resolves the principal and
+    // may run before the per-request tenant middleware has set CURRENT_ORG.
+    let branch_scope = resolve_branch_scope_in_org(pool, org_id, user_id, &role_vec)
         .await
         .map_err(|err| RestError::internal(err.to_string()))?;
 
-    let org_id = OrgId::from_str(&claims.org)
-        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
     Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 

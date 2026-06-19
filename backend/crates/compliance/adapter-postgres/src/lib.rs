@@ -337,14 +337,20 @@ impl PgComplianceStore {
         &self,
         retain_after: Timestamp,
     ) -> Result<RetentionPurge, PgComplianceError> {
-        let row = sqlx::query!(
-            r#"
+        let org = current_org().map_err(KernelError::from)?;
+        let row = with_org_conn::<_, _, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query!(
+                    r#"
             SELECT dropped_ping_partitions, deleted_collection_logs
             FROM purge_expired_location_data($1)
             "#,
-            retain_after,
-        )
-        .fetch_one(&self.pool)
+                    retain_after,
+                )
+                .fetch_one(tx.as_mut())
+                .await?)
+            })
+        })
         .await?;
 
         Ok(RetentionPurge {

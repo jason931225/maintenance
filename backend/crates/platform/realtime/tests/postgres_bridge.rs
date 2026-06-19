@@ -36,6 +36,7 @@ async fn postgres_notify_from_instance_a_wakes_instance_b_and_rereads_message_bo
                 RealtimePrincipal {
                     user_id: recipient,
                     branch_scope: BranchScope::single(branch_id),
+                    org_id: OrgId::knl(),
                 },
                 None,
             )
@@ -146,6 +147,7 @@ async fn reconnect_replays_messages_after_the_last_read_cursor(pool: PgPool) {
                 RealtimePrincipal {
                     user_id: recipient,
                     branch_scope: BranchScope::single(branch_id),
+                    org_id: OrgId::knl(),
                 },
                 Some(first.id),
             )
@@ -200,6 +202,7 @@ async fn reconnect_replay_pages_past_one_hundred_messages_without_truncating(poo
                 RealtimePrincipal {
                     user_id: recipient,
                     branch_scope: BranchScope::single(branch_id),
+                    org_id: OrgId::knl(),
                 },
                 Some(cursor.id),
             )
@@ -252,6 +255,7 @@ async fn reconnect_replay_streams_backlog_larger_than_connection_buffer(pool: Pg
                 RealtimePrincipal {
                     user_id: recipient,
                     branch_scope: BranchScope::single(branch_id),
+                    org_id: OrgId::knl(),
                 },
                 Some(cursor.id),
             )
@@ -310,6 +314,7 @@ async fn live_messages_during_replay_are_delivered_after_replay_without_duplicat
                 RealtimePrincipal {
                     user_id: recipient,
                     branch_scope: BranchScope::single(branch_id),
+                    org_id: OrgId::knl(),
                 },
                 Some(cursor.id),
             )
@@ -326,9 +331,12 @@ async fn live_messages_during_replay_are_delivered_after_replay_without_duplicat
         )
         .await;
         expected_ids.push(live.id);
-        hub.dispatch_local_for_test(RealtimeEvent::MessagePosted {
-            message: live.clone(),
-        })
+        hub.dispatch_local_for_test(
+            OrgId::knl(),
+            RealtimeEvent::MessagePosted {
+                message: live.clone(),
+            },
+        )
         .await
         .unwrap();
 

@@ -476,8 +476,11 @@ impl PgDispatchStore {
         dispatch_id: P1DispatchId,
         now: OffsetDateTime,
     ) -> Result<(), PgDispatchError> {
-        sqlx::query(
-            r#"
+        let org = current_org().map_err(KernelError::from)?;
+        with_org_conn::<_, _, PgDispatchError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                sqlx::query(
+                    r#"
             UPDATE p1_dispatch_alerts
             SET status = 'PENDING',
                 lease_token = NULL,
@@ -486,12 +489,15 @@ impl PgDispatchStore {
               AND status = 'SENDING'
               AND lease_expires_at <= $2
             "#,
-        )
-        .bind(*dispatch_id.as_uuid())
-        .bind(now)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
+                )
+                .bind(*dispatch_id.as_uuid())
+                .bind(now)
+                .execute(tx.as_mut())
+                .await?;
+                Ok(())
+            })
+        })
+        .await
     }
 
     /// Atomically claim pending FCM alerts (PENDING -> SENDING + lease) that have
@@ -940,19 +946,30 @@ async fn work_order_head(
     pool: &PgPool,
     work_order_id: WorkOrderId,
 ) -> Result<WorkOrderHead, PgDispatchError> {
-    let row = sqlx::query("SELECT id, branch_id, status, priority FROM work_orders WHERE id = $1")
-        .bind(*work_order_id.as_uuid())
-        .fetch_one(pool)
-        .await?;
-    work_order_head_from_row(&row)
+    let org = current_org().map_err(KernelError::from)?;
+    with_org_conn::<_, _, PgDispatchError>(pool, org, move |tx| {
+        Box::pin(async move {
+            let row = sqlx::query(
+                "SELECT id, branch_id, status, priority FROM work_orders WHERE id = $1",
+            )
+            .bind(*work_order_id.as_uuid())
+            .fetch_one(tx.as_mut())
+            .await?;
+            work_order_head_from_row(&row)
+        })
+    })
+    .await
 }
 
 async fn dispatch_head(
     pool: &PgPool,
     dispatch_id: P1DispatchId,
 ) -> Result<DispatchHead, PgDispatchError> {
-    let row = sqlx::query(
-        r#"
+    let org = current_org().map_err(KernelError::from)?;
+    with_org_conn::<_, _, PgDispatchError>(pool, org, move |tx| {
+        Box::pin(async move {
+            let row = sqlx::query(
+                r#"
         SELECT d.branch_id,
                COUNT(r.id) FILTER (WHERE r.response = 'ACCEPT') AS accepted_count
         FROM p1_dispatches d
@@ -960,14 +977,17 @@ async fn dispatch_head(
         WHERE d.id = $1
         GROUP BY d.branch_id
         "#,
-    )
-    .bind(*dispatch_id.as_uuid())
-    .fetch_one(pool)
-    .await?;
-    Ok(DispatchHead {
-        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
-        accepted_count: row.try_get::<i64, _>("accepted_count")?,
+            )
+            .bind(*dispatch_id.as_uuid())
+            .fetch_one(tx.as_mut())
+            .await?;
+            Ok(DispatchHead {
+                branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+                accepted_count: row.try_get::<i64, _>("accepted_count")?,
+            })
+        })
     })
+    .await
 }
 
 async fn lock_work_order(
@@ -1035,8 +1055,11 @@ async fn count_dispatch_targets(
     include_region: bool,
     on_duty_since: OffsetDateTime,
 ) -> Result<i64, PgDispatchError> {
-    let row = sqlx::query(
-        r#"
+    let org = current_org().map_err(KernelError::from)?;
+    with_org_conn::<_, _, PgDispatchError>(pool, org, move |tx| {
+        Box::pin(async move {
+            let row = sqlx::query(
+                r#"
         WITH selected_branches AS (
             SELECT b.id
             FROM branches b
@@ -1074,13 +1097,16 @@ async fn count_dispatch_targets(
         FROM users u
         JOIN eligible_users eu ON eu.id = u.id
         "#,
-    )
-    .bind(*branch_id.as_uuid())
-    .bind(include_region)
-    .bind(on_duty_since)
-    .fetch_one(pool)
-    .await?;
-    Ok(row.try_get("target_count")?)
+            )
+            .bind(*branch_id.as_uuid())
+            .bind(include_region)
+            .bind(on_duty_since)
+            .fetch_one(tx.as_mut())
+            .await?;
+            Ok(row.try_get("target_count")?)
+        })
+    })
+    .await
 }
 
 async fn insert_dispatch_targets(
@@ -1744,26 +1770,32 @@ pub async fn dispatch_response(
     dispatch_id: P1DispatchId,
     user_id: UserId,
 ) -> Result<P1DispatchResponseSummary, PgDispatchError> {
-    let row = sqlx::query(
-        r#"
+    let org = current_org().map_err(KernelError::from)?;
+    with_org_conn::<_, _, PgDispatchError>(pool, org, move |tx| {
+        Box::pin(async move {
+            let row = sqlx::query(
+                r#"
         SELECT dispatch_id, user_id, response, responded_at, score_milli,
                gps_ranked, distance_meters, score_reason
         FROM p1_dispatch_responses
         WHERE dispatch_id = $1 AND user_id = $2
         "#,
-    )
-    .bind(*dispatch_id.as_uuid())
-    .bind(*user_id.as_uuid())
-    .fetch_one(pool)
-    .await?;
-    Ok(P1DispatchResponseSummary {
-        dispatch_id: P1DispatchId::from_uuid(row.try_get("dispatch_id")?),
-        user_id: UserId::from_uuid(row.try_get("user_id")?),
-        response: DispatchResponseKind::from_db_str(row.try_get::<&str, _>("response")?)?,
-        responded_at: row.try_get("responded_at")?,
-        score_milli: row.try_get("score_milli")?,
-        gps_ranked: row.try_get("gps_ranked")?,
-        distance_meters: row.try_get("distance_meters")?,
-        score_reason: row.try_get("score_reason")?,
+            )
+            .bind(*dispatch_id.as_uuid())
+            .bind(*user_id.as_uuid())
+            .fetch_one(tx.as_mut())
+            .await?;
+            Ok(P1DispatchResponseSummary {
+                dispatch_id: P1DispatchId::from_uuid(row.try_get("dispatch_id")?),
+                user_id: UserId::from_uuid(row.try_get("user_id")?),
+                response: DispatchResponseKind::from_db_str(row.try_get::<&str, _>("response")?)?,
+                responded_at: row.try_get("responded_at")?,
+                score_milli: row.try_get("score_milli")?,
+                gps_ranked: row.try_get("gps_ranked")?,
+                distance_meters: row.try_get("distance_meters")?,
+                score_reason: row.try_get("score_reason")?,
+            })
+        })
     })
+    .await
 }

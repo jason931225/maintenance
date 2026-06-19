@@ -28,7 +28,7 @@ use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
 use mnt_kernel_core::{KernelError, OrgId, UserId};
 use mnt_platform_auth::JwtVerifier;
-use mnt_platform_authz::{PlatformPrincipal, Principal, Role, resolve_branch_scope};
+use mnt_platform_authz::{PlatformPrincipal, Principal, Role, resolve_branch_scope_in_org};
 use sqlx::PgPool;
 use std::collections::BTreeSet;
 
@@ -149,7 +149,7 @@ pub async fn resolve_principal(
         .collect::<Result<BTreeSet<_>, _>>()?;
 
     let role_vec = roles.iter().copied().collect::<Vec<_>>();
-    let branch_scope = resolve_branch_scope(pool, user_id, &role_vec)
+    let branch_scope = resolve_branch_scope_in_org(pool, org_id, user_id, &role_vec)
         .await
         .map_err(|err| RequestContextError::BranchScope(err.to_string()))?;
 

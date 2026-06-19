@@ -595,15 +595,21 @@ async fn fetch_substitute_profile(
     pool: &PgPool,
     equipment_id: EquipmentId,
 ) -> Result<Option<SubstituteEquipmentProfile>, PgRegistryError> {
-    let row = sqlx::query(
-        r#"
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgRegistryError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
         SELECT id, branch_id, equipment_no, status, specification, ton_text, ton_milli
         FROM registry_equipment
         WHERE id = $1
         "#,
-    )
-    .bind(*equipment_id.as_uuid())
-    .fetch_optional(pool)
+            )
+            .bind(*equipment_id.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     row.map(|row| substitute_profile_from_row(&row)).transpose()
 }
@@ -658,7 +664,11 @@ async fn fetch_candidate_rows(
     push_candidate_branch_filter(&mut builder, down, search)?;
     builder.push(" ORDER BY e.equipment_no ASC");
 
-    let rows = builder.build().fetch_all(pool).await?;
+    let org = current_org().map_err(KernelError::from)?;
+    let rows = with_org_conn::<_, _, PgRegistryError>(pool, org, move |tx| {
+        Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+    })
+    .await?;
     rows.iter().map(candidate_row_from_row).collect()
 }
 
@@ -781,17 +791,23 @@ async fn fetch_substitution(
     pool: &PgPool,
     substitution_id: EquipmentSubstitutionId,
 ) -> Result<Option<SubstituteAssignment>, PgRegistryError> {
-    let row = sqlx::query(
-        r#"
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgRegistryError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
         SELECT id, branch_id, source_equipment_id, substitute_equipment_id,
                assigned_by, assigned_to, assignment_location, assigned_at,
                returned_by, returned_at, return_note
         FROM equipment_substitutions
         WHERE id = $1
         "#,
-    )
-    .bind(*substitution_id.as_uuid())
-    .fetch_optional(pool)
+            )
+            .bind(*substitution_id.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     row.map(|row| substitution_from_row(&row)).transpose()
 }
@@ -1070,8 +1086,11 @@ async fn fetch_equipment_admin_row(
     pool: &PgPool,
     equipment_id: EquipmentId,
 ) -> Result<Option<EquipmentAdminRow>, PgRegistryError> {
-    let row = sqlx::query(
-        r#"
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgRegistryError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
         SELECT id, branch_id, equipment_no, status, management_no, model,
                specification, ton_text, ton_milli, power_label,
                manager_name, placement_location, placement_no, operation_shift,
@@ -1081,9 +1100,12 @@ async fn fetch_equipment_admin_row(
         FROM registry_equipment
         WHERE id = $1
         "#,
-    )
-    .bind(*equipment_id.as_uuid())
-    .fetch_optional(pool)
+            )
+            .bind(*equipment_id.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     let Some(row) = row else {
         return Ok(None);

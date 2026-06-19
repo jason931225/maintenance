@@ -409,43 +409,17 @@ pub fn authorize(
     Ok(())
 }
 
-/// Resolve branch scope from `user_branches`.
+/// Resolve branch scope from `user_branches` under an explicitly-armed tenant.
 ///
 /// `SUPER_ADMIN` and `EXECUTIVE` resolve to [`BranchScope::All`] for global
 /// read/rollup surfaces; write authority is still constrained by the matrix.
-pub async fn resolve_branch_scope(
-    pool: &PgPool,
-    user_id: UserId,
-    roles: &[Role],
-) -> Result<BranchScope, KernelError> {
-    if roles
-        .iter()
-        .any(|role| matches!(role, Role::SuperAdmin | Role::Executive))
-    {
-        return Ok(BranchScope::All);
-    }
-
-    let rows: Vec<uuid::Uuid> = sqlx::query_scalar(
-        "SELECT branch_id FROM user_branches WHERE user_id = $1 ORDER BY branch_id",
-    )
-    .bind(*user_id.as_uuid())
-    .fetch_all(pool)
-    .await
-    .map_err(|err| KernelError::internal(format!("failed to resolve branch scope: {err}")))?;
-
-    Ok(BranchScope::Branches(
-        rows.into_iter().map(BranchId::from_uuid).collect(),
-    ))
-}
-
-/// Resolve branch scope under an explicitly-armed tenant, for callers that run
-/// BEFORE the per-request tenant middleware (the pre-auth auth-rest routes).
 ///
-/// `user_branches` is FORCE RLS, so on the non-owner `mnt_rt` role the bare-pool
-/// [`resolve_branch_scope`] returns ZERO branches when `app.current_org` is unset
-/// — silently narrowing a non-super admin's scope to nothing. This variant opens
-/// a transaction, arms the GUC to `org` (the caller's verified-token tenant),
-/// then runs the same query, so RLS narrows to exactly that org's memberships.
+/// `user_branches` is FORCE RLS, so a bare-pool read returns ZERO branches when
+/// `app.current_org` is unset — silently narrowing a non-super admin's scope to
+/// nothing. This opens a transaction, arms the GUC to `org` (the caller's
+/// verified-token tenant), then runs the query, so RLS narrows to exactly that
+/// org's memberships. Callers that run BEFORE the per-request tenant middleware
+/// (the principal-resolution paths) pass the org from the verified token.
 pub async fn resolve_branch_scope_in_org(
     pool: &PgPool,
     org: OrgId,

@@ -424,6 +424,7 @@ where
     .bind(serde_json::to_value(challenge)?)
     .bind(serde_json::to_value(state)?)
     .bind(expires_at)
+    // rls-arming: ok auth_webauthn_ceremonies is a global pre-auth table (no org_id, no RLS)
     .execute(pool)
     .await?;
     Ok(())

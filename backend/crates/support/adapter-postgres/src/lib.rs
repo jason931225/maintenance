@@ -596,6 +596,7 @@ impl PgSupportStore {
         .bind(client_key)
         .bind(endpoint)
         .bind(window_start)
+        // rls-arming: ok auth_rate_limit is a global table (no org_id, no RLS)
         .fetch_one(&self.pool)
         .await?;
         Ok(i64::from(attempts))

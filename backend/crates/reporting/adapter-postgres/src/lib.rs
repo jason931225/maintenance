@@ -1192,6 +1192,7 @@ async fn any_table_exists(pool: &PgPool, table_names: &[&str]) -> Result<bool, s
     for table_name in table_names {
         let exists: bool = sqlx::query_scalar("SELECT to_regclass($1) IS NOT NULL")
             .bind(table_name)
+            // rls-arming: ok to_regclass($1) queries pg_catalog metadata, not a tenant table (no org_id, no RLS)
             .fetch_one(pool)
             .await?;
         if exists {

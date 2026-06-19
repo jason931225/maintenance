@@ -19,7 +19,7 @@ use mnt_kernel_core::{
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, BranchColumn, Feature, Principal, Role, authorize};
-use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
 use mnt_platform_storage::{
     EvidenceService, EvidenceUploadCommand, EvidenceUploadTicket, PresignedUpload, S3ObjectStore,
@@ -1480,16 +1480,26 @@ async fn is_assigned_to_work_order(
     work_order_id: WorkOrderId,
     user_id: UserId,
 ) -> Result<bool, RestError> {
-    let count: i64 = sqlx::query_scalar(
-        r#"
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+    let work_order_uuid = *work_order_id.as_uuid();
+    let user_uuid = *user_id.as_uuid();
+    let count: i64 = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query_scalar(
+                r#"
         SELECT COUNT(*)
         FROM work_order_assignments
         WHERE work_order_id = $1 AND mechanic_id = $2
         "#,
-    )
-    .bind(*work_order_id.as_uuid())
-    .bind(*user_id.as_uuid())
-    .fetch_one(pool)
+            )
+            .bind(work_order_uuid)
+            .bind(user_uuid)
+            .fetch_one(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     Ok(count > 0)
 }
@@ -1546,14 +1556,26 @@ async fn list_work_orders(
     let query = parse_work_order_list_query(raw_query.as_deref(), principal.user_id)?;
     let pool = state.store.pool();
 
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+
     let total = {
         let mut builder =
             QueryBuilder::<Postgres>::new("SELECT COUNT(*) FROM work_orders w WHERE ");
         push_work_order_filters(&mut builder, &principal.branch_scope, &query)?;
-        builder.build_query_scalar::<i64>().fetch_one(pool).await?
+        with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(builder
+                    .build_query_scalar::<i64>()
+                    .fetch_one(tx.as_mut())
+                    .await?)
+            })
+        })
+        .await?
     };
 
-    let mut builder = QueryBuilder::<Postgres>::new(
+    let mut list_builder = QueryBuilder::<Postgres>::new(
         r#"
         SELECT
             w.id, w.request_no, w.branch_id, w.status, w.priority, w.result_type,
@@ -1569,8 +1591,8 @@ async fn list_work_orders(
         WHERE
         "#,
     );
-    push_work_order_filters(&mut builder, &principal.branch_scope, &query)?;
-    builder.push(
+    push_work_order_filters(&mut list_builder, &principal.branch_scope, &query)?;
+    list_builder.push(
         r#"
         ORDER BY
             CASE w.priority
@@ -1586,10 +1608,13 @@ async fn list_work_orders(
         LIMIT
         "#,
     );
-    builder.push_bind(query.limit);
-    builder.push(" OFFSET ");
-    builder.push_bind(query.offset);
-    let rows = builder.build().fetch_all(pool).await?;
+    list_builder.push_bind(query.limit);
+    list_builder.push(" OFFSET ");
+    list_builder.push_bind(query.offset);
+    let rows = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move { Ok(list_builder.build().fetch_all(tx.as_mut()).await?) })
+    })
+    .await?;
     let work_order_ids = rows
         .iter()
         .map(|row| row.try_get("id"))
@@ -1616,6 +1641,9 @@ async fn get_work_order_detail(
     let principal = principal_from_headers(&state, &headers)?;
     authorize_read_access(&principal)?;
     let pool = state.store.pool();
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
     let mut builder = QueryBuilder::<Postgres>::new(
         r#"
         SELECT
@@ -1654,9 +1682,11 @@ async fn get_work_order_detail(
         &principal.branch_scope,
         BranchColumn::new("w.branch_id").map_err(RestError::from_kernel)?,
     );
-    let row = builder.build().fetch_optional(pool).await?.ok_or_else(|| {
-        RestError::from_kernel(KernelError::not_found("work order was not found"))
-    })?;
+    let row = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move { Ok(builder.build().fetch_optional(tx.as_mut()).await?) })
+    })
+    .await?
+    .ok_or_else(|| RestError::from_kernel(KernelError::not_found("work order was not found")))?;
     let work_order_id = WorkOrderId::from_uuid(work_order_id);
     let assignments = fetch_assignment_map(pool, &[*work_order_id.as_uuid()])
         .await?
@@ -2526,8 +2556,14 @@ async fn fetch_assignment_map(
     if work_order_ids.is_empty() {
         return Ok(BTreeMap::new());
     }
-    let rows = sqlx::query(
-        r#"
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+    let ids = work_order_ids.to_vec();
+    let rows = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
         SELECT
             a.work_order_id, a.id, a.mechanic_id, u.display_name AS mechanic_name,
             a.role, a.assigned_at
@@ -2539,9 +2575,12 @@ async fn fetch_assignment_map(
                  a.assigned_at,
                  a.id
         "#,
-    )
-    .bind(work_order_ids.to_vec())
-    .fetch_all(pool)
+            )
+            .bind(ids)
+            .fetch_all(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     let mut assignments = BTreeMap::<uuid::Uuid, Vec<AssignmentSummary>>::new();
     for row in rows {
@@ -2558,8 +2597,14 @@ async fn fetch_approval_line(
     pool: &PgPool,
     work_order_id: WorkOrderId,
 ) -> Result<Vec<ApprovalStepSummary>, RestError> {
-    let rows = sqlx::query(
-        r#"
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+    let wo_uuid = *work_order_id.as_uuid();
+    let rows = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
         SELECT
             id, step_order, role, approver_id, status, requested_at,
             approved_at, approved_by_id
@@ -2567,9 +2612,12 @@ async fn fetch_approval_line(
         WHERE work_order_id = $1
         ORDER BY step_order
         "#,
-    )
-    .bind(*work_order_id.as_uuid())
-    .fetch_all(pool)
+            )
+            .bind(wo_uuid)
+            .fetch_all(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     rows.iter().map(approval_step_from_row).collect()
 }
@@ -2578,16 +2626,25 @@ async fn fetch_status_history(
     pool: &PgPool,
     work_order_id: WorkOrderId,
 ) -> Result<Vec<StatusHistorySummary>, RestError> {
-    let rows = sqlx::query(
-        r#"
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+    let wo_uuid = *work_order_id.as_uuid();
+    let rows = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
         SELECT id, actor, action, from_status, to_status, occurred_at
         FROM work_order_status_history
         WHERE work_order_id = $1
         ORDER BY occurred_at, id
         "#,
-    )
-    .bind(*work_order_id.as_uuid())
-    .fetch_all(pool)
+            )
+            .bind(wo_uuid)
+            .fetch_all(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     rows.iter().map(status_history_from_row).collect()
 }
@@ -2596,8 +2653,14 @@ async fn fetch_evidence_summaries(
     pool: &PgPool,
     work_order_id: WorkOrderId,
 ) -> Result<Vec<EvidenceSummary>, RestError> {
-    let rows = sqlx::query(
-        r#"
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+    let wo_uuid = *work_order_id.as_uuid();
+    let rows = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
         SELECT
             id, stage, content_type, size_bytes, uploaded_by,
             worm_replica_status, retry_count, verified_at, created_at
@@ -2605,9 +2668,12 @@ async fn fetch_evidence_summaries(
         WHERE work_order_id = $1
         ORDER BY created_at, id
         "#,
-    )
-    .bind(*work_order_id.as_uuid())
-    .fetch_all(pool)
+            )
+            .bind(wo_uuid)
+            .fetch_all(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     rows.iter().map(evidence_from_row).collect()
 }

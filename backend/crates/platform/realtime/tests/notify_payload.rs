@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use mnt_kernel_core::{BranchId, MessageId, ThreadId};
+use mnt_kernel_core::{BranchId, MessageId, OrgId, ThreadId};
 use mnt_messenger_application::MessagePostedNotification;
 use mnt_platform_realtime::{
     MessageNotifyPayload, NOTIFY_PAYLOAD_LIMIT_BYTES, NotifyPayloadError, PostgresMessageNotifier,
@@ -14,8 +14,9 @@ fn message_notify_payload_serializes_ids_only_under_postgres_ceiling() {
         thread_id: ThreadId::new(),
         branch_id: BranchId::new(),
     };
+    let org_id = OrgId::knl();
 
-    let bytes = MessageNotifyPayload::from_notification(notification)
+    let bytes = MessageNotifyPayload::from_notification(notification, org_id)
         .to_json_bytes()
         .unwrap();
     assert!(
@@ -26,7 +27,11 @@ fn message_notify_payload_serializes_ids_only_under_postgres_ceiling() {
 
     let json: Value = serde_json::from_slice(&bytes).unwrap();
     let object = json.as_object().unwrap();
-    assert_eq!(object.len(), 2, "NOTIFY payload must carry IDs only");
+    assert_eq!(
+        object.len(),
+        3,
+        "NOTIFY payload carries IDs only (message_id, thread_id, org_id)"
+    );
     assert_eq!(
         object.get("message_id").and_then(Value::as_str),
         Some(notification.message_id.to_string().as_str())
@@ -34,6 +39,11 @@ fn message_notify_payload_serializes_ids_only_under_postgres_ceiling() {
     assert_eq!(
         object.get("thread_id").and_then(Value::as_str),
         Some(notification.thread_id.to_string().as_str())
+    );
+    assert_eq!(
+        object.get("org_id").and_then(Value::as_str),
+        Some(org_id.to_string().as_str()),
+        "org_id arms app.current_org in the background listener, which has no request context"
     );
     assert!(
         object.get("branch_id").is_none(),
@@ -47,6 +57,7 @@ fn message_notify_payload_serializes_ids_only_under_postgres_ceiling() {
     let decoded = MessageNotifyPayload::from_json_bytes(&bytes).unwrap();
     assert_eq!(decoded.message_id, notification.message_id);
     assert_eq!(decoded.thread_id, notification.thread_id);
+    assert_eq!(decoded.org_id, org_id);
 }
 
 #[test]

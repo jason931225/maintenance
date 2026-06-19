@@ -22,6 +22,12 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+# Runtime-role RLS read gate (tests/rls_read_surfaces_as_runtime_role.rs) drives a
+# real messenger read alongside the work-order reads, so it needs the messenger
+# store + its query/domain types. Dev-only; no production dependency is added.
+mnt-messenger-adapter-postgres = { workspace = true }
+mnt-messenger-application = { workspace = true }
+mnt-messenger-domain = { workspace = true }
 
 [lints]
 workspace = true

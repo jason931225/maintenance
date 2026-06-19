@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, OrgId, UserId};
 use mnt_platform_authz::{
     Action, BranchColumn, Feature, PermissionLevel, Principal, Role, authorize, permission_for,
-    repository_filter, resolve_branch_scope,
+    repository_filter, resolve_branch_scope_in_org,
 };
 use sqlx::PgPool;
 
@@ -215,9 +215,14 @@ fn repository_filter_rejects_unsafe_column_names() {
 #[sqlx::test(migrations = "../db/migrations")]
 async fn resolves_user_branch_scope_from_memberships(pool: PgPool) {
     let user_id = seed_user_with_two_branches_and_one_membership(&pool, "ADMIN").await;
-    let scope = resolve_branch_scope(&pool, UserId::from_uuid(user_id.user), &[Role::Admin])
-        .await
-        .unwrap();
+    let scope = resolve_branch_scope_in_org(
+        &pool,
+        OrgId::knl(),
+        UserId::from_uuid(user_id.user),
+        &[Role::Admin],
+    )
+    .await
+    .unwrap();
 
     assert!(scope.allows(BranchId::from_uuid(user_id.member_branch)));
     assert!(!scope.allows(BranchId::from_uuid(user_id.other_branch)));
@@ -235,9 +240,14 @@ async fn resolves_super_admin_to_all_scope_without_memberships(pool: PgPool) {
     .await
     .unwrap();
 
-    let scope = resolve_branch_scope(&pool, UserId::from_uuid(user), &[Role::SuperAdmin])
-        .await
-        .unwrap();
+    let scope = resolve_branch_scope_in_org(
+        &pool,
+        OrgId::knl(),
+        UserId::from_uuid(user),
+        &[Role::SuperAdmin],
+    )
+    .await
+    .unwrap();
 
     assert_eq!(scope, BranchScope::All);
 }

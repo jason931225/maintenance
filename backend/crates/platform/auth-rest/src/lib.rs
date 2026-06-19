@@ -1066,6 +1066,7 @@ async fn ensure_registration_ceremony_owner(
         "#,
     )
     .bind(ceremony_id)
+    // rls-arming: ok auth_webauthn_ceremonies is a global pre-auth table (no org_id, no RLS)
     .fetch_optional(pool)
     .await
     .map_err(|err| RestError::internal(err.to_string()))?
@@ -1295,6 +1296,7 @@ async fn increment_rate_bucket(
     .bind(client_key)
     .bind(endpoint)
     .bind(window_start)
+    // rls-arming: ok auth_rate_limit is a global table (no org_id, no RLS)
     .fetch_one(pool)
     .await
     .map_err(|err| RestError::internal(err.to_string()))?;
