@@ -32,3 +32,9 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          # Baseline at the last pre-conventional commit so release-please only
+          # parses history AFTER it. Without this it walks back to the repo root
+          # and the conventional-commit parser aborts on a non-conventional merge
+          # subject ("Merge pull request #5 …"). The repo is now squash-merge-only
+          # (PR title = commit), so everything after this baseline is conventional.
+          bootstrap-sha: 84d39e710204e151465e8c95e7547ba39acfe31d
