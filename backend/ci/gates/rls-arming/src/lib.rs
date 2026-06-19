@@ -259,27 +259,26 @@ fn walk_rs(
     Ok(())
 }
 
-/// Only police production data-layer code: adapter-postgres/src, rest/src, and the
-/// pool-holding platform crates. Exclude the db crate (defines the arming
-/// primitives + audit_tx), the gate crates, and migration runner.
+/// Police ALL production source under any crate's `src/` (denylist model), so a
+/// bare-pool tenant read added to ANY crate — existing or future — is caught,
+/// not just the data-layer crates. Three exclusions are legitimate. The db crate
+/// DEFINES `with_org_conn`/`with_audit`/`audit_tx` (the arming primitives
+/// themselves), so its internal pool use is the implementation. The ci gate
+/// crates are tooling. And `platform/jobs/src/soak.rs` is a load-test harness
+/// whose bare-pool reads target only non-RLS soak/apalis observability tables
+/// (verified against migrations 0030/0034/0035), not a production request path.
+/// Genuinely-global non-RLS reads elsewhere carry an inline `// rls-arming: ok`
+/// marker, and `#[cfg(test)]` blocks are masked. This makes coverage robust to
+/// new pool-holding crates instead of depending on a hand-maintained allowlist.
 fn is_scanned_path(path: &Path) -> bool {
     let s = path.to_string_lossy().replace('\\', "/");
     if !s.contains("/src/") {
         return false;
     }
-    // Exclusions: the db crate owns with_org_conn/with_audit; ci gates; the app
-    // crate's migrate runner is fine (no tenant reads on bare pool there).
-    if s.contains("/platform/db/") || s.contains("/ci/gates/") {
+    if s.contains("/platform/db/") || s.contains("/ci/gates/") || s.ends_with("/jobs/src/soak.rs") {
         return false;
     }
-    s.contains("/adapter-postgres/src/")
-        || s.contains("/rest/src/")
-        || s.contains("/platform/realtime/src/")
-        || s.contains("/platform/storage/src/")
-        || s.contains("/platform/authz/src/")
-        || s.contains("/platform/auth/src/")
-        || s.contains("/platform/auth-rest/src/")
-        || s.contains("/platform/provisioning/src/")
+    true
 }
 
 #[cfg(test)]

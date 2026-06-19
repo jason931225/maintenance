@@ -115,6 +115,9 @@ jobs:
       - name: PII-no-logs gate
         run: cargo run -p mnt-gate-pii-no-logs
 
+      - name: RLS-arming gate
+        run: cargo run -p mnt-gate-rls-arming
+
   api-clients:
     name: API clients — TypeScript / Kotlin generation and compile
     runs-on: ubuntu-latest
