@@ -70,7 +70,6 @@ use opentelemetry_sdk::trace::SdkTracerProvider;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Postgres, QueryBuilder};
-use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use tracing::Instrument;
@@ -101,8 +100,9 @@ const MAX_AUDIT_LIMIT: i64 = 200;
 /// payloads, and large evidence uploads go straight to object storage via
 /// presigned URLs rather than through this process. Bounds memory per request.
 const MAX_REQUEST_BODY_BYTES: usize = 2 * 1024 * 1024;
-/// Global per-request timeout; sheds requests that hang on a slow upstream or DB
-/// so a stuck handler cannot pin a connection indefinitely.
+/// Default per-request timeout; sheds requests that hang on a slow upstream or
+/// DB so a stuck handler cannot pin a connection indefinitely. Overridable via
+/// `MNT_REQUEST_TIMEOUT_SECS` (see `AppConfig::request_timeout`).
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const OPENAPI_YAML: &str = include_str!("../../openapi/openapi.yaml");
 
@@ -167,6 +167,12 @@ pub struct AppConfig {
     pub solapi: Option<SolapiConfig>,
     pub solapi_disabled_reason: Option<String>,
     pub shutdown_timeout: Duration,
+    /// Per-request timeout applied to every non-streaming route
+    /// (`MNT_REQUEST_TIMEOUT_SECS`, default 30s). Deliberately NOT applied to
+    /// the long-lived realtime WS route, which is merged outside this layer.
+    /// Configurable primarily so tests can prove the realtime route escapes the
+    /// timeout without waiting the full production budget.
+    pub request_timeout: Duration,
     /// Deploy-time cold-start OTP for the cold-start SUPER_ADMIN, supplied
     /// out-of-band via `MNT_COLDSTART_OTP`. `None` (or empty) means no
     /// cold-start OTP is seeded at boot — the normal state once an admin exists.
@@ -269,6 +275,12 @@ impl AppConfig {
             })?,
             None => Duration::from_secs(DEFAULT_SHUTDOWN_TIMEOUT_SECS),
         };
+        let request_timeout = match vars.get("MNT_REQUEST_TIMEOUT_SECS") {
+            Some(raw) => raw.parse::<u64>().map(Duration::from_secs).map_err(|err| {
+                AppError::Config(format!("invalid MNT_REQUEST_TIMEOUT_SECS: {err}"))
+            })?,
+            None => REQUEST_TIMEOUT,
+        };
         let coldstart_otp = non_empty(vars.get("MNT_COLDSTART_OTP"));
         let coldstart_otp_ttl = parse_time_duration_secs(
             vars.get("MNT_COLDSTART_OTP_TTL_SECS"),
@@ -292,6 +304,7 @@ impl AppConfig {
             solapi,
             solapi_disabled_reason,
             shutdown_timeout,
+            request_timeout,
             coldstart_otp,
             coldstart_otp_ttl,
             trusted_proxy_count,
@@ -841,51 +854,65 @@ fn with_metrics(router: Router, state: &AppState) -> Router {
         .route("/metrics", get(render_metrics))
 }
 
+/// Build the `TraceLayer` applied to the fully-merged router so EVERY route
+/// (base, domain, platform, realtime, auth) emits a request span. Tracing a
+/// long-lived WS/SSE connection only logs its start/end, so this is safe to
+/// apply even to the realtime route.
+// The return type spells out the closure-parameterized `TraceLayer`; clippy's
+// `type_complexity` lint fires on this builder-style signature, which is the
+// idiomatic shape for a configured tower layer.
+#[allow(clippy::type_complexity)]
+fn http_trace_layer() -> TraceLayer<
+    tower_http::classify::SharedClassifier<tower_http::classify::ServerErrorsAsFailures>,
+    impl Fn(&Request<Body>) -> tracing::Span + Clone,
+    impl Fn(&Request<Body>, &tracing::Span) + Clone,
+    impl Fn(&Response<Body>, Duration, &tracing::Span) + Clone,
+> {
+    TraceLayer::new_for_http()
+        .make_span_with(|request: &Request<Body>| {
+            tracing::info_span!(
+                "http.request",
+                method = %request.method(),
+                uri = %request.uri(),
+                version = ?request.version(),
+                trace_id = tracing::field::Empty,
+                span_id = tracing::field::Empty,
+            )
+        })
+        .on_request(|request: &Request<Body>, span: &tracing::Span| {
+            let trace_id = record_otel_ids(span);
+            tracing::info!(
+                trace_id = %trace_id,
+                method = %request.method(),
+                uri = %request.uri(),
+                "http request started"
+            );
+        })
+        .on_response(
+            |response: &Response<Body>, latency: Duration, span: &tracing::Span| {
+                let trace_id = record_otel_ids(span);
+                tracing::info!(
+                    trace_id = %trace_id,
+                    status = response.status().as_u16(),
+                    latency_ms = latency.as_millis(),
+                    "http request completed"
+                );
+            },
+        )
+}
+
 pub fn build_router(state: AppState) -> Router {
+    // The base router carries NO cross-cutting layers here. Per axum's `merge`
+    // semantics, any layer applied to a router *before* it is merged with the
+    // domain routers wraps only the base routes, not the merged-in ones — which
+    // is exactly the bug this composition avoids. The trace layer, timeout, and
+    // body limit are applied to the FULLY-merged router below so every route
+    // (base + domains) is covered, with the realtime route deliberately merged
+    // outside the timeout so a long-lived WS connection is never severed.
     let router = Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .route("/openapi/openapi.yaml", get(openapi_yaml))
-        .layer(
-            TraceLayer::new_for_http()
-                .make_span_with(|request: &Request<Body>| {
-                    tracing::info_span!(
-                        "http.request",
-                        method = %request.method(),
-                        uri = %request.uri(),
-                        version = ?request.version(),
-                        trace_id = tracing::field::Empty,
-                        span_id = tracing::field::Empty,
-                    )
-                })
-                .on_request(|request: &Request<Body>, span: &tracing::Span| {
-                    let trace_id = record_otel_ids(span);
-                    tracing::info!(
-                        trace_id = %trace_id,
-                        method = %request.method(),
-                        uri = %request.uri(),
-                        "http request started"
-                    );
-                })
-                .on_response(
-                    |response: &Response<Body>, latency: Duration, span: &tracing::Span| {
-                        let trace_id = record_otel_ids(span);
-                        tracing::info!(
-                            trace_id = %trace_id,
-                            status = response.status().as_u16(),
-                            latency_ms = latency.as_millis(),
-                            "http request completed"
-                        );
-                    },
-                ),
-        )
-        // Defense-in-depth: bound every request's body size and total duration so a
-        // single oversized or hung request cannot exhaust memory or pin a worker.
-        .layer(RequestBodyLimitLayer::new(MAX_REQUEST_BODY_BYTES))
-        .layer(TimeoutLayer::with_status_code(
-            StatusCode::REQUEST_TIMEOUT,
-            REQUEST_TIMEOUT,
-        ))
         .with_state(state.clone());
 
     let router = match &state.database {
@@ -985,19 +1012,49 @@ pub fn build_router(state: AppState) -> Router {
                 state.jwt_verifier.clone(),
                 PlatformProvisioner::new(state.config.coldstart_otp_ttl),
             ));
-            let router = router.merge(domain_router).merge(platform_router).merge(
-                mnt_platform_realtime::router(RealtimeRestState::new(
-                    realtime_hub,
-                    state.jwt_verifier.clone(),
-                )),
-            );
-            match state.auth_rest.clone() {
-                Some(auth_rest) => router.merge(mnt_platform_auth_rest::router(auth_rest)),
-                None => router,
-            }
+            // Everything EXCEPT the realtime WS upgrade: base health/openapi
+            // routes, the tenant domain routers, the platform tier, and the
+            // pre-auth login/refresh endpoints. These are all short-lived
+            // request/response cycles, so they carry the 30s request timeout.
+            let timed = {
+                let timed = router.merge(domain_router).merge(platform_router);
+                let timed = match state.auth_rest.clone() {
+                    Some(auth_rest) => timed.merge(mnt_platform_auth_rest::router(auth_rest)),
+                    None => timed,
+                };
+                // Defense-in-depth: shed any request that hangs on a slow
+                // upstream or DB so a stuck handler cannot pin a worker. Applied
+                // BEFORE the realtime router is merged so the long-lived WS
+                // connection below is never severed by this 30s budget — this is
+                // the #1 regression to prevent (live wallboard/dispatch SSE/WS).
+                timed.layer(TimeoutLayer::with_status_code(
+                    StatusCode::REQUEST_TIMEOUT,
+                    state.config.request_timeout,
+                ))
+            };
+            // The realtime WS upgrade is merged AFTER the timeout layer so it
+            // escapes the 30s budget. It is intentionally NOT under the org
+            // middleware: the WS handler runs its own auth over the socket
+            // lifetime (a task-local would not survive the upgrade anyway).
+            timed.merge(mnt_platform_realtime::router(RealtimeRestState::new(
+                realtime_hub,
+                state.jwt_verifier.clone(),
+            )))
         }
         DatabaseDependency::NotConfigured => router,
     };
+    // Cross-cutting layers on the FULLY-merged router (base + every domain +
+    // platform + realtime + auth), so they actually cover the merged routes:
+    //   * DefaultBodyLimit (2 MiB) — bounds every request body. Applied here
+    //     (innermost of these), so a per-route `DefaultBodyLimit::max(N)` set
+    //     deeper in a domain router (e.g. the 16 MiB equipment import) still
+    //     wins. The realtime WS upgrade carries no body, so this is a no-op for
+    //     it. Overridable per-route, unlike an outermost RequestBodyLimitLayer.
+    //   * TraceLayer — emits a request span for EVERY route, realtime included
+    //     (tracing a long-lived WS only logs its start/end, so it is safe).
+    let router = router
+        .layer(axum::extract::DefaultBodyLimit::max(MAX_REQUEST_BODY_BYTES))
+        .layer(http_trace_layer());
     with_metrics(router, &state)
 }
 
@@ -1713,5 +1770,105 @@ impl From<DbError> for AppError {
             DbError::Sqlx(err) => Self::Database(err),
             DbError::Serialize(err) => Self::Internal(err.to_string()),
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod router_layer_tests {
+    //! Guards the cross-cutting tower-layer composition in `build_router`.
+    //!
+    //! The bug being prevented: applying `TraceLayer`/`TimeoutLayer`/body-limit
+    //! to the *base* router before merging the domain routers leaves the merged
+    //! routes with none of them (axum `merge` does not propagate pre-merge
+    //! layers). The fix applies trace + body-limit to the fully-merged router
+    //! and applies the timeout to base+domains+platform+auth *before* merging
+    //! the long-lived realtime route, so the realtime route escapes the timeout.
+    //!
+    //! These tests assert the *merge-order semantics* the fix relies on, using
+    //! the same `TimeoutLayer` and `.merge()` ordering as `build_router`. A
+    //! route merged INSIDE the timeout 408s when its handler is slow; a route
+    //! merged AFTER (outside) the timeout is never severed — which is exactly
+    //! how the realtime WS/SSE route is composed. (Note: tower-http 0.7's
+    //! `TimeoutLayer` times out the *response future*, so it cannot abort an
+    //! already-streaming SSE body or an upgraded WS in the first place; merging
+    //! the realtime route outside the timeout is belt-and-suspenders correctness
+    //! that stays robust even if that behavior ever changes.)
+
+    use std::time::Duration;
+
+    use axum::Router;
+    use axum::http::StatusCode;
+    use axum::routing::get;
+    use tower::ServiceExt;
+    use tower_http::timeout::TimeoutLayer;
+
+    use super::REQUEST_TIMEOUT;
+
+    async fn slow() -> &'static str {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        "done"
+    }
+
+    /// Mirrors `build_router`'s composition: a "timed" bundle wrapped by a short
+    /// `TimeoutLayer`, then the realtime-equivalent route merged AFTER it.
+    fn compose(timeout: Duration) -> Router {
+        let timed =
+            Router::new()
+                .route("/timed/slow", get(slow))
+                .layer(TimeoutLayer::with_status_code(
+                    StatusCode::REQUEST_TIMEOUT,
+                    timeout,
+                ));
+        // The realtime route is merged AFTER the timeout layer, exactly as in
+        // `build_router`, so it does not inherit the timeout.
+        timed.merge(Router::new().route("/realtime/slow", get(slow)))
+    }
+
+    #[tokio::test]
+    async fn domain_route_inside_timeout_is_shed_when_slow() {
+        let app = compose(Duration::from_millis(200));
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/timed/slow")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::REQUEST_TIMEOUT,
+            "a slow handler on a route INSIDE the timeout layer must be shed with 408"
+        );
+    }
+
+    #[tokio::test]
+    async fn realtime_route_merged_outside_timeout_is_never_shed() {
+        // Same short timeout, but the realtime-equivalent route is merged
+        // outside it: a handler that runs well past the timeout still completes
+        // 200 and is never severed. This is the #1 regression guard — a 30s
+        // timeout must never cut a live realtime/SSE connection.
+        let app = compose(Duration::from_millis(200));
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/realtime/slow")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "the realtime route is merged OUTSIDE the timeout and must not be timed out"
+        );
+    }
+
+    #[test]
+    fn default_request_timeout_is_thirty_seconds() {
+        assert_eq!(REQUEST_TIMEOUT, Duration::from_secs(30));
     }
 }
