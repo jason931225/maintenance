@@ -1088,6 +1088,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/admin/credential-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset a user's credentials for account recovery (admin)
+         * @description Account-recovery escape hatch for a user who lost their only passkey. Revokes ALL of the target user's passkeys AND mints a fresh single-use sign-in one-time code, atomically and audited. Authz-gated to ADMIN / SUPER_ADMIN within the caller's own org and branch scope (same rules as issuing an admin one-time code); a non-SUPER_ADMIN caller cannot reset a privileged user, and a user in another org is not resettable. After the reset the old passkeys fail login and the returned code redeems for a first sign-in. The code is returned once; only its hash is stored.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AdminCredentialResetRequest"];
+                };
+            };
+            responses: {
+                /** @description The fresh one-time code and its expiry. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminCredentialResetResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/token/refresh": {
         parameters: {
             query?: never;
@@ -2470,6 +2516,14 @@ export interface components {
             ttl_seconds?: number;
         };
         AdminIssueOtpResponse: {
+            user_id: components["schemas"]["Uuid"];
+            otp: string;
+            expires_at: components["schemas"]["Timestamp"];
+        };
+        AdminCredentialResetRequest: {
+            user_id: components["schemas"]["Uuid"];
+        };
+        AdminCredentialResetResponse: {
             user_id: components["schemas"]["Uuid"];
             otp: string;
             expires_at: components["schemas"]["Timestamp"];

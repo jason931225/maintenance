@@ -99,6 +99,26 @@ export async function issueAdminOtp(
   return requireData<AdminIssueOtpResponse>(result.data);
 }
 
+type AdminCredentialResetRequest =
+  components["schemas"]["AdminCredentialResetRequest"];
+type AdminCredentialResetResponse =
+  components["schemas"]["AdminCredentialResetResponse"];
+
+/**
+ * Admin-only account recovery: revoke ALL of a user's passkeys AND mint a fresh
+ * single-use sign-in code so a user who lost their only passkey can re-enroll.
+ * Authz-gated to ADMIN / SUPER_ADMIN server-side; the old passkeys stop working.
+ */
+export async function resetUserCredentials(
+  api: WebAuthnApi,
+  body: AdminCredentialResetRequest,
+): Promise<AdminCredentialResetResponse> {
+  const result = await api.POST("/api/v1/auth/admin/credential-reset", {
+    body,
+  });
+  return requireData<AdminCredentialResetResponse>(result.data);
+}
+
 export async function startPasskeyRegistration(
   api: WebAuthnApi,
   body: components["schemas"]["PasskeyRegisterStartRequest"],
@@ -164,7 +184,11 @@ function requireData<T>(data: T | undefined): T {
 function toRequestOptions(
   challenge: Record<string, unknown>,
 ): PublicKeyCredentialRequestOptions {
-  const options = { ...challenge };
+  // The server returns a full CredentialRequestOptions whose WebAuthn fields are
+  // nested under `publicKey` (alongside a wrapper `mediation`); unwrap to the
+  // inner PublicKeyCredentialRequestOptions before converting challenge buffers.
+  const source = isRecord(challenge.publicKey) ? challenge.publicKey : challenge;
+  const options = { ...source };
   if (typeof options.challenge === "string") {
     options.challenge = base64urlToArrayBuffer(options.challenge);
   }
@@ -180,7 +204,11 @@ function toCreationOptions(
   challenge: Record<string, unknown>,
   attachment?: AuthenticatorAttachment,
 ): PublicKeyCredentialCreationOptions {
-  const options = { ...challenge };
+  // The server returns a full CredentialCreationOptions whose WebAuthn fields are
+  // nested under `publicKey`; unwrap to the inner PublicKeyCredentialCreationOptions
+  // before converting the challenge/user buffers.
+  const source = isRecord(challenge.publicKey) ? challenge.publicKey : challenge;
+  const options = { ...source };
   if (typeof options.challenge === "string") {
     options.challenge = base64urlToArrayBuffer(options.challenge);
   }
@@ -208,10 +236,13 @@ function toCreationOptions(
       ? options.authenticatorSelection
       : {};
     options.authenticatorSelection = {
+      ...existing,
+      // Force discoverable (resident-key) enrollment LAST so it cannot be
+      // weakened by the server payload: usernameless login uses an empty
+      // allowCredentials, so a non-resident credential would be unusable.
       residentKey: "required",
       requireResidentKey: true,
       userVerification: "required",
-      ...existing,
       authenticatorAttachment: attachment,
     };
   }

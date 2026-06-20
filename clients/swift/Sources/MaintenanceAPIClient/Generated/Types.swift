@@ -325,6 +325,13 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/auth/admin/otp/issue`.
     /// - Remark: Generated from `#/paths//api/v1/auth/admin/otp/issue/post`.
     func postApiV1AuthAdminOtpIssue(_ input: Operations.PostApiV1AuthAdminOtpIssue.Input) async throws -> Operations.PostApiV1AuthAdminOtpIssue.Output
+    /// Reset a user's credentials for account recovery (admin)
+    ///
+    /// Account-recovery escape hatch for a user who lost their only passkey. Revokes ALL of the target user's passkeys AND mints a fresh single-use sign-in one-time code, atomically and audited. Authz-gated to ADMIN / SUPER_ADMIN within the caller's own org and branch scope (same rules as issuing an admin one-time code); a non-SUPER_ADMIN caller cannot reset a privileged user, and a user in another org is not resettable. After the reset the old passkeys fail login and the returned code redeems for a first sign-in. The code is returned once; only its hash is stored.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/admin/credential-reset`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/admin/credential-reset/post`.
+    func postApiV1AuthAdminCredentialReset(_ input: Operations.PostApiV1AuthAdminCredentialReset.Input) async throws -> Operations.PostApiV1AuthAdminCredentialReset.Output
     /// Rotate refresh token
     ///
     /// Rotates an opaque refresh token; reuse of an old token revokes the whole family and returns 401.
@@ -1345,6 +1352,21 @@ extension APIProtocol {
         body: Operations.PostApiV1AuthAdminOtpIssue.Input.Body
     ) async throws -> Operations.PostApiV1AuthAdminOtpIssue.Output {
         try await postApiV1AuthAdminOtpIssue(Operations.PostApiV1AuthAdminOtpIssue.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Reset a user's credentials for account recovery (admin)
+    ///
+    /// Account-recovery escape hatch for a user who lost their only passkey. Revokes ALL of the target user's passkeys AND mints a fresh single-use sign-in one-time code, atomically and audited. Authz-gated to ADMIN / SUPER_ADMIN within the caller's own org and branch scope (same rules as issuing an admin one-time code); a non-SUPER_ADMIN caller cannot reset a privileged user, and a user in another org is not resettable. After the reset the old passkeys fail login and the returned code redeems for a first sign-in. The code is returned once; only its hash is stored.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/admin/credential-reset`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/admin/credential-reset/post`.
+    public func postApiV1AuthAdminCredentialReset(
+        headers: Operations.PostApiV1AuthAdminCredentialReset.Input.Headers = .init(),
+        body: Operations.PostApiV1AuthAdminCredentialReset.Input.Body
+    ) async throws -> Operations.PostApiV1AuthAdminCredentialReset.Output {
+        try await postApiV1AuthAdminCredentialReset(Operations.PostApiV1AuthAdminCredentialReset.Input(
             headers: headers,
             body: body
         ))
@@ -5119,6 +5141,50 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/AdminIssueOtpResponse/expires_at`.
             public var expiresAt: Components.Schemas.Timestamp
             /// Creates a new `AdminIssueOtpResponse`.
+            ///
+            /// - Parameters:
+            ///   - userId:
+            ///   - otp:
+            ///   - expiresAt:
+            public init(
+                userId: Components.Schemas.Uuid,
+                otp: Swift.String,
+                expiresAt: Components.Schemas.Timestamp
+            ) {
+                self.userId = userId
+                self.otp = otp
+                self.expiresAt = expiresAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case userId = "user_id"
+                case otp
+                case expiresAt = "expires_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AdminCredentialResetRequest`.
+        public struct AdminCredentialResetRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AdminCredentialResetRequest/user_id`.
+            public var userId: Components.Schemas.Uuid
+            /// Creates a new `AdminCredentialResetRequest`.
+            ///
+            /// - Parameters:
+            ///   - userId:
+            public init(userId: Components.Schemas.Uuid) {
+                self.userId = userId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case userId = "user_id"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AdminCredentialResetResponse`.
+        public struct AdminCredentialResetResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AdminCredentialResetResponse/user_id`.
+            public var userId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/AdminCredentialResetResponse/otp`.
+            public var otp: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AdminCredentialResetResponse/expires_at`.
+            public var expiresAt: Components.Schemas.Timestamp
+            /// Creates a new `AdminCredentialResetResponse`.
             ///
             /// - Parameters:
             ///   - userId:
@@ -19233,6 +19299,198 @@ public enum Operations {
             /// State conflict or illegal transition.
             ///
             /// - Remark: Generated from `#/paths//api/v1/auth/admin/otp/issue/post/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Reset a user's credentials for account recovery (admin)
+    ///
+    /// Account-recovery escape hatch for a user who lost their only passkey. Revokes ALL of the target user's passkeys AND mints a fresh single-use sign-in one-time code, atomically and audited. Authz-gated to ADMIN / SUPER_ADMIN within the caller's own org and branch scope (same rules as issuing an admin one-time code); a non-SUPER_ADMIN caller cannot reset a privileged user, and a user in another org is not resettable. After the reset the old passkeys fail login and the returned code redeems for a first sign-in. The code is returned once; only its hash is stored.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/admin/credential-reset`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/admin/credential-reset/post`.
+    public enum PostApiV1AuthAdminCredentialReset {
+        public static let id: Swift.String = "post/api/v1/auth/admin/credential-reset"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/auth/admin/credential-reset/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PostApiV1AuthAdminCredentialReset.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PostApiV1AuthAdminCredentialReset.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.PostApiV1AuthAdminCredentialReset.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/auth/admin/credential-reset/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/admin/credential-reset/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.AdminCredentialResetRequest)
+            }
+            public var body: Operations.PostApiV1AuthAdminCredentialReset.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.PostApiV1AuthAdminCredentialReset.Input.Headers = .init(),
+                body: Operations.PostApiV1AuthAdminCredentialReset.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/admin/credential-reset/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/auth/admin/credential-reset/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.AdminCredentialResetResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.AdminCredentialResetResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PostApiV1AuthAdminCredentialReset.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PostApiV1AuthAdminCredentialReset.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The fresh one-time code and its expiry.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/admin/credential-reset/post/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.PostApiV1AuthAdminCredentialReset.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.PostApiV1AuthAdminCredentialReset.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/admin/credential-reset/post/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/admin/credential-reset/post/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/admin/credential-reset/post/responses/409`.
             ///
             /// HTTP response code: `409 conflict`.
             case conflict(Components.Responses.Conflict)

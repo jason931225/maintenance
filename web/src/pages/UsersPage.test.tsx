@@ -257,3 +257,61 @@ describe("UsersPage OTP issue", () => {
     expect(await within(dialog).findByText("ABCD1234")).toBeVisible();
   });
 });
+
+describe("UsersPage credential reset", () => {
+  it("revokes the user's passkeys, reissues a sign-in code, and shows it", async () => {
+    const user = userEvent.setup();
+    // The reset confirms via window.confirm; auto-accept it.
+    const confirmSpy = vi
+      .spyOn(window, "confirm")
+      .mockReturnValue(true);
+    const resetBody = vi.fn();
+    server.use(
+      http.get("*/api/v1/users", () => HttpResponse.json(users)),
+      http.get("*/api/v1/branches", () => HttpResponse.json(branches)),
+      http.post(
+        "*/api/v1/auth/admin/credential-reset",
+        async ({ request }) => {
+          resetBody(await request.json());
+          return HttpResponse.json({
+            user_id: users[0].id,
+            otp: "RESET999",
+            expires_at: "2026-06-19T00:00:00Z",
+          });
+        },
+      ),
+    );
+
+    renderApp("/settings/users", makeAuthContext(adminSession));
+
+    const row = (await screen.findByText("제갈태수")).closest("tr");
+    expect(row).not.toBeNull();
+    // Open the reset dialog from the user's row.
+    await user.click(
+      within(row as HTMLElement).getByRole("button", {
+        name: "패스키 재설정 / 로그인 코드 재발급",
+      }),
+    );
+
+    const dialog = await screen.findByRole("dialog");
+    // The dialog must warn that existing passkeys are revoked.
+    expect(
+      within(dialog).getByText(/기존 패스키가 모두 삭제/),
+    ).toBeVisible();
+
+    // Trigger the reset and confirm the returned one-time code is shown.
+    await user.click(
+      within(dialog).getByRole("button", {
+        name: "패스키 재설정 및 코드 발급",
+      }),
+    );
+
+    expect(await within(dialog).findByText("RESET999")).toBeVisible();
+    await waitFor(() => {
+      expect(resetBody).toHaveBeenCalledWith({ user_id: users[0].id });
+    });
+    expect(confirmSpy).toHaveBeenCalled();
+
+    confirmSpy.mockRestore();
+  });
+});

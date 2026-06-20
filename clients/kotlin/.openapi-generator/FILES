@@ -30,6 +30,8 @@ src/main/kotlin/com/maintenance/api/client/infrastructure/URIAdapter.kt
 src/main/kotlin/com/maintenance/api/client/infrastructure/URLAdapter.kt
 src/main/kotlin/com/maintenance/api/client/infrastructure/UUIDAdapter.kt
 src/main/kotlin/com/maintenance/api/client/model/AddCommentRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/AdminCredentialResetRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/AdminCredentialResetResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/AdminIssueOtpRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AdminIssueOtpResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/AppendManualCostLedgerRequest.kt

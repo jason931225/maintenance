@@ -453,3 +453,186 @@ async fn seed_region_branch(owner_pool: &PgPool, org: Uuid) -> (String, String) 
     tx.commit().await.unwrap();
     (region_name, branch_name)
 }
+
+/// Count `user_id`'s passkeys as `mnt_rt` with the GUC armed to `org`.
+async fn passkey_count_as_runtime(rt_pool: &PgPool, org: OrgId, user_id: Uuid) -> i64 {
+    let mut tx = rt_pool.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(org.as_uuid().to_string())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM auth_webauthn_credentials WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    tx.commit().await.unwrap();
+    count
+}
+
+// ===========================================================================
+// (5) Admin credential RESET (account-recovery escape hatch): a user who already
+// has a passkey gets it revoked AND a fresh OTP minted, atomically, as mnt_rt.
+// The OLD passkey then no longer authenticates and the new OTP redeems + lets the
+// user re-enroll. Proves the lockout the security trace found is recoverable.
+// ===========================================================================
+#[sqlx::test(migrations = "../db/migrations")]
+async fn admin_credential_reset_revokes_passkey_and_issues_otp_as_runtime_role(owner_pool: PgPool) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let knl = OrgId::knl();
+    let user_id = seed_org_and_user(&owner_pool, *knl.as_uuid(), "KNL").await;
+
+    // The user has a registered passkey (their only login method).
+    let service = passkey_service();
+    let (old_credential_id, mut old_authenticator) =
+        register_passkey_as_runtime(&service, &rt_pool, knl, user_id).await;
+    assert_eq!(passkey_count_as_runtime(&rt_pool, knl, user_id).await, 1);
+
+    // The normal admin-OTP path REFUSES a user who already has a passkey — proving
+    // the lockout: an admin cannot recover this user via the ordinary path.
+    let blocked = BootstrapCredentialStore
+        .issue_for_zero_credential_user(
+            &rt_pool,
+            user_id,
+            knl,
+            OffsetDateTime::now_utc(),
+            Duration::hours(24),
+        )
+        .await;
+    assert!(
+        blocked.is_err(),
+        "issue_for_zero_credential_user must reject a user that already has a passkey"
+    );
+
+    // The RESET escape hatch: revoke ALL passkeys + mint a fresh OTP atomically.
+    let issue = BootstrapCredentialStore
+        .reset_credentials_for_user(
+            &rt_pool,
+            user_id,
+            knl,
+            OffsetDateTime::now_utc(),
+            Duration::hours(24),
+        )
+        .await
+        .expect("admin credential reset must succeed as mnt_rt");
+
+    // The user's passkeys are gone.
+    assert_eq!(
+        passkey_count_as_runtime(&rt_pool, knl, user_id).await,
+        0,
+        "reset must revoke every passkey for the user"
+    );
+
+    // The OLD passkey no longer authenticates: the credential row is gone, so the
+    // usernameless discoverable login cannot resolve it.
+    let authentication = service.start_authentication(&rt_pool).await.unwrap();
+    let challenge = inject_allow_credential(authentication.challenge, &old_credential_id);
+    let assertion = old_authenticator
+        .do_authentication(Url::parse("https://auth.example.com").unwrap(), challenge)
+        .unwrap();
+    let login = service
+        .finish_authentication(&rt_pool, authentication.ceremony_id, assertion)
+        .await;
+    assert!(
+        login.is_err(),
+        "the revoked passkey must no longer authenticate after a reset"
+    );
+
+    // The NEW OTP redeems for a first sign-in.
+    let redemption = BootstrapCredentialStore
+        .redeem_otp(&rt_pool, issue.token.as_str(), OffsetDateTime::now_utc())
+        .await
+        .expect("the freshly minted reset OTP must redeem as mnt_rt");
+    assert_eq!(redemption.user_id, user_id);
+    assert_eq!(redemption.org_id, knl);
+    assert!(
+        redemption.requires_passkey_setup,
+        "after a reset the user has no passkey and must re-enroll"
+    );
+
+    // The user can RE-ENROLL a fresh passkey (the recovery completes).
+    let (new_credential_id, _) =
+        register_passkey_as_runtime(&service, &rt_pool, knl, user_id).await;
+    assert_ne!(new_credential_id, old_credential_id);
+    assert_eq!(passkey_count_as_runtime(&rt_pool, knl, user_id).await, 1);
+
+    // An admin-reset audit row was written (auth.passkey.admin_reset) for the old
+    // credential, proving the revoke is audited.
+    let reset_audits = admin_reset_audit_count(&owner_pool, user_id).await;
+    assert!(
+        reset_audits >= 1,
+        "the passkey revoke must be audited as auth.passkey.admin_reset"
+    );
+}
+
+/// Count `auth.passkey.admin_reset` audit rows for `user_id` (owner pool, RLS off).
+async fn admin_reset_audit_count(owner_pool: &PgPool, user_id: Uuid) -> i64 {
+    let mut tx = owner_pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL row_security = off")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let count: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)
+        FROM audit_events
+        WHERE action = 'auth.passkey.admin_reset'
+          AND actor = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    count
+}
+
+// ===========================================================================
+// (6) Cross-org isolation for the reset: a reset issued under tenant A's GUC must
+// NOT touch tenant B's user. As mnt_rt, a reset run with the WRONG tenant armed
+// sees zero of the target's passkeys (RLS) and cannot revoke them — the escape
+// hatch is tenant-scoped exactly like every other auth path.
+// ===========================================================================
+#[sqlx::test(migrations = "../db/migrations")]
+async fn admin_credential_reset_is_tenant_scoped_as_runtime_role(owner_pool: PgPool) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let knl = OrgId::knl();
+    let org2 = OrgId::from_uuid(ORG_T2);
+
+    // A user in tenant T2 with a passkey.
+    let t2_user = seed_org_and_user(&owner_pool, ORG_T2, "T2").await;
+    let service = passkey_service();
+    let (t2_credential_id, _) =
+        register_passkey_as_runtime(&service, &rt_pool, org2, t2_user).await;
+    assert_eq!(passkey_count_as_runtime(&rt_pool, org2, t2_user).await, 1);
+
+    // A reset run with the WRONG tenant (KNL) armed must NOT revoke T2's passkey:
+    // under KNL's GUC the T2 passkey row is invisible (RLS), so the DELETE matches
+    // zero rows. The reset would still mint a KNL-stamped OTP for the (KNL-invisible)
+    // user id, but the cross-tenant DELETE is the security-critical assertion.
+    let _ = BootstrapCredentialStore
+        .reset_credentials_for_user(
+            &rt_pool,
+            t2_user,
+            knl,
+            OffsetDateTime::now_utc(),
+            Duration::hours(24),
+        )
+        .await;
+
+    // T2's passkey is untouched: a cross-org reset cannot revoke another tenant's
+    // credential.
+    assert_eq!(
+        passkey_count_as_runtime(&rt_pool, org2, t2_user).await,
+        1,
+        "a reset armed to the wrong tenant must NOT revoke another org's passkey"
+    );
+    assert_eq!(
+        credential_org_as_runtime(&rt_pool, org2, &t2_credential_id).await,
+        Some(ORG_T2),
+        "T2's credential must survive a cross-org reset attempt"
+    );
+}

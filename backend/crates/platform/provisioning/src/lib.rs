@@ -187,9 +187,115 @@ impl BootstrapCredentialStore {
                 // `.with_org(org)` call), so the FORCE-RLS WITH CHECK on
                 // `auth_bootstrap_credentials` accepts the row for ANY tenant — not
                 // just KNL — and the credential is stamped with the real org.
-                issue_bootstrap_if_needed_tx(tx, user_id, org, now, ttl, true)
+                issue_bootstrap_if_needed_tx(tx, user_id, org, now, ttl, IssueMode::RejectIfPresent)
                     .await?
                     .ok_or(ProvisioningError::ActiveBootstrapCredentialExists)
+            })
+        })
+        .await
+    }
+
+    /// Admin account-recovery escape hatch: revoke ALL of a user's passkeys AND
+    /// mint a fresh single-use bootstrap OTP, ATOMICALLY and AUDITED, so a user who
+    /// lost their only passkey can re-enroll.
+    ///
+    /// The normal admin-OTP path ([`Self::issue_for_zero_credential_user`]) refuses
+    /// a user who already has a passkey (returns [`ProvisioningError::UserAlreadyHasPasskey`]),
+    /// and self-revoke refuses the last passkey, so neither can recover a locked-out
+    /// user. This method is the deliberate, admin-only override.
+    ///
+    /// Behaviour in ONE transaction (tenant `org` armed as `app.current_org` by
+    /// `with_audits`, so every FORCE-RLS read/write/delete on the target's
+    /// `auth_webauthn_credentials` and `auth_bootstrap_credentials` is scoped to the
+    /// caller's tenant — a user in another org is invisible and cannot be reset):
+    ///   1. DELETE every `auth_webauthn_credentials` row for `user_id`, each audited
+    ///      as `auth.passkey.admin_reset`. The old passkeys then fail login.
+    ///   2. Mint a fresh bootstrap OTP via [`issue_bootstrap_if_needed_tx`] in
+    ///      [`IssueMode::ForceReset`] (bypasses the now-stale passkey check and
+    ///      revokes any leftover open code), audited as `auth.otp.issue`.
+    ///
+    /// Returns the one-time OTP exactly like [`Self::issue_for_zero_credential_user`]
+    /// so the admin can hand it to the user. The OTP value is NEVER audited or logged.
+    pub async fn reset_credentials_for_user(
+        &self,
+        pool: &PgPool,
+        user_id: Uuid,
+        org: OrgId,
+        now: OffsetDateTime,
+        ttl: Duration,
+    ) -> Result<BootstrapCredentialIssue, ProvisioningError> {
+        with_audits::<_, BootstrapCredentialIssue, ProvisioningError>(pool, org, |tx| {
+            Box::pin(async move {
+                // (1) Revoke ALL of the target's passkeys. RETURNING the row ids so
+                // each deletion is audited individually. The GUC armed by
+                // `with_audits` scopes this DELETE to the caller's tenant, so a user
+                // in another org matches zero rows (cross-org reset is a no-op +
+                // generic "user not found" surfaced by the REST layer's prior read).
+                let deleted = sqlx::query(
+                    r#"
+                    DELETE FROM auth_webauthn_credentials
+                    WHERE user_id = $1
+                    RETURNING id, credential_id
+                    "#,
+                )
+                .bind(user_id)
+                .fetch_all(tx.as_mut())
+                .await?;
+
+                let mut events = Vec::with_capacity(deleted.len() + 1);
+                for row in deleted {
+                    let credential_uuid: Uuid = row.try_get("id")?;
+                    let credential_id: String = row.try_get("credential_id")?;
+                    events.push(
+                        AuditEvent::new(
+                            Some(UserId::from_uuid(user_id)),
+                            AuditAction::new("auth.passkey.admin_reset")?,
+                            "auth_webauthn_credential",
+                            credential_uuid.to_string(),
+                            TraceContext::generate(),
+                            now,
+                        )
+                        .with_org(org)
+                        .with_snapshots(
+                            Some(serde_json::json!({
+                                "credential_id": credential_id,
+                                "user_id": user_id,
+                            })),
+                            None,
+                        ),
+                    );
+                }
+
+                // (2) Mint a fresh single-use OTP. ForceReset bypasses the
+                // passkey-existence rejection (the rows were just deleted in this same
+                // transaction) and revokes any stale open code so the new OTP is the
+                // user's sole valid recovery credential.
+                let issue =
+                    issue_bootstrap_if_needed_tx(tx, user_id, org, now, ttl, IssueMode::ForceReset)
+                        .await?
+                        .ok_or(ProvisioningError::ActiveBootstrapCredentialExists)?;
+
+                events.push(
+                    AuditEvent::new(
+                        Some(UserId::from_uuid(user_id)),
+                        AuditAction::new("auth.otp.issue")?,
+                        "auth_bootstrap_credential",
+                        issue.credential_id.to_string(),
+                        TraceContext::generate(),
+                        now,
+                    )
+                    .with_org(org)
+                    .with_snapshots(
+                        None,
+                        Some(serde_json::json!({
+                            "user_id": user_id,
+                            "expires_at": issue.expires_at,
+                            "reason": "admin_reset",
+                        })),
+                    ),
+                );
+
+                Ok((issue, events))
             })
         })
         .await
@@ -534,7 +640,7 @@ impl PlatformProvisioner {
             OrgId::from_uuid(org_id),
             now,
             ttl,
-            true,
+            IssueMode::RejectIfPresent,
         )
         .await?
         .ok_or(ProvisioningError::ActiveBootstrapCredentialExists)?;
@@ -967,9 +1073,15 @@ async fn apply_roster_tx(
             .await?;
             report.users_created += 1;
 
-            if let Some(issue) =
-                issue_bootstrap_if_needed_tx(tx, user_id, OrgId::knl(), now, bootstrap_ttl, false)
-                    .await?
+            if let Some(issue) = issue_bootstrap_if_needed_tx(
+                tx,
+                user_id,
+                OrgId::knl(),
+                now,
+                bootstrap_ttl,
+                IssueMode::SkipIfPresent,
+            )
+            .await?
             {
                 report.bootstrap_credentials_issued.push(issue);
             }
@@ -1060,13 +1172,31 @@ async fn resolve_branch_tx(
     })
 }
 
+/// Controls how [`issue_bootstrap_if_needed_tx`] reacts to a user who already has
+/// a registered passkey or an open bootstrap credential.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IssueMode {
+    /// Roster cold-start: a user who already has a passkey or an open credential is
+    /// silently skipped (`Ok(None)`). Used for idempotent bulk import.
+    SkipIfPresent,
+    /// Admin-issued OTP for a zero-credential user: a user who already has a passkey
+    /// or an open credential is an ERROR (the caller surfaces a 409). This is the
+    /// safe default that keeps an admin from clobbering a user who can already log in.
+    RejectIfPresent,
+    /// Admin credential RESET (account-recovery escape hatch): the caller has ALREADY
+    /// revoked the user's passkeys in this same transaction, so the passkey-existence
+    /// check is bypassed and any leftover open bootstrap credential is revoked before
+    /// a fresh one is minted. Always issues a new OTP.
+    ForceReset,
+}
+
 async fn issue_bootstrap_if_needed_tx(
     tx: &mut Transaction<'_, Postgres>,
     user_id: Uuid,
     org: OrgId,
     now: OffsetDateTime,
     ttl: Duration,
-    reject_existing: bool,
+    mode: IssueMode,
 ) -> Result<Option<BootstrapCredentialIssue>, ProvisioningError> {
     sqlx::query(
         r#"
@@ -1083,16 +1213,22 @@ async fn issue_bootstrap_if_needed_tx(
     .execute(tx.as_mut())
     .await?;
 
-    let passkey_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM auth_webauthn_credentials WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_one(tx.as_mut())
-            .await?;
-    if passkey_count > 0 {
-        if reject_existing {
-            return Err(ProvisioningError::UserAlreadyHasPasskey);
+    // ForceReset is the account-recovery escape hatch: the caller has just revoked
+    // every passkey for this user in the SAME transaction, so a non-zero count here
+    // would be a stale read of rows already deleted — skip the lockout-preserving
+    // passkey check entirely. SkipIfPresent / RejectIfPresent keep enforcing it.
+    if mode != IssueMode::ForceReset {
+        let passkey_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM auth_webauthn_credentials WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_one(tx.as_mut())
+                .await?;
+        if passkey_count > 0 {
+            if mode == IssueMode::RejectIfPresent {
+                return Err(ProvisioningError::UserAlreadyHasPasskey);
+            }
+            return Ok(None);
         }
-        return Ok(None);
     }
 
     let existing_active: Option<Uuid> = sqlx::query_scalar(
@@ -1109,10 +1245,31 @@ async fn issue_bootstrap_if_needed_tx(
     .fetch_optional(tx.as_mut())
     .await?;
     if existing_active.is_some() {
-        if reject_existing {
-            return Err(ProvisioningError::ActiveBootstrapCredentialExists);
+        match mode {
+            // Reset always supersedes any stale open code: revoke it so the freshly
+            // minted OTP is the user's single valid recovery code.
+            IssueMode::ForceReset => {
+                sqlx::query(
+                    r#"
+                    UPDATE auth_bootstrap_credentials
+                    SET revoked_at = $1, revoked_reason = 'reset'
+                    WHERE user_id = $2
+                      AND consumed_at IS NULL
+                      AND revoked_at IS NULL
+                    "#,
+                )
+                .bind(now)
+                .bind(user_id)
+                .execute(tx.as_mut())
+                .await?;
+            }
+            IssueMode::RejectIfPresent => {
+                return Err(ProvisioningError::ActiveBootstrapCredentialExists);
+            }
+            IssueMode::SkipIfPresent => {
+                return Ok(None);
+            }
         }
-        return Ok(None);
     }
 
     let credential_id = Uuid::new_v4();

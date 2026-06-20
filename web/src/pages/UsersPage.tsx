@@ -1,4 +1,4 @@
-import { KeyRound, Pencil, UserPlus } from "lucide-react";
+import { KeyRound, Pencil, RotateCcwKey, UserPlus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import type {
@@ -24,7 +24,7 @@ import {
   teamLabel,
   TEAMS,
 } from "../features/org/org-format";
-import { issueAdminOtp } from "../auth/webauthn";
+import { issueAdminOtp, resetUserCredentials } from "../auth/webauthn";
 import { ko } from "../i18n/ko";
 
 type ReadState = "idle" | "loading" | "error";
@@ -46,6 +46,10 @@ export function UsersPage() {
   const [editing, setEditing] = useState<UserSummary | undefined>(undefined);
   // The OTP target user, when the issue dialog is open.
   const [otpUser, setOtpUser] = useState<UserSummary | undefined>(undefined);
+  // The credential-reset target user, when the reset dialog is open.
+  const [resetUser, setResetUser] = useState<UserSummary | undefined>(
+    undefined,
+  );
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
   // Track the most-recently created user so we can nudge the admin to issue OTP.
   const [newUserId, setNewUserId] = useState<string | undefined>(undefined);
@@ -197,6 +201,11 @@ export function UsersPage() {
                 if (user.id === newUserId) setNewUserId(undefined);
                 setOtpUser(user);
               }}
+              onResetCredentials={(user) => {
+                setFeedback(undefined);
+                if (user.id === newUserId) setNewUserId(undefined);
+                setResetUser(user);
+              }}
             />
           )}
         </div>
@@ -229,6 +238,15 @@ export function UsersPage() {
           }}
         />
       ) : null}
+
+      {resetUser ? (
+        <ResetCredentialsDialog
+          user={resetUser}
+          onClose={() => {
+            setResetUser(undefined);
+          }}
+        />
+      ) : null}
     </>
   );
 }
@@ -241,6 +259,7 @@ function UserTable({
   onEdit,
   onDeactivate,
   onIssueOtp,
+  onResetCredentials,
 }: {
   users: UserSummary[];
   isLoading: boolean;
@@ -249,6 +268,7 @@ function UserTable({
   onEdit: (user: UserSummary) => void;
   onDeactivate: (user: UserSummary) => void;
   onIssueOtp: (user: UserSummary) => void;
+  onResetCredentials: (user: UserSummary) => void;
 }) {
   if (isLoading) {
     return (
@@ -354,6 +374,17 @@ function UserTable({
                   >
                     <KeyRound aria-hidden="true" size={14} />
                     {ko.users.otp.issue}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      onResetCredentials(user);
+                    }}
+                  >
+                    <RotateCcwKey aria-hidden="true" size={14} />
+                    {ko.users.reset.action}
                   </Button>
                   {user.is_active ? (
                     <Button
@@ -715,6 +746,135 @@ function IssueOtpDialog({
           ) : null}
           <Button type="button" variant="secondary" onClick={onClose}>
             {ko.users.otp.close}
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function ResetCredentialsDialog({
+  user,
+  onClose,
+}: {
+  user: UserSummary;
+  onClose: () => void;
+}) {
+  const { api } = useAuth();
+  const [pending, setPending] = useState(false);
+  const [issued, setIssued] = useState<IssuedOtp | undefined>(undefined);
+  const [error, setError] = useState<string | undefined>(undefined);
+  const [copied, setCopied] = useState(false);
+
+  async function handleReset() {
+    if (!window.confirm(ko.users.reset.confirm)) return;
+    setError(undefined);
+    setCopied(false);
+    setPending(true);
+    try {
+      const result = await resetUserCredentials(api, { user_id: user.id });
+      setIssued({ otp: result.otp, expiresAt: result.expires_at });
+    } catch {
+      setError(ko.users.reset.failed);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function handleCopy(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={ko.users.reset.title}
+      className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-4"
+    >
+      <Card className="grid w-full max-w-md gap-4">
+        <div className="grid gap-1">
+          <h2 className="text-lg font-semibold text-slate-950">
+            {ko.users.reset.title}
+          </h2>
+          <p className="text-sm text-slate-600">
+            {ko.users.reset.description}
+          </p>
+          <p className="text-sm font-medium text-slate-800">
+            {user.display_name}
+          </p>
+        </div>
+
+        <p
+          role="alert"
+          className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-900"
+        >
+          {ko.users.reset.warning}
+        </p>
+
+        {issued ? (
+          <div className="grid gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-4">
+            <span className="text-sm font-medium text-emerald-900">
+              {ko.users.reset.issued}
+            </span>
+            <div className="flex items-center gap-2">
+              <code className="rounded bg-white px-3 py-2 text-lg font-semibold tracking-widest text-slate-950">
+                {issued.otp}
+              </code>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  void handleCopy(issued.otp);
+                }}
+              >
+                {copied ? ko.users.reset.copied : ko.users.reset.copy}
+              </Button>
+            </div>
+            <span role="status" aria-live="polite" className="sr-only">
+              {copied ? ko.users.reset.copied : ""}
+            </span>
+            <span className="text-sm text-emerald-900">
+              {ko.users.reset.expiresAt}:{" "}
+              {new Date(issued.expiresAt).toLocaleString("ko-KR", {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
+            </span>
+            <span className="text-sm text-emerald-900">
+              {ko.users.reset.handoff}
+            </span>
+          </div>
+        ) : null}
+
+        {error ? (
+          <p role="alert" className="text-sm font-medium text-red-700">
+            {error}
+          </p>
+        ) : null}
+
+        <div className="flex items-center justify-end gap-2">
+          {!issued ? (
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={pending}
+              onClick={() => {
+                void handleReset();
+              }}
+            >
+              <RotateCcwKey aria-hidden="true" size={18} />
+              {pending ? ko.users.reset.submitting : ko.users.reset.submit}
+            </Button>
+          ) : null}
+          <Button type="button" variant="secondary" onClick={onClose}>
+            {ko.users.reset.close}
           </Button>
         </div>
       </Card>

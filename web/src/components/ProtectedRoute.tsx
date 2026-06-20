@@ -30,15 +30,23 @@ export function ProtectedRoute({ children }: { children?: React.ReactNode }) {
     );
   }
 
+  // Forced passkey enrollment is a shared pre-tenant step: a first OTP sign-in
+  // (tenant OR platform admin) must enroll a passkey before reaching any console.
+  // Handle it entirely here — redirecting to /onboarding, or rendering it when
+  // already there — so a passkey-less platform admin is NOT bounced to /platform
+  // (below) before it can enroll.
+  if (session.requires_passkey_setup) {
+    if (location.pathname !== "/onboarding") {
+      return <Navigate to="/onboarding" replace />;
+    }
+    return children ? <>{children}</> : <Outlet />;
+  }
+
   // A platform-admin (vendor) session belongs in the /platform console; bounce it
   // out of any tenant route. The mirror case (a tenant session on /platform) is
   // handled by RequirePlatformRoute. The backend re-checks on every call.
   if (session.isPlatform && !location.pathname.startsWith("/platform")) {
     return <Navigate to="/platform" replace />;
-  }
-
-  if (session.requires_passkey_setup && location.pathname !== "/onboarding") {
-    return <Navigate to="/onboarding" replace />;
   }
 
   return children ? <>{children}</> : <Outlet />;

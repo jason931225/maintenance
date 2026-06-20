@@ -52,6 +52,7 @@ pub const PASSKEY_LOGIN_START_PATH: &str = "/api/v1/auth/passkey/login/start";
 pub const PASSKEY_LOGIN_FINISH_PATH: &str = "/api/v1/auth/passkey/login/finish";
 pub const OTP_REDEEM_PATH: &str = "/api/v1/auth/otp/redeem";
 pub const ADMIN_OTP_ISSUE_PATH: &str = "/api/v1/auth/admin/otp/issue";
+pub const ADMIN_CREDENTIAL_RESET_PATH: &str = "/api/v1/auth/admin/credential-reset";
 pub const TOKEN_REFRESH_PATH: &str = "/api/v1/auth/token/refresh";
 pub const LOGOUT_PATH: &str = "/api/v1/auth/logout";
 pub const AUTH_ROUTE_PATHS: &[&str] = &[
@@ -61,6 +62,7 @@ pub const AUTH_ROUTE_PATHS: &[&str] = &[
     PASSKEY_LOGIN_FINISH_PATH,
     OTP_REDEEM_PATH,
     ADMIN_OTP_ISSUE_PATH,
+    ADMIN_CREDENTIAL_RESET_PATH,
     TOKEN_REFRESH_PATH,
     LOGOUT_PATH,
 ];
@@ -196,6 +198,7 @@ pub fn router(state: AuthRestState) -> Router {
         .route(PASSKEY_LOGIN_FINISH_PATH, post(finish_login))
         .route(OTP_REDEEM_PATH, post(redeem_otp))
         .route(ADMIN_OTP_ISSUE_PATH, post(issue_admin_otp))
+        .route(ADMIN_CREDENTIAL_RESET_PATH, post(admin_credential_reset))
         .route(TOKEN_REFRESH_PATH, post(refresh_token))
         .route(LOGOUT_PATH, post(logout))
         .with_state(state)
@@ -275,6 +278,24 @@ struct AdminIssueOtpRequest {
 /// expiry. The caller relays this to the new user out-of-band.
 #[derive(Debug, Serialize)]
 struct AdminIssueOtpResponse {
+    user_id: Uuid,
+    otp: String,
+    expires_at: OffsetDateTime,
+}
+
+/// Admin request to reset a user's credentials for account recovery: revokes ALL
+/// the target's passkeys and mints a fresh single-use sign-in OTP. The body
+/// carries only the target user id; the target lives in the caller's own tenant.
+#[derive(Debug, Deserialize)]
+struct AdminCredentialResetRequest {
+    user_id: Uuid,
+}
+
+/// The fresh one-time OTP minted by a credential reset (returned once, never
+/// stored in plaintext) and its expiry. The admin relays this to the locked-out
+/// user out-of-band so they can sign in and re-enroll a passkey.
+#[derive(Debug, Serialize)]
+struct AdminCredentialResetResponse {
     user_id: Uuid,
     otp: String,
     expires_at: OffsetDateTime,
@@ -748,6 +769,97 @@ async fn issue_admin_otp(
         .map_err(RestError::from_provisioning)?;
 
     Ok(Json(AdminIssueOtpResponse {
+        user_id: issue.user_id,
+        otp: issue.token.as_str().to_owned(),
+        expires_at: issue.expires_at,
+    }))
+}
+
+/// Reset a locked-out user's credentials: revoke ALL their passkeys AND mint a
+/// fresh single-use sign-in OTP, atomically and audited, so a user who lost their
+/// only passkey can re-enroll.
+///
+/// This is the admin-only account-recovery escape hatch. The normal admin-OTP
+/// path refuses a user who already has a passkey (409 `UserAlreadyHasPasskey`) and
+/// self-revoke refuses the last passkey, so neither can recover a locked-out user;
+/// this path deliberately overrides both — but ONLY for an admin, gated by the
+/// EXACT same authz/IDOR rules as `issue_admin_otp`:
+///   * Authz: ADMIN / SUPER_ADMIN via the `SubordinateUserCreate` feature against
+///     EVERY one of the target's real branches.
+///   * IDOR / cross-org: the target is read via `load_user_auth_context_in_org`
+///     armed with the CALLER's verified-token org, so a user in another tenant is
+///     invisible (a generic 403, no enumeration). A non-SUPER_ADMIN caller can
+///     never reset an EXECUTIVE / SUPER_ADMIN target.
+///
+/// On success the returned OTP is shown once. Generic errors only (no user
+/// enumeration). After the reset the user's old passkeys fail login and the new
+/// OTP redeems.
+async fn admin_credential_reset(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+    Json(body): Json<AdminCredentialResetRequest>,
+) -> Result<Json<AdminCredentialResetResponse>, RestError> {
+    let services = state.services()?;
+    let principal = principal_from_headers(&state.pool, services, &headers).await?;
+
+    // Resolve the TARGET's real roles inside the CALLER's tenant (IDOR / cross-org
+    // guard): a user in another org is not visible under the caller's org GUC and
+    // surfaces as the same generic 403 as a missing/inactive target.
+    let target = load_user_auth_context_in_org(&state.pool, principal.org_id, body.user_id)
+        .await
+        .map_err(forbidden_if_unauthorized)?;
+    let target_roles = parse_roles(&target.roles)?;
+
+    let caller_is_super_admin = principal.roles.contains(&Role::SuperAdmin);
+
+    // A non-SUPER_ADMIN caller may never reset a privileged target.
+    let target_is_privileged = target_roles
+        .iter()
+        .any(|role| matches!(role, Role::Executive | Role::SuperAdmin));
+    if target_is_privileged && !caller_is_super_admin {
+        return Err(RestError::forbidden(
+            "not allowed to reset credentials for a privileged user",
+        ));
+    }
+
+    // Require the caller to be authorized against EVERY one of the target's real
+    // branches, exactly like `issue_admin_otp`.
+    let target_scope =
+        resolve_branch_scope_in_org(&state.pool, principal.org_id, target.user_id, &target_roles)
+            .await
+            .map_err(|err| RestError::internal(err.to_string()))?;
+    let target_branches = match target_scope {
+        BranchScope::Branches(branches) if !branches.is_empty() => branches,
+        _ => {
+            return Err(RestError::forbidden(
+                "target user has no resettable branch scope",
+            ));
+        }
+    };
+
+    for branch_id in &target_branches {
+        authorize(
+            &principal,
+            Action::limited(Feature::SubordinateUserCreate),
+            *branch_id,
+        )
+        .map_err(|_| RestError::forbidden("not allowed to reset credentials"))?;
+    }
+
+    let now = OffsetDateTime::now_utc();
+    let issue = services
+        .bootstrap_credentials
+        .reset_credentials_for_user(
+            &state.pool,
+            body.user_id,
+            principal.org_id,
+            now,
+            DEFAULT_OTP_TTL,
+        )
+        .await
+        .map_err(RestError::from_provisioning)?;
+
+    Ok(Json(AdminCredentialResetResponse {
         user_id: issue.user_id,
         otp: issue.token.as_str().to_owned(),
         expires_at: issue.expires_at,

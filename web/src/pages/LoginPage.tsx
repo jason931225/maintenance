@@ -30,9 +30,15 @@ export function LoginPage() {
     // reloads /login is redirected to their destination rather than shown the
     // sign-in card mid-restore.
     if (restoring) return;
-    if (session && !session.requires_passkey_setup) {
-      void navigate(safeNext(searchParams.get("next")), { replace: true });
+    if (!session) return;
+    // A first OTP sign-in still needs a passkey: route into forced enrollment.
+    // /login lives outside ProtectedRoute, so the onboarding guard never fires
+    // here — drive the redirect explicitly.
+    if (session.requires_passkey_setup) {
+      void navigate("/onboarding", { replace: true });
+      return;
     }
+    void navigate(safeNext(searchParams.get("next")), { replace: true });
   }, [restoring, session, navigate, searchParams]);
 
   async function handlePasskeyLogin() {
