@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Period {
+    #[serde(with = "time::serde::rfc3339")]
     pub start: Timestamp,
+    #[serde(with = "time::serde::rfc3339")]
     pub end: Timestamp,
 }
 

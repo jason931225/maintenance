@@ -43,10 +43,18 @@ test("MECH-13 equipment lookup by 호기 and view 대차 substitute candidates",
   // Click "대차 후보 조회" to find substitute candidates.
   await page.getByRole("button", { name: /대차 후보 조회/ }).click();
 
-  // The seed has a single equipment, so the substitution read legitimately
-  // returns no compatible candidates — the real, asserted outcome of the lookup
-  // is the empty-state message (proves the read ran and the UI rendered it).
+  // seed-admin.sql seeds a compatible 예비(spare) unit (호기 E2E-SPARE, exact-ton
+  // match), so the substitution read returns it as a candidate. The mechanic can
+  // READ candidates (the 대차 후보 list + 정확 일치 badge render) but the assign
+  // control is admin-only (EquipmentManage) and must stay hidden.
   await expect(
-    page.getByText(/호환되는 대차 후보가 없습니다\./).first(),
+    page.getByRole("heading", { name: /대차 후보/ }),
   ).toBeVisible({ timeout: 8_000 });
+  await expect(page.getByText("E2E-SPARE")).toBeVisible({ timeout: 8_000 });
+  await expect(page.getByText(/정확 일치/).first()).toBeVisible();
+
+  // The assign mutation (대차 배정) is hidden from a mechanic (read-only access).
+  await expect(
+    page.getByRole("button", { name: /^대차 배정$/ }),
+  ).toHaveCount(0);
 });

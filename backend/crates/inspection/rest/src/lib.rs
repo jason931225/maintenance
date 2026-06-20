@@ -25,6 +25,12 @@ use serde::{Deserialize, Serialize};
 use time::macros::format_description;
 use time::{Date, OffsetDateTime};
 
+// The OpenAPI contract types `due_date` as a `string` (ISO `YYYY-MM-DD`), but a
+// bare `time::Date` serde impl expects the array form and rejects the string the
+// web client sends (422). Deserialize it from the ISO date string instead — the
+// same fix the work-order daily-plan `plan_date` already uses.
+time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
+
 pub const INSPECTION_SCHEDULES_PATH: &str = "/api/v1/inspections/schedules";
 pub const INSPECTION_ROUNDS_PATH_TEMPLATE: &str =
     "/api/v1/inspections/schedules/{schedule_id}/rounds";
@@ -70,6 +76,7 @@ struct CreateScheduleRequest {
     mechanic_id: UserId,
     cycle: InspectionCycle,
     interval_days: i32,
+    #[serde(with = "iso_date")]
     due_date: Date,
     note: Option<String>,
 }

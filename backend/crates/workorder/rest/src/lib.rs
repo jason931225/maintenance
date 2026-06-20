@@ -223,6 +223,10 @@ struct SubmitReportRequest {
 
 #[derive(Debug, Deserialize)]
 struct TargetChangeRequestBody {
+    // The OpenAPI contract types this as an rfc3339 `string`; a bare OffsetDateTime
+    // serde impl expects the array form and rejects the ISO instant the web client
+    // sends (422). Deserialize it from the rfc3339 string instead.
+    #[serde(with = "time::serde::rfc3339")]
     requested_target_due_at: time::OffsetDateTime,
     reason: String,
 }

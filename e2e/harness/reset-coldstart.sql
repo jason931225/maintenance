@@ -30,6 +30,16 @@ SELECT set_config('app.current_org', '00000000-0000-0000-0000-00000000face', tru
 DELETE FROM auth_refresh_tokens;
 DELETE FROM auth_refresh_token_families;
 
+-- Clear the fixed-window auth rate-limit counters. In e2e every request shares
+-- one origin with NO X-Forwarded-For, so the per-IP bucket is skipped and ALL
+-- traffic collapses onto the single `global` bucket (cap 100/min/endpoint). Across
+-- a ~1.5-min suite the `refresh`/`otp_redeem` global counters can cross 100 inside
+-- one wall-clock window and start returning 429 — surfacing as spurious
+-- "invalid/expired OTP" or an undefined refreshed token. Resetting per test keeps
+-- each test's budget isolated and order-independent. Production is unaffected:
+-- real clients have distinct IPs, so the per-IP cap (not the global one) governs.
+DELETE FROM auth_rate_limit;
+
 -- Clear bootstrap credentials and re-issue a single fresh, unexpired OTP for the
 -- cold-start admin. token_hash = sha256('e2e-coldstart-otp-000').
 DELETE FROM auth_bootstrap_credentials;

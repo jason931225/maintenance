@@ -93,6 +93,25 @@ export function sql(statement: string): void {
 }
 
 /**
+ * Clear the fixed-window auth rate-limit counters before a role ceremony.
+ *
+ * In e2e every request shares one origin with NO X-Forwarded-For, so the per-IP
+ * bucket is skipped and ALL auth traffic collapses onto the single `global`
+ * bucket (cap 100/min/endpoint). A full suite drives dozens of redeem/refresh/
+ * login ceremonies; within one wall-clock minute the `refresh`/`otp_redeem`
+ * global counters can cross 100 and start returning 429 — surfacing in-browser as
+ * a spurious "invalid/expired OTP" or an undefined refreshed access token. The
+ * roles fixture deliberately does NOT run the cold-start reset (it would wipe
+ * captured passkeys/refresh families), so we clear ONLY this global, RLS-free
+ * counters table to keep each test's budget isolated and order-independent.
+ * Production is unaffected: real clients have distinct IPs, so the per-IP cap
+ * (not the global one) governs there.
+ */
+export function resetRateLimits(): void {
+  sql("DELETE FROM auth_rate_limit");
+}
+
+/**
  * Seed (or re-issue) a single fresh, unexpired, single-use bootstrap OTP for the
  * given role's seeded user. Clears that user's prior bootstrap rows + passkeys so
  * the redeem forces the onboarding/enroll path every time. Order-independent:
@@ -205,6 +224,9 @@ type RoleFixtures = {
  */
 export const test = base.extend<RoleFixtures>({
   loginAs: async ({ page }, use) => {
+    // Isolate this test's auth rate-limit budget so a busy suite cannot bleed the
+    // shared `global` bucket across tests (see resetRateLimits). Order-independent.
+    resetRateLimits();
     await use((role: TenantRole) => loginAs(page, role));
   },
 });

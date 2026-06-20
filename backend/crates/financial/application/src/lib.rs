@@ -171,6 +171,7 @@ pub struct RentalQuoteSummary {
     pub cumulative_repair_cost: MoneyInput,
     pub monthly_total: MoneyInput,
     pub lines: Vec<QuoteLine>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: Timestamp,
 }
 
@@ -186,6 +187,7 @@ pub struct CostLedgerEntrySummary {
     pub memo: String,
     pub residual_before_won: i64,
     pub residual_after_won: i64,
+    #[serde(with = "time::serde::rfc3339")]
     pub entry_at: Timestamp,
 }
 
@@ -201,7 +203,9 @@ pub struct PurchaseRequestSummary {
     pub status: PurchaseStatus,
     pub expenditure_no: Option<String>,
     pub rejection_memo: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: Timestamp,
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: Timestamp,
 }
 

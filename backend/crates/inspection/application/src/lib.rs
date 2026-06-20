@@ -52,12 +52,15 @@ pub struct InspectionScheduleSummary {
     pub interval_days: i32,
     pub due_date: Date,
     pub status: InspectionScheduleStatus,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub completed_at: Option<Timestamp>,
     pub note: Option<String>,
     pub site_name: String,
     pub management_no: Option<String>,
     pub model: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: Timestamp,
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: Timestamp,
 }
 
@@ -72,6 +75,7 @@ pub struct InspectionRoundSummary {
     pub outcome: InspectionRoundOutcome,
     pub findings: String,
     pub note: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
     pub completed_at: Timestamp,
 }
 
