@@ -20,8 +20,9 @@ use mnt_workorder_application::{
     work_order_audit_event,
 };
 use mnt_workorder_domain::{
-    ApprovalRole, PriorityLevel, TransitionActor, TransitionGuardContext, WorkOrderAssignment,
-    WorkOrderAssignments, WorkOrderStatus, WorkResultType, validate_status_transition,
+    ApprovalRole, AssignmentRole, PriorityLevel, TransitionActor, TransitionGuardContext,
+    WorkOrderAssignment, WorkOrderAssignments, WorkOrderStatus, WorkResultType,
+    validate_status_transition,
 };
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use time::Date;
@@ -389,6 +390,12 @@ impl PgWorkOrderStore {
                 let row = lock_work_order(tx, work_order_id).await?;
                 ensure_actor_assignment(tx, work_order_id, actor, AssignmentRequirement::Optional)
                     .await?;
+                // Claim-and-start: an urgent unassigned order (RECEIVED/UNASSIGNED)
+                // may be started directly by a mechanic. Record the actor as the
+                // PRIMARY assignee so downstream steps (e.g. report submission, which
+                // requires an existing assignment) succeed for the mechanic who took
+                // the work. No-op when the order already has assignees.
+                self_claim_if_unassigned(tx, work_order_id, actor, occurred_at, org_uuid).await?;
                 validate_status_transition(
                     row.status,
                     WorkOrderStatus::InProgress,
@@ -1679,6 +1686,44 @@ async fn ensure_actor_assignment(
     }
 
     Err(KernelError::forbidden("actor is not assigned to this work order").into())
+}
+
+/// Record the actor as the PRIMARY assignee when the work order has no assignees
+/// yet (claim-and-start path). No-op if any assignment already exists, so an order
+/// that was formally assigned keeps its existing assignees untouched.
+async fn self_claim_if_unassigned(
+    tx: &mut Transaction<'_, Postgres>,
+    work_order_id: WorkOrderId,
+    actor: UserId,
+    occurred_at: time::OffsetDateTime,
+    org_uuid: uuid::Uuid,
+) -> Result<(), PgWorkOrderError> {
+    let total: i64 = sqlx::query(
+        "SELECT COUNT(*) AS total FROM work_order_assignments WHERE work_order_id = $1",
+    )
+    .bind(*work_order_id.as_uuid())
+    .fetch_one(tx.as_mut())
+    .await?
+    .try_get("total")?;
+    if total > 0 {
+        return Ok(());
+    }
+    sqlx::query(
+        r#"
+        INSERT INTO work_order_assignments (
+            work_order_id, mechanic_id, role, assigned_at, org_id
+        )
+        VALUES ($1, $2, $3, $4, $5)
+        "#,
+    )
+    .bind(*work_order_id.as_uuid())
+    .bind(*actor.as_uuid())
+    .bind(AssignmentRole::Primary.as_db_str())
+    .bind(occurred_at)
+    .bind(org_uuid)
+    .execute(tx.as_mut())
+    .await?;
+    Ok(())
 }
 
 async fn pending_non_mechanic_approval_step(

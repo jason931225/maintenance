@@ -242,7 +242,8 @@ describe("routing", () => {
   });
 
   it("renders /approvals page", async () => {
-    renderAt("/approvals");
+    // /approvals is admin-only (RequireAdminRoute) — render with an admin session.
+    renderAt("/approvals", adminSession);
     expect(
       await screen.findByRole("heading", { name: "승인 대기", level: 2 }),
     ).toBeVisible();
@@ -305,7 +306,7 @@ describe("DispatchPage", () => {
 
 describe("ApprovalsPage", () => {
   it("loads approval queue with status filter", async () => {
-    renderAt("/approvals");
+    renderAt("/approvals", adminSession);
 
     await waitFor(() => {
       expect(
@@ -321,7 +322,7 @@ describe("ApprovalsPage", () => {
 
   it("posts reject memo through the reject route", async () => {
     const user = userEvent.setup();
-    renderAt("/approvals");
+    renderAt("/approvals", adminSession);
 
     expect((await screen.findAllByText("20260612-002"))[0]).toBeVisible();
     await user.type(screen.getByLabelText("검토 메모"), "증빙 보완 필요");

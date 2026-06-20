@@ -15,6 +15,12 @@ use mnt_workorder_domain::{AssignmentRole, PriorityLevel, WorkOrderStatus, WorkR
 use serde::{Deserialize, Serialize};
 use time::Date;
 
+// ISO calendar-date (`YYYY-MM-DD`) serde for `Date` fields exposed on the wire.
+// The default `time::Date` serde shape is a structured array, which mismatches
+// the OpenAPI `Date` contract (`type: string, format: date`) and the ISO strings
+// clients send/expect.
+time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
+
 macro_rules! application_enum {
     (
         $(#[$enum_meta:meta])*
@@ -462,6 +468,7 @@ pub struct DailyPlanSummary {
     pub id: DailyPlanId,
     pub branch_id: BranchId,
     pub mechanic_id: UserId,
+    #[serde(with = "iso_date")]
     pub plan_date: Date,
     pub status: DailyPlanStatus,
 }

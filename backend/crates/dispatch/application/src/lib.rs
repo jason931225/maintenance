@@ -56,12 +56,17 @@ pub struct P1DispatchSummary {
     pub branch_id: BranchId,
     pub status: DispatchStatus,
     pub incident_location: Option<IncidentLocationInput>,
+    #[serde(with = "time::serde::rfc3339")]
     pub accept_window_started_at: Timestamp,
+    #[serde(with = "time::serde::rfc3339")]
     pub accept_window_ends_at: Timestamp,
     pub auto_assigned_mechanic_id: Option<UserId>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub manager_force_pending_at: Option<Timestamp>,
     pub manual_call_required: bool,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub manual_call_required_at: Option<Timestamp>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub manual_call_cleared_at: Option<Timestamp>,
     pub target_count: i64,
     pub accepted_count: i64,

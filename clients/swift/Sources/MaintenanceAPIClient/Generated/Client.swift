@@ -974,6 +974,68 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// Read a daily work plan by id
+    ///
+    /// - Remark: HTTP `GET /api/daily-work-plans/{planId}`.
+    /// - Remark: Generated from `#/paths//api/daily-work-plans/{planId}/get(getDailyWorkPlan)`.
+    public func getDailyWorkPlan(_ input: Operations.GetDailyWorkPlan.Input) async throws -> Operations.GetDailyWorkPlan.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.GetDailyWorkPlan.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/daily-work-plans/{}",
+                    parameters: [
+                        input.path.planId
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.GetDailyWorkPlan.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.DailyPlanSummary.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
     /// Send a daily work plan for review
     ///
     /// - Remark: HTTP `POST /api/daily-work-plans/{planId}/request-review`.

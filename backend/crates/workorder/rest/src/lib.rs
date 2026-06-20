@@ -41,6 +41,12 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use time::format_description::well_known::Rfc3339;
 
+// ISO calendar-date (`YYYY-MM-DD`) serde for `time::Date` request fields. The
+// default `time::Date` serde shape is a structured array, which mismatches the
+// OpenAPI `Date` contract (`type: string, format: date`) and rejects the ISO
+// strings the web/mobile clients send. This module aligns the wire format.
+time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
+
 pub const SYNC_PATH: &str = "/api/v1/sync";
 pub const EVIDENCE_PRESIGN_PATH: &str = "/api/v1/evidence/presign";
 pub const EVIDENCE_CONFIRM_PATH_TEMPLATE: &str = "/api/v1/evidence/{evidenceId}/confirm";
@@ -142,6 +148,7 @@ pub fn router(state: WorkOrderRestState) -> Router {
             post(review_target_change),
         )
         .route("/api/daily-work-plans", post(create_daily_plan))
+        .route("/api/daily-work-plans/{plan_id}", get(get_daily_plan))
         .route(
             "/api/daily-work-plans/{plan_id}/request-review",
             post(request_daily_plan_review),
@@ -236,6 +243,7 @@ struct DailyPlanItemRequest {
 struct CreateDailyPlanRequest {
     branch_id: BranchId,
     mechanic_id: UserId,
+    #[serde(with = "iso_date")]
     plan_date: time::Date,
     items: Vec<DailyPlanItemRequest>,
 }
@@ -2125,6 +2133,30 @@ async fn request_daily_plan_review(
         DailyPlanEndpointAction::RequestReview,
     )
     .await
+}
+
+async fn get_daily_plan(
+    State(state): State<WorkOrderRestState>,
+    headers: HeaderMap,
+    Path(plan_id): Path<uuid::Uuid>,
+) -> Result<impl IntoResponse, RestError> {
+    let plan_id = DailyPlanId::from_uuid(plan_id);
+    let principal = principal_from_headers(&state, &headers)?;
+    let plan = state
+        .store
+        .daily_plan(plan_id)
+        .await
+        .map_err(RestError::from_store)?;
+    // Both the creating mechanic and the reviewing admin hold DailyPlanRequest
+    // (Mechanic/Admin = Allow), so it scopes the read to the plan's branch
+    // without granting it to roles that have no business in the plan flow.
+    authorize(
+        &principal,
+        Action::new(Feature::DailyPlanRequest),
+        plan.branch_id,
+    )
+    .map_err(RestError::from_kernel)?;
+    Ok(Json(plan))
 }
 
 async fn review_daily_plan(

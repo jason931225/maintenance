@@ -102,9 +102,12 @@ pub struct ThreadSummary {
     pub title: Option<String>,
     pub work_order_id: Option<WorkOrderId>,
     pub last_message_id: Option<MessageId>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub last_message_at: Option<Timestamp>,
     pub member_count: i64,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: Timestamp,
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: Timestamp,
 }
 
@@ -116,7 +119,9 @@ pub struct MessageSummary {
     pub sender_id: UserId,
     pub body: String,
     pub attachment_evidence_ids: Vec<EvidenceId>,
+    #[serde(with = "time::serde::rfc3339")]
     pub sent_at: Timestamp,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: Timestamp,
 }
 

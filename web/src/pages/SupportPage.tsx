@@ -14,6 +14,7 @@ import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Select } from "../components/ui/select";
 import { PageHeader } from "../components/shell/PageHeader";
+import { hasAnyRole, ROLES } from "../components/shell/nav";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { PageEmpty } from "../components/states/PageEmpty";
 import { PageError } from "../components/states/PageError";
@@ -58,6 +59,10 @@ export function SupportPage() {
   const { api, session } = useAuth();
   const branchId = useActiveBranchId();
   const currentUserId = session?.user_id;
+  // Ticket triage (assign/claim + status transitions) maps to the backend
+  // AssigneeManage feature, which is ADMIN/SUPER_ADMIN only. Mechanics can read
+  // and comment but never claim, so the triage controls are hidden from them.
+  const canAssign = hasAnyRole(session?.roles, [ROLES.ADMIN, ROLES.SUPER_ADMIN]);
 
   const [tickets, setTickets] = useState<SupportTicketSummary[]>([]);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
@@ -290,6 +295,7 @@ export function SupportPage() {
             <SupportTicketDetail
               detail={detail}
               currentUserId={currentUserId}
+              canAssign={canAssign}
               onTransition={transitionTicket}
               onAddComment={addComment}
               onAssignSelf={assignSelf}

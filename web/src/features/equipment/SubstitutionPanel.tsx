@@ -18,6 +18,13 @@ interface SubstitutionPanelProps {
   api: ConsoleApiClient;
   /** Equipment rows surfaced by the page search — the substitution source pool. */
   results: EquipmentSummary[];
+  /**
+   * Whether the principal may assign/return substitutes (EquipmentManage).
+   * Reading substitute candidates is allowed for any read-access role (mechanics
+   * included), so the source picker and lookup are always shown; only the
+   * mutation controls (assign / return) require this flag.
+   */
+  canManage: boolean;
 }
 
 type WriteState = "idle" | "loading" | "error";
@@ -28,7 +35,11 @@ function matchLabel(kind: SubstituteCandidate["match_kind"]): string {
   return kind === "nearest_above" ? t.matchNearest : t.matchExact;
 }
 
-export function SubstitutionPanel({ api, results }: SubstitutionPanelProps) {
+export function SubstitutionPanel({
+  api,
+  results,
+  canManage,
+}: SubstitutionPanelProps) {
   const [sourceId, setSourceId] = useState<string>("");
   const [candidates, setCandidates] = useState<SubstituteCandidate[]>();
   const [searchState, setSearchState] = useState<WriteState>("idle");
@@ -157,22 +168,24 @@ export function SubstitutionPanel({ api, results }: SubstitutionPanelProps) {
 
       {candidates && candidates.length > 0 ? (
         <div className="grid gap-3">
-          <div className="grid gap-2">
-            <label
-              className="text-sm font-medium text-slate-700"
-              htmlFor="substitution-location"
-            >
-              {t.assignmentLocation}
-            </label>
-            <Input
-              id="substitution-location"
-              value={assignmentLocation}
-              placeholder={t.assignmentLocationPlaceholder}
-              onChange={(event) => {
-                setAssignmentLocation(event.currentTarget.value);
-              }}
-            />
-          </div>
+          {canManage ? (
+            <div className="grid gap-2">
+              <label
+                className="text-sm font-medium text-slate-700"
+                htmlFor="substitution-location"
+              >
+                {t.assignmentLocation}
+              </label>
+              <Input
+                id="substitution-location"
+                value={assignmentLocation}
+                placeholder={t.assignmentLocationPlaceholder}
+                onChange={(event) => {
+                  setAssignmentLocation(event.currentTarget.value);
+                }}
+              />
+            </div>
+          ) : null}
           <h3 className="text-base font-semibold text-slate-950">
             {t.candidatesTitle}
           </h3>
@@ -194,15 +207,17 @@ export function SubstitutionPanel({ api, results }: SubstitutionPanelProps) {
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge>{matchLabel(candidate.match_kind)}</Badge>
-                  <Button
-                    type="button"
-                    onClick={() => void assign(candidate)}
-                    disabled={
-                      !assignmentLocation.trim() || assignState === "loading"
-                    }
-                  >
-                    {assignState === "loading" ? t.assigning : t.assign}
-                  </Button>
+                  {canManage ? (
+                    <Button
+                      type="button"
+                      onClick={() => void assign(candidate)}
+                      disabled={
+                        !assignmentLocation.trim() || assignState === "loading"
+                      }
+                    >
+                      {assignState === "loading" ? t.assigning : t.assign}
+                    </Button>
+                  ) : null}
                 </div>
               </li>
             ))}

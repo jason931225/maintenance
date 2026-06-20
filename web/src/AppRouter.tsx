@@ -136,7 +136,6 @@ export function AppRouter() {
           <Route index element={<Navigate to="/dispatch" replace />} />
           <Route path="/dispatch" element={<DispatchPage />} />
           <Route path="/intake" element={<IntakePage />} />
-          <Route path="/approvals" element={<ApprovalsPage />} />
           <Route path="/daily-plan" element={<DailyPlanPage />} />
           <Route path="/kpi" element={<KpiPage />} />
           <Route path="/reporting" element={<ReportingPage />} />
@@ -148,6 +147,7 @@ export function AppRouter() {
           <Route path="/settings/profile" element={<ProfilePage />} />
           <Route path="/settings/location" element={<LocationSettingsPage />} />
           <Route element={<RequireAdminRoute />}>
+            <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/inspection" element={<InspectionPage />} />
             <Route path="/ops" element={<OpsDashboardPage />} />
             <Route path="/settings/users" element={<UsersPage />} />

@@ -179,9 +179,10 @@ export function EquipmentPage() {
             onMutated={refreshSearch}
           />
         ) : null}
-        {canManage ? (
-          <SubstitutionPanel api={api} results={suggestions} />
-        ) : null}
+        {/* Reading substitute candidates is a read-access capability available to
+            mechanics; only the assign/return mutations require EquipmentManage,
+            which the panel gates internally via `canManage`. */}
+        <SubstitutionPanel api={api} results={suggestions} canManage={canManage} />
       </div>
     </>
   );

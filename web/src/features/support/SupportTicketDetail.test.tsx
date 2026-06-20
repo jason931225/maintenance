@@ -42,6 +42,7 @@ describe("SupportTicketDetail", () => {
       <SupportTicketDetail
         detail={detail()}
         currentUserId={ME}
+        canAssign
         onTransition={vi.fn().mockResolvedValue(undefined)}
         onAddComment={vi.fn().mockResolvedValue(undefined)}
         onAssignSelf={vi.fn().mockResolvedValue(undefined)}
@@ -100,6 +101,7 @@ describe("SupportTicketDetail", () => {
       <SupportTicketDetail
         detail={detail()}
         currentUserId={ME}
+        canAssign
         onTransition={onTransition}
         onAddComment={vi.fn().mockResolvedValue(undefined)}
         onAssignSelf={vi.fn().mockResolvedValue(undefined)}
@@ -144,6 +146,7 @@ describe("SupportTicketDetail", () => {
       <SupportTicketDetail
         detail={detail({ assignee_user_id: OTHER })}
         currentUserId={ME}
+        canAssign
         onTransition={vi.fn()}
         onAddComment={vi.fn()}
         onAssignSelf={onAssignSelf}
@@ -154,6 +157,27 @@ describe("SupportTicketDetail", () => {
       screen.getByRole("button", { name: ko.support.assignSelf }),
     );
     expect(onAssignSelf).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides triage controls (transitions + claim) when the principal cannot assign", () => {
+    render(
+      <SupportTicketDetail
+        detail={detail({ assignee_user_id: OTHER })}
+        currentUserId={ME}
+        canAssign={false}
+        onTransition={vi.fn()}
+        onAddComment={vi.fn()}
+        onAssignSelf={vi.fn()}
+      />,
+    );
+    // A non-triager (e.g. MECHANIC) sees neither the claim nor any status
+    // transition control — the assignment endpoints would 403 for them.
+    expect(
+      screen.queryByRole("button", { name: ko.support.assignSelf }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: ko.support.transition.to_RESOLVED }),
+    ).toBeNull();
   });
 
   it("hides self-assign when the ticket is already mine", () => {
@@ -185,6 +209,7 @@ describe("SupportTicketDetail", () => {
       <SupportTicketDetail
         detail={detail()} // IN_PROGRESS → offers 보류 (ON_HOLD) + 해결 (RESOLVED)
         currentUserId={ME}
+        canAssign
         onTransition={onTransition}
         onAddComment={vi.fn()}
         onAssignSelf={vi.fn()}

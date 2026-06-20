@@ -28,6 +28,13 @@ interface SupportTicketDetailProps {
   detail: SupportTicketDetailModel;
   /** Current principal — enables the self-assign ("claim") triage action. */
   currentUserId?: string;
+  /**
+   * Whether the principal may triage the ticket (assign/claim + status
+   * transitions). These map to the backend `AssigneeManage` feature, which is
+   * admin-only; mechanics can read + comment but never claim or transition, so
+   * the triage controls are hidden from them rather than 403-ing on click.
+   */
+  canAssign: boolean;
   onTransition: (to: SupportTicketStatus) => Promise<void>;
   onAddComment: (body: string, isInternalNote: boolean) => Promise<void>;
   onAssignSelf: () => Promise<void>;
@@ -36,6 +43,7 @@ interface SupportTicketDetailProps {
 export function SupportTicketDetail({
   detail,
   currentUserId,
+  canAssign,
   onTransition,
   onAddComment,
   onAssignSelf,
@@ -115,6 +123,7 @@ export function SupportTicketDetail({
           </div>
         </dl>
 
+        {canAssign ? (
         <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4">
           <span className="text-sm font-semibold text-slate-700">
             {ko.support.transition.title}
@@ -158,6 +167,7 @@ export function SupportTicketDetail({
             </Button>
           ) : null}
         </div>
+        ) : null}
         {transitionFailed ? (
           <p role="alert" className="text-sm font-semibold text-red-700">
             {ko.support.transition.failed}

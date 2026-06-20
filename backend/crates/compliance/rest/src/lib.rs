@@ -104,10 +104,15 @@ struct LocationConsentStatusResponse {
     branch_id: BranchId,
     state: LocationConsentState,
     may_collect: bool,
+    #[serde(with = "time::serde::rfc3339::option")]
     granted_at: Option<Timestamp>,
+    #[serde(with = "time::serde::rfc3339::option")]
     suspended_at: Option<Timestamp>,
+    #[serde(with = "time::serde::rfc3339::option")]
     resumed_at: Option<Timestamp>,
+    #[serde(with = "time::serde::rfc3339::option")]
     withdrawn_at: Option<Timestamp>,
+    #[serde(with = "time::serde::rfc3339::option")]
     updated_at: Option<Timestamp>,
 }
 

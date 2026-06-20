@@ -32,4 +32,7 @@ fi
 echo "db: seeding tenant fixtures" >&2
 psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -q -f "$(dirname "${BASH_SOURCE[0]}")/seed.sql"
 
+echo "db: seeding MECHANIC story fixtures" >&2
+psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -q -f "$(dirname "${BASH_SOURCE[0]}")/seed-mech.sql"
+
 echo "db: ready (${DATABASE_URL})" >&2

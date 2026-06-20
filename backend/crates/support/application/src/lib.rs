@@ -122,10 +122,15 @@ pub struct TicketSummary {
     pub requester_user_id: Option<UserId>,
     pub requester_name: Option<String>,
     pub assignee_user_id: Option<UserId>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub due_at: Option<Timestamp>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: Timestamp,
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: Timestamp,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub resolved_at: Option<Timestamp>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub closed_at: Option<Timestamp>,
 }
 
@@ -136,6 +141,7 @@ pub struct CommentView {
     pub author_user_id: Option<UserId>,
     pub body: String,
     pub is_internal_note: bool,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: Timestamp,
 }
 

@@ -183,7 +183,9 @@ struct UpdateBranchRequest {
 #[derive(Debug, Serialize)]
 struct PasskeySummary {
     id: Uuid,
+    #[serde(with = "time::serde::rfc3339")]
     created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339::option")]
     last_used_at: Option<OffsetDateTime>,
 }
 

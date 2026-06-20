@@ -228,6 +228,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/daily-work-plans/{planId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a daily work plan by id */
+        get: operations["getDailyWorkPlan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/daily-work-plans/{planId}/request-review": {
         parameters: {
             query?: never;
@@ -3484,6 +3501,28 @@ export interface operations {
         responses: {
             /** @description Daily plan created. */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyPlanSummary"];
+                };
+            };
+        };
+    };
+    getDailyWorkPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: components["parameters"]["PlanId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Daily plan found. */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

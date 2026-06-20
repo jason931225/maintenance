@@ -245,6 +245,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DailyPlanSummary'
+  /api/daily-work-plans/{planId}:
+    get:
+      operationId: getDailyWorkPlan
+      summary: Read a daily work plan by id
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/PlanId'
+      responses:
+        '200':
+          description: Daily plan found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyPlanSummary'
   /api/daily-work-plans/{planId}/request-review:
     post:
       operationId: requestDailyWorkPlanReview

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { components } from "@maintenance/api-client-ts";
 import type { UserSummary, WorkOrderListItem } from "../api/types";
+type WorkResultType = components["schemas"]["WorkResultType"];
 import { useAuth } from "../context/auth";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
@@ -11,6 +12,7 @@ import { WorkOrderList } from "../features/dispatch/WorkOrderList";
 import { WorkOrderDispatchControls } from "../features/dispatch/WorkOrderDispatchControls";
 import type { MechanicAssignmentInput } from "../features/dispatch/WorkOrderDispatchControls";
 import { MechanicDispatchOffers } from "../features/dispatch/MechanicDispatchOffers";
+import { WorkOrderActions } from "../features/dispatch/WorkOrderActions";
 import { ko } from "../i18n/ko";
 
 type P1DispatchSummary = components["schemas"]["P1DispatchSummary"];
@@ -83,6 +85,13 @@ export function DispatchPage() {
     mechanicId: string,
   ): Promise<boolean> {
     setWriteState("idle");
+    // A mechanic without manager authority cannot use the manager-only
+    // assignment endpoint (AssigneeManage is denied to MECHANIC). The authorized
+    // self-service action on an unassigned order is claim-and-start: starting the
+    // work records the mechanic as the primary assignee (RECEIVED → IN_PROGRESS).
+    if (isMechanic && !isManager) {
+      return startWork(workOrderId);
+    }
     // Never issue an assignment with an empty mechanic id (no signed-in user id).
     if (!mechanicId) {
       setWriteState("error");
@@ -159,6 +168,51 @@ export function DispatchPage() {
         {
           params: { path: { workOrderId } },
           body: { requested_target_due_at: targetDueAt, reason },
+        },
+      );
+      if (!response.data) {
+        setWriteState("error");
+        return false;
+      }
+      await loadData();
+      return true;
+    } catch {
+      setWriteState("error");
+      return false;
+    }
+  }
+
+  async function startWork(workOrderId: string): Promise<boolean> {
+    setWriteState("idle");
+    try {
+      const response = await api.POST("/api/work-orders/{workOrderId}/start", {
+        params: { path: { workOrderId } },
+      });
+      if (!response.data) {
+        setWriteState("error");
+        return false;
+      }
+      await loadData();
+      return true;
+    } catch {
+      setWriteState("error");
+      return false;
+    }
+  }
+
+  async function submitReport(
+    workOrderId: string,
+    resultType: WorkResultType,
+    diagnosis: string,
+    actionTaken: string,
+  ): Promise<boolean> {
+    setWriteState("idle");
+    try {
+      const response = await api.POST(
+        "/api/work-orders/{workOrderId}/report",
+        {
+          params: { path: { workOrderId } },
+          body: { result_type: resultType, diagnosis, action_taken: actionTaken },
         },
       );
       if (!response.data) {
@@ -281,6 +335,15 @@ export function DispatchPage() {
             onRequestSchedule={requestSchedule}
             onAssign={assignMechanics}
             onForceAssign={forceAssign}
+          />
+        ) : null}
+
+        {isMechanic ? (
+          <WorkOrderActions
+            workOrders={workOrders}
+            onStartWork={startWork}
+            onSubmitReport={submitReport}
+            currentUserId={session?.user_id}
           />
         ) : null}
 

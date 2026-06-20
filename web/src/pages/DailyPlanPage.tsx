@@ -1,5 +1,6 @@
 import { Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import type {
   CreateDailyPlanRequest,
@@ -40,6 +41,7 @@ function today(): string {
 
 export function DailyPlanPage() {
   const { api, session } = useAuth();
+  const [searchParams] = useSearchParams();
   const branchId = session?.branches?.[0];
   const canRequest = hasAnyRole(session?.roles, PLAN_REQUEST_ROLES);
   const canReview = hasAnyRole(session?.roles, PLAN_REVIEW_ROLES);
@@ -55,6 +57,7 @@ export function DailyPlanPage() {
   const [notice, setNotice] = useState<string>();
 
   const loadMechanics = useCallback(async () => {
+    // Managers/reviewers can read the branch roster to plan for any mechanic.
     const response = await api
       .GET("/api/v1/users", { params: { query: { include_inactive: false } } })
       .catch(() => undefined);
@@ -62,6 +65,14 @@ export function DailyPlanPage() {
       setMechanics(
         response.data.filter((user) => user.roles.includes("MECHANIC")),
       );
+      return;
+    }
+    // A mechanic cannot list the roster (UserManage is admin-only); they only
+    // ever plan for themselves, so fall back to their own profile so the selector
+    // offers exactly the current mechanic.
+    const me = await api.GET("/api/v1/users/me").catch(() => undefined);
+    if (me?.data?.roles.includes("MECHANIC")) {
+      setMechanics([me.data]);
     }
   }, [api]);
 
@@ -69,6 +80,26 @@ export function DailyPlanPage() {
     if (!canRequest) return;
     void Promise.resolve().then(loadMechanics);
   }, [canRequest, loadMechanics]);
+
+  // Deep-link load: when arriving with ?planId=… (e.g. a reviewer re-opening a
+  // plan after switching sessions), fetch that plan by id so the review/confirm
+  // actions and status badge operate on real server state.
+  const planIdParam = searchParams.get("planId");
+  useEffect(() => {
+    if (!planIdParam) return;
+    void api
+      .GET("/api/daily-work-plans/{planId}", {
+        params: { path: { planId: planIdParam } },
+      })
+      .then((response) => {
+        if (response.data) {
+          setPlan(response.data);
+          if (response.data.mechanic_id) setMechanicId(response.data.mechanic_id);
+          if (response.data.plan_date) setPlanDate(response.data.plan_date);
+        }
+      })
+      .catch(() => undefined);
+  }, [api, planIdParam]);
 
   function setItem(index: number, description: string) {
     setItems((prev) =>
