@@ -567,6 +567,84 @@ async fn admin_credential_reset_revokes_passkey_and_issues_otp_as_runtime_role(o
     );
 }
 
+// ===========================================================================
+// (7) Self-service add-passkey STEP-UP gate: an already-enrolled user must assert
+// an EXISTING passkey (user verification) before a NEW credential is issued, so a
+// stolen session (bearer token, no authenticator) cannot silently add a device.
+// Proves, as mnt_rt: count > 0 requires step-up; a valid step-up of the user's
+// OWN passkey (UV=true) is accepted; another user's passkey is rejected.
+// ===========================================================================
+#[sqlx::test(migrations = "../db/migrations")]
+async fn add_passkey_step_up_gate_as_runtime_role(owner_pool: PgPool) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let knl = OrgId::knl();
+    let user_id = seed_org_and_user(&owner_pool, *knl.as_uuid(), "KNL").await;
+    let other_id = seed_org_and_user(&owner_pool, *knl.as_uuid(), "KNL2").await;
+
+    let service = passkey_service();
+
+    // The user already has one passkey; a second user has their own.
+    let (cred_id, mut authenticator) =
+        register_passkey_as_runtime(&service, &rt_pool, knl, user_id).await;
+    let (other_cred_id, mut other_authenticator) =
+        register_passkey_as_runtime(&service, &rt_pool, knl, other_id).await;
+
+    // An already-enrolled user => a step-up IS required (count > 0).
+    assert_eq!(
+        service
+            .count_user_passkeys(&rt_pool, knl, user_id)
+            .await
+            .unwrap(),
+        1
+    );
+
+    // A VALID step-up: assert the user's OWN existing passkey (SoftPasskey sets
+    // UV=true) — must be accepted.
+    let auth = service.start_authentication(&rt_pool).await.unwrap();
+    let challenge = inject_allow_credential(auth.challenge, &cred_id);
+    let assertion = authenticator
+        .do_authentication(Url::parse("https://auth.example.com").unwrap(), challenge)
+        .unwrap();
+    service
+        .verify_step_up_for_user(&rt_pool, auth.ceremony_id, assertion, user_id)
+        .await
+        .expect("a fresh step-up of the user's own passkey must be accepted");
+
+    // A step-up using ANOTHER user's passkey must NOT unlock add-device for this
+    // user, even though the assertion itself is valid.
+    let auth2 = service.start_authentication(&rt_pool).await.unwrap();
+    let challenge2 = inject_allow_credential(auth2.challenge, &other_cred_id);
+    let assertion2 = other_authenticator
+        .do_authentication(Url::parse("https://auth.example.com").unwrap(), challenge2)
+        .unwrap();
+    let wrong_owner = service
+        .verify_step_up_for_user(&rt_pool, auth2.ceremony_id, assertion2, user_id)
+        .await;
+    assert!(
+        wrong_owner.is_err(),
+        "a step-up asserting another user's passkey must be rejected for this user"
+    );
+
+    // A consumed step-up ceremony cannot be replayed (single-use), so a captured
+    // assertion can't be reused to add another credential.
+    let auth3 = service.start_authentication(&rt_pool).await.unwrap();
+    let challenge3 = inject_allow_credential(auth3.challenge, &cred_id);
+    let assertion3 = authenticator
+        .do_authentication(Url::parse("https://auth.example.com").unwrap(), challenge3)
+        .unwrap();
+    service
+        .verify_step_up_for_user(&rt_pool, auth3.ceremony_id, assertion3.clone(), user_id)
+        .await
+        .expect("first use of the ceremony succeeds");
+    let replay = service
+        .verify_step_up_for_user(&rt_pool, auth3.ceremony_id, assertion3, user_id)
+        .await;
+    assert!(
+        replay.is_err(),
+        "a step-up ceremony is single-use and cannot be replayed"
+    );
+}
+
 /// Count `auth.passkey.admin_reset` audit rows for `user_id` (owner pool, RLS off).
 async fn admin_reset_audit_count(owner_pool: &PgPool, user_id: Uuid) -> i64 {
     let mut tx = owner_pool.begin().await.unwrap();

@@ -39,7 +39,11 @@ use mnt_kernel_core::{
 };
 use mnt_messenger_adapter_postgres::PgMessengerStore;
 use mnt_messenger_rest::MessengerRestState;
-use mnt_platform_auth::{AccessClaims, JwtSettings, JwtVerifier};
+use mnt_platform_auth::{
+    AccessClaims, AndroidAssetLinksConfig, AppleAppSiteAssociationConfig, JwtSettings, JwtVerifier,
+    WELL_KNOWN_AASA_PATH, WELL_KNOWN_ASSETLINKS_PATH, android_assetlinks_json,
+    apple_app_site_association_json,
+};
 use mnt_platform_auth_rest::{AuthRestConfig, AuthRestState};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
 use mnt_platform_db::{DbError, with_audit};
@@ -86,6 +90,9 @@ const DEFAULT_JWT_AUDIENCE: &str = "mnt-api";
 const DEFAULT_WEBAUTHN_RP_NAME: &str = "MNT Maintenance";
 const DEFAULT_AUTH_CEREMONY_TTL_SECS: u64 = 300;
 const DEFAULT_REFRESH_TOKEN_TTL_SECS: u64 = 60 * 60 * 24 * 30;
+/// Absolute refresh-family lifetime cap (NIST 800-63B AAL2). Default 24h: past
+/// this the family is revoked on rotation and a fresh primary auth is required.
+const DEFAULT_REFRESH_FAMILY_ABSOLUTE_TTL_SECS: u64 = 60 * 60 * 24;
 const DEFAULT_COLDSTART_OTP_TTL_SECS: u64 = 3600;
 const DEFAULT_DISPATCH_ACCEPT_WINDOW_SECS: u64 = 5 * 60;
 const DEFAULT_DISPATCH_FORCE_ASSIGN_ALERT_SECS: u64 = 10 * 60;
@@ -184,6 +191,31 @@ pub struct AppConfig {
     /// (`MNT_TRUSTED_PROXY_COUNT`, default 1). Drives `X-Forwarded-For`
     /// client-IP derivation in the unauthenticated rate limiters.
     pub trusted_proxy_count: usize,
+    /// Native app-link association metadata served at `/.well-known/*`. Drives
+    /// the public, unauthenticated Apple App Site Association + Android asset
+    /// links documents that authorize the native apps' passkeys for the RP
+    /// domain. Sourced from `MNT_IOS_APP_IDS`, `MNT_ANDROID_PACKAGE`, and
+    /// `MNT_ANDROID_CERT_SHA256` (see [`app_links_config_from_vars`]).
+    pub app_links: AppLinksConfig,
+}
+
+/// Native app-link association config for the `/.well-known/*` endpoints.
+///
+/// All fields are optional and default to empty: a deployment that has not yet
+/// provisioned its native apps serves an empty (but well-formed) association
+/// document rather than failing to boot. The empty state is logged at startup so
+/// the gap is visible. Once set, the documents authorize the native apps to use
+/// passkeys scoped to the WebAuthn RP domain.
+#[derive(Debug, Clone, Default)]
+pub struct AppLinksConfig {
+    /// iOS app identifiers (`<TeamID>.<bundle-id>`), e.g. `ABCDE12345.com.knl.fsm`.
+    /// From `MNT_IOS_APP_IDS` (comma-separated).
+    pub ios_app_ids: Vec<String>,
+    /// Android application id, e.g. `com.knl.fsm`. From `MNT_ANDROID_PACKAGE`.
+    pub android_package: Option<String>,
+    /// Android signing-cert SHA-256 fingerprints (colon-separated hex). From
+    /// `MNT_ANDROID_CERT_SHA256` (comma-separated for multiple signing keys).
+    pub android_cert_sha256: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -288,6 +320,7 @@ impl AppConfig {
             "MNT_COLDSTART_OTP_TTL_SECS",
         )?;
         let trusted_proxy_count = parse_trusted_proxy_count(vars.get("MNT_TRUSTED_PROXY_COUNT"))?;
+        let app_links = app_links_config_from_vars(&vars);
 
         Ok(Self {
             role,
@@ -308,8 +341,38 @@ impl AppConfig {
             coldstart_otp,
             coldstart_otp_ttl,
             trusted_proxy_count,
+            app_links,
         })
     }
+}
+
+/// Parse the native app-link association config from the environment.
+///
+/// Every field is optional: an unset/empty value yields an empty list (or
+/// `None`), so the `/.well-known/*` endpoints serve a well-formed-but-empty
+/// document instead of the process refusing to boot. The comma-separated lists
+/// trim and drop blank entries so a trailing comma or stray whitespace is
+/// harmless.
+fn app_links_config_from_vars(vars: &HashMap<String, String>) -> AppLinksConfig {
+    AppLinksConfig {
+        ios_app_ids: parse_csv_list(vars.get("MNT_IOS_APP_IDS")),
+        android_package: non_empty(vars.get("MNT_ANDROID_PACKAGE")),
+        android_cert_sha256: parse_csv_list(vars.get("MNT_ANDROID_CERT_SHA256")),
+    }
+}
+
+/// Split a comma-separated env value into trimmed, non-empty entries. Returns an
+/// empty `Vec` when unset or all-blank.
+fn parse_csv_list(value: Option<&String>) -> Vec<String> {
+    value
+        .map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(ToOwned::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn auth_rest_config_from_vars(
@@ -352,6 +415,11 @@ fn auth_rest_config_from_vars(
             vars.get("MNT_REFRESH_TOKEN_TTL_SECS"),
             DEFAULT_REFRESH_TOKEN_TTL_SECS,
             "MNT_REFRESH_TOKEN_TTL_SECS",
+        )?,
+        refresh_family_absolute_ttl: parse_time_duration_secs(
+            vars.get("MNT_REFRESH_FAMILY_ABSOLUTE_TTL_SECS"),
+            DEFAULT_REFRESH_FAMILY_ABSOLUTE_TTL_SECS,
+            "MNT_REFRESH_FAMILY_ABSOLUTE_TTL_SECS",
         )?,
         trusted_proxy_count: parse_trusted_proxy_count(vars.get("MNT_TRUSTED_PROXY_COUNT"))?,
         cookie_secure: parse_cookie_secure(vars.get("MNT_COOKIE_SECURE"))?,
@@ -913,6 +981,12 @@ pub fn build_router(state: AppState) -> Router {
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .route("/openapi/openapi.yaml", get(openapi_yaml))
+        // Public, unauthenticated native app-link association documents. Native
+        // passkeys are inert until the platform serves these at the EXACT
+        // dotted paths over the RP origin, so they live on the base router with
+        // no auth and no tenant middleware (they carry no tenant data).
+        .route(WELL_KNOWN_AASA_PATH, get(apple_app_site_association))
+        .route(WELL_KNOWN_ASSETLINKS_PATH, get(android_assetlinks))
         .with_state(state.clone());
 
     let router = match &state.database {
@@ -1118,6 +1192,54 @@ async fn openapi_yaml() -> impl IntoResponse {
         [(header::CONTENT_TYPE, "application/yaml; charset=utf-8")],
         OPENAPI_YAML,
     )
+}
+
+/// Serve the Apple App Site Association document at the well-known path.
+///
+/// Public + unauthenticated, served as `application/json` (no extension, per
+/// Apple's requirement). The `webcredentials.apps` list is sourced from
+/// `MNT_IOS_APP_IDS`; an empty list yields a valid but inert document. Apple
+/// fetches this over the RP origin to authorize the native app's passkeys.
+async fn apple_app_site_association(State(state): State<AppState>) -> Response<Body> {
+    let body = apple_app_site_association_json(AppleAppSiteAssociationConfig {
+        app_ids: state.config.app_links.ios_app_ids.clone(),
+    });
+    well_known_json_response(body)
+}
+
+/// Serve the Android Digital Asset Links document at `/.well-known/assetlinks.json`.
+///
+/// Public + unauthenticated, served as `application/json`. The package +
+/// signing-cert fingerprints come from `MNT_ANDROID_PACKAGE` /
+/// `MNT_ANDROID_CERT_SHA256`; when the package is unset the document is an empty
+/// JSON array (valid + inert). Android fetches this to authorize the app's
+/// passkeys for the RP domain.
+async fn android_assetlinks(State(state): State<AppState>) -> Response<Body> {
+    let links = &state.config.app_links;
+    let body = match &links.android_package {
+        Some(package_name) => android_assetlinks_json(AndroidAssetLinksConfig {
+            package_name: package_name.clone(),
+            sha256_cert_fingerprints: links.android_cert_sha256.clone(),
+        }),
+        // No package configured yet: serve an empty (but valid) asset-links array
+        // rather than a half-populated entry with no package name.
+        None => Ok("[]".to_owned()),
+    };
+    well_known_json_response(body)
+}
+
+/// Build an `application/json` response for a well-known association document.
+///
+/// Serialization of these tiny, statically-shaped documents cannot realistically
+/// fail; if it ever did we surface a 500 rather than serving a malformed body.
+fn well_known_json_response(body: Result<String, mnt_platform_auth::AuthError>) -> Response<Body> {
+    match body {
+        Ok(json) => ([(header::CONTENT_TYPE, "application/json")], json).into_response(),
+        Err(err) => {
+            tracing::error!(error = %err, "failed to serialize well-known association document");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
 async fn audit_log(

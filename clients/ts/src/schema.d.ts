@@ -38,6 +38,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/.well-known/apple-app-site-association": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Apple App Site Association (native passkeys)
+         * @description Public, unauthenticated association document Apple fetches over the RP origin to authorize the native iOS app's passkeys. The `webcredentials.apps` list is sourced from `MNT_IOS_APP_IDS`; an unconfigured deployment serves a valid empty document. Served as `application/json` (no file extension, per Apple's requirement).
+         */
+        get: operations["appleAppSiteAssociation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/.well-known/assetlinks.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Android Digital Asset Links (native passkeys)
+         * @description Public, unauthenticated Digital Asset Links document Android fetches to authorize the native app's passkeys for the RP domain. The package and signing-cert fingerprints come from `MNT_ANDROID_PACKAGE` / `MNT_ANDROID_CERT_SHA256`; an unconfigured deployment serves an empty JSON array. Served as `application/json`.
+         */
+        get: operations["androidAssetLinks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ws": {
         parameters: {
             query?: never;
@@ -848,7 +888,7 @@ export interface paths {
         put?: never;
         /**
          * Start passkey registration (authenticated)
-         * @description Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token.
+         * @description Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token. Adding a passkey when the user already has one requires a fresh `step_up` assertion of an existing passkey (user verification required); omitting it returns 401. Initial enrollment (zero existing passkeys) needs no step-up.
          */
         post: {
             parameters: {
@@ -2487,10 +2527,34 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
-        /** @description Optional overrides for the authenticated session user's passkey registration. Both default to the user's stored profile when omitted. */
+        /** @description Optional overrides for the authenticated session user's passkey registration (username/display_name default to the user's stored profile when omitted), plus the step-up assertion required to ADD a passkey when the user already has one. A user with zero passkeys (initial enrollment) omits `step_up`; an already-enrolled user MUST supply a fresh `step_up` assertion of an existing passkey (user verification required), or register/start returns 401 — so a stolen session cannot silently add a credential. */
         PasskeyRegisterStartRequest: {
             username?: string;
             display_name?: string;
+            step_up?: components["schemas"]["PasskeyStepUpAssertion"];
+        };
+        /** @description A fresh assertion of an EXISTING passkey, proving the caller currently possesses an authenticator (not just a bearer token). The `ceremony_id` comes from a preceding `POST /api/v1/auth/passkey/login/start`; the `credential` is the resulting WebAuthn assertion. Verified with user verification (UV) required and rejected unless the asserted credential belongs to the authenticated caller. */
+        PasskeyStepUpAssertion: {
+            ceremony_id: components["schemas"]["Uuid"];
+            credential: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description Apple App Site Association document authorizing the native iOS app's passkeys for the RP domain. */
+        AppleAppSiteAssociation: {
+            webcredentials: {
+                /** @description iOS app identifiers (`<TeamID>.<bundle-id>`). */
+                apps: string[];
+            };
+        };
+        /** @description A single Android Digital Asset Links statement authorizing the native app's signing keys to provide login credentials for the RP domain. */
+        AndroidAssetLinkStatement: {
+            relation: string[];
+            target: {
+                namespace: string;
+                package_name: string;
+                sha256_cert_fingerprints: string[];
+            };
         };
         PasskeyRegisterStartResponse: {
             ceremony_id: components["schemas"]["Uuid"];
@@ -3228,6 +3292,46 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    appleAppSiteAssociation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Apple App Site Association document. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppleAppSiteAssociation"];
+                };
+            };
+        };
+    };
+    androidAssetLinks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Android Digital Asset Links statements. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AndroidAssetLinkStatement"][];
+                };
             };
         };
     };

@@ -135,8 +135,9 @@ impl RefreshTokenStore {
         presented_token: &str,
         now: OffsetDateTime,
         ttl: Duration,
+        absolute_ttl: Duration,
     ) -> Result<RefreshTokenIssue, RefreshTokenUseError> {
-        self.rotate_inner(pool, presented_token, now, ttl)
+        self.rotate_inner(pool, presented_token, now, ttl, absolute_ttl)
             .await
             .map_err(|err| match err {
                 AuthError::Refresh(refresh) => refresh,
@@ -150,6 +151,7 @@ impl RefreshTokenStore {
         presented_token: &str,
         now: OffsetDateTime,
         ttl: Duration,
+        absolute_ttl: Duration,
     ) -> Result<RefreshTokenIssue, AuthError> {
         let token_hash = hash_token(presented_token);
         let mut tx = pool.begin().await?;
@@ -179,7 +181,8 @@ impl RefreshTokenStore {
                 t.expires_at,
                 t.used_at,
                 t.revoked_at AS token_revoked_at,
-                f.revoked_at AS family_revoked_at
+                f.revoked_at AS family_revoked_at,
+                f.created_at AS family_created_at
             FROM auth_refresh_tokens t
             JOIN auth_refresh_token_families f ON f.id = t.family_id
             WHERE t.token_hash = $1
@@ -202,9 +205,53 @@ impl RefreshTokenStore {
         let used_at: Option<OffsetDateTime> = row.try_get("used_at")?;
         let token_revoked_at: Option<OffsetDateTime> = row.try_get("token_revoked_at")?;
         let family_revoked_at: Option<OffsetDateTime> = row.try_get("family_revoked_at")?;
+        let family_created_at: OffsetDateTime = row.try_get("family_created_at")?;
 
         if family_revoked_at.is_some() {
             tx.rollback().await?;
+            return Err(RefreshTokenUseError::FamilyRevoked.into());
+        }
+
+        // Absolute session-lifetime cap (NIST 800-63B AAL2 reauthentication):
+        // a refresh family may rotate freely within `absolute_ttl` of its
+        // creation, but past that hard ceiling every rotation is rejected and the
+        // family is revoked — forcing a fresh primary authentication. This bounds
+        // the lifetime of a silently-rotating session even if individual tokens
+        // never expire from inactivity. The revoke commits so a subsequent
+        // presentation of any sibling token also fails closed.
+        if now > family_created_at + absolute_ttl {
+            sqlx::query(
+                r#"
+                UPDATE auth_refresh_token_families
+                SET revoked_at = $1, revoked_reason = 'absolute_ttl_exceeded'
+                WHERE id = $2 AND revoked_at IS NULL
+                "#,
+            )
+            .bind(now)
+            .bind(family_id)
+            .execute(tx.as_mut())
+            .await?;
+            sqlx::query(
+                "UPDATE auth_refresh_tokens SET revoked_at = COALESCE(revoked_at, $1) WHERE family_id = $2",
+            )
+            .bind(now)
+            .bind(family_id)
+            .execute(tx.as_mut())
+            .await?;
+            insert_audit_in_tx(
+                &mut tx,
+                user_id,
+                family_id,
+                "auth.refresh.absolute_ttl_revoked",
+                now,
+                serde_json::json!({
+                    "family_id": family_id,
+                    "revoked_reason": "absolute_ttl_exceeded",
+                    "family_created_at": family_created_at,
+                }),
+            )
+            .await?;
+            tx.commit().await?;
             return Err(RefreshTokenUseError::FamilyRevoked.into());
         }
 

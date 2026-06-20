@@ -32,7 +32,9 @@ import com.maintenance.api.client.model.AdminCredentialResetRequest
 import com.maintenance.api.client.model.AdminCredentialResetResponse
 import com.maintenance.api.client.model.AdminIssueOtpRequest
 import com.maintenance.api.client.model.AdminIssueOtpResponse
+import com.maintenance.api.client.model.AndroidAssetLinkStatement
 import com.maintenance.api.client.model.AppendManualCostLedgerRequest
+import com.maintenance.api.client.model.AppleAppSiteAssociation
 import com.maintenance.api.client.model.AssignSubstituteRequest
 import com.maintenance.api.client.model.AssignTicketRequest
 import com.maintenance.api.client.model.AssignWorkOrderRequest
@@ -238,6 +240,76 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /.well-known/assetlinks.json
+     * Android Digital Asset Links (native passkeys)
+     * Public, unauthenticated Digital Asset Links document Android fetches to authorize the native app&#39;s passkeys for the RP domain. The package and signing-cert fingerprints come from &#x60;MNT_ANDROID_PACKAGE&#x60; / &#x60;MNT_ANDROID_CERT_SHA256&#x60;; an unconfigured deployment serves an empty JSON array. Served as &#x60;application/json&#x60;.
+     * @return kotlin.collections.List<AndroidAssetLinkStatement>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun androidAssetLinks() : kotlin.collections.List<AndroidAssetLinkStatement> = withContext(Dispatchers.IO) {
+        val localVarResponse = androidAssetLinksWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<AndroidAssetLinkStatement>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /.well-known/assetlinks.json
+     * Android Digital Asset Links (native passkeys)
+     * Public, unauthenticated Digital Asset Links document Android fetches to authorize the native app&#39;s passkeys for the RP domain. The package and signing-cert fingerprints come from &#x60;MNT_ANDROID_PACKAGE&#x60; / &#x60;MNT_ANDROID_CERT_SHA256&#x60;; an unconfigured deployment serves an empty JSON array. Served as &#x60;application/json&#x60;.
+     * @return ApiResponse<kotlin.collections.List<AndroidAssetLinkStatement>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun androidAssetLinksWithHttpInfo() : ApiResponse<kotlin.collections.List<AndroidAssetLinkStatement>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = androidAssetLinksRequestConfig()
+
+        return@withContext request<Unit, kotlin.collections.List<AndroidAssetLinkStatement>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation androidAssetLinks
+     *
+     * @return RequestConfig
+     */
+    fun androidAssetLinksRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/.well-known/assetlinks.json",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
             body = localVariableBody
         )
     }
@@ -757,7 +829,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     /**
      * POST /api/v1/auth/passkey/register/start
      * Start passkey registration (authenticated)
-     * Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token.
+     * Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token. Adding a passkey when the user already has one requires a fresh &#x60;step_up&#x60; assertion of an existing passkey (user verification required); omitting it returns 401. Initial enrollment (zero existing passkeys) needs no step-up.
      * @param passkeyRegisterStartRequest  (optional)
      * @return PasskeyRegisterStartResponse
      * @throws IllegalStateException If the request is not correctly configured
@@ -789,7 +861,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     /**
      * POST /api/v1/auth/passkey/register/start
      * Start passkey registration (authenticated)
-     * Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token.
+     * Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token. Adding a passkey when the user already has one requires a fresh &#x60;step_up&#x60; assertion of an existing passkey (user verification required); omitting it returns 401. Initial enrollment (zero existing passkeys) needs no step-up.
      * @param passkeyRegisterStartRequest  (optional)
      * @return ApiResponse<PasskeyRegisterStartResponse?>
      * @throws IllegalStateException If the request is not correctly configured
@@ -975,6 +1047,76 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /.well-known/apple-app-site-association
+     * Apple App Site Association (native passkeys)
+     * Public, unauthenticated association document Apple fetches over the RP origin to authorize the native iOS app&#39;s passkeys. The &#x60;webcredentials.apps&#x60; list is sourced from &#x60;MNT_IOS_APP_IDS&#x60;; an unconfigured deployment serves a valid empty document. Served as &#x60;application/json&#x60; (no file extension, per Apple&#39;s requirement).
+     * @return AppleAppSiteAssociation
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun appleAppSiteAssociation() : AppleAppSiteAssociation = withContext(Dispatchers.IO) {
+        val localVarResponse = appleAppSiteAssociationWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as AppleAppSiteAssociation
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /.well-known/apple-app-site-association
+     * Apple App Site Association (native passkeys)
+     * Public, unauthenticated association document Apple fetches over the RP origin to authorize the native iOS app&#39;s passkeys. The &#x60;webcredentials.apps&#x60; list is sourced from &#x60;MNT_IOS_APP_IDS&#x60;; an unconfigured deployment serves a valid empty document. Served as &#x60;application/json&#x60; (no file extension, per Apple&#39;s requirement).
+     * @return ApiResponse<AppleAppSiteAssociation?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun appleAppSiteAssociationWithHttpInfo() : ApiResponse<AppleAppSiteAssociation?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = appleAppSiteAssociationRequestConfig()
+
+        return@withContext request<Unit, AppleAppSiteAssociation>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation appleAppSiteAssociation
+     *
+     * @return RequestConfig
+     */
+    fun appleAppSiteAssociationRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/.well-known/apple-app-site-association",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
             body = localVariableBody
         )
     }

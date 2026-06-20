@@ -131,6 +131,143 @@ impl PasskeyService {
         })
     }
 
+    /// Count the authenticated user's existing passkeys (RLS-armed).
+    ///
+    /// Used by the add-device flow to decide whether a fresh step-up assertion is
+    /// REQUIRED: a user with zero passkeys is doing initial enrollment (no
+    /// existing credential to assert), while a user with one or more must prove
+    /// possession of an existing passkey before a new one is issued.
+    pub async fn count_user_passkeys(
+        &self,
+        pool: &PgPool,
+        org: OrgId,
+        user_id: Uuid,
+    ) -> Result<usize, AuthError> {
+        Ok(load_user_passkeys(pool, org, user_id).await?.len())
+    }
+
+    /// Verify a FRESH step-up assertion of one of `expected_user_id`'s OWN
+    /// existing passkeys, with user verification (UV) required.
+    ///
+    /// This is the anti-silent-add gate for self-service device enrollment: before
+    /// a new credential is issued to an already-enrolled user, the caller must
+    /// assert an existing passkey of THE SAME user with UV=true, so a stolen
+    /// session (bearer token only, no authenticator) cannot add a credential.
+    ///
+    /// The assertion ceremony is claimed atomically (single-use, like login), the
+    /// discoverable assertion is verified against the resolved credential, and the
+    /// assertion is rejected unless (a) `user_verified()` is true and (b) the
+    /// asserting credential belongs to `expected_user_id`. The credential's org is
+    /// resolved + the GUC armed exactly as in `finish_authentication`, but NO
+    /// token is minted and NO session is created — this only proves possession.
+    pub async fn verify_step_up_for_user(
+        &self,
+        pool: &PgPool,
+        ceremony_id: Uuid,
+        credential: PublicKeyCredential,
+        expected_user_id: Uuid,
+    ) -> Result<(), AuthError> {
+        let now = OffsetDateTime::now_utc();
+        let mut tx = pool.begin().await?;
+
+        let claim = claim_ceremony_tx(&mut tx, ceremony_id, "authentication", now)
+            .await?
+            .ok_or_else(|| {
+                AuthError::InvalidStoredData("ceremony not found or already consumed".to_owned())
+            })?;
+
+        let credential_id = serialize_to_string(&credential.raw_id, "step-up credential id")?;
+
+        let Some(org_uuid) = resolve_credential_org(&mut tx, &credential_id).await? else {
+            return Err(AuthError::InvalidStoredData(
+                "asserted credential is not registered".to_owned(),
+            ));
+        };
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(org_uuid.to_string())
+            .execute(tx.as_mut())
+            .await?;
+
+        let row = sqlx::query(
+            r#"
+            SELECT id, user_id, passkey_json
+            FROM auth_webauthn_credentials
+            WHERE credential_id = $1
+            "#,
+        )
+        .bind(&credential_id)
+        .fetch_optional(tx.as_mut())
+        .await?
+        .ok_or_else(|| {
+            AuthError::InvalidStoredData("asserted credential is not registered".to_owned())
+        })?;
+        let passkey_id: Uuid = row.try_get("id")?;
+        let user_id: Uuid = row.try_get("user_id")?;
+        let passkey_json: serde_json::Value = row.try_get("passkey_json")?;
+
+        // The step-up must assert one of the AUTHENTICATED caller's OWN passkeys.
+        // A credential belonging to anyone else (or a handle mismatch) is rejected
+        // before verification so a different user's authenticator can never unlock
+        // an add-device for this account.
+        if user_id != expected_user_id {
+            return Err(AuthError::InvalidStoredData(
+                "step-up credential does not belong to the authenticated user".to_owned(),
+            ));
+        }
+        if let Some(asserted_handle) = credential.get_user_unique_id()
+            && Uuid::from_slice(asserted_handle).ok() != Some(user_id)
+        {
+            return Err(AuthError::InvalidStoredData(
+                "asserted user handle does not match the credential owner".to_owned(),
+            ));
+        }
+
+        let state: DiscoverableAuthentication = serde_json::from_value(claim.state_json)?;
+        let mut passkey: Passkey = serde_json::from_value(passkey_json)?;
+        let discoverable_key = DiscoverableKey::from(&passkey);
+        let result = self.webauthn.finish_discoverable_authentication(
+            &credential,
+            state,
+            &[discoverable_key],
+        )?;
+
+        // Require user verification (UV): a step-up to add a NEW credential is a
+        // high-value action, so a mere user-presence touch is insufficient — the
+        // authenticator must have verified the user (biometric/PIN).
+        if !result.user_verified() {
+            return Err(AuthError::InvalidStoredData(
+                "step-up assertion did not perform user verification".to_owned(),
+            ));
+        }
+
+        // Keep the sign-count / backup-state fresh, mirroring login, so a replayed
+        // counter is still caught on the next real authentication.
+        let changed = passkey.update_credential(&result).unwrap_or(false);
+        if changed {
+            sqlx::query(
+                r#"
+                UPDATE auth_webauthn_credentials
+                SET passkey_json = $1, last_used_at = $2
+                WHERE id = $3
+                "#,
+            )
+            .bind(serde_json::to_value(&passkey)?)
+            .bind(now)
+            .bind(passkey_id)
+            .execute(tx.as_mut())
+            .await?;
+        } else {
+            sqlx::query("UPDATE auth_webauthn_credentials SET last_used_at = $1 WHERE id = $2")
+                .bind(now)
+                .bind(passkey_id)
+                .execute(tx.as_mut())
+                .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn finish_registration(
         &self,
         pool: &PgPool,

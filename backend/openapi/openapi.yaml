@@ -19,6 +19,42 @@ paths:
           description: Service dependencies are ready.
         '503':
           description: A required dependency is unavailable.
+  /.well-known/apple-app-site-association:
+    get:
+      operationId: appleAppSiteAssociation
+      summary: Apple App Site Association (native passkeys)
+      description: >-
+        Public, unauthenticated association document Apple fetches over the RP
+        origin to authorize the native iOS app's passkeys. The
+        `webcredentials.apps` list is sourced from `MNT_IOS_APP_IDS`; an
+        unconfigured deployment serves a valid empty document. Served as
+        `application/json` (no file extension, per Apple's requirement).
+      responses:
+        '200':
+          description: The Apple App Site Association document.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppleAppSiteAssociation'
+  /.well-known/assetlinks.json:
+    get:
+      operationId: androidAssetLinks
+      summary: Android Digital Asset Links (native passkeys)
+      description: >-
+        Public, unauthenticated Digital Asset Links document Android fetches to
+        authorize the native app's passkeys for the RP domain. The package and
+        signing-cert fingerprints come from `MNT_ANDROID_PACKAGE` /
+        `MNT_ANDROID_CERT_SHA256`; an unconfigured deployment serves an empty
+        JSON array. Served as `application/json`.
+      responses:
+        '200':
+          description: The Android Digital Asset Links statements.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AndroidAssetLinkStatement'
   /api/v1/ws:
     get:
       operationId: connectRealtimeWebSocket
@@ -1492,7 +1528,9 @@ paths:
       summary: Start passkey registration (authenticated)
       description: Starts a passkey registration ceremony for the authenticated session user.
         Used during initial-settings passkey enrollment after an OTP first sign-in, or to add
-        a device later. Requires a bearer token.
+        a device later. Requires a bearer token. Adding a passkey when the user already has one
+        requires a fresh `step_up` assertion of an existing passkey (user verification required);
+        omitting it returns 401. Initial enrollment (zero existing passkeys) needs no step-up.
       security:
       - bearerAuth: []
       requestBody:
@@ -4776,13 +4814,86 @@ components:
           format: int64
     PasskeyRegisterStartRequest:
       type: object
-      description: Optional overrides for the authenticated session user's passkey
-        registration. Both default to the user's stored profile when omitted.
+      description: >-
+        Optional overrides for the authenticated session user's passkey
+        registration (username/display_name default to the user's stored profile
+        when omitted), plus the step-up assertion required to ADD a passkey when
+        the user already has one. A user with zero passkeys (initial enrollment)
+        omits `step_up`; an already-enrolled user MUST supply a fresh `step_up`
+        assertion of an existing passkey (user verification required), or
+        register/start returns 401 — so a stolen session cannot silently add a
+        credential.
       properties:
         username:
           type: string
         display_name:
           type: string
+        step_up:
+          $ref: '#/components/schemas/PasskeyStepUpAssertion'
+    PasskeyStepUpAssertion:
+      type: object
+      description: >-
+        A fresh assertion of an EXISTING passkey, proving the caller currently
+        possesses an authenticator (not just a bearer token). The `ceremony_id`
+        comes from a preceding `POST /api/v1/auth/passkey/login/start`; the
+        `credential` is the resulting WebAuthn assertion. Verified with user
+        verification (UV) required and rejected unless the asserted credential
+        belongs to the authenticated caller.
+      required:
+      - ceremony_id
+      - credential
+      properties:
+        ceremony_id:
+          $ref: '#/components/schemas/Uuid'
+        credential:
+          type: object
+          additionalProperties: true
+    AppleAppSiteAssociation:
+      type: object
+      description: >-
+        Apple App Site Association document authorizing the native iOS app's
+        passkeys for the RP domain.
+      required:
+      - webcredentials
+      properties:
+        webcredentials:
+          type: object
+          required:
+          - apps
+          properties:
+            apps:
+              type: array
+              description: iOS app identifiers (`<TeamID>.<bundle-id>`).
+              items:
+                type: string
+    AndroidAssetLinkStatement:
+      type: object
+      description: >-
+        A single Android Digital Asset Links statement authorizing the native
+        app's signing keys to provide login credentials for the RP domain.
+      required:
+      - relation
+      - target
+      properties:
+        relation:
+          type: array
+          items:
+            type: string
+        target:
+          type: object
+          required:
+          - namespace
+          - package_name
+          - sha256_cert_fingerprints
+          properties:
+            namespace:
+              type: string
+            package_name:
+              type: string
+            sha256_cert_fingerprints:
+              type: array
+              items:
+                type: string
     PasskeyRegisterStartResponse:
       type: object
       required:

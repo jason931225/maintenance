@@ -123,14 +123,37 @@ export async function startPasskeyRegistration(
   api: WebAuthnApi,
   body: components["schemas"]["PasskeyRegisterStartRequest"],
   attachment?: AuthenticatorAttachment,
+  requireStepUp = false,
 ): Promise<RegisterCeremony> {
+  // Adding a passkey to an already-enrolled user requires a FRESH step-up
+  // assertion of an existing passkey (the backend rejects register/start with
+  // 401 otherwise), so a stolen session alone cannot silently enroll a device.
+  // Initial enrollment (the user has no passkey yet) skips this.
+  const stepUp = requireStepUp ? await assertStepUp(api) : undefined;
   const result = await api.POST("/api/v1/auth/passkey/register/start", {
-    body,
+    body: stepUp ? { ...body, step_up: stepUp } : body,
   });
   const data = requireData<RegisterStartResponse>(result.data);
   return {
     ceremonyId: data.ceremony_id,
     publicKey: toCreationOptions(data.challenge, attachment),
+  };
+}
+
+/**
+ * Perform a step-up: assert an EXISTING passkey (with user verification) and
+ * return the proof the backend requires before issuing an add-device challenge.
+ * Reuses the discoverable login ceremony — no token is minted, the assertion only
+ * proves the caller currently possesses an authenticator.
+ */
+async function assertStepUp(
+  api: WebAuthnApi,
+): Promise<components["schemas"]["PasskeyStepUpAssertion"]> {
+  const ceremony = await startPasskeyLogin(api);
+  const credential = await getCredential(ceremony.publicKey);
+  return {
+    ceremony_id: ceremony.ceremonyId,
+    credential: publicKeyCredentialToJson(credential),
   };
 }
 

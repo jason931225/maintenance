@@ -16,7 +16,7 @@ use mnt_identity_domain::{
     Team, normalize_optional_phone, validate_display_name, validate_org_name,
 };
 use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, KernelError, RegionId, UserId};
-use mnt_platform_db::{DbError, with_audit, with_org_conn};
+use mnt_platform_db::{DbError, insert_audit_event, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row, Transaction};
 
@@ -274,19 +274,36 @@ impl PgOrgStore {
         .await
     }
 
-    /// Soft-deactivate a user.
+    /// Soft-deactivate a user AND revoke every active credential + session.
+    ///
+    /// Offboarding must close all access in one atomic, audited transaction:
+    /// flipping `is_active = false` only blocks NEW sign-ins, but a deactivated
+    /// user keeps an enrolled passkey and any live refresh-token family until each
+    /// naturally expires. So this also DELETEs every WebAuthn credential the user
+    /// owns (their passkeys can no longer authenticate) and revokes every one of
+    /// the user's refresh-token families + tokens (any live session dies on its
+    /// next rotation, and refresh fails).
+    ///
+    /// The credential/session tables are FORCE-RLS, so the org GUC is armed for
+    /// this transaction (via `with_audit` from `event.with_org(org)`) before the
+    /// closure touches them. Each sub-action is independently audited.
     pub async fn deactivate_user(
         &self,
         command: DeactivateUserCommand,
     ) -> Result<UserSummary, PgOrgError> {
+        let org = current_org().map_err(KernelError::from)?;
         let user_id = command.user_id;
+        let actor = command.actor;
+        let trace = command.trace.clone();
+        let occurred_at = command.occurred_at;
         let event = user_audit_event(
             "user.deactivate",
-            Some(command.actor),
+            Some(actor),
             user_id,
-            command.trace.clone(),
-            command.occurred_at,
+            trace.clone(),
+            occurred_at,
         )?
+        .with_org(org)
         .with_snapshots(
             Some(serde_json::json!({ "is_active": true })),
             Some(serde_json::json!({ "is_active": false })),
@@ -312,6 +329,74 @@ impl PgOrgStore {
                         return Err(PgOrgError::Domain(KernelError::not_found("user not found")));
                     }
                 }
+
+                // Revoke passkeys: the org GUC is armed, so this RLS-gated DELETE
+                // only ever touches THIS tenant's credentials.
+                let revoked_credentials =
+                    sqlx::query("DELETE FROM auth_webauthn_credentials WHERE user_id = $1")
+                        .bind(*user_id.as_uuid())
+                        .execute(tx.as_mut())
+                        .await?
+                        .rows_affected();
+                let credential_event = user_audit_event(
+                    "auth.passkey.revoke_all",
+                    Some(actor),
+                    user_id,
+                    trace.clone(),
+                    occurred_at,
+                )?
+                .with_org(org)
+                .with_snapshots(
+                    None,
+                    Some(serde_json::json!({
+                        "reason": "user_deactivated",
+                        "revoked_credential_count": revoked_credentials,
+                    })),
+                );
+                insert_audit_event(tx, &credential_event).await?;
+
+                // Revoke every refresh-token family + token for the user, so any
+                // live session dies on its next rotation and refresh fails closed.
+                let revoked_families = sqlx::query(
+                    r#"
+                    UPDATE auth_refresh_token_families
+                    SET revoked_at = $2, revoked_reason = 'user_deactivated'
+                    WHERE user_id = $1 AND revoked_at IS NULL
+                    "#,
+                )
+                .bind(*user_id.as_uuid())
+                .bind(occurred_at)
+                .execute(tx.as_mut())
+                .await?
+                .rows_affected();
+                sqlx::query(
+                    r#"
+                    UPDATE auth_refresh_tokens
+                    SET revoked_at = COALESCE(revoked_at, $2)
+                    WHERE user_id = $1
+                    "#,
+                )
+                .bind(*user_id.as_uuid())
+                .bind(occurred_at)
+                .execute(tx.as_mut())
+                .await?;
+                let session_event = user_audit_event(
+                    "auth.refresh.revoke_all",
+                    Some(actor),
+                    user_id,
+                    trace.clone(),
+                    occurred_at,
+                )?
+                .with_org(org)
+                .with_snapshots(
+                    None,
+                    Some(serde_json::json!({
+                        "reason": "user_deactivated",
+                        "revoked_family_count": revoked_families,
+                    })),
+                );
+                insert_audit_event(tx, &session_event).await?;
+
                 fetch_user_tx(tx, user_id).await
             })
         })

@@ -111,6 +111,130 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// Apple App Site Association (native passkeys)
+    ///
+    /// Public, unauthenticated association document Apple fetches over the RP origin to authorize the native iOS app's passkeys. The `webcredentials.apps` list is sourced from `MNT_IOS_APP_IDS`; an unconfigured deployment serves a valid empty document. Served as `application/json` (no file extension, per Apple's requirement).
+    ///
+    /// - Remark: HTTP `GET /.well-known/apple-app-site-association`.
+    /// - Remark: Generated from `#/paths//.well-known/apple-app-site-association/get(appleAppSiteAssociation)`.
+    public func appleAppSiteAssociation(_ input: Operations.AppleAppSiteAssociation.Input) async throws -> Operations.AppleAppSiteAssociation.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.AppleAppSiteAssociation.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/.well-known/apple-app-site-association",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.AppleAppSiteAssociation.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.AppleAppSiteAssociation.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// Android Digital Asset Links (native passkeys)
+    ///
+    /// Public, unauthenticated Digital Asset Links document Android fetches to authorize the native app's passkeys for the RP domain. The package and signing-cert fingerprints come from `MNT_ANDROID_PACKAGE` / `MNT_ANDROID_CERT_SHA256`; an unconfigured deployment serves an empty JSON array. Served as `application/json`.
+    ///
+    /// - Remark: HTTP `GET /.well-known/assetlinks.json`.
+    /// - Remark: Generated from `#/paths//.well-known/assetlinks.json/get(androidAssetLinks)`.
+    public func androidAssetLinks(_ input: Operations.AndroidAssetLinks.Input) async throws -> Operations.AndroidAssetLinks.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.AndroidAssetLinks.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/.well-known/assetlinks.json",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.AndroidAssetLinks.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            [Components.Schemas.AndroidAssetLinkStatement].self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
     /// Connect to the realtime WebSocket stream
     ///
     /// Upgrades to a WebSocket after bearer-token verification. Server frames are JSON realtime events; reconnecting clients pass last_message_id to resume from the last processed message cursor.
@@ -6592,7 +6716,7 @@ public struct Client: APIProtocol {
     }
     /// Start passkey registration (authenticated)
     ///
-    /// Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token.
+    /// Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token. Adding a passkey when the user already has one requires a fresh `step_up` assertion of an existing passkey (user verification required); omitting it returns 401. Initial enrollment (zero existing passkeys) needs no step-up.
     ///
     /// - Remark: HTTP `POST /api/v1/auth/passkey/register/start`.
     /// - Remark: Generated from `#/paths//api/v1/auth/passkey/register/start/post`.

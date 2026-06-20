@@ -21,6 +21,20 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /readyz`.
     /// - Remark: Generated from `#/paths//readyz/get(readyz)`.
     func readyz(_ input: Operations.Readyz.Input) async throws -> Operations.Readyz.Output
+    /// Apple App Site Association (native passkeys)
+    ///
+    /// Public, unauthenticated association document Apple fetches over the RP origin to authorize the native iOS app's passkeys. The `webcredentials.apps` list is sourced from `MNT_IOS_APP_IDS`; an unconfigured deployment serves a valid empty document. Served as `application/json` (no file extension, per Apple's requirement).
+    ///
+    /// - Remark: HTTP `GET /.well-known/apple-app-site-association`.
+    /// - Remark: Generated from `#/paths//.well-known/apple-app-site-association/get(appleAppSiteAssociation)`.
+    func appleAppSiteAssociation(_ input: Operations.AppleAppSiteAssociation.Input) async throws -> Operations.AppleAppSiteAssociation.Output
+    /// Android Digital Asset Links (native passkeys)
+    ///
+    /// Public, unauthenticated Digital Asset Links document Android fetches to authorize the native app's passkeys for the RP domain. The package and signing-cert fingerprints come from `MNT_ANDROID_PACKAGE` / `MNT_ANDROID_CERT_SHA256`; an unconfigured deployment serves an empty JSON array. Served as `application/json`.
+    ///
+    /// - Remark: HTTP `GET /.well-known/assetlinks.json`.
+    /// - Remark: Generated from `#/paths//.well-known/assetlinks.json/get(androidAssetLinks)`.
+    func androidAssetLinks(_ input: Operations.AndroidAssetLinks.Input) async throws -> Operations.AndroidAssetLinks.Output
     /// Connect to the realtime WebSocket stream
     ///
     /// Upgrades to a WebSocket after bearer-token verification. Server frames are JSON realtime events; reconnecting clients pass last_message_id to resume from the last processed message cursor.
@@ -290,7 +304,7 @@ public protocol APIProtocol: Sendable {
     func exportLocationConsentLedgerCsv(_ input: Operations.ExportLocationConsentLedgerCsv.Input) async throws -> Operations.ExportLocationConsentLedgerCsv.Output
     /// Start passkey registration (authenticated)
     ///
-    /// Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token.
+    /// Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token. Adding a passkey when the user already has one requires a fresh `step_up` assertion of an existing passkey (user verification required); omitting it returns 401. Initial enrollment (zero existing passkeys) needs no step-up.
     ///
     /// - Remark: HTTP `POST /api/v1/auth/passkey/register/start`.
     /// - Remark: Generated from `#/paths//api/v1/auth/passkey/register/start/post`.
@@ -610,6 +624,24 @@ extension APIProtocol {
     /// - Remark: Generated from `#/paths//readyz/get(readyz)`.
     public func readyz() async throws -> Operations.Readyz.Output {
         try await readyz(Operations.Readyz.Input())
+    }
+    /// Apple App Site Association (native passkeys)
+    ///
+    /// Public, unauthenticated association document Apple fetches over the RP origin to authorize the native iOS app's passkeys. The `webcredentials.apps` list is sourced from `MNT_IOS_APP_IDS`; an unconfigured deployment serves a valid empty document. Served as `application/json` (no file extension, per Apple's requirement).
+    ///
+    /// - Remark: HTTP `GET /.well-known/apple-app-site-association`.
+    /// - Remark: Generated from `#/paths//.well-known/apple-app-site-association/get(appleAppSiteAssociation)`.
+    public func appleAppSiteAssociation(headers: Operations.AppleAppSiteAssociation.Input.Headers = .init()) async throws -> Operations.AppleAppSiteAssociation.Output {
+        try await appleAppSiteAssociation(Operations.AppleAppSiteAssociation.Input(headers: headers))
+    }
+    /// Android Digital Asset Links (native passkeys)
+    ///
+    /// Public, unauthenticated Digital Asset Links document Android fetches to authorize the native app's passkeys for the RP domain. The package and signing-cert fingerprints come from `MNT_ANDROID_PACKAGE` / `MNT_ANDROID_CERT_SHA256`; an unconfigured deployment serves an empty JSON array. Served as `application/json`.
+    ///
+    /// - Remark: HTTP `GET /.well-known/assetlinks.json`.
+    /// - Remark: Generated from `#/paths//.well-known/assetlinks.json/get(androidAssetLinks)`.
+    public func androidAssetLinks(headers: Operations.AndroidAssetLinks.Input.Headers = .init()) async throws -> Operations.AndroidAssetLinks.Output {
+        try await androidAssetLinks(Operations.AndroidAssetLinks.Input(headers: headers))
     }
     /// Connect to the realtime WebSocket stream
     ///
@@ -1292,7 +1324,7 @@ extension APIProtocol {
     }
     /// Start passkey registration (authenticated)
     ///
-    /// Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token.
+    /// Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token. Adding a passkey when the user already has one requires a fresh `step_up` assertion of an existing passkey (user verification required); omitting it returns 401. Initial enrollment (zero existing passkeys) needs no step-up.
     ///
     /// - Remark: HTTP `POST /api/v1/auth/passkey/register/start`.
     /// - Remark: Generated from `#/paths//api/v1/auth/passkey/register/start/post`.
@@ -4915,7 +4947,7 @@ public enum Components {
                 case total
             }
         }
-        /// Optional overrides for the authenticated session user's passkey registration. Both default to the user's stored profile when omitted.
+        /// Optional overrides for the authenticated session user's passkey registration (username/display_name default to the user's stored profile when omitted), plus the step-up assertion required to ADD a passkey when the user already has one. A user with zero passkeys (initial enrollment) omits `step_up`; an already-enrolled user MUST supply a fresh `step_up` assertion of an existing passkey (user verification required), or register/start returns 401 — so a stolen session cannot silently add a credential.
         ///
         /// - Remark: Generated from `#/components/schemas/PasskeyRegisterStartRequest`.
         public struct PasskeyRegisterStartRequest: Codable, Hashable, Sendable {
@@ -4923,21 +4955,158 @@ public enum Components {
             public var username: Swift.String?
             /// - Remark: Generated from `#/components/schemas/PasskeyRegisterStartRequest/display_name`.
             public var displayName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/PasskeyRegisterStartRequest/step_up`.
+            public var stepUp: Components.Schemas.PasskeyStepUpAssertion?
             /// Creates a new `PasskeyRegisterStartRequest`.
             ///
             /// - Parameters:
             ///   - username:
             ///   - displayName:
+            ///   - stepUp:
             public init(
                 username: Swift.String? = nil,
-                displayName: Swift.String? = nil
+                displayName: Swift.String? = nil,
+                stepUp: Components.Schemas.PasskeyStepUpAssertion? = nil
             ) {
                 self.username = username
                 self.displayName = displayName
+                self.stepUp = stepUp
             }
             public enum CodingKeys: String, CodingKey {
                 case username
                 case displayName = "display_name"
+                case stepUp = "step_up"
+            }
+        }
+        /// A fresh assertion of an EXISTING passkey, proving the caller currently possesses an authenticator (not just a bearer token). The `ceremony_id` comes from a preceding `POST /api/v1/auth/passkey/login/start`; the `credential` is the resulting WebAuthn assertion. Verified with user verification (UV) required and rejected unless the asserted credential belongs to the authenticated caller.
+        ///
+        /// - Remark: Generated from `#/components/schemas/PasskeyStepUpAssertion`.
+        public struct PasskeyStepUpAssertion: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PasskeyStepUpAssertion/ceremony_id`.
+            public var ceremonyId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/PasskeyStepUpAssertion/credential`.
+            public struct CredentialPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `CredentialPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/PasskeyStepUpAssertion/credential`.
+            public var credential: Components.Schemas.PasskeyStepUpAssertion.CredentialPayload
+            /// Creates a new `PasskeyStepUpAssertion`.
+            ///
+            /// - Parameters:
+            ///   - ceremonyId:
+            ///   - credential:
+            public init(
+                ceremonyId: Components.Schemas.Uuid,
+                credential: Components.Schemas.PasskeyStepUpAssertion.CredentialPayload
+            ) {
+                self.ceremonyId = ceremonyId
+                self.credential = credential
+            }
+            public enum CodingKeys: String, CodingKey {
+                case ceremonyId = "ceremony_id"
+                case credential
+            }
+        }
+        /// Apple App Site Association document authorizing the native iOS app's passkeys for the RP domain.
+        ///
+        /// - Remark: Generated from `#/components/schemas/AppleAppSiteAssociation`.
+        public struct AppleAppSiteAssociation: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AppleAppSiteAssociation/webcredentials`.
+            public struct WebcredentialsPayload: Codable, Hashable, Sendable {
+                /// iOS app identifiers (`<TeamID>.<bundle-id>`).
+                ///
+                /// - Remark: Generated from `#/components/schemas/AppleAppSiteAssociation/webcredentials/apps`.
+                public var apps: [Swift.String]
+                /// Creates a new `WebcredentialsPayload`.
+                ///
+                /// - Parameters:
+                ///   - apps: iOS app identifiers (`<TeamID>.<bundle-id>`).
+                public init(apps: [Swift.String]) {
+                    self.apps = apps
+                }
+                public enum CodingKeys: String, CodingKey {
+                    case apps
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/AppleAppSiteAssociation/webcredentials`.
+            public var webcredentials: Components.Schemas.AppleAppSiteAssociation.WebcredentialsPayload
+            /// Creates a new `AppleAppSiteAssociation`.
+            ///
+            /// - Parameters:
+            ///   - webcredentials:
+            public init(webcredentials: Components.Schemas.AppleAppSiteAssociation.WebcredentialsPayload) {
+                self.webcredentials = webcredentials
+            }
+            public enum CodingKeys: String, CodingKey {
+                case webcredentials
+            }
+        }
+        /// A single Android Digital Asset Links statement authorizing the native app's signing keys to provide login credentials for the RP domain.
+        ///
+        /// - Remark: Generated from `#/components/schemas/AndroidAssetLinkStatement`.
+        public struct AndroidAssetLinkStatement: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AndroidAssetLinkStatement/relation`.
+            public var relation: [Swift.String]
+            /// - Remark: Generated from `#/components/schemas/AndroidAssetLinkStatement/target`.
+            public struct TargetPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/AndroidAssetLinkStatement/target/namespace`.
+                public var namespace: Swift.String
+                /// - Remark: Generated from `#/components/schemas/AndroidAssetLinkStatement/target/package_name`.
+                public var packageName: Swift.String
+                /// - Remark: Generated from `#/components/schemas/AndroidAssetLinkStatement/target/sha256_cert_fingerprints`.
+                public var sha256CertFingerprints: [Swift.String]
+                /// Creates a new `TargetPayload`.
+                ///
+                /// - Parameters:
+                ///   - namespace:
+                ///   - packageName:
+                ///   - sha256CertFingerprints:
+                public init(
+                    namespace: Swift.String,
+                    packageName: Swift.String,
+                    sha256CertFingerprints: [Swift.String]
+                ) {
+                    self.namespace = namespace
+                    self.packageName = packageName
+                    self.sha256CertFingerprints = sha256CertFingerprints
+                }
+                public enum CodingKeys: String, CodingKey {
+                    case namespace
+                    case packageName = "package_name"
+                    case sha256CertFingerprints = "sha256_cert_fingerprints"
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/AndroidAssetLinkStatement/target`.
+            public var target: Components.Schemas.AndroidAssetLinkStatement.TargetPayload
+            /// Creates a new `AndroidAssetLinkStatement`.
+            ///
+            /// - Parameters:
+            ///   - relation:
+            ///   - target:
+            public init(
+                relation: [Swift.String],
+                target: Components.Schemas.AndroidAssetLinkStatement.TargetPayload
+            ) {
+                self.relation = relation
+                self.target = target
+            }
+            public enum CodingKeys: String, CodingKey {
+                case relation
+                case target
             }
         }
         /// - Remark: Generated from `#/components/schemas/PasskeyRegisterStartResponse`.
@@ -8308,6 +8477,230 @@ public enum Operations {
             ///
             /// A response with a code that is not documented in the OpenAPI document.
             case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+    }
+    /// Apple App Site Association (native passkeys)
+    ///
+    /// Public, unauthenticated association document Apple fetches over the RP origin to authorize the native iOS app's passkeys. The `webcredentials.apps` list is sourced from `MNT_IOS_APP_IDS`; an unconfigured deployment serves a valid empty document. Served as `application/json` (no file extension, per Apple's requirement).
+    ///
+    /// - Remark: HTTP `GET /.well-known/apple-app-site-association`.
+    /// - Remark: Generated from `#/paths//.well-known/apple-app-site-association/get(appleAppSiteAssociation)`.
+    public enum AppleAppSiteAssociation {
+        public static let id: Swift.String = "appleAppSiteAssociation"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/.well-known/apple-app-site-association/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.AppleAppSiteAssociation.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.AppleAppSiteAssociation.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.AppleAppSiteAssociation.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.AppleAppSiteAssociation.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/.well-known/apple-app-site-association/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/.well-known/apple-app-site-association/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.AppleAppSiteAssociation)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.AppleAppSiteAssociation {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.AppleAppSiteAssociation.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.AppleAppSiteAssociation.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The Apple App Site Association document.
+            ///
+            /// - Remark: Generated from `#/paths//.well-known/apple-app-site-association/get(appleAppSiteAssociation)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.AppleAppSiteAssociation.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.AppleAppSiteAssociation.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Android Digital Asset Links (native passkeys)
+    ///
+    /// Public, unauthenticated Digital Asset Links document Android fetches to authorize the native app's passkeys for the RP domain. The package and signing-cert fingerprints come from `MNT_ANDROID_PACKAGE` / `MNT_ANDROID_CERT_SHA256`; an unconfigured deployment serves an empty JSON array. Served as `application/json`.
+    ///
+    /// - Remark: HTTP `GET /.well-known/assetlinks.json`.
+    /// - Remark: Generated from `#/paths//.well-known/assetlinks.json/get(androidAssetLinks)`.
+    public enum AndroidAssetLinks {
+        public static let id: Swift.String = "androidAssetLinks"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/.well-known/assetlinks.json/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.AndroidAssetLinks.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.AndroidAssetLinks.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.AndroidAssetLinks.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.AndroidAssetLinks.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/.well-known/assetlinks.json/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/.well-known/assetlinks.json/GET/responses/200/content/application\/json`.
+                    case json([Components.Schemas.AndroidAssetLinkStatement])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.AndroidAssetLinkStatement] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.AndroidAssetLinks.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.AndroidAssetLinks.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The Android Digital Asset Links statements.
+            ///
+            /// - Remark: Generated from `#/paths//.well-known/assetlinks.json/get(androidAssetLinks)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.AndroidAssetLinks.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.AndroidAssetLinks.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
         }
     }
     /// Connect to the realtime WebSocket stream
@@ -18449,7 +18842,7 @@ public enum Operations {
     }
     /// Start passkey registration (authenticated)
     ///
-    /// Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token.
+    /// Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token. Adding a passkey when the user already has one requires a fresh `step_up` assertion of an existing passkey (user verification required); omitting it returns 401. Initial enrollment (zero existing passkeys) needs no step-up.
     ///
     /// - Remark: HTTP `POST /api/v1/auth/passkey/register/start`.
     /// - Remark: Generated from `#/paths//api/v1/auth/passkey/register/start/post`.

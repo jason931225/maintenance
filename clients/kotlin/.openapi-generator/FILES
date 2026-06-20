@@ -34,7 +34,11 @@ src/main/kotlin/com/maintenance/api/client/model/AdminCredentialResetRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AdminCredentialResetResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/AdminIssueOtpRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AdminIssueOtpResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/AndroidAssetLinkStatement.kt
+src/main/kotlin/com/maintenance/api/client/model/AndroidAssetLinkStatementTarget.kt
 src/main/kotlin/com/maintenance/api/client/model/AppendManualCostLedgerRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/AppleAppSiteAssociation.kt
+src/main/kotlin/com/maintenance/api/client/model/AppleAppSiteAssociationWebcredentials.kt
 src/main/kotlin/com/maintenance/api/client/model/ApprovalStepSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/AssignSubstituteRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AssignTicketRequest.kt
@@ -125,6 +129,7 @@ src/main/kotlin/com/maintenance/api/client/model/PasskeyRegisterFinishRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyRegisterFinishResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyRegisterStartRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyRegisterStartResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/PasskeyStepUpAssertion.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeySummary.kt
 src/main/kotlin/com/maintenance/api/client/model/Period.kt
 src/main/kotlin/com/maintenance/api/client/model/PrepareExpenditureRequest.kt

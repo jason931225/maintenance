@@ -2208,6 +2208,7 @@ dependencies = [
  "mnt-identity-application",
  "mnt-identity-domain",
  "mnt-kernel-core",
+ "mnt-platform-auth",
  "mnt-platform-db",
  "mnt-platform-request-context",
  "serde_json",

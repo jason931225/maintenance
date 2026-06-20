@@ -67,10 +67,15 @@ pub const AUTH_ROUTE_PATHS: &[&str] = &[
     LOGOUT_PATH,
 ];
 
-/// Default admin-issued OTP lifetime when the issuer omits a TTL.
-const DEFAULT_OTP_TTL: Duration = Duration::hours(24);
-/// Upper bound on a caller-specified OTP TTL; rejects absurd values.
-const MAX_OTP_TTL: Duration = Duration::days(30);
+/// Default admin-issued OTP lifetime when the issuer omits a TTL. Tightened to
+/// 4h (from 24h): a bootstrap OTP is a bearer secret relayed out-of-band, so a
+/// shorter default shrinks the window in which a leaked code is redeemable while
+/// still comfortably spanning a single onboarding session. An issuer who needs
+/// longer can pass an explicit `ttl_seconds`, clamped to [`MAX_OTP_TTL`].
+const DEFAULT_OTP_TTL: Duration = Duration::hours(4);
+/// Upper bound on a caller-specified OTP TTL; rejects absurd values. Tightened to
+/// 24h (from 30d): no legitimate first sign-in needs a code that outlives a day.
+const MAX_OTP_TTL: Duration = Duration::hours(24);
 
 /// Fixed-window length for the DB-backed unauthenticated-endpoint rate limiter.
 const RATE_LIMIT_WINDOW: Duration = Duration::minutes(1);
@@ -93,6 +98,11 @@ pub struct AuthRestConfig {
     pub jwt_private_key_pem: String,
     pub jwt_public_key_pem: String,
     pub refresh_token_ttl: Duration,
+    /// Absolute lifetime cap on a refresh-token family, measured from the
+    /// family's creation. Past this ceiling a rotation is rejected and the family
+    /// revoked, forcing a fresh primary authentication (NIST 800-63B AAL2).
+    /// Sourced from `MNT_REFRESH_FAMILY_ABSOLUTE_TTL_SECS` (default 24h).
+    pub refresh_family_absolute_ttl: Duration,
     /// Number of trusted reverse proxies in front of this service. The client IP
     /// used for rate limiting is the Nth-from-the-right `X-Forwarded-For` entry
     /// (the rightmost entry is appended by the closest proxy). Assumes the ingress
@@ -128,6 +138,7 @@ struct AuthServices {
     refresh_tokens: RefreshTokenStore,
     bootstrap_credentials: BootstrapCredentialStore,
     refresh_token_ttl: Duration,
+    refresh_family_absolute_ttl: Duration,
     cookie_secure: bool,
 }
 
@@ -174,6 +185,7 @@ impl AuthRestState {
                 refresh_tokens: RefreshTokenStore,
                 bootstrap_credentials: BootstrapCredentialStore,
                 refresh_token_ttl: config.refresh_token_ttl,
+                refresh_family_absolute_ttl: config.refresh_family_absolute_ttl,
                 cookie_secure: config.cookie_secure,
             }),
             trusted_proxy_count: config.trusted_proxy_count.max(1),
@@ -208,6 +220,20 @@ pub fn router(state: AuthRestState) -> Router {
 struct RegisterStartRequest {
     username: Option<String>,
     display_name: Option<String>,
+    /// Fresh step-up assertion of an EXISTING passkey, REQUIRED when the
+    /// authenticated user already has one or more passkeys (self-service
+    /// add-device). Omitted only for initial enrollment (the user has zero
+    /// passkeys). The ceremony id comes from a preceding `passkey/login/start`.
+    step_up: Option<StepUpAssertion>,
+}
+
+/// A step-up proof: a discoverable authentication ceremony id plus the asserted
+/// credential. Verified with user verification (UV) required before a new
+/// credential is issued, so a stolen session alone cannot add a passkey.
+#[derive(Debug, Deserialize)]
+struct StepUpAssertion {
+    ceremony_id: Uuid,
+    credential: PasskeyAuthenticationCredential,
 }
 
 #[derive(Debug, Serialize)]
@@ -462,6 +488,13 @@ impl IntoResponse for RestError {
 /// enrollment after an OTP first sign-in, or adding a device later). The
 /// usernameless first sign-in goes through `/auth/otp/redeem`, not here, so this
 /// path no longer accepts a bootstrap token.
+///
+/// Anti-silent-add step-up: when the caller ALREADY has one or more passkeys,
+/// adding another requires a fresh step-up assertion (`step_up`) of an existing
+/// passkey with user verification, so a stolen bearer token alone cannot enroll a
+/// new credential. Initial enrollment (zero existing passkeys) needs no step-up —
+/// there is no credential to assert, and the open bootstrap code still gates the
+/// finish.
 async fn start_registration(
     State(state): State<AuthRestState>,
     headers: HeaderMap,
@@ -470,6 +503,33 @@ async fn start_registration(
     let services = state.services()?;
     let (user_id, org_id) = authenticated_user_context(services, &headers)?;
     let user = load_user_auth_context_in_org(&state.pool, org_id, user_id).await?;
+
+    // Step-up gate: an already-enrolled user MUST assert an existing passkey (UV)
+    // before a new credential challenge is issued. A user with zero passkeys is
+    // doing initial enrollment and is exempt.
+    let existing_passkeys = services
+        .passkeys
+        .count_user_passkeys(&state.pool, org_id, user_id)
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
+    if existing_passkeys > 0 {
+        let step_up = body.step_up.ok_or_else(|| {
+            RestError::unauthorized(
+                "adding a passkey requires a step-up assertion of an existing passkey",
+            )
+        })?;
+        services
+            .passkeys
+            .verify_step_up_for_user(
+                &state.pool,
+                step_up.ceremony_id,
+                step_up.credential,
+                user_id,
+            )
+            .await
+            .map_err(|err| RestError::unauthorized(err.to_string()))?;
+    }
+
     let ceremony = services
         .passkeys
         .start_registration(
@@ -912,7 +972,13 @@ async fn refresh_token(
         .ok_or_else(|| RestError::unauthorized("missing refresh token"))?;
     let issue = services
         .refresh_tokens
-        .rotate(&state.pool, &refresh, now, services.refresh_token_ttl)
+        .rotate(
+            &state.pool,
+            &refresh,
+            now,
+            services.refresh_token_ttl,
+            services.refresh_family_absolute_ttl,
+        )
         .await
         .map_err(RestError::from_refresh)?;
     // Refresh is a pre-auth route (no tenant middleware): arm the GUC with the org
