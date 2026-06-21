@@ -154,6 +154,10 @@ dependencies {
     testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.64.0")
 
     // ui-test-manifest provides the empty Activity that createComposeRule() launches.
+    // debugImplementation is the canonical scope: AGP merges the manifest into the debug
+    // unit-test binary (packageDebugUnitTestForUnitTest) so Robolectric resolves
+    // ComponentActivity. CI runs only testDebugUnitTest (not testReleaseUnitTest), so this
+    // covers the full test scope. See the `build -x test` note in ci.yml.
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     // Instrumented post-login E2E (src/androidTest) — CI-only (needs an emulator).
