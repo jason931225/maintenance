@@ -116,6 +116,34 @@ pub fn validate_bounded_text(
     Ok(())
 }
 
+/// Default geofence radius, in metres, for arrival/departure detection at a
+/// customer site that has no per-site override (`registry_sites.geofence_radius_m`
+/// NULL). A forklift customer yard is larger than a building footprint but small
+/// enough that a passing GPS sample should not trigger a false arrival; on-site
+/// GPS accuracy is typically 5–30 m, so 150 m clears that jitter with margin.
+pub const DEFAULT_GEOFENCE_RADIUS_M: f64 = 150.0;
+
+/// Great-circle (haversine) distance in **whole metres** between two WGS84
+/// coordinates, using the mean Earth radius (6 371 000 m). This is the single
+/// kernel home for the geofence/dispatch distance primitive so domain crates
+/// (which may not depend on one another) share it without duplication.
+///
+/// Inputs are assumed already range-validated (see [`validate_coordinate_pair`]);
+/// the function is pure and infallible, rounding to the nearest metre — ideal for
+/// a threshold compare such as `haversine_meters(..) <= radius_m`.
+#[must_use]
+pub fn haversine_meters(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> i64 {
+    let radius_meters = 6_371_000.0_f64;
+    let phi1 = lat1.to_radians();
+    let phi2 = lat2.to_radians();
+    let delta_lat = (lat2 - lat1).to_radians();
+    let delta_lon = (lon2 - lon1).to_radians();
+    let a = (delta_lat / 2.0).sin().powi(2)
+        + phi1.cos() * phi2.cos() * (delta_lon / 2.0).sin().powi(2);
+    let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
+    (radius_meters * c).round() as i64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,5 +193,23 @@ mod tests {
         assert!(validate_bounded_text(&exactly, CONTACT_NAME_MAX_CHARS, "contact_name").is_ok());
         let too_long: String = "가".repeat(CONTACT_NAME_MAX_CHARS + 1);
         assert!(validate_bounded_text(&too_long, CONTACT_NAME_MAX_CHARS, "contact_name").is_err());
+    }
+
+    #[test]
+    fn haversine_meters_is_correct() {
+        // Identical points are zero metres apart.
+        assert_eq!(haversine_meters(37.5665, 126.9780, 37.5665, 126.9780), 0);
+        // One degree of latitude is ~111.19 km on the mean-radius sphere.
+        let one_degree_lat = haversine_meters(0.0, 0.0, 1.0, 0.0);
+        assert!(
+            (111_100..=111_300).contains(&one_degree_lat),
+            "1° latitude ≈ {one_degree_lat} m"
+        );
+        // Distance is symmetric.
+        assert_eq!(
+            haversine_meters(37.5665, 126.9780, 35.1796, 129.0756),
+            haversine_meters(35.1796, 129.0756, 37.5665, 126.9780),
+        );
+        assert!(DEFAULT_GEOFENCE_RADIUS_M > 0.0);
     }
 }
