@@ -413,7 +413,7 @@ jobs:
         # additional AAR manifests into the release JVM unit-test binary via any test
         # source-set scope. The debug run provides equivalent coverage; the release APK
         # is still assembled and lint-checked here.
-        run: ./gradlew build -x test
+        run: ./gradlew build -x testReleaseUnitTest -x testDebugUnitTest
 
       - name: Robolectric Compose UI + accessibility tests
         working-directory: android
