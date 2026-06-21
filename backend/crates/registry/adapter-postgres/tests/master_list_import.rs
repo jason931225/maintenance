@@ -3,11 +3,13 @@
 use std::path::{Path, PathBuf};
 
 use mnt_kernel_core::{
-    BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId, OrgId, TraceContext, UserId,
+    BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId, OrgId, SiteId, TraceContext,
+    UserId,
 };
 use mnt_registry_adapter_postgres::{PgRegistryStore, parse_master_list};
 use mnt_registry_application::{
-    SubstituteAssignmentCommand, SubstituteReturnCommand, SubstituteSearch,
+    SubstituteAssignmentCommand, SubstituteReturnCommand, SubstituteSearch, UpdateSiteCommand,
+    UpdateSiteFields,
 };
 use mnt_registry_domain::{EquipmentNo, Ton};
 use sqlx::PgPool;
@@ -412,6 +414,103 @@ impl EquipmentFixture {
         self.placement_location = Some(placement_location);
         self
     }
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn site_contact_update_persists_and_is_audited(pool: PgPool) {
+    // Issue #13: PATCH /sites/{id} now also writes the representative contact.
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let store = PgRegistryStore::new(pool.clone());
+        let branch_id = seed_branch(&pool, "수도권", "본사").await;
+        let actor = seed_user(&pool, branch_id, "ADMIN").await;
+        let site_id = seed_site(&pool, branch_id).await;
+
+        store
+            .update_site(UpdateSiteCommand {
+                actor,
+                site_id,
+                fields: UpdateSiteFields {
+                    contact_name: Some(Some("김담당".to_string())),
+                    contact_phone: Some(Some("010-2625-0987".to_string())),
+                    contact_email: Some(Some("ops@example.com".to_string())),
+                    ..UpdateSiteFields::default()
+                },
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+
+        let (name, phone, email): (Option<String>, Option<String>, Option<String>) =
+            sqlx::query_as(
+                "SELECT contact_name, contact_phone, contact_email \
+                 FROM registry_sites WHERE id = $1",
+            )
+            .bind(*site_id.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(name.as_deref(), Some("김담당"));
+        assert_eq!(phone.as_deref(), Some("010-2625-0987"));
+        assert_eq!(email.as_deref(), Some("ops@example.com"));
+        assert_audit_count(&pool, "site.update", 1).await;
+
+        // Some(None) clears a column to NULL; an absent field is left untouched.
+        store
+            .update_site(UpdateSiteCommand {
+                actor,
+                site_id,
+                fields: UpdateSiteFields {
+                    contact_email: Some(None),
+                    ..UpdateSiteFields::default()
+                },
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        let (name2, email2): (Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT contact_name, contact_email FROM registry_sites WHERE id = $1",
+        )
+        .bind(*site_id.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(email2, None, "Some(None) clears contact_email");
+        assert_eq!(name2.as_deref(), Some("김담당"), "absent field untouched");
+        assert_audit_count(&pool, "site.update", 2).await;
+    })
+    .await;
+}
+
+async fn seed_site(pool: &PgPool, branch_id: BranchId) -> SiteId {
+    let customer_id: uuid::Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO registry_customers (branch_id, name, org_id)
+        VALUES ($1, 'K&L', $2)
+        ON CONFLICT (branch_id, name) DO UPDATE SET name = EXCLUDED.name
+        RETURNING id
+        "#,
+    )
+    .bind(*branch_id.as_uuid())
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let site_id: uuid::Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO registry_sites (branch_id, customer_id, name, org_id)
+        VALUES ($1, $2, '안산현장', $3)
+        RETURNING id
+        "#,
+    )
+    .bind(*branch_id.as_uuid())
+    .bind(customer_id)
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    SiteId::from_uuid(site_id)
 }
 
 async fn seed_branch(pool: &PgPool, region_name: &str, branch_name: &str) -> BranchId {

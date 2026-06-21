@@ -5515,6 +5515,9 @@ components:
       - city
       - latitude
       - longitude
+      - contact_name
+      - contact_phone
+      - contact_email
       - equipment_count
       - rented_count
       - spare_count
@@ -5546,6 +5549,21 @@ components:
           - number
           - 'null'
           format: double
+        contact_name:
+          type:
+          - string
+          - 'null'
+          description: On-site representative contact name (담당자명).
+        contact_phone:
+          type:
+          - string
+          - 'null'
+          description: On-site contact phone (연락처).
+        contact_email:
+          type:
+          - string
+          - 'null'
+          description: Optional contact email (이메일).
         equipment_count:
           type: integer
           format: int64
@@ -5604,6 +5622,24 @@ components:
           - number
           - 'null'
           format: double
+        contact_name:
+          type:
+          - string
+          - 'null'
+          maxLength: 100
+          description: On-site representative contact name (담당자명). Null clears it.
+        contact_phone:
+          type:
+          - string
+          - 'null'
+          maxLength: 40
+          description: On-site contact phone (연락처). Null clears it.
+        contact_email:
+          type:
+          - string
+          - 'null'
+          maxLength: 320
+          description: Optional contact email (이메일). Null clears it.
     AssignSubstituteRequest:
       type: object
       required:

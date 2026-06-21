@@ -39,6 +39,9 @@ import kotlinx.serialization.Contextual
  * @param city
  * @param latitude
  * @param longitude
+ * @param contactName On-site representative contact name (담당자명).
+ * @param contactPhone On-site contact phone (연락처).
+ * @param contactEmail Optional contact email (이메일).
  * @param equipmentCount
  * @param rentedCount
  * @param spareCount
@@ -71,6 +74,18 @@ data class SiteLocationGroup (
 
     @SerialName(value = "longitude")
     val longitude: kotlin.Double?,
+
+    /* On-site representative contact name (담당자명). */
+    @SerialName(value = "contact_name")
+    val contactName: kotlin.String?,
+
+    /* On-site contact phone (연락처). */
+    @SerialName(value = "contact_phone")
+    val contactPhone: kotlin.String?,
+
+    /* Optional contact email (이메일). */
+    @SerialName(value = "contact_email")
+    val contactEmail: kotlin.String?,
 
     @SerialName(value = "equipment_count")
     val equipmentCount: kotlin.Long,

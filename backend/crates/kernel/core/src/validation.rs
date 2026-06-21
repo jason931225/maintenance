@@ -86,6 +86,36 @@ pub fn validate_coordinate_pair(
     }
 }
 
+/// Max code points for a site representative-contact name (담당자명). Matches the
+/// `registry_sites_contact_name_max_chars` CHECK in migration 0040.
+pub const CONTACT_NAME_MAX_CHARS: usize = 100;
+/// Max code points for a site contact phone (연락처). Matches the
+/// `registry_sites_contact_phone_max_chars` CHECK in migration 0040.
+pub const CONTACT_PHONE_MAX_CHARS: usize = 40;
+/// Max code points for a site contact email. Matches the
+/// `registry_sites_contact_email_max_chars` CHECK in migration 0040.
+pub const CONTACT_EMAIL_MAX_CHARS: usize = 320;
+
+/// Reject text longer than `max_chars` Unicode code points (counted via
+/// `chars()`, matching the DB CHECK's `char_length`). `field` names the offending
+/// field in the error message; empty or short text passes. Returning a 422 here
+/// keeps an over-long value from surfacing as a raw DB CHECK error.
+///
+/// # Errors
+/// Returns `KernelError::validation` when `value` exceeds `max_chars`.
+pub fn validate_bounded_text(
+    value: &str,
+    max_chars: usize,
+    field: &str,
+) -> Result<(), KernelError> {
+    if value.chars().count() > max_chars {
+        return Err(KernelError::validation(format!(
+            "{field} must be at most {max_chars} characters"
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,5 +154,16 @@ mod tests {
         assert!(validate_coordinate_pair(None, Some(127.0)).is_err());
         // A complete pair with one out-of-range value still fails.
         assert!(validate_coordinate_pair(Some(999.0), Some(127.0)).is_err());
+    }
+
+    #[test]
+    fn bounded_text_counts_code_points_not_bytes() {
+        assert!(validate_bounded_text("홍길동", CONTACT_NAME_MAX_CHARS, "contact_name").is_ok());
+        assert!(validate_bounded_text("", CONTACT_PHONE_MAX_CHARS, "contact_phone").is_ok());
+        // Exactly the bound (100 Hangul chars = 300 bytes) passes a 100-char limit.
+        let exactly: String = "가".repeat(CONTACT_NAME_MAX_CHARS);
+        assert!(validate_bounded_text(&exactly, CONTACT_NAME_MAX_CHARS, "contact_name").is_ok());
+        let too_long: String = "가".repeat(CONTACT_NAME_MAX_CHARS + 1);
+        assert!(validate_bounded_text(&too_long, CONTACT_NAME_MAX_CHARS, "contact_name").is_err());
     }
 }

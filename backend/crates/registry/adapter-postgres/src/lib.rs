@@ -300,6 +300,9 @@ impl PgRegistryStore {
             s.city          AS city,
             s.latitude      AS latitude,
             s.longitude     AS longitude,
+            s.contact_name  AS contact_name,
+            s.contact_phone AS contact_phone,
+            s.contact_email AS contact_email,
             COUNT(e.id) FILTER (WHERE e.id IS NOT NULL)        AS equipment_count,
             COUNT(e.id) FILTER (WHERE e.status = '임대')         AS rented_count,
             COUNT(e.id) FILTER (WHERE e.status = '예비')         AS spare_count,
@@ -315,7 +318,8 @@ impl PgRegistryStore {
         push_site_branch_filter(&mut builder, &query.branch_scope)?;
         builder.push(
             r#"
-        GROUP BY s.id, s.name, c.name, s.branch_id, s.province, s.city, s.latitude, s.longitude
+        GROUP BY s.id, s.name, c.name, s.branch_id, s.province, s.city, s.latitude, s.longitude,
+                 s.contact_name, s.contact_phone, s.contact_email
         ORDER BY s.province NULLS LAST, s.city NULLS LAST, s.name ASC
         "#,
         );
@@ -365,6 +369,9 @@ impl PgRegistryStore {
                 push_site_assignment(&mut builder, "province", &fields.province);
                 push_site_assignment(&mut builder, "city", &fields.city);
                 push_site_assignment(&mut builder, "postal_code", &fields.postal_code);
+                push_site_assignment(&mut builder, "contact_name", &fields.contact_name);
+                push_site_assignment(&mut builder, "contact_phone", &fields.contact_phone);
+                push_site_assignment(&mut builder, "contact_email", &fields.contact_email);
                 push_site_f64_assignment(&mut builder, "latitude", &fields.latitude);
                 push_site_f64_assignment(&mut builder, "longitude", &fields.longitude);
                 builder.push(" WHERE id = ");
@@ -839,6 +846,9 @@ fn site_location_group_from_row(
         city: row.try_get("city")?,
         latitude: row.try_get("latitude")?,
         longitude: row.try_get("longitude")?,
+        contact_name: row.try_get("contact_name")?,
+        contact_phone: row.try_get("contact_phone")?,
+        contact_email: row.try_get("contact_email")?,
         equipment_count: row.try_get("equipment_count")?,
         rented_count: row.try_get("rented_count")?,
         spare_count: row.try_get("spare_count")?,
@@ -861,7 +871,8 @@ async fn fetch_site_admin_row(
         Box::pin(async move {
             Ok(sqlx::query(
                 r#"
-        SELECT id, branch_id, name, address, province, city, postal_code, latitude, longitude
+        SELECT id, branch_id, name, address, province, city, postal_code, latitude, longitude,
+               contact_name, contact_phone, contact_email
         FROM registry_sites
         WHERE id = $1
         "#,
@@ -884,6 +895,9 @@ async fn fetch_site_admin_row(
         "postal_code": row.try_get::<Option<String>, _>("postal_code")?,
         "latitude": row.try_get::<Option<f64>, _>("latitude")?,
         "longitude": row.try_get::<Option<f64>, _>("longitude")?,
+        "contact_name": row.try_get::<Option<String>, _>("contact_name")?,
+        "contact_phone": row.try_get::<Option<String>, _>("contact_phone")?,
+        "contact_email": row.try_get::<Option<String>, _>("contact_email")?,
     });
     Ok(Some(SiteAdminRow {
         branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
@@ -903,6 +917,9 @@ fn site_after_snapshot(
     overlay_text(&mut after, "province", &fields.province);
     overlay_text(&mut after, "city", &fields.city);
     overlay_text(&mut after, "postal_code", &fields.postal_code);
+    overlay_text(&mut after, "contact_name", &fields.contact_name);
+    overlay_text(&mut after, "contact_phone", &fields.contact_phone);
+    overlay_text(&mut after, "contact_email", &fields.contact_email);
     overlay_f64(&mut after, "latitude", &fields.latitude);
     overlay_f64(&mut after, "longitude", &fields.longitude);
     after

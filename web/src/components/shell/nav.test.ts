@@ -32,6 +32,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "financial",
     "users",
     "org",
+    "sites",
     "profile",
     "location",
     "security",
@@ -52,6 +53,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "financial",
     "users",
     "org",
+    "sites",
     "profile",
     "location",
     "security",
@@ -115,11 +117,12 @@ describe("nav role gating", () => {
       expect(isNavItemVisible("security", [role])).toBe(false);
       expect(isNavItemVisible("users", [role])).toBe(false);
       expect(isNavItemVisible("org", [role])).toBe(false);
+      expect(isNavItemVisible("sites", [role])).toBe(false);
     }
   });
 
   it("shows user and org management only to ADMIN and SUPER_ADMIN", () => {
-    for (const key of ["users", "org"]) {
+    for (const key of ["users", "org", "sites"]) {
       expect(isNavItemVisible(key, [ROLES.ADMIN])).toBe(true);
       expect(isNavItemVisible(key, [ROLES.SUPER_ADMIN])).toBe(true);
       expect(isNavItemVisible(key, [ROLES.EXECUTIVE])).toBe(false);

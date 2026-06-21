@@ -6299,6 +6299,18 @@ public enum Components {
             public var latitude: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/longitude`.
             public var longitude: Swift.Double?
+            /// On-site representative contact name (담당자명).
+            ///
+            /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/contact_name`.
+            public var contactName: Swift.String?
+            /// On-site contact phone (연락처).
+            ///
+            /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/contact_phone`.
+            public var contactPhone: Swift.String?
+            /// Optional contact email (이메일).
+            ///
+            /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/contact_email`.
+            public var contactEmail: Swift.String?
             /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/equipment_count`.
             public var equipmentCount: Swift.Int64
             /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/rented_count`.
@@ -6318,6 +6330,9 @@ public enum Components {
             ///   - city:
             ///   - latitude:
             ///   - longitude:
+            ///   - contactName: On-site representative contact name (담당자명).
+            ///   - contactPhone: On-site contact phone (연락처).
+            ///   - contactEmail: Optional contact email (이메일).
             ///   - equipmentCount:
             ///   - rentedCount:
             ///   - spareCount:
@@ -6331,6 +6346,9 @@ public enum Components {
                 city: Swift.String? = nil,
                 latitude: Swift.Double? = nil,
                 longitude: Swift.Double? = nil,
+                contactName: Swift.String? = nil,
+                contactPhone: Swift.String? = nil,
+                contactEmail: Swift.String? = nil,
                 equipmentCount: Swift.Int64,
                 rentedCount: Swift.Int64,
                 spareCount: Swift.Int64,
@@ -6344,6 +6362,9 @@ public enum Components {
                 self.city = city
                 self.latitude = latitude
                 self.longitude = longitude
+                self.contactName = contactName
+                self.contactPhone = contactPhone
+                self.contactEmail = contactEmail
                 self.equipmentCount = equipmentCount
                 self.rentedCount = rentedCount
                 self.spareCount = spareCount
@@ -6358,6 +6379,9 @@ public enum Components {
                 case city
                 case latitude
                 case longitude
+                case contactName = "contact_name"
+                case contactPhone = "contact_phone"
+                case contactEmail = "contact_email"
                 case equipmentCount = "equipment_count"
                 case rentedCount = "rented_count"
                 case spareCount = "spare_count"
@@ -6403,6 +6427,18 @@ public enum Components {
             public var latitude: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/UpdateSiteRequest/longitude`.
             public var longitude: Swift.Double?
+            /// On-site representative contact name (담당자명). Null clears it.
+            ///
+            /// - Remark: Generated from `#/components/schemas/UpdateSiteRequest/contact_name`.
+            public var contactName: Swift.String?
+            /// On-site contact phone (연락처). Null clears it.
+            ///
+            /// - Remark: Generated from `#/components/schemas/UpdateSiteRequest/contact_phone`.
+            public var contactPhone: Swift.String?
+            /// Optional contact email (이메일). Null clears it.
+            ///
+            /// - Remark: Generated from `#/components/schemas/UpdateSiteRequest/contact_email`.
+            public var contactEmail: Swift.String?
             /// Creates a new `UpdateSiteRequest`.
             ///
             /// - Parameters:
@@ -6412,13 +6448,19 @@ public enum Components {
             ///   - postalCode:
             ///   - latitude:
             ///   - longitude:
+            ///   - contactName: On-site representative contact name (담당자명). Null clears it.
+            ///   - contactPhone: On-site contact phone (연락처). Null clears it.
+            ///   - contactEmail: Optional contact email (이메일). Null clears it.
             public init(
                 address: Swift.String? = nil,
                 province: Swift.String? = nil,
                 city: Swift.String? = nil,
                 postalCode: Swift.String? = nil,
                 latitude: Swift.Double? = nil,
-                longitude: Swift.Double? = nil
+                longitude: Swift.Double? = nil,
+                contactName: Swift.String? = nil,
+                contactPhone: Swift.String? = nil,
+                contactEmail: Swift.String? = nil
             ) {
                 self.address = address
                 self.province = province
@@ -6426,6 +6468,9 @@ public enum Components {
                 self.postalCode = postalCode
                 self.latitude = latitude
                 self.longitude = longitude
+                self.contactName = contactName
+                self.contactPhone = contactPhone
+                self.contactEmail = contactEmail
             }
             public enum CodingKeys: String, CodingKey {
                 case address
@@ -6434,6 +6479,9 @@ public enum Components {
                 case postalCode = "postal_code"
                 case latitude
                 case longitude
+                case contactName = "contact_name"
+                case contactPhone = "contact_phone"
+                case contactEmail = "contact_email"
             }
         }
         /// - Remark: Generated from `#/components/schemas/AssignSubstituteRequest`.

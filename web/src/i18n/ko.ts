@@ -17,6 +17,7 @@ export const ko = {
     security: "보안 설정",
     users: "사용자 관리",
     org: "지역·지점 관리",
+    sites: "고객·현장 관리",
     profile: "내 프로필",
     groups: {
       operations: "운영",
@@ -24,6 +25,11 @@ export const ko = {
       org: "조직 관리",
       settings: "설정",
     },
+  },
+  sites: {
+    title: "고객·현장 관리",
+    description:
+      "고객사 사업장의 위치(주소·좌표)와 대표 담당자 연락처를 등록·관리합니다.",
   },
   shell: {
     title: "정비 콘솔",
@@ -652,6 +658,9 @@ export const ko = {
       postalCode: "우편번호",
       latitude: "위도",
       longitude: "경도",
+      contactName: "담당자명",
+      contactPhone: "연락처",
+      contactEmail: "이메일",
     },
     counts: {
       equipment: "전체 장비",
@@ -660,18 +669,21 @@ export const ko = {
       substitutionActive: "대차 진행",
     },
     manage: {
-      title: "사업장 좌표 관리",
+      title: "사업장 정보 관리",
       description:
-        "사업장을 선택해 위도·경도와 주소(시도·시군구)를 입력하면 배차 지도에 핀으로 표시됩니다.",
+        "사업장을 선택해 위치(주소·좌표)와 대표 담당자 연락처를 입력합니다. 좌표를 입력하면 배차 지도에 핀으로 표시됩니다.",
       selectSite: "사업장 선택",
-      selectSitePlaceholder: "좌표를 입력할 사업장을 선택하세요.",
-      save: "좌표 저장",
+      selectSitePlaceholder: "정보를 입력할 사업장을 선택하세요.",
+      locationSection: "위치",
+      contactSection: "대표 담당자 연락처",
+      save: "정보 저장",
       saving: "저장 중",
-      saveSuccess: "사업장 좌표를 저장했습니다.",
-      saveFailed: "사업장 좌표를 저장하지 못했습니다.",
+      saveSuccess: "사업장 정보를 저장했습니다.",
+      saveFailed: "사업장 정보를 저장하지 못했습니다.",
       pairRequired: "위도와 경도를 함께 입력해야 합니다.",
       latitudePlaceholder: "예: 37.5665",
       longitudePlaceholder: "예: 126.9780",
+      contactPhonePlaceholder: "010-0000-0000",
     },
   },
   equipment: {

@@ -80,6 +80,9 @@ const UsersPage = lazy(() =>
 const OrgPage = lazy(() =>
   import("./pages/OrgPage").then((m) => ({ default: m.OrgPage })),
 );
+const SitesPage = lazy(() =>
+  import("./pages/SitesPage").then((m) => ({ default: m.SitesPage })),
+);
 const ProfilePage = lazy(() =>
   import("./pages/ProfilePage").then((m) => ({ default: m.ProfilePage })),
 );
@@ -167,6 +170,7 @@ export function AppRouter() {
             <Route path="/ops" element={<OpsDashboardPage />} />
             <Route path="/settings/users" element={<UsersPage />} />
             <Route path="/settings/org" element={<OrgPage />} />
+            <Route path="/settings/sites" element={<SitesPage />} />
             <Route path="/settings/security" element={<AdminSettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/dispatch" replace />} />

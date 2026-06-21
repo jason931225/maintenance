@@ -5,6 +5,7 @@ import {
   CalendarClock,
   CheckSquare,
   ClipboardList,
+  Contact,
   FilePlus,
   FileSpreadsheet,
   Gauge,
@@ -87,6 +88,7 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["ops", ADMIN_ROLES],
   ["users", ADMIN_ROLES],
   ["org", ADMIN_ROLES],
+  ["sites", ADMIN_ROLES],
   ["security", ADMIN_ROLES],
   // inspection (InspectionScheduleManage): ADMIN/SUPER_ADMIN only, matching the
   // backend matrix row [D, D, A, D, A] and the list-schedules read gate.
@@ -149,6 +151,7 @@ export const NAV_GROUPS = [
     items: [
       { key: "users", href: "/settings/users", labelKey: "nav.users", Icon: Users },
       { key: "org",   href: "/settings/org",   labelKey: "nav.org",   Icon: Building2 },
+      { key: "sites", href: "/settings/sites", labelKey: "nav.sites", Icon: Contact },
     ],
   },
   {

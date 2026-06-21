@@ -25,6 +25,9 @@ interface FormState {
   postalCode: string;
   latitude: string;
   longitude: string;
+  contactName: string;
+  contactPhone: string;
+  contactEmail: string;
 }
 
 function emptyForm(): FormState {
@@ -35,6 +38,9 @@ function emptyForm(): FormState {
     postalCode: "",
     latitude: "",
     longitude: "",
+    contactName: "",
+    contactPhone: "",
+    contactEmail: "",
   };
 }
 
@@ -42,10 +48,15 @@ function seedForm(site: SiteLocationGroup): FormState {
   return {
     province: site.province ?? "",
     city: site.city ?? "",
+    // address/postal_code are write-only here (the by-location read doesn't carry
+    // them), so they seed empty; contact + province/city/coords seed from the row.
     address: "",
     postalCode: "",
     latitude: site.latitude === null ? "" : String(site.latitude),
     longitude: site.longitude === null ? "" : String(site.longitude),
+    contactName: site.contact_name ?? "",
+    contactPhone: site.contact_phone ?? "",
+    contactEmail: site.contact_email ?? "",
   };
 }
 
@@ -125,6 +136,9 @@ export function SiteGeographyPanel({ api }: SiteGeographyPanelProps) {
       postal_code: nullableTrim(form.postalCode),
       latitude: latRaw === "" ? null : Number(latRaw),
       longitude: lonRaw === "" ? null : Number(lonRaw),
+      contact_name: nullableTrim(form.contactName),
+      contact_phone: nullableTrim(form.contactPhone),
+      contact_email: nullableTrim(form.contactEmail),
     };
 
     const response = await api.PATCH("/api/v1/sites/{id}", {
@@ -234,6 +248,36 @@ export function SiteGeographyPanel({ api }: SiteGeographyPanelProps) {
               inputMode="decimal"
               onChange={(v) => {
                 setField("longitude", v);
+              }}
+            />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <p className="text-sm font-semibold text-slate-700 sm:col-span-2">
+              {t.contactSection}
+            </p>
+            <Field
+              id="site-contact-name"
+              label={f.contactName}
+              value={form.contactName}
+              onChange={(v) => {
+                setField("contactName", v);
+              }}
+            />
+            <Field
+              id="site-contact-phone"
+              label={f.contactPhone}
+              value={form.contactPhone}
+              placeholder={t.contactPhonePlaceholder}
+              onChange={(v) => {
+                setField("contactPhone", v);
+              }}
+            />
+            <Field
+              id="site-contact-email"
+              label={f.contactEmail}
+              value={form.contactEmail}
+              onChange={(v) => {
+                setField("contactEmail", v);
               }}
             />
           </div>

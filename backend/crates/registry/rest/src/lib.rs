@@ -15,8 +15,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_kernel_core::{
-    BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId, ErrorKind, KernelError, OrgId,
-    SiteId, TraceContext, UserId, validate_coordinate_pair,
+    BranchId, BranchScope, CONTACT_EMAIL_MAX_CHARS, CONTACT_NAME_MAX_CHARS, CONTACT_PHONE_MAX_CHARS,
+    EquipmentId, EquipmentSubstitutionId, ErrorKind, KernelError, OrgId, SiteId, TraceContext,
+    UserId, validate_bounded_text, validate_coordinate_pair,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{
@@ -216,6 +217,9 @@ struct SiteLocationResponse {
     city: Option<String>,
     latitude: Option<f64>,
     longitude: Option<f64>,
+    contact_name: Option<String>,
+    contact_phone: Option<String>,
+    contact_email: Option<String>,
     equipment_count: i64,
     rented_count: i64,
     spare_count: i64,
@@ -233,6 +237,9 @@ impl From<SiteLocationGroup> for SiteLocationResponse {
             city: value.city,
             latitude: value.latitude,
             longitude: value.longitude,
+            contact_name: value.contact_name,
+            contact_phone: value.contact_phone,
+            contact_email: value.contact_email,
             equipment_count: value.equipment_count,
             rented_count: value.rented_count,
             spare_count: value.spare_count,
@@ -285,6 +292,12 @@ struct UpdateSiteRequest {
     latitude: Option<Option<f64>>,
     #[serde(default, deserialize_with = "double_option")]
     longitude: Option<Option<f64>>,
+    #[serde(default, deserialize_with = "double_option")]
+    contact_name: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    contact_phone: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    contact_email: Option<Option<String>>,
 }
 
 /// PATCH /api/v1/sites/{id} — the ONLY coordinate entry point. Admin-gated
@@ -305,6 +318,7 @@ async fn update_site(
     // pair (clearing both) is allowed; a one-sided present value is rejected to
     // mirror the registry_sites_lat_lon_paired CHECK.
     validate_site_coordinates(&body)?;
+    validate_site_contact(&body)?;
 
     let fields = UpdateSiteFields {
         address: body.address,
@@ -313,6 +327,9 @@ async fn update_site(
         postal_code: body.postal_code,
         latitude: body.latitude,
         longitude: body.longitude,
+        contact_name: body.contact_name,
+        contact_phone: body.contact_phone,
+        contact_email: body.contact_email,
     };
     if fields.is_empty() {
         return Err(RestError::from_kernel(KernelError::validation(
@@ -351,6 +368,24 @@ fn validate_site_coordinates(body: &UpdateSiteRequest) -> Result<(), RestError> 
             "latitude and longitude must be updated together",
         ))),
     }
+}
+
+/// Bound the optional representative-contact text fields on a site PATCH to the
+/// same limits as the `registry_sites` contact CHECKs (migration 0040), so an
+/// over-long value is rejected with a 422 rather than surfacing as a raw DB CHECK
+/// error. Only present (`Some(Some(_))`) values are checked; absent or
+/// explicit-null fields need no bound.
+fn validate_site_contact(body: &UpdateSiteRequest) -> Result<(), RestError> {
+    for (change, max, field) in [
+        (&body.contact_name, CONTACT_NAME_MAX_CHARS, "contact_name"),
+        (&body.contact_phone, CONTACT_PHONE_MAX_CHARS, "contact_phone"),
+        (&body.contact_email, CONTACT_EMAIL_MAX_CHARS, "contact_email"),
+    ] {
+        if let Some(Some(text)) = change {
+            validate_bounded_text(text, max, field).map_err(RestError::from_kernel)?;
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

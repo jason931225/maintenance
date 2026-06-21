@@ -2816,6 +2816,12 @@ export interface components {
             latitude: number | null;
             /** Format: double */
             longitude: number | null;
+            /** @description On-site representative contact name (담당자명). */
+            contact_name: string | null;
+            /** @description On-site contact phone (연락처). */
+            contact_phone: string | null;
+            /** @description Optional contact email (이메일). */
+            contact_email: string | null;
             /** Format: int64 */
             equipment_count: number;
             /** Format: int64 */
@@ -2839,6 +2845,12 @@ export interface components {
             latitude?: number | null;
             /** Format: double */
             longitude?: number | null;
+            /** @description On-site representative contact name (담당자명). Null clears it. */
+            contact_name?: string | null;
+            /** @description On-site contact phone (연락처). Null clears it. */
+            contact_phone?: string | null;
+            /** @description Optional contact email (이메일). Null clears it. */
+            contact_email?: string | null;
         };
         AssignSubstituteRequest: {
             /** Format: uuid */

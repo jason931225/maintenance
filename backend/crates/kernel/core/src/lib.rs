@@ -23,7 +23,10 @@ pub use ids::*;
 pub use redact::RedactedPhone;
 pub use trace::TraceContext;
 pub use transition::{Transition, TransitionError};
-pub use validation::{validate_coordinate_pair, validate_latitude, validate_longitude};
+pub use validation::{
+    CONTACT_EMAIL_MAX_CHARS, CONTACT_NAME_MAX_CHARS, CONTACT_PHONE_MAX_CHARS,
+    validate_bounded_text, validate_coordinate_pair, validate_latitude, validate_longitude,
+};
 
 /// Canonical timestamp type for the whole system (UTC, RFC 3339 on the wire).
 pub type Timestamp = time::OffsetDateTime;

@@ -288,6 +288,9 @@ pub struct SiteLocationGroup {
     pub city: Option<String>,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
+    pub contact_name: Option<String>,
+    pub contact_phone: Option<String>,
+    pub contact_email: Option<String>,
     pub equipment_count: i64,
     pub rented_count: i64,
     pub spare_count: i64,
@@ -306,6 +309,9 @@ pub struct UpdateSiteFields {
     pub postal_code: Option<Option<String>>,
     pub latitude: Option<Option<f64>>,
     pub longitude: Option<Option<f64>>,
+    pub contact_name: Option<Option<String>>,
+    pub contact_phone: Option<Option<String>>,
+    pub contact_email: Option<Option<String>>,
 }
 
 impl UpdateSiteFields {

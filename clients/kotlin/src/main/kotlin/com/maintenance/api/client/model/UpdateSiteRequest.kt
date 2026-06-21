@@ -37,6 +37,9 @@ import kotlinx.serialization.Contextual
  * @param postalCode
  * @param latitude
  * @param longitude
+ * @param contactName On-site representative contact name (담당자명). Null clears it.
+ * @param contactPhone On-site contact phone (연락처). Null clears it.
+ * @param contactEmail Optional contact email (이메일). Null clears it.
  */
 @Serializable
 
@@ -58,7 +61,19 @@ data class UpdateSiteRequest (
     val latitude: kotlin.Double? = null,
 
     @SerialName(value = "longitude")
-    val longitude: kotlin.Double? = null
+    val longitude: kotlin.Double? = null,
+
+    /* On-site representative contact name (담당자명). Null clears it. */
+    @SerialName(value = "contact_name")
+    val contactName: kotlin.String? = null,
+
+    /* On-site contact phone (연락처). Null clears it. */
+    @SerialName(value = "contact_phone")
+    val contactPhone: kotlin.String? = null,
+
+    /* Optional contact email (이메일). Null clears it. */
+    @SerialName(value = "contact_email")
+    val contactEmail: kotlin.String? = null
 
 ) {
 
