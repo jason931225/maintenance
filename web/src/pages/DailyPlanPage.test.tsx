@@ -205,12 +205,17 @@ describe("DailyPlanPage", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("hides the create surface from an executive (no DailyPlanRequest)", async () => {
+  it("bounces an executive off /daily-plan (no DailyPlanRequest)", async () => {
+    // RequireDailyPlanRoute redirects a non-DailyPlanRequest role away, so the
+    // page never renders for an executive — stronger than merely hiding the
+    // create surface, and matching the hidden `daily-plan` nav gate.
     renderApp(makeAuthContext(executiveSession));
 
-    expect(
-      await screen.findByRole("heading", { name: "계획업무" }),
-    ).toBeVisible();
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("heading", { name: "계획업무" }),
+      ).not.toBeInTheDocument();
+    });
     expect(
       screen.queryByRole("button", { name: "계획 생성" }),
     ).not.toBeInTheDocument();

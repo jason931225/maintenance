@@ -53,7 +53,15 @@ export function SecurityPanel() {
     setFeedback(undefined);
     setAdding(true);
     try {
-      const ceremony = await startPasskeyRegistration(api, {}, attachment);
+      // An already-enrolled user must step up with an existing passkey before a
+      // new one is issued; the first passkey (none yet) enrolls without step-up.
+      const requireStepUp = passkeys.length > 0;
+      const ceremony = await startPasskeyRegistration(
+        api,
+        {},
+        attachment,
+        requireStepUp,
+      );
       await finishPasskeyRegistration(api, ceremony);
       setFeedback(ko.security.added);
       await load();

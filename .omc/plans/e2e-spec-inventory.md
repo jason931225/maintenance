@@ -21,22 +21,24 @@ Test isolation (flake fix): every request shares one origin with NO `X-Forwarded
 - ☑ MECH-NEG nav hidden + /approvals & /settings/users redirect (mech-neg-nav; app fix: /approvals now under RequireAdminRoute)
 
 ## RECEPTIONIST
-- ☐ RECP core (lookup/intake/messenger/support/equipment/export/profile) · ☐ RECP-neg daily-plan hidden + /daily-plan 403
+- ☑ RECP core: equipment lookup + intake(접수증) + reporting export + profile (recp-01-core) · ☑ RECP messenger + support read/comment, triage hidden (recp-02-messenger-support; seed-recp.sql: receptionist-owned thread …c00002; support ticket …b00001 is branch-scoped so already visible)
+- ☑ RECP-neg nav hidden (incl. daily-plan + kpi) + /daily-plan & /kpi bounce to /dispatch (recp-neg-nav; app fix: /daily-plan now under RequireDailyPlanRoute, /kpi under RequireKpiRoute — were unguarded app-shell routes a receptionist could open by URL)
 
 ## ADMIN / SUPER_ADMIN
 - ☑ ADMIN-01 create user (roles/branches) (admin-01-03-users) · ☑ ADMIN-02 issue OTP (admin-01-03-users) · ☑ ADMIN-03 edit/deactivate user (admin-01-03-users) · ☑ ADMIN-04 region+branch CRUD (admin-04-org) · ☑ ADMIN-05 equipment CRUD (admin-05-equipment) · ☐ ADMIN-06 master-list import (**DEFERRED: no web upload surface — endpoint /api/v1/equipment/import has no UI; only file input in app is the messenger attachment**) · ☑ ADMIN-07 approvals approve/reject (admin-07-approvals; seed gap fixed: approval-line steps) · ☑ ADMIN-08 daily-plan review approve+reject (admin-08-daily-plan) · ☑ ADMIN-09 dispatch controls priority/schedule/multi-assign/force (admin-09-dispatch; app fix: target-change-request OffsetDateTime rfc3339) · ☑ ADMIN-10 inspection schedule (admin-10-inspection; app fix: due_date Date iso_date serde; seed: 예방 mechanic) · ☑ ADMIN-11 KPI dashboard (admin-11-12-dashboards; app fix: Period Timestamp rfc3339) · ☑ ADMIN-12 ops dashboard (admin-11-12-dashboards) · ☑ ADMIN-13 financial quote+ledger+purchase-approve (admin-13-financial; app fix: RentalQuote/CostLedger/PurchaseRequest Timestamp rfc3339; seed: equipment vehicle/residual value + REQUEST evidence) · ☑ ADMIN-14 substitution 대차 assign/return (admin-14-substitution; seed: compatible 예비 spare) · ☑ ADMIN-15 reporting export (admin-15-reporting) · ☑ SADMIN elevated-role grant (SUPER_ADMIN) + ADMIN-negative (admin-sadmin-elevated)
 - ☑ ADMIN-16 credential-reset / recovery action (admin-16-auth-08-recovery) · ☐ ADMIN-17 dispatch MAP view (#12) — out of scope this batch
 
 ## EXECUTIVE
-- ☐ EXEC-01 KPI · ☐ EXEC-03 purchase final-approve · ☐ EXEC-04 rental quote · ☐ EXEC-05 export · ☐ EXEC-neg approvals/daily-plan/users/org/security/inspection/ops hidden + 403
+- ☑ EXEC-01 KPI dashboard (exec-01-kpi; KpiRead `[D,D,A,A,A]`) · ☑ EXEC-03 purchase final-approve, exec-only PurchaseFinalApprove `[D,D,D,A,A]` → EXECUTIVE_PENDING→READY_TO_EXECUTE, 집행 stays hidden (exec-03-purchase-final-approve; seed-exec.sql: …f10001 EXECUTIVE_PENDING) · ☑ EXEC-04 rental quote + ☑ EXEC-05 reporting export (exec-04-05-quote-export) · ☑ EXEC-neg approvals/daily-plan/inspection/ops/users/org/security hidden + each direct-URL bounces to /dispatch (exec-neg-nav)
 
 ## PLATFORM-ADMIN (sentinel org, /platform/*)
-- ☐ PLAT-01 list tenants + health · ☐ PLAT-02 onboard tenant → one-time SUPER_ADMIN OTP · ☐ PLAT-03 suspend/reactivate/archive · ☐ PLAT-04 bounced off tenant routes
+- ☑ PLAT-01 list tenants (valid 생성일, NOT "Invalid Date") + cross-tenant ops health (plat-01-tenants-health) · ☑ PLAT-02 onboard tenant → one-time SUPER_ADMIN OTP renders (plat-02-onboard) · ☑ PLAT-03 suspend→reactivate via confirm dialog (plat-03-suspend-reactivate) · ☑ PLAT-04 platform bearer 403 on tenant /api + UI bounce off tenant page (plat-04-neg-tenant-api)
+- App fixes (caught ONLY by real-backend E2E; unit-test mocks encode the right contract so they never see it): platform DTO timestamps serialized as serde integer-arrays (created_at/updated_at/last_activity_at/admin_otp_expires_at) → added `#[serde(with="time::serde::rfc3339")]`/`::option`; GET /platform/orgs returned `{items:[…]}` but console reads a bare array → return bare array; POST onboard returned `{organization, admin_otp}` but console reads `{org, otp}` → renamed REST DTO fields so the one-time OTP actually surfaces. Verified by curling the live backend with a minted platform JWT before+after.
 
 ## Public / unauthenticated
 - ☐ PUB-01 customer support intake /support/new · ☐ PUB-02 wallboard kiosk /wallboard
 
-## i18n
-- ☐ I18N every visited screen renders Korean labels (no raw keys)
+## i18n / UX baseline (GOAL B-UX)
+- ☑ Shared UX layer `e2e/fixtures/ux.ts` woven into every new spec + reused across the suite: (a) ZERO critical/serious axe (@axe-core/playwright) violations per settled screen; (b) NO console.error / pageerror during the flow (fail on capture; only benign vite/favicon/ResizeObserver noise ignored); (c) loading/empty/error states exercised where applicable; (d) Korean i18n — assert no raw i18n key (`/^[a-z]+(?:\.[a-z][a-z-]*)+$/`) leaks into visible text (code/pre/inputs excluded so slugs/OTP/identifiers aren't flagged). Pragmatic: minor/moderate a11y nits do not fail; genuine findings fixed in-app, any deliberate exception annotated `// UX-DEBT` at the call site.
 
 Prereqs: recovery flow (AUTH-08/ADMIN-16) + #12 map (ADMIN-17) must ship before their specs. Every red spec that is an APP bug → fix the app (that's the point of browser E2E).

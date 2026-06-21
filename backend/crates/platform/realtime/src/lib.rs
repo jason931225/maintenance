@@ -873,6 +873,12 @@ async fn websocket_handler(
 ) -> Result<Response, RealtimeApiError> {
     let principal = principal_from_headers(&state, &headers)?;
     Ok(ws
+        // Browser clients carry the bearer token as a `Sec-WebSocket-Protocol`
+        // subprotocol pair (`bearer, <token>`); the WebSocket handshake REQUIRES
+        // the server to echo one offered subprotocol, so select `bearer` to
+        // complete the handshake (without this the browser aborts with "Sent
+        // non-empty 'Sec-WebSocket-Protocol' header but no response was received").
+        .protocols(["bearer"])
         .on_upgrade(move |socket| {
             websocket_session(state, principal, query.last_message_id, socket)
         })

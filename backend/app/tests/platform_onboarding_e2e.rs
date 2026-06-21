@@ -90,15 +90,10 @@ async fn platform_onboards_tenant_and_rls_isolates(super_pool: PgPool) {
         String::from_utf8_lossy(&body)
     );
     let onboarding: Value = serde_json::from_slice(&body).unwrap();
-    let acme_id = onboarding["organization"]["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let acme_id = onboarding["org"]["id"].as_str().unwrap().to_owned();
     let acme_admin_id = onboarding["admin_user_id"].as_str().unwrap().to_owned();
     assert!(
-        onboarding["admin_otp"]
-            .as_str()
-            .is_some_and(|s| !s.is_empty()),
+        onboarding["otp"].as_str().is_some_and(|s| !s.is_empty()),
         "onboarding must return a one-time OTP: {onboarding}"
     );
     let acme_org = OrgId::from_uuid(acme_id.parse().unwrap());
@@ -194,7 +189,7 @@ async fn platform_onboards_tenant_and_rls_isolates(super_pool: PgPool) {
     assert_eq!(response.status(), StatusCode::OK);
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let listing: Value = serde_json::from_slice(&body).unwrap();
-    let slugs: Vec<&str> = listing["items"]
+    let slugs: Vec<&str> = listing
         .as_array()
         .unwrap()
         .iter()

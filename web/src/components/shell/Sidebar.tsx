@@ -74,7 +74,7 @@ export function Sidebar({
           {filteredGroups.map((group) => (
             <div key={group.key}>
               {!collapsed && (
-                <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
                   {navGroupLabel(group.key)}
                 </p>
               )}

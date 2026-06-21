@@ -43,6 +43,7 @@ describe("SupportTicketDetail", () => {
         detail={detail()}
         currentUserId={ME}
         canAssign
+        canComment
         onTransition={vi.fn().mockResolvedValue(undefined)}
         onAddComment={vi.fn().mockResolvedValue(undefined)}
         onAssignSelf={vi.fn().mockResolvedValue(undefined)}
@@ -83,6 +84,7 @@ describe("SupportTicketDetail", () => {
           },
         ])}
         currentUserId={ME}
+        canComment
         onTransition={vi.fn()}
         onAddComment={vi.fn().mockResolvedValue(undefined)}
         onAssignSelf={vi.fn()}
@@ -102,6 +104,7 @@ describe("SupportTicketDetail", () => {
         detail={detail()}
         currentUserId={ME}
         canAssign
+        canComment
         onTransition={onTransition}
         onAddComment={vi.fn().mockResolvedValue(undefined)}
         onAssignSelf={vi.fn().mockResolvedValue(undefined)}
@@ -121,6 +124,7 @@ describe("SupportTicketDetail", () => {
       <SupportTicketDetail
         detail={detail()}
         currentUserId={ME}
+        canComment
         onTransition={vi.fn()}
         onAddComment={onAddComment}
         onAssignSelf={vi.fn()}
@@ -147,6 +151,7 @@ describe("SupportTicketDetail", () => {
         detail={detail({ assignee_user_id: OTHER })}
         currentUserId={ME}
         canAssign
+        canComment
         onTransition={vi.fn()}
         onAddComment={vi.fn()}
         onAssignSelf={onAssignSelf}
@@ -165,6 +170,7 @@ describe("SupportTicketDetail", () => {
         detail={detail({ assignee_user_id: OTHER })}
         currentUserId={ME}
         canAssign={false}
+        canComment
         onTransition={vi.fn()}
         onAddComment={vi.fn()}
         onAssignSelf={vi.fn()}
@@ -180,11 +186,31 @@ describe("SupportTicketDetail", () => {
     ).toBeNull();
   });
 
+  it("hides the comment composer when the principal cannot comment", () => {
+    render(
+      <SupportTicketDetail
+        detail={detail()}
+        currentUserId={ME}
+        canAssign={false}
+        canComment={false}
+        onTransition={vi.fn()}
+        onAddComment={vi.fn()}
+        onAssignSelf={vi.fn()}
+      />,
+    );
+    // A receptionist (WorkOrderStart Limited) reads the thread but the composer
+    // is hidden — the comment endpoint would 403 for them.
+    expect(
+      screen.queryByRole("button", { name: ko.support.comments.add }),
+    ).toBeNull();
+  });
+
   it("hides self-assign when the ticket is already mine", () => {
     render(
       <SupportTicketDetail
         detail={detail({ assignee_user_id: ME })}
         currentUserId={ME}
+        canComment
         onTransition={vi.fn()}
         onAddComment={vi.fn()}
         onAssignSelf={vi.fn()}
@@ -210,6 +236,7 @@ describe("SupportTicketDetail", () => {
         detail={detail()} // IN_PROGRESS → offers 보류 (ON_HOLD) + 해결 (RESOLVED)
         currentUserId={ME}
         canAssign
+        canComment
         onTransition={onTransition}
         onAddComment={vi.fn()}
         onAssignSelf={vi.fn()}

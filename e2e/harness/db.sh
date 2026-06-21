@@ -38,4 +38,10 @@ psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -q -f "$(dirname "${BASH_SOURCE[0]}")/
 echo "db: seeding ADMIN/SUPER_ADMIN story fixtures" >&2
 psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -q -f "$(dirname "${BASH_SOURCE[0]}")/seed-admin.sql"
 
+echo "db: seeding EXECUTIVE story fixtures" >&2
+psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -q -f "$(dirname "${BASH_SOURCE[0]}")/seed-exec.sql"
+
+echo "db: seeding RECEPTIONIST story fixtures" >&2
+psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -q -f "$(dirname "${BASH_SOURCE[0]}")/seed-recp.sql"
+
 echo "db: ready (${DATABASE_URL})" >&2

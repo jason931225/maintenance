@@ -81,7 +81,12 @@ struct OrgResponse {
     slug: String,
     name: String,
     status: String,
+    // `time::OffsetDateTime` derives a numeric-array Serialize by default; the
+    // console reads these as rfc3339 strings (`new Date(created_at)`), so emit
+    // rfc3339 like every other tenant DTO (e.g. financial `created_at`).
+    #[serde(with = "time::serde::rfc3339")]
     created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
     updated_at: OffsetDateTime,
 }
 
@@ -100,20 +105,23 @@ impl From<OrganizationSummary> for OrgResponse {
 
 #[derive(Debug, Serialize)]
 struct OnboardingResponse {
-    organization: OrgResponse,
+    // The console's `OnboardOrgResponse` reads `{ org, otp }`; keep those exact
+    // field names so the one-time OTP and the new org actually surface in the UI.
+    org: OrgResponse,
     admin_user_id: Uuid,
     /// The ONE-TIME OTP for the new tenant's first SUPER_ADMIN. Returned exactly
     /// once, to be delivered out-of-band; never logged or stored in cleartext.
-    admin_otp: String,
+    otp: String,
+    #[serde(with = "time::serde::rfc3339")]
     admin_otp_expires_at: OffsetDateTime,
 }
 
 impl From<TenantOnboarding> for OnboardingResponse {
     fn from(o: TenantOnboarding) -> Self {
         Self {
-            organization: o.organization.into(),
+            org: o.organization.into(),
             admin_user_id: o.admin_user_id,
-            admin_otp: o.admin_otp.as_str().to_owned(),
+            otp: o.admin_otp.as_str().to_owned(),
             admin_otp_expires_at: o.admin_otp_expires_at,
         }
     }
@@ -126,11 +134,6 @@ struct UpdateOrgRequest {
 }
 
 #[derive(Debug, Serialize)]
-struct OrgListResponse {
-    items: Vec<OrgResponse>,
-}
-
-#[derive(Debug, Serialize)]
 struct TenantHealthResponse {
     id: Uuid,
     slug: String,
@@ -140,6 +143,7 @@ struct TenantHealthResponse {
     active_user_count: i64,
     active_work_orders: i64,
     open_work_orders: i64,
+    #[serde(with = "time::serde::rfc3339::option")]
     last_activity_at: Option<OffsetDateTime>,
 }
 
@@ -217,8 +221,10 @@ async fn list_orgs(
         .await
         .map_err(PlatformError::from_provisioning)?;
 
-    let items = orgs.into_iter().map(OrgResponse::from).collect();
-    Ok(Json(OrgListResponse { items }).into_response())
+    // The console's `listPlatformOrgs` reads a bare array, so return the orgs
+    // directly rather than wrapping them in an envelope.
+    let items: Vec<OrgResponse> = orgs.into_iter().map(OrgResponse::from).collect();
+    Ok(Json(items).into_response())
 }
 
 /// GET /platform/ops — cross-tenant ops health rollup (audited platform read).

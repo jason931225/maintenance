@@ -250,7 +250,8 @@ describe("routing", () => {
   });
 
   it("renders /kpi page", async () => {
-    renderAt("/kpi");
+    // /kpi is KpiRead-gated (RequireKpiRoute) — render with a KpiRead role.
+    renderAt("/kpi", adminSession);
     expect(
       await screen.findByRole("heading", { name: "임원 KPI 대시보드", level: 2 }),
     ).toBeVisible();
@@ -341,7 +342,8 @@ describe("ApprovalsPage", () => {
 
 describe("KpiPage", () => {
   it("loads kpi report with the default period", async () => {
-    renderAt("/kpi");
+    // /kpi is KpiRead-gated (RequireKpiRoute) — render with a KpiRead role.
+    renderAt("/kpi", adminSession);
 
     await waitFor(() => {
       expect(

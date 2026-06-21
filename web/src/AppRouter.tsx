@@ -5,6 +5,8 @@ import { AppShell } from "./components/shell/AppShell";
 import { PlatformShell } from "./components/shell/PlatformShell";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { RequireAdminRoute } from "./components/RequireAdminRoute";
+import { RequireDailyPlanRoute } from "./components/RequireDailyPlanRoute";
+import { RequireKpiRoute } from "./components/RequireKpiRoute";
 import { RequirePlatformRoute } from "./components/RequirePlatformRoute";
 import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
 import { PageSpinner } from "./components/states/PageSpinner";
@@ -136,8 +138,12 @@ export function AppRouter() {
           <Route index element={<Navigate to="/dispatch" replace />} />
           <Route path="/dispatch" element={<DispatchPage />} />
           <Route path="/intake" element={<IntakePage />} />
-          <Route path="/daily-plan" element={<DailyPlanPage />} />
-          <Route path="/kpi" element={<KpiPage />} />
+          <Route element={<RequireDailyPlanRoute />}>
+            <Route path="/daily-plan" element={<DailyPlanPage />} />
+          </Route>
+          <Route element={<RequireKpiRoute />}>
+            <Route path="/kpi" element={<KpiPage />} />
+          </Route>
           <Route path="/reporting" element={<ReportingPage />} />
           <Route path="/messenger" element={<MessengerPage />} />
           <Route path="/support" element={<SupportPage />} />

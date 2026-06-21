@@ -35,6 +35,13 @@ interface SupportTicketDetailProps {
    * the triage controls are hidden from them rather than 403-ing on click.
    */
   canAssign: boolean;
+  /**
+   * Whether the principal may post a comment. Maps to the backend
+   * `WorkOrderStart` feature (Allow): MECHANIC / ADMIN / SUPER_ADMIN. A
+   * receptionist (Limited) can read the thread but the composer is hidden rather
+   * than 403-ing on submit.
+   */
+  canComment: boolean;
   onTransition: (to: SupportTicketStatus) => Promise<void>;
   onAddComment: (body: string, isInternalNote: boolean) => Promise<void>;
   onAssignSelf: () => Promise<void>;
@@ -44,6 +51,7 @@ export function SupportTicketDetail({
   detail,
   currentUserId,
   canAssign,
+  canComment,
   onTransition,
   onAddComment,
   onAssignSelf,
@@ -185,7 +193,7 @@ export function SupportTicketDetail({
           {ko.support.comments.title}
         </h3>
         <CommentThread comments={comments} />
-        <AddCommentForm onAddComment={onAddComment} />
+        {canComment ? <AddCommentForm onAddComment={onAddComment} /> : null}
       </Card>
     </div>
   );

@@ -63,6 +63,14 @@ export function SupportPage() {
   // AssigneeManage feature, which is ADMIN/SUPER_ADMIN only. Mechanics can read
   // and comment but never claim, so the triage controls are hidden from them.
   const canAssign = hasAnyRole(session?.roles, [ROLES.ADMIN, ROLES.SUPER_ADMIN]);
+  // Posting a comment maps to the backend WorkOrderStart feature (Allow):
+  // MECHANIC / ADMIN / SUPER_ADMIN. A receptionist (Limited) can read the thread
+  // but the composer is hidden so it never 403s on submit.
+  const canComment = hasAnyRole(session?.roles, [
+    ROLES.MECHANIC,
+    ROLES.ADMIN,
+    ROLES.SUPER_ADMIN,
+  ]);
 
   const [tickets, setTickets] = useState<SupportTicketSummary[]>([]);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
@@ -296,6 +304,7 @@ export function SupportPage() {
               detail={detail}
               currentUserId={currentUserId}
               canAssign={canAssign}
+              canComment={canComment}
               onTransition={transitionTicket}
               onAddComment={addComment}
               onAssignSelf={assignSelf}
