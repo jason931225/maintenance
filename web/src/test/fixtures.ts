@@ -52,6 +52,7 @@ export const workOrderListItems: components["schemas"]["WorkOrderListItem"][] = 
     },
     customer: equipmentLookup.customer,
     site: equipmentLookup.site,
+    site_contact: { name: "현장담당 김씨", phone: "010-2625-0987", email: null },
     assignments: [],
   },
   {
@@ -81,6 +82,7 @@ export const workOrderListItems: components["schemas"]["WorkOrderListItem"][] = 
       id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       name: "인천센터",
     },
+    site_contact: null,
     assignments: [
       {
         id: "12121212-1212-4212-8212-121212121212",

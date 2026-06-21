@@ -451,6 +451,7 @@ export const ko = {
     listTitle: "작업지시 목록",
     targetDueAt: "목표 완료",
     equipment: "장비",
+    siteContact: "담당자",
     sla: {
       label: "SLA 상태",
       onTrack: "정상",

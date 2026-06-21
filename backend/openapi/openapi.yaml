@@ -3843,6 +3843,25 @@ components:
           $ref: '#/components/schemas/Uuid'
         name:
           type: string
+    SiteContact:
+      type: object
+      required:
+      - name
+      - phone
+      - email
+      properties:
+        name:
+          type:
+          - string
+          - 'null'
+        phone:
+          type:
+          - string
+          - 'null'
+        email:
+          type:
+          - string
+          - 'null'
     EquipmentSummary:
       type: object
       required:
@@ -4375,6 +4394,7 @@ components:
       - equipment
       - customer
       - site
+      - site_contact
       - assignments
       properties:
         id:
@@ -4405,6 +4425,12 @@ components:
           $ref: '#/components/schemas/NamedEntity'
         site:
           $ref: '#/components/schemas/NamedEntity'
+        site_contact:
+          description: >-
+            사업장 대표 담당자 연락처 (#13). 등록된 연락처가 없으면 null.
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SiteContact'
         assignments:
           type: array
           items:

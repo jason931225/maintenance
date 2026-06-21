@@ -53,6 +53,17 @@ test("MECH-01 mechanic sees dispatch board with work orders on /dispatch", async
   // At least one work order appears (the seeded RECEIVED one, request_no ends in -011)
   await expect(page.getByText(/-011$/).first()).toBeVisible({ timeout: 8_000 });
 
+  // The work order's site (E2E사업장) has a registered representative contact
+  // (#13) — the dispatch card shows the 담당자 name and a clickable tel: phone.
+  await expect(page.getByText(/현장 담당자/).first()).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "010-7777-8888" }).first(),
+  ).toHaveAttribute("href", "tel:010-7777-8888");
+  await page.screenshot({
+    path: "e2e/.artifacts/dispatch-contact.png",
+    fullPage: true,
+  });
+
   // Board columns are rendered (접수, 배정, 진행, 검토, 보류, 완료)
   for (const col of ["접수", "배정", "진행", "검토", "보류", "완료"]) {
     await expect(

@@ -53,6 +53,20 @@ export function WorkOrderList({
                 <p className="text-sm text-slate-600">
                   {workOrder.customer.name} / {workOrder.site.name}
                 </p>
+                {workOrder.site_contact ? (
+                  <p className="text-sm text-slate-500">
+                    {ko.dispatch.siteContact}:{" "}
+                    {workOrder.site_contact.name ?? ""}
+                    {workOrder.site_contact.phone ? (
+                      <a
+                        className="ml-1 text-slate-700 underline-offset-2 hover:underline"
+                        href={`tel:${workOrder.site_contact.phone}`}
+                      >
+                        {workOrder.site_contact.phone}
+                      </a>
+                    ) : null}
+                  </p>
+                ) : null}
               </div>
               <div className="flex flex-wrap items-center gap-2 md:justify-end">
                 <Badge>{workOrder.priority}</Badge>

@@ -329,6 +329,9 @@ struct WorkOrderListItem {
     equipment: EquipmentSummary,
     customer: NamedEntity,
     site: NamedEntity,
+    // Site's registered representative contact (#13), so the dispatch board can
+    // show who to call on site. None when the site has no contact registered.
+    site_contact: Option<SiteContact>,
     assignments: Vec<AssignmentSummary>,
 }
 
@@ -356,6 +359,10 @@ struct WorkOrderDetail {
     equipment: EquipmentSummary,
     customer: NamedEntity,
     site: NamedEntity,
+    // The site's registered representative contact (대표 담당자 연락처, #13), so the
+    // dispatched mechanic/admin can see who to call on site. None when the site
+    // has no contact registered.
+    site_contact: Option<SiteContact>,
     assignments: Vec<AssignmentSummary>,
     approval_line: Vec<ApprovalStepSummary>,
     status_history: Vec<StatusHistorySummary>,
@@ -377,6 +384,13 @@ struct EquipmentSummary {
 struct NamedEntity {
     id: uuid::Uuid,
     name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SiteContact {
+    name: Option<String>,
+    phone: Option<String>,
+    email: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1595,7 +1609,10 @@ async fn list_work_orders(
             e.id AS equipment_id, e.equipment_no, e.management_no, e.model,
             e.status AS equipment_status, e.specification, e.ton_text,
             c.id AS customer_id, c.name AS customer_name,
-            s.id AS site_id, s.name AS site_name
+            s.id AS site_id, s.name AS site_name,
+            s.contact_name AS site_contact_name,
+            s.contact_phone AS site_contact_phone,
+            s.contact_email AS site_contact_email
         FROM work_orders w
         JOIN registry_equipment e ON e.id = w.equipment_id
         JOIN registry_customers c ON c.id = w.customer_id
@@ -1679,7 +1696,10 @@ async fn get_work_order_detail(
             e.id AS equipment_id, e.equipment_no, e.management_no, e.model,
             e.status AS equipment_status, e.specification, e.ton_text,
             c.id AS customer_id, c.name AS customer_name,
-            s.id AS site_id, s.name AS site_name
+            s.id AS site_id, s.name AS site_name,
+            s.contact_name AS site_contact_name,
+            s.contact_phone AS site_contact_phone,
+            s.contact_email AS site_contact_email
         FROM work_orders w
         JOIN registry_equipment e ON e.id = w.equipment_id
         JOIN registry_customers c ON c.id = w.customer_id
@@ -2738,6 +2758,7 @@ fn work_order_list_item_from_row(
             id: row.try_get("site_id")?,
             name: row.try_get("site_name")?,
         },
+        site_contact: site_contact_from_row(row)?,
         assignments: assignments.get(&id).cloned().unwrap_or_default(),
     })
 }
@@ -2780,11 +2801,26 @@ fn work_order_detail_from_row(
             id: row.try_get("site_id")?,
             name: row.try_get("site_name")?,
         },
+        site_contact: site_contact_from_row(row)?,
         assignments,
         approval_line,
         status_history,
         evidence,
     })
+}
+
+/// Build the site's representative contact from the detail row. Returns None when
+/// the site has no contact registered (all three columns NULL) so the response
+/// omits an empty object.
+fn site_contact_from_row(row: &sqlx::postgres::PgRow) -> Result<Option<SiteContact>, RestError> {
+    let name: Option<String> = row.try_get("site_contact_name")?;
+    let phone: Option<String> = row.try_get("site_contact_phone")?;
+    let email: Option<String> = row.try_get("site_contact_email")?;
+    if name.is_none() && phone.is_none() && email.is_none() {
+        Ok(None)
+    } else {
+        Ok(Some(SiteContact { name, phone, email }))
+    }
 }
 
 fn equipment_summary_from_row(row: &sqlx::postgres::PgRow) -> Result<EquipmentSummary, RestError> {

@@ -34,8 +34,8 @@ INSERT INTO registry_customers (id, branch_id, name, org_id)
 VALUES ('00000000-0000-0000-0000-000000ee0001', :'branch_id', 'E2E고객사', :'org_id')
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO registry_sites (id, branch_id, customer_id, name, org_id)
-VALUES ('00000000-0000-0000-0000-000000ee0002', :'branch_id', '00000000-0000-0000-0000-000000ee0001', 'E2E사업장', :'org_id')
+INSERT INTO registry_sites (id, branch_id, customer_id, name, contact_name, contact_phone, org_id)
+VALUES ('00000000-0000-0000-0000-000000ee0002', :'branch_id', '00000000-0000-0000-0000-000000ee0001', 'E2E사업장', '현장 담당자', '010-7777-8888', :'org_id')
 ON CONFLICT (id) DO NOTHING;
 
 -- Equipment with management_no #E2E-001 for 호기 autopull in intake/equipment lookup.

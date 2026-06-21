@@ -3095,6 +3095,35 @@ public enum Components {
                 case name
             }
         }
+        /// - Remark: Generated from `#/components/schemas/SiteContact`.
+        public struct SiteContact: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SiteContact/name`.
+            public var name: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SiteContact/phone`.
+            public var phone: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SiteContact/email`.
+            public var email: Swift.String?
+            /// Creates a new `SiteContact`.
+            ///
+            /// - Parameters:
+            ///   - name:
+            ///   - phone:
+            ///   - email:
+            public init(
+                name: Swift.String? = nil,
+                phone: Swift.String? = nil,
+                email: Swift.String? = nil
+            ) {
+                self.name = name
+                self.phone = phone
+                self.email = email
+            }
+            public enum CodingKeys: String, CodingKey {
+                case name
+                case phone
+                case email
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/EquipmentSummary`.
         public struct EquipmentSummary: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/EquipmentSummary/id`.

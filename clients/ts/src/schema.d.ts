@@ -2209,6 +2209,11 @@ export interface components {
             id: components["schemas"]["Uuid"];
             name: string;
         };
+        SiteContact: {
+            name: string | null;
+            phone: string | null;
+            email: string | null;
+        };
         EquipmentSummary: {
             id: components["schemas"]["Uuid"];
             equipment_no: string;
@@ -2397,6 +2402,8 @@ export interface components {
             equipment: components["schemas"]["EquipmentSummary"];
             customer: components["schemas"]["NamedEntity"];
             site: components["schemas"]["NamedEntity"];
+            /** @description 사업장 대표 담당자 연락처 (#13). 등록된 연락처가 없으면 null. */
+            site_contact: null | components["schemas"]["SiteContact"];
             assignments: components["schemas"]["AssignmentSummary"][];
         };
         WorkOrderListPage: {
