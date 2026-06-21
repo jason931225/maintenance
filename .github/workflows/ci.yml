@@ -408,6 +408,78 @@ jobs:
         working-directory: android
         run: ./gradlew build
 
+      - name: Robolectric Compose UI + accessibility tests
+        working-directory: android
+        run: ./gradlew testDebugUnitTest
+
+      - name: Roborazzi screenshot verification
+        working-directory: android
+        # Goldens are recorded and committed under android/app/src/test/snapshots.
+        # verifyRoborazziDebug is the regression gate; it fails on any pixel diff.
+        run: ./gradlew verifyRoborazziDebug
+
+  android-instrumented:
+    name: Android app — instrumented post-login E2E (emulator)
+    runs-on: ubuntu-latest
+    needs: android-app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Enable KVM for hardware-accelerated emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Set up Java
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.1.0"
+
+      - name: Mint a real backend session for the test user
+        id: session
+        # No fakes: obtain a REAL session from the REAL backend. The test user's passkey
+        # was registered through the automatable web ceremony; here we refresh its token at
+        # run start and hand the fresh access+refresh pair to the instrumented test.
+        # When the backend secret is absent (e.g. forks), the test self-skips via Assume.
+        env:
+          FIELD_E2E_BASE_URL: ${{ secrets.FIELD_E2E_BASE_URL }}
+          FIELD_E2E_SEED_REFRESH_TOKEN: ${{ secrets.FIELD_E2E_SEED_REFRESH_TOKEN }}
+        run: |
+          if [ -z "$FIELD_E2E_BASE_URL" ] || [ -z "$FIELD_E2E_SEED_REFRESH_TOKEN" ]; then
+            echo "No backend E2E secrets configured; instrumented test will self-skip."
+            echo "access=" >> "$GITHUB_OUTPUT"
+            echo "refresh=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          resp=$(curl -fsS -X POST "$FIELD_E2E_BASE_URL/api/v1/auth/refresh" \
+            -H 'Content-Type: application/json' \
+            -d "{\"refresh_token\":\"$FIELD_E2E_SEED_REFRESH_TOKEN\"}")
+          echo "access=$(echo "$resp" | jq -r '.access_token')" >> "$GITHUB_OUTPUT"
+          echo "refresh=$(echo "$resp" | jq -r '.refresh_token')" >> "$GITHUB_OUTPUT"
+
+      - name: Instrumented post-login E2E on Gradle Managed Device
+        working-directory: android
+        # Gradle Managed Device: API 34, google_apis_playstore, swiftshader_indirect.
+        # The device is declared in app/build.gradle.kts (fieldApi34 GMD).
+        run: |
+          ./gradlew fieldApi34DebugAndroidTest \
+            -Pandroid.testInstrumentationRunnerArguments.FIELD_E2E_ACCESS_TOKEN="${{ steps.session.outputs.access }}" \
+            -Pandroid.testInstrumentationRunnerArguments.FIELD_E2E_REFRESH_TOKEN="${{ steps.session.outputs.refresh }}"
+
   ios-app:
     name: iOS app — Swift build and behavior tests
     runs-on: macos-latest

@@ -465,7 +465,7 @@ private fun FieldTabRow(
 }
 
 @Composable
-private fun LoginScreen(
+internal fun LoginScreen(
     busy: Boolean,
     onLogin: (UUID) -> Unit,
 ) {
@@ -522,7 +522,7 @@ private fun LoginScreen(
 }
 
 @Composable
-private fun TodayScreen(
+internal fun TodayScreen(
     orders: List<TechnicianWorkOrder>,
     busy: Boolean,
     locationConsent: LocationConsentStatus?,
@@ -603,7 +603,7 @@ private fun TodayScreen(
 }
 
 @Composable
-private fun MessengerScreen(
+internal fun MessengerScreen(
     state: MessengerState,
     busy: Boolean,
     searchQuery: String,
@@ -908,7 +908,7 @@ private fun WorkOrderRow(
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
-private fun WorkOrderDetailScreen(
+internal fun WorkOrderDetailScreen(
     order: TechnicianWorkOrder,
     busy: Boolean,
     locationConsent: LocationConsentStatus?,
@@ -1106,7 +1106,7 @@ private fun WorkOrderDetailScreen(
 }
 
 @Composable
-private fun LocationConsentControls(
+internal fun LocationConsentControls(
     status: LocationConsentStatus?,
     busy: Boolean,
     onGrant: () -> Unit,
