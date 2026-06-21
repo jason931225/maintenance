@@ -3152,6 +3152,298 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /api/v1/storefront/listings:
+    get:
+      operationId: storefrontListListings
+      summary: List published sales listings for the public storefront (#6)
+      description: >-
+        Public, unauthenticated catalog read. Returns only published/reserved
+        listings (the storefront-visible set). Carries no bearer token; the store
+        is scoped to the KNL org. Optional filters narrow by fuel/drive kind and
+        sale/rental type; results are paged.
+      parameters:
+      - name: kind
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/ListingKind'
+      - name: listing_type
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/ListingType'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+          default: 24
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Paged public sales listings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesListingPage'
+  /api/v1/storefront/listings/{id}:
+    get:
+      operationId: storefrontGetListing
+      summary: Read one public sales listing (#6)
+      description: >-
+        Public, unauthenticated read of a single storefront-visible listing.
+        Returns 404 if the listing does not exist or is not public.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The sales listing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesListingView'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/storefront/inquiries:
+    post:
+      operationId: submitInquiry
+      summary: Submit a public customer inquiry (#6)
+      description: >-
+        Public, unauthenticated lead intake. Accepts the customer's contact
+        details and topic and acknowledges receipt without echoing any field.
+        Generic validation; a bad payload returns 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitInquiryRequest'
+      responses:
+        '202':
+          description: Inquiry accepted for processing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InquiryAck'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/sales/listings:
+    get:
+      operationId: adminListListings
+      summary: List all sales listings for the admin console (#6)
+      description: >-
+        Admin catalog read (SalesManage). Unlike the public storefront, returns
+        listings in every status (including DRAFT/SOLD/WITHDRAWN). Optional
+        filters narrow by fuel/drive kind and sale/rental type; results are paged.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: kind
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/ListingKind'
+      - name: listing_type
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/ListingType'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+          default: 24
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Paged sales listings (all statuses).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesListingPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: createListing
+      summary: Create a sales listing (#6)
+      description: >-
+        Admin-gated (SalesManage). Creates a new catalog listing and returns its
+        server-generated id.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateListingRequest'
+      responses:
+        '201':
+          description: The listing was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateListingResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/sales/listings/{id}:
+    patch:
+      operationId: updateListing
+      summary: Update a sales listing (#6)
+      description: >-
+        Admin-gated (SalesManage). Partial update: absent keys are left unchanged;
+        nullable keys explicitly set to null clear the column. At least one field
+        must be supplied.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateListingRequest'
+      responses:
+        '204':
+          description: The listing was updated.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      operationId: deleteListing
+      summary: Delete a sales listing (#6)
+      description: Admin-gated (SalesManage). Removes a listing from the catalog.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '204':
+          description: The listing was deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/sales/inquiries:
+    get:
+      operationId: listInquiries
+      summary: List customer inquiries for the admin inbox (#6)
+      description: >-
+        Admin-gated (SalesManage) inquiry inbox. Optional status filter; results
+        are paged.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/InquiryStatus'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+          default: 50
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Paged customer inquiries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerInquiryPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/sales/inquiries/{id}:
+    patch:
+      operationId: updateInquiryStatus
+      summary: Update a customer inquiry's triage status (#6)
+      description: Admin-gated (SalesManage). Transitions an inquiry between NEW/CONTACTED/CLOSED.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateInquiryStatusRequest'
+      responses:
+        '204':
+          description: The inquiry status was updated.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
 components:
   securitySchemes:
     bearerAuth:
@@ -6885,3 +7177,423 @@ components:
           $ref: '#/components/schemas/Uuid'
         name:
           type: string
+    ListingKind:
+      type: string
+      description: Fuel / drive class of a listed forklift.
+      enum:
+      - ELECTRIC
+      - DIESEL
+      - LPG
+      - REACH
+    ListingType:
+      type: string
+      description: Whether a listing is offered for sale, rental, or both.
+      enum:
+      - SALE
+      - RENTAL
+      - BOTH
+    ListingStatus:
+      type: string
+      description: Publication lifecycle of a listing.
+      enum:
+      - DRAFT
+      - PUBLISHED
+      - RESERVED
+      - SOLD
+      - WITHDRAWN
+    InquiryTopic:
+      type: string
+      description: Subject of a customer inquiry.
+      enum:
+      - RENTAL
+      - USED_SALES
+      - MAINTENANCE
+      - OTHER
+    InquiryStatus:
+      type: string
+      description: Triage state of an inbound inquiry in the internal inbox.
+      enum:
+      - NEW
+      - CONTACTED
+      - CLOSED
+    ListingMediaView:
+      type: object
+      description: One photo attached to a sales listing.
+      required:
+      - id
+      - content_type
+      - alt_text
+      - sort_order
+      properties:
+        id:
+          type: string
+        content_type:
+          type: string
+        alt_text:
+          type:
+          - string
+          - 'null'
+        sort_order:
+          type: integer
+          format: int32
+    SalesListingView:
+      type: object
+      description: A sales listing as read by the storefront or the admin console.
+      required:
+      - id
+      - equipment_id
+      - kind
+      - model_name
+      - capacity_milli
+      - model_year
+      - usage_hours
+      - price_won
+      - badge
+      - usage_label
+      - condition_label
+      - availability
+      - location
+      - description
+      - listing_type
+      - status
+      - sort_weight
+      - created_at
+      - updated_at
+      - media
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        equipment_id:
+          oneOf:
+          - $ref: '#/components/schemas/Uuid'
+          - type: 'null'
+        kind:
+          $ref: '#/components/schemas/ListingKind'
+        model_name:
+          type: string
+        capacity_milli:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        model_year:
+          type:
+          - integer
+          - 'null'
+          format: int32
+        usage_hours:
+          type:
+          - integer
+          - 'null'
+          format: int32
+        price_won:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        badge:
+          type:
+          - string
+          - 'null'
+        usage_label:
+          type:
+          - string
+          - 'null'
+        condition_label:
+          type:
+          - string
+          - 'null'
+        availability:
+          type:
+          - string
+          - 'null'
+        location:
+          type:
+          - string
+          - 'null'
+        description:
+          type:
+          - string
+          - 'null'
+        listing_type:
+          $ref: '#/components/schemas/ListingType'
+        status:
+          $ref: '#/components/schemas/ListingStatus'
+        sort_weight:
+          type: integer
+          format: int32
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+        media:
+          type: array
+          items:
+            $ref: '#/components/schemas/ListingMediaView'
+    SalesListingPage:
+      type: object
+      required:
+      - items
+      - limit
+      - offset
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalesListingView'
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
+        total:
+          type: integer
+          format: int64
+    CustomerInquiryView:
+      type: object
+      required:
+      - id
+      - name
+      - phone
+      - topic
+      - location
+      - message
+      - listing_id
+      - status
+      - created_at
+      - updated_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+        phone:
+          type: string
+        topic:
+          $ref: '#/components/schemas/InquiryTopic'
+        location:
+          type:
+          - string
+          - 'null'
+        message:
+          type:
+          - string
+          - 'null'
+        listing_id:
+          oneOf:
+          - $ref: '#/components/schemas/Uuid'
+          - type: 'null'
+        status:
+          $ref: '#/components/schemas/InquiryStatus'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    CustomerInquiryPage:
+      type: object
+      required:
+      - items
+      - limit
+      - offset
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CustomerInquiryView'
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
+        total:
+          type: integer
+          format: int64
+    SubmitInquiryRequest:
+      type: object
+      description: >-
+        Public lead intake payload. `name` and `phone` are required; `location`,
+        `message`, and `listing_id` are optional. The server never echoes any
+        field back.
+      required:
+      - name
+      - phone
+      - topic
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+        topic:
+          $ref: '#/components/schemas/InquiryTopic'
+        location:
+          type:
+          - string
+          - 'null'
+        message:
+          type:
+          - string
+          - 'null'
+        listing_id:
+          oneOf:
+          - $ref: '#/components/schemas/Uuid'
+          - type: 'null'
+    InquiryAck:
+      type: object
+      description: Minimal acknowledgement of a submitted inquiry (no identifiers, no PII echo).
+      required:
+      - status
+      properties:
+        status:
+          type: string
+    CreateListingRequest:
+      type: object
+      description: Full editable field set for creating a sales listing.
+      required:
+      - kind
+      - model_name
+      - listing_type
+      - status
+      - sort_weight
+      properties:
+        kind:
+          $ref: '#/components/schemas/ListingKind'
+        model_name:
+          type: string
+        capacity_milli:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        model_year:
+          type:
+          - integer
+          - 'null'
+          format: int32
+        usage_hours:
+          type:
+          - integer
+          - 'null'
+          format: int32
+        price_won:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        badge:
+          type:
+          - string
+          - 'null'
+        usage_label:
+          type:
+          - string
+          - 'null'
+        condition_label:
+          type:
+          - string
+          - 'null'
+        availability:
+          type:
+          - string
+          - 'null'
+        location:
+          type:
+          - string
+          - 'null'
+        description:
+          type:
+          - string
+          - 'null'
+        listing_type:
+          $ref: '#/components/schemas/ListingType'
+        status:
+          $ref: '#/components/schemas/ListingStatus'
+        sort_weight:
+          type: integer
+          format: int32
+        equipment_id:
+          oneOf:
+          - $ref: '#/components/schemas/Uuid'
+          - type: 'null'
+    UpdateListingRequest:
+      type: object
+      description: >-
+        Partial update. Absent keys are left unchanged; nullable keys explicitly
+        set to null clear the column. At least one field must be supplied.
+      properties:
+        kind:
+          $ref: '#/components/schemas/ListingKind'
+        model_name:
+          type: string
+        capacity_milli:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        model_year:
+          type:
+          - integer
+          - 'null'
+          format: int32
+        usage_hours:
+          type:
+          - integer
+          - 'null'
+          format: int32
+        price_won:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        badge:
+          type:
+          - string
+          - 'null'
+        usage_label:
+          type:
+          - string
+          - 'null'
+        condition_label:
+          type:
+          - string
+          - 'null'
+        availability:
+          type:
+          - string
+          - 'null'
+        location:
+          type:
+          - string
+          - 'null'
+        description:
+          type:
+          - string
+          - 'null'
+        listing_type:
+          $ref: '#/components/schemas/ListingType'
+        status:
+          $ref: '#/components/schemas/ListingStatus'
+        sort_weight:
+          type: integer
+          format: int32
+        equipment_id:
+          oneOf:
+          - $ref: '#/components/schemas/Uuid'
+          - type: 'null'
+    UpdateInquiryStatusRequest:
+      type: object
+      required:
+      - status
+      properties:
+        status:
+          $ref: '#/components/schemas/InquiryStatus'
+    CreateListingResponse:
+      type: object
+      required:
+      - id
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'

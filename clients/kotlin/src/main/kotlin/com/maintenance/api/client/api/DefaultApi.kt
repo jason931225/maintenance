@@ -50,6 +50,8 @@ import com.maintenance.api.client.model.CreateEquipmentRequest
 import com.maintenance.api.client.model.CreateEquipmentResponse
 import com.maintenance.api.client.model.CreateInspectionScheduleRequest
 import com.maintenance.api.client.model.CreateInternalTicketRequest
+import com.maintenance.api.client.model.CreateListingRequest
+import com.maintenance.api.client.model.CreateListingResponse
 import com.maintenance.api.client.model.CreateMessengerThreadRequest
 import com.maintenance.api.client.model.CreateOutsourceWorkRequest
 import com.maintenance.api.client.model.CreatePurchaseRequest
@@ -57,6 +59,7 @@ import com.maintenance.api.client.model.CreateRegionRequest
 import com.maintenance.api.client.model.CreateRentalQuoteRequest
 import com.maintenance.api.client.model.CreateUserRequest
 import com.maintenance.api.client.model.CreateWorkOrderRequest
+import com.maintenance.api.client.model.CustomerInquiryPage
 import com.maintenance.api.client.model.CustomerIntakeRequest
 import com.maintenance.api.client.model.DailyPlanSummary
 import com.maintenance.api.client.model.DeviceRegistrationRequest
@@ -69,9 +72,13 @@ import com.maintenance.api.client.model.EvidenceConfirmResponse
 import com.maintenance.api.client.model.EvidencePresignRequest
 import com.maintenance.api.client.model.EvidencePresignResponse
 import com.maintenance.api.client.model.ForceAssignP1DispatchRequest
+import com.maintenance.api.client.model.InquiryAck
+import com.maintenance.api.client.model.InquiryStatus
 import com.maintenance.api.client.model.InspectionRoundSummary
 import com.maintenance.api.client.model.InspectionScheduleSummary
 import com.maintenance.api.client.model.KpiReport
+import com.maintenance.api.client.model.ListingKind
+import com.maintenance.api.client.model.ListingType
 import com.maintenance.api.client.model.LocationConsentLedgerPage
 import com.maintenance.api.client.model.LocationConsentStatus
 import com.maintenance.api.client.model.LocationConsentTransitionRequest
@@ -109,8 +116,11 @@ import com.maintenance.api.client.model.RestartPurchaseRequest
 import com.maintenance.api.client.model.ReturnSubstituteRequest
 import com.maintenance.api.client.model.ReviewDailyPlanRequest
 import com.maintenance.api.client.model.ReviewTargetChangeRequest
+import com.maintenance.api.client.model.SalesListingPage
+import com.maintenance.api.client.model.SalesListingView
 import com.maintenance.api.client.model.SendMessengerMessageRequest
 import com.maintenance.api.client.model.StartP1DispatchRequest
+import com.maintenance.api.client.model.SubmitInquiryRequest
 import com.maintenance.api.client.model.SubmitReportRequest
 import com.maintenance.api.client.model.SubstituteAssignment
 import com.maintenance.api.client.model.SubstituteCandidatePage
@@ -130,6 +140,8 @@ import com.maintenance.api.client.model.TokenPairResponse
 import com.maintenance.api.client.model.TransitionTicketRequest
 import com.maintenance.api.client.model.UpdateBranchRequest
 import com.maintenance.api.client.model.UpdateEquipmentRequest
+import com.maintenance.api.client.model.UpdateInquiryStatusRequest
+import com.maintenance.api.client.model.UpdateListingRequest
 import com.maintenance.api.client.model.UpdateSelfProfileRequest
 import com.maintenance.api.client.model.UpdateSiteRequest
 import com.maintenance.api.client.model.UpdateUserRequest
@@ -240,6 +252,102 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/support/tickets/{id}/comments".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/sales/listings
+     * List all sales listings for the admin console (#6)
+     * Admin catalog read (SalesManage). Unlike the public storefront, returns listings in every status (including DRAFT/SOLD/WITHDRAWN). Optional filters narrow by fuel/drive kind and sale/rental type; results are paged.
+     * @param kind  (optional)
+     * @param listingType  (optional)
+     * @param limit  (optional, default to 24L)
+     * @param offset  (optional, default to 0L)
+     * @return SalesListingPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun adminListListings(kind: ListingKind? = null, listingType: ListingType? = null, limit: kotlin.Long? = 24L, offset: kotlin.Long? = 0L) : SalesListingPage = withContext(Dispatchers.IO) {
+        val localVarResponse = adminListListingsWithHttpInfo(kind = kind, listingType = listingType, limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SalesListingPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/sales/listings
+     * List all sales listings for the admin console (#6)
+     * Admin catalog read (SalesManage). Unlike the public storefront, returns listings in every status (including DRAFT/SOLD/WITHDRAWN). Optional filters narrow by fuel/drive kind and sale/rental type; results are paged.
+     * @param kind  (optional)
+     * @param listingType  (optional)
+     * @param limit  (optional, default to 24L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<SalesListingPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun adminListListingsWithHttpInfo(kind: ListingKind?, listingType: ListingType?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<SalesListingPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = adminListListingsRequestConfig(kind = kind, listingType = listingType, limit = limit, offset = offset)
+
+        return@withContext request<Unit, SalesListingPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation adminListListings
+     *
+     * @param kind  (optional)
+     * @param listingType  (optional)
+     * @param limit  (optional, default to 24L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun adminListListingsRequestConfig(kind: ListingKind?, listingType: ListingType?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (kind != null) {
+                    put("kind", listOf(kind.toString()))
+                }
+                if (listingType != null) {
+                    put("listing_type", listOf(listingType.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/sales/listings",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -2473,6 +2581,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/sales/listings
+     * Create a sales listing (#6)
+     * Admin-gated (SalesManage). Creates a new catalog listing and returns its server-generated id.
+     * @param createListingRequest
+     * @return CreateListingResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createListing(createListingRequest: CreateListingRequest) : CreateListingResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = createListingWithHttpInfo(createListingRequest = createListingRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CreateListingResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/sales/listings
+     * Create a sales listing (#6)
+     * Admin-gated (SalesManage). Creates a new catalog listing and returns its server-generated id.
+     * @param createListingRequest
+     * @return ApiResponse<CreateListingResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createListingWithHttpInfo(createListingRequest: CreateListingRequest) : ApiResponse<CreateListingResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createListingRequestConfig(createListingRequest = createListingRequest)
+
+        return@withContext request<CreateListingRequest, CreateListingResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createListing
+     *
+     * @param createListingRequest
+     * @return RequestConfig
+     */
+    fun createListingRequestConfig(createListingRequest: CreateListingRequest) : RequestConfig<CreateListingRequest> {
+        val localVariableBody = createListingRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/sales/listings",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/messenger/threads
      * Create a branch-scoped messenger thread
      *
@@ -3130,6 +3312,77 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.DELETE,
             path = "/api/v1/equipment/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * DELETE /api/v1/sales/listings/{id}
+     * Delete a sales listing (#6)
+     * Admin-gated (SalesManage). Removes a listing from the catalog.
+     * @param id
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun deleteListing(id: java.util.UUID) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = deleteListingWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * DELETE /api/v1/sales/listings/{id}
+     * Delete a sales listing (#6)
+     * Admin-gated (SalesManage). Removes a listing from the catalog.
+     * @param id
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun deleteListingWithHttpInfo(id: java.util.UUID) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = deleteListingRequestConfig(id = id)
+
+        return@withContext request<Unit, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation deleteListing
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun deleteListingRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.DELETE,
+            path = "/api/v1/sales/listings/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -5164,6 +5417,96 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/equipment/{id}/substitutes".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/sales/inquiries
+     * List customer inquiries for the admin inbox (#6)
+     * Admin-gated (SalesManage) inquiry inbox. Optional status filter; results are paged.
+     * @param status  (optional)
+     * @param limit  (optional, default to 50L)
+     * @param offset  (optional, default to 0L)
+     * @return CustomerInquiryPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listInquiries(status: InquiryStatus? = null, limit: kotlin.Long? = 50L, offset: kotlin.Long? = 0L) : CustomerInquiryPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listInquiriesWithHttpInfo(status = status, limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CustomerInquiryPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/sales/inquiries
+     * List customer inquiries for the admin inbox (#6)
+     * Admin-gated (SalesManage) inquiry inbox. Optional status filter; results are paged.
+     * @param status  (optional)
+     * @param limit  (optional, default to 50L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<CustomerInquiryPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listInquiriesWithHttpInfo(status: InquiryStatus?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<CustomerInquiryPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listInquiriesRequestConfig(status = status, limit = limit, offset = offset)
+
+        return@withContext request<Unit, CustomerInquiryPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listInquiries
+     *
+     * @param status  (optional)
+     * @param limit  (optional, default to 50L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun listInquiriesRequestConfig(status: InquiryStatus?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (status != null) {
+                    put("status", listOf(status.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/sales/inquiries",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -7654,6 +7997,249 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/storefront/listings/{id}
+     * Read one public sales listing (#6)
+     * Public, unauthenticated read of a single storefront-visible listing. Returns 404 if the listing does not exist or is not public.
+     * @param id
+     * @return SalesListingView
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun storefrontGetListing(id: java.util.UUID) : SalesListingView = withContext(Dispatchers.IO) {
+        val localVarResponse = storefrontGetListingWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SalesListingView
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/storefront/listings/{id}
+     * Read one public sales listing (#6)
+     * Public, unauthenticated read of a single storefront-visible listing. Returns 404 if the listing does not exist or is not public.
+     * @param id
+     * @return ApiResponse<SalesListingView?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun storefrontGetListingWithHttpInfo(id: java.util.UUID) : ApiResponse<SalesListingView?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = storefrontGetListingRequestConfig(id = id)
+
+        return@withContext request<Unit, SalesListingView>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation storefrontGetListing
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun storefrontGetListingRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/storefront/listings/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/storefront/listings
+     * List published sales listings for the public storefront (#6)
+     * Public, unauthenticated catalog read. Returns only published/reserved listings (the storefront-visible set). Carries no bearer token; the store is scoped to the KNL org. Optional filters narrow by fuel/drive kind and sale/rental type; results are paged.
+     * @param kind  (optional)
+     * @param listingType  (optional)
+     * @param limit  (optional, default to 24L)
+     * @param offset  (optional, default to 0L)
+     * @return SalesListingPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun storefrontListListings(kind: ListingKind? = null, listingType: ListingType? = null, limit: kotlin.Long? = 24L, offset: kotlin.Long? = 0L) : SalesListingPage = withContext(Dispatchers.IO) {
+        val localVarResponse = storefrontListListingsWithHttpInfo(kind = kind, listingType = listingType, limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SalesListingPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/storefront/listings
+     * List published sales listings for the public storefront (#6)
+     * Public, unauthenticated catalog read. Returns only published/reserved listings (the storefront-visible set). Carries no bearer token; the store is scoped to the KNL org. Optional filters narrow by fuel/drive kind and sale/rental type; results are paged.
+     * @param kind  (optional)
+     * @param listingType  (optional)
+     * @param limit  (optional, default to 24L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<SalesListingPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun storefrontListListingsWithHttpInfo(kind: ListingKind?, listingType: ListingType?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<SalesListingPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = storefrontListListingsRequestConfig(kind = kind, listingType = listingType, limit = limit, offset = offset)
+
+        return@withContext request<Unit, SalesListingPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation storefrontListListings
+     *
+     * @param kind  (optional)
+     * @param listingType  (optional)
+     * @param limit  (optional, default to 24L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun storefrontListListingsRequestConfig(kind: ListingKind?, listingType: ListingType?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (kind != null) {
+                    put("kind", listOf(kind.toString()))
+                }
+                if (listingType != null) {
+                    put("listing_type", listOf(listingType.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/storefront/listings",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/storefront/inquiries
+     * Submit a public customer inquiry (#6)
+     * Public, unauthenticated lead intake. Accepts the customer&#39;s contact details and topic and acknowledges receipt without echoing any field. Generic validation; a bad payload returns 400.
+     * @param submitInquiryRequest
+     * @return InquiryAck
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun submitInquiry(submitInquiryRequest: SubmitInquiryRequest) : InquiryAck = withContext(Dispatchers.IO) {
+        val localVarResponse = submitInquiryWithHttpInfo(submitInquiryRequest = submitInquiryRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as InquiryAck
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/storefront/inquiries
+     * Submit a public customer inquiry (#6)
+     * Public, unauthenticated lead intake. Accepts the customer&#39;s contact details and topic and acknowledges receipt without echoing any field. Generic validation; a bad payload returns 400.
+     * @param submitInquiryRequest
+     * @return ApiResponse<InquiryAck?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun submitInquiryWithHttpInfo(submitInquiryRequest: SubmitInquiryRequest) : ApiResponse<InquiryAck?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = submitInquiryRequestConfig(submitInquiryRequest = submitInquiryRequest)
+
+        return@withContext request<SubmitInquiryRequest, InquiryAck>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation submitInquiry
+     *
+     * @param submitInquiryRequest
+     * @return RequestConfig
+     */
+    fun submitInquiryRequestConfig(submitInquiryRequest: SubmitInquiryRequest) : RequestConfig<SubmitInquiryRequest> {
+        val localVariableBody = submitInquiryRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/storefront/inquiries",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/financial/purchase-requests/{purchaseRequestId}/submit
      * Submit a statement-attached purchase request for admin approval
      *
@@ -8247,6 +8833,156 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.PATCH,
             path = "/api/v1/equipment/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PATCH /api/v1/sales/inquiries/{id}
+     * Update a customer inquiry&#39;s triage status (#6)
+     * Admin-gated (SalesManage). Transitions an inquiry between NEW/CONTACTED/CLOSED.
+     * @param id
+     * @param updateInquiryStatusRequest
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun updateInquiryStatus(id: java.util.UUID, updateInquiryStatusRequest: UpdateInquiryStatusRequest) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = updateInquiryStatusWithHttpInfo(id = id, updateInquiryStatusRequest = updateInquiryStatusRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PATCH /api/v1/sales/inquiries/{id}
+     * Update a customer inquiry&#39;s triage status (#6)
+     * Admin-gated (SalesManage). Transitions an inquiry between NEW/CONTACTED/CLOSED.
+     * @param id
+     * @param updateInquiryStatusRequest
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun updateInquiryStatusWithHttpInfo(id: java.util.UUID, updateInquiryStatusRequest: UpdateInquiryStatusRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = updateInquiryStatusRequestConfig(id = id, updateInquiryStatusRequest = updateInquiryStatusRequest)
+
+        return@withContext request<UpdateInquiryStatusRequest, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation updateInquiryStatus
+     *
+     * @param id
+     * @param updateInquiryStatusRequest
+     * @return RequestConfig
+     */
+    fun updateInquiryStatusRequestConfig(id: java.util.UUID, updateInquiryStatusRequest: UpdateInquiryStatusRequest) : RequestConfig<UpdateInquiryStatusRequest> {
+        val localVariableBody = updateInquiryStatusRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PATCH,
+            path = "/api/v1/sales/inquiries/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PATCH /api/v1/sales/listings/{id}
+     * Update a sales listing (#6)
+     * Admin-gated (SalesManage). Partial update: absent keys are left unchanged; nullable keys explicitly set to null clear the column. At least one field must be supplied.
+     * @param id
+     * @param updateListingRequest
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun updateListing(id: java.util.UUID, updateListingRequest: UpdateListingRequest) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = updateListingWithHttpInfo(id = id, updateListingRequest = updateListingRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PATCH /api/v1/sales/listings/{id}
+     * Update a sales listing (#6)
+     * Admin-gated (SalesManage). Partial update: absent keys are left unchanged; nullable keys explicitly set to null clear the column. At least one field must be supplied.
+     * @param id
+     * @param updateListingRequest
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun updateListingWithHttpInfo(id: java.util.UUID, updateListingRequest: UpdateListingRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = updateListingRequestConfig(id = id, updateListingRequest = updateListingRequest)
+
+        return@withContext request<UpdateListingRequest, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation updateListing
+     *
+     * @param id
+     * @param updateListingRequest
+     * @return RequestConfig
+     */
+    fun updateListingRequestConfig(id: java.util.UUID, updateListingRequest: UpdateListingRequest) : RequestConfig<UpdateListingRequest> {
+        val localVariableBody = updateListingRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PATCH,
+            path = "/api/v1/sales/listings/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

@@ -62,6 +62,8 @@ use mnt_registry_adapter_postgres::PgRegistryStore;
 use mnt_registry_rest::RegistryRestState;
 use mnt_reporting_adapter_postgres::PgKpiRepository;
 use mnt_reporting_rest::KpiRestState;
+use mnt_sales_adapter_postgres::PgSalesStore;
+use mnt_sales_rest::SalesRestState;
 use mnt_support_adapter_postgres::PgSupportStore;
 use mnt_support_rest::SupportRestState;
 use mnt_workorder_adapter_postgres::PgWorkOrderStore;
@@ -1010,6 +1012,7 @@ pub fn build_router(state: AppState) -> Router {
             let compliance_store = PgComplianceStore::new(pool.clone());
             let dispatch_store = PgDispatchStore::new(pool.clone());
             let support_store = PgSupportStore::new(pool.clone());
+            let sales_store = PgSalesStore::new(pool.clone());
             let org_store = PgOrgStore::new(pool.clone());
             let work_order_store = PgWorkOrderStore::new(pool.clone())
                 .with_created_listener(Arc::new(messenger_store.clone()));
@@ -1059,6 +1062,10 @@ pub fn build_router(state: AppState) -> Router {
                 )))
                 .merge(mnt_registry_rest::router(RegistryRestState::new(
                     registry_store,
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_sales_rest::router(SalesRestState::new(
+                    sales_store,
                     state.jwt_verifier.clone(),
                 )))
                 .merge(mnt_reporting_rest::router(KpiRestState::new(

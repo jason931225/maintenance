@@ -62,6 +62,8 @@ src/main/kotlin/com/maintenance/api/client/model/CreateEquipmentRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateEquipmentResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateInspectionScheduleRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateInternalTicketRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/CreateListingRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/CreateListingResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateMessengerThreadRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateOutsourceWorkRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreatePurchaseRequest.kt
@@ -69,6 +71,8 @@ src/main/kotlin/com/maintenance/api/client/model/CreateRegionRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateRentalQuoteRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateUserRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateWorkOrderRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/CustomerInquiryPage.kt
+src/main/kotlin/com/maintenance/api/client/model/CustomerInquiryView.kt
 src/main/kotlin/com/maintenance/api/client/model/CustomerIntakeRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DailyPlanStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/DailyPlanSummary.kt
@@ -93,6 +97,9 @@ src/main/kotlin/com/maintenance/api/client/model/ExportSourceNote.kt
 src/main/kotlin/com/maintenance/api/client/model/FinancialConfigSnapshot.kt
 src/main/kotlin/com/maintenance/api/client/model/ForceAssignP1DispatchRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/IncidentLocation.kt
+src/main/kotlin/com/maintenance/api/client/model/InquiryAck.kt
+src/main/kotlin/com/maintenance/api/client/model/InquiryStatus.kt
+src/main/kotlin/com/maintenance/api/client/model/InquiryTopic.kt
 src/main/kotlin/com/maintenance/api/client/model/InspectionCycle.kt
 src/main/kotlin/com/maintenance/api/client/model/InspectionRoundOutcome.kt
 src/main/kotlin/com/maintenance/api/client/model/InspectionRoundSummary.kt
@@ -103,6 +110,10 @@ src/main/kotlin/com/maintenance/api/client/model/KpiReport.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiRollup.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiRollupScope.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiScope.kt
+src/main/kotlin/com/maintenance/api/client/model/ListingKind.kt
+src/main/kotlin/com/maintenance/api/client/model/ListingMediaView.kt
+src/main/kotlin/com/maintenance/api/client/model/ListingStatus.kt
+src/main/kotlin/com/maintenance/api/client/model/ListingType.kt
 src/main/kotlin/com/maintenance/api/client/model/LocationConsentLedgerEntry.kt
 src/main/kotlin/com/maintenance/api/client/model/LocationConsentLedgerPage.kt
 src/main/kotlin/com/maintenance/api/client/model/LocationConsentState.kt
@@ -153,11 +164,14 @@ src/main/kotlin/com/maintenance/api/client/model/RestartPurchaseRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ReturnSubstituteRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ReviewDailyPlanRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ReviewTargetChangeRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/SalesListingPage.kt
+src/main/kotlin/com/maintenance/api/client/model/SalesListingView.kt
 src/main/kotlin/com/maintenance/api/client/model/SendMessengerMessageRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SiteContact.kt
 src/main/kotlin/com/maintenance/api/client/model/SiteLocationGroup.kt
 src/main/kotlin/com/maintenance/api/client/model/StartP1DispatchRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/StatusHistorySummary.kt
+src/main/kotlin/com/maintenance/api/client/model/SubmitInquiryRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SubmitReportRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SubstituteAssignment.kt
 src/main/kotlin/com/maintenance/api/client/model/SubstituteCandidate.kt
@@ -190,6 +204,8 @@ src/main/kotlin/com/maintenance/api/client/model/TransitionTicketRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UnavailableMetric.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateBranchRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateEquipmentRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/UpdateInquiryStatusRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/UpdateListingRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateSelfProfileRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateSiteRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateUserRequest.kt

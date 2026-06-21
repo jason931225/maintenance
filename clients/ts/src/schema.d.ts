@@ -2010,6 +2010,154 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/storefront/listings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List published sales listings for the public storefront (#6)
+         * @description Public, unauthenticated catalog read. Returns only published/reserved listings (the storefront-visible set). Carries no bearer token; the store is scoped to the KNL org. Optional filters narrow by fuel/drive kind and sale/rental type; results are paged.
+         */
+        get: operations["storefrontListListings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storefront/listings/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one public sales listing (#6)
+         * @description Public, unauthenticated read of a single storefront-visible listing. Returns 404 if the listing does not exist or is not public.
+         */
+        get: operations["storefrontGetListing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storefront/inquiries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit a public customer inquiry (#6)
+         * @description Public, unauthenticated lead intake. Accepts the customer's contact details and topic and acknowledges receipt without echoing any field. Generic validation; a bad payload returns 400.
+         */
+        post: operations["submitInquiry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/listings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List all sales listings for the admin console (#6)
+         * @description Admin catalog read (SalesManage). Unlike the public storefront, returns listings in every status (including DRAFT/SOLD/WITHDRAWN). Optional filters narrow by fuel/drive kind and sale/rental type; results are paged.
+         */
+        get: operations["adminListListings"];
+        put?: never;
+        /**
+         * Create a sales listing (#6)
+         * @description Admin-gated (SalesManage). Creates a new catalog listing and returns its server-generated id.
+         */
+        post: operations["createListing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/listings/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a sales listing (#6)
+         * @description Admin-gated (SalesManage). Removes a listing from the catalog.
+         */
+        delete: operations["deleteListing"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a sales listing (#6)
+         * @description Admin-gated (SalesManage). Partial update: absent keys are left unchanged; nullable keys explicitly set to null clear the column. At least one field must be supplied.
+         */
+        patch: operations["updateListing"];
+        trace?: never;
+    };
+    "/api/v1/sales/inquiries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List customer inquiries for the admin inbox (#6)
+         * @description Admin-gated (SalesManage) inquiry inbox. Optional status filter; results are paged.
+         */
+        get: operations["listInquiries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/inquiries/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update a customer inquiry's triage status (#6)
+         * @description Admin-gated (SalesManage). Transitions an inquiry between NEW/CONTACTED/CLOSED.
+         */
+        patch: operations["updateInquiryStatus"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3318,6 +3466,164 @@ export interface components {
         UpdateBranchRequest: {
             region_id?: components["schemas"]["Uuid"];
             name?: string;
+        };
+        /**
+         * @description Fuel / drive class of a listed forklift.
+         * @enum {string}
+         */
+        ListingKind: "ELECTRIC" | "DIESEL" | "LPG" | "REACH";
+        /**
+         * @description Whether a listing is offered for sale, rental, or both.
+         * @enum {string}
+         */
+        ListingType: "SALE" | "RENTAL" | "BOTH";
+        /**
+         * @description Publication lifecycle of a listing.
+         * @enum {string}
+         */
+        ListingStatus: "DRAFT" | "PUBLISHED" | "RESERVED" | "SOLD" | "WITHDRAWN";
+        /**
+         * @description Subject of a customer inquiry.
+         * @enum {string}
+         */
+        InquiryTopic: "RENTAL" | "USED_SALES" | "MAINTENANCE" | "OTHER";
+        /**
+         * @description Triage state of an inbound inquiry in the internal inbox.
+         * @enum {string}
+         */
+        InquiryStatus: "NEW" | "CONTACTED" | "CLOSED";
+        /** @description One photo attached to a sales listing. */
+        ListingMediaView: {
+            id: string;
+            content_type: string;
+            alt_text: string | null;
+            /** Format: int32 */
+            sort_order: number;
+        };
+        /** @description A sales listing as read by the storefront or the admin console. */
+        SalesListingView: {
+            id: components["schemas"]["Uuid"];
+            equipment_id: components["schemas"]["Uuid"] | null;
+            kind: components["schemas"]["ListingKind"];
+            model_name: string;
+            /** Format: int64 */
+            capacity_milli: number | null;
+            /** Format: int32 */
+            model_year: number | null;
+            /** Format: int32 */
+            usage_hours: number | null;
+            /** Format: int64 */
+            price_won: number | null;
+            badge: string | null;
+            usage_label: string | null;
+            condition_label: string | null;
+            availability: string | null;
+            location: string | null;
+            description: string | null;
+            listing_type: components["schemas"]["ListingType"];
+            status: components["schemas"]["ListingStatus"];
+            /** Format: int32 */
+            sort_weight: number;
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+            media: components["schemas"]["ListingMediaView"][];
+        };
+        SalesListingPage: {
+            items: components["schemas"]["SalesListingView"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
+        CustomerInquiryView: {
+            id: components["schemas"]["Uuid"];
+            name: string;
+            phone: string;
+            topic: components["schemas"]["InquiryTopic"];
+            location: string | null;
+            message: string | null;
+            listing_id: components["schemas"]["Uuid"] | null;
+            status: components["schemas"]["InquiryStatus"];
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        CustomerInquiryPage: {
+            items: components["schemas"]["CustomerInquiryView"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
+        /** @description Public lead intake payload. `name` and `phone` are required; `location`, `message`, and `listing_id` are optional. The server never echoes any field back. */
+        SubmitInquiryRequest: {
+            name: string;
+            phone: string;
+            topic: components["schemas"]["InquiryTopic"];
+            location?: string | null;
+            message?: string | null;
+            listing_id?: components["schemas"]["Uuid"] | null;
+        };
+        /** @description Minimal acknowledgement of a submitted inquiry (no identifiers, no PII echo). */
+        InquiryAck: {
+            status: string;
+        };
+        /** @description Full editable field set for creating a sales listing. */
+        CreateListingRequest: {
+            kind: components["schemas"]["ListingKind"];
+            model_name: string;
+            /** Format: int64 */
+            capacity_milli?: number | null;
+            /** Format: int32 */
+            model_year?: number | null;
+            /** Format: int32 */
+            usage_hours?: number | null;
+            /** Format: int64 */
+            price_won?: number | null;
+            badge?: string | null;
+            usage_label?: string | null;
+            condition_label?: string | null;
+            availability?: string | null;
+            location?: string | null;
+            description?: string | null;
+            listing_type: components["schemas"]["ListingType"];
+            status: components["schemas"]["ListingStatus"];
+            /** Format: int32 */
+            sort_weight: number;
+            equipment_id?: components["schemas"]["Uuid"] | null;
+        };
+        /** @description Partial update. Absent keys are left unchanged; nullable keys explicitly set to null clear the column. At least one field must be supplied. */
+        UpdateListingRequest: {
+            kind?: components["schemas"]["ListingKind"];
+            model_name?: string;
+            /** Format: int64 */
+            capacity_milli?: number | null;
+            /** Format: int32 */
+            model_year?: number | null;
+            /** Format: int32 */
+            usage_hours?: number | null;
+            /** Format: int64 */
+            price_won?: number | null;
+            badge?: string | null;
+            usage_label?: string | null;
+            condition_label?: string | null;
+            availability?: string | null;
+            location?: string | null;
+            description?: string | null;
+            listing_type?: components["schemas"]["ListingType"];
+            status?: components["schemas"]["ListingStatus"];
+            /** Format: int32 */
+            sort_weight?: number;
+            equipment_id?: components["schemas"]["Uuid"] | null;
+        };
+        UpdateInquiryStatusRequest: {
+            status: components["schemas"]["InquiryStatus"];
+        };
+        CreateListingResponse: {
+            id: components["schemas"]["Uuid"];
         };
     };
     responses: {
@@ -6460,6 +6766,238 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+        };
+    };
+    storefrontListListings: {
+        parameters: {
+            query?: {
+                kind?: components["schemas"]["ListingKind"];
+                listing_type?: components["schemas"]["ListingType"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paged public sales listings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesListingPage"];
+                };
+            };
+        };
+    };
+    storefrontGetListing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sales listing. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesListingView"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    submitInquiry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitInquiryRequest"];
+            };
+        };
+        responses: {
+            /** @description Inquiry accepted for processing. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InquiryAck"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+        };
+    };
+    adminListListings: {
+        parameters: {
+            query?: {
+                kind?: components["schemas"]["ListingKind"];
+                listing_type?: components["schemas"]["ListingType"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paged sales listings (all statuses). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesListingPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createListing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateListingRequest"];
+            };
+        };
+        responses: {
+            /** @description The listing was created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateListingResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    deleteListing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The listing was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateListing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateListingRequest"];
+            };
+        };
+        responses: {
+            /** @description The listing was updated. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listInquiries: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["InquiryStatus"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paged customer inquiries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerInquiryPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    updateInquiryStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateInquiryStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description The inquiry status was updated. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
         };
     };
 }
