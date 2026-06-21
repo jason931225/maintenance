@@ -123,13 +123,16 @@ pub enum Feature {
     /// utilization, equipment/substitution rollups). SUPER_ADMIN / ADMIN only —
     /// it surfaces an org-wide operational picture.
     OpsDashboardRead,
+    /// Manage the public sales catalog (#6 지게차 매매): create/update/withdraw
+    /// used-forklift listings and triage inbound customer inquiries. ADMIN tier.
+    SalesManage,
     /// Permission metadata for the future AI assistant seam. T0.6 requires the
     /// 22-feature matrix; this does not implement an AI adapter or demo mode.
     AiAssist,
 }
 
 impl Feature {
-    pub const ALL: [Self; 36] = [
+    pub const ALL: [Self; 37] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -165,6 +168,7 @@ impl Feature {
         Self::AuditLogRead,
         Self::ExcelDownload,
         Self::OpsDashboardRead,
+        Self::SalesManage,
         Self::AiAssist,
     ];
 
@@ -207,6 +211,7 @@ impl Feature {
             Self::AuditLogRead => [D, D, A, D, A],
             Self::ExcelDownload => [A, A, A, A, A],
             Self::OpsDashboardRead => [D, D, A, D, A],
+            Self::SalesManage => [D, D, A, A, A],
             Self::AiAssist => [A, A, A, A, A],
         }
     }
