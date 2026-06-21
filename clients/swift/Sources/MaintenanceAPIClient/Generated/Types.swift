@@ -297,6 +297,13 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/location-consents/ledger`.
     /// - Remark: Generated from `#/paths//api/v1/location-consents/ledger/get(listLocationConsentLedger)`.
     func listLocationConsentLedger(_ input: Operations.ListLocationConsentLedger.Input) async throws -> Operations.ListLocationConsentLedger.Output
+    /// Read the site arrival/departure events log (#13)
+    ///
+    /// Ops-facing feed of mechanic site arrivals/departures derived from on-duty location pings (geofenced). OpsDashboardRead-gated; tenant + branch scoped.
+    ///
+    /// - Remark: HTTP `GET /api/v1/location/arrival-events`.
+    /// - Remark: Generated from `#/paths//api/v1/location/arrival-events/get(listArrivalEvents)`.
+    func listArrivalEvents(_ input: Operations.ListArrivalEvents.Input) async throws -> Operations.ListArrivalEvents.Output
     /// Export the consent lifecycle ledger as CSV
     ///
     /// - Remark: HTTP `GET /api/v1/location-consents/ledger.csv`.
@@ -1319,6 +1326,21 @@ extension APIProtocol {
         headers: Operations.ListLocationConsentLedger.Input.Headers = .init()
     ) async throws -> Operations.ListLocationConsentLedger.Output {
         try await listLocationConsentLedger(Operations.ListLocationConsentLedger.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Read the site arrival/departure events log (#13)
+    ///
+    /// Ops-facing feed of mechanic site arrivals/departures derived from on-duty location pings (geofenced). OpsDashboardRead-gated; tenant + branch scoped.
+    ///
+    /// - Remark: HTTP `GET /api/v1/location/arrival-events`.
+    /// - Remark: Generated from `#/paths//api/v1/location/arrival-events/get(listArrivalEvents)`.
+    public func listArrivalEvents(
+        query: Operations.ListArrivalEvents.Input.Query = .init(),
+        headers: Operations.ListArrivalEvents.Input.Headers = .init()
+    ) async throws -> Operations.ListArrivalEvents.Output {
+        try await listArrivalEvents(Operations.ListArrivalEvents.Input(
             query: query,
             headers: headers
         ))
@@ -5000,6 +5022,111 @@ public enum Components {
             ///   - total:
             public init(
                 items: [Components.Schemas.LocationConsentLedgerEntry],
+                limit: Swift.Int64,
+                offset: Swift.Int64,
+                total: Swift.Int64
+            ) {
+                self.items = items
+                self.limit = limit
+                self.offset = offset
+                self.total = total
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case limit
+                case offset
+                case total
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ArrivalEvent`.
+        public struct ArrivalEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/id`.
+            public var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/user_id`.
+            public var userId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/work_order_id`.
+            public var workOrderId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/work_order_no`.
+            public var workOrderNo: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/site_id`.
+            public var siteId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/site_name`.
+            public var siteName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/kind`.
+            @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case arrival = "ARRIVAL"
+                case departure = "DEPARTURE"
+            }
+            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/kind`.
+            public var kind: Components.Schemas.ArrivalEvent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/occurred_at`.
+            public var occurredAt: Components.Schemas.Timestamp
+            /// Creates a new `ArrivalEvent`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - userId:
+            ///   - branchId:
+            ///   - workOrderId:
+            ///   - workOrderNo:
+            ///   - siteId:
+            ///   - siteName:
+            ///   - kind:
+            ///   - occurredAt:
+            public init(
+                id: Swift.String,
+                userId: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid,
+                workOrderId: Swift.String,
+                workOrderNo: Swift.String,
+                siteId: Swift.String,
+                siteName: Swift.String,
+                kind: Components.Schemas.ArrivalEvent.KindPayload,
+                occurredAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.userId = userId
+                self.branchId = branchId
+                self.workOrderId = workOrderId
+                self.workOrderNo = workOrderNo
+                self.siteId = siteId
+                self.siteName = siteName
+                self.kind = kind
+                self.occurredAt = occurredAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case userId = "user_id"
+                case branchId = "branch_id"
+                case workOrderId = "work_order_id"
+                case workOrderNo = "work_order_no"
+                case siteId = "site_id"
+                case siteName = "site_name"
+                case kind
+                case occurredAt = "occurred_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ArrivalEventPage`.
+        public struct ArrivalEventPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ArrivalEventPage/items`.
+            public var items: [Components.Schemas.ArrivalEvent]
+            /// - Remark: Generated from `#/components/schemas/ArrivalEventPage/limit`.
+            public var limit: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/ArrivalEventPage/offset`.
+            public var offset: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/ArrivalEventPage/total`.
+            public var total: Swift.Int64
+            /// Creates a new `ArrivalEventPage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - limit:
+            ///   - offset:
+            ///   - total:
+            public init(
+                items: [Components.Schemas.ArrivalEvent],
                 limit: Swift.Int64,
                 offset: Swift.Int64,
                 total: Swift.Int64
@@ -18859,6 +18986,222 @@ public enum Operations {
             /// Request failed validation.
             ///
             /// - Remark: Generated from `#/paths//api/v1/location-consents/ledger/get(listLocationConsentLedger)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Read the site arrival/departure events log (#13)
+    ///
+    /// Ops-facing feed of mechanic site arrivals/departures derived from on-duty location pings (geofenced). OpsDashboardRead-gated; tenant + branch scoped.
+    ///
+    /// - Remark: HTTP `GET /api/v1/location/arrival-events`.
+    /// - Remark: Generated from `#/paths//api/v1/location/arrival-events/get(listArrivalEvents)`.
+    public enum ListArrivalEvents {
+        public static let id: Swift.String = "listArrivalEvents"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/location/arrival-events/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/location/arrival-events/GET/query/user_id`.
+                public var userId: Components.Schemas.Uuid?
+                /// - Remark: Generated from `#/paths/api/v1/location/arrival-events/GET/query/branch_id`.
+                public var branchId: Components.Schemas.Uuid?
+                /// - Remark: Generated from `#/paths/api/v1/location/arrival-events/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// - Remark: Generated from `#/paths/api/v1/location/arrival-events/GET/query/offset`.
+                public var offset: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - userId:
+                ///   - branchId:
+                ///   - limit:
+                ///   - offset:
+                public init(
+                    userId: Components.Schemas.Uuid? = nil,
+                    branchId: Components.Schemas.Uuid? = nil,
+                    limit: Swift.Int64? = nil,
+                    offset: Swift.Int64? = nil
+                ) {
+                    self.userId = userId
+                    self.branchId = branchId
+                    self.limit = limit
+                    self.offset = offset
+                }
+            }
+            public var query: Operations.ListArrivalEvents.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/location/arrival-events/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListArrivalEvents.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListArrivalEvents.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListArrivalEvents.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListArrivalEvents.Input.Query = .init(),
+                headers: Operations.ListArrivalEvents.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/location/arrival-events/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/location/arrival-events/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ArrivalEventPage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ArrivalEventPage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListArrivalEvents.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListArrivalEvents.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Paged site arrival/departure events.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location/arrival-events/get(listArrivalEvents)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListArrivalEvents.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListArrivalEvents.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location/arrival-events/get(listArrivalEvents)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location/arrival-events/get(listArrivalEvents)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/location/arrival-events/get(listArrivalEvents)/responses/422`.
             ///
             /// HTTP response code: `422 unprocessableContent`.
             case unprocessableContent(Components.Responses.ValidationError)

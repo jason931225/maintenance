@@ -114,3 +114,36 @@ pub struct LocationConsentLedgerPage {
     pub offset: i64,
     pub total: i64,
 }
+
+/// Filters for reading the site arrival/departure events log (issue #13).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArrivalEventQuery {
+    pub user_id: Option<UserId>,
+    pub branch_id: Option<BranchId>,
+    pub limit: i64,
+    pub offset: i64,
+}
+
+/// One site arrival or departure — a coordinate-free attendance fact, hydrated
+/// with the work-order request_no and site name for display.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArrivalEvent {
+    pub id: String,
+    pub user_id: UserId,
+    pub branch_id: BranchId,
+    pub work_order_id: String,
+    pub work_order_no: String,
+    pub site_id: String,
+    pub site_name: String,
+    pub kind: String,
+    pub occurred_at: Timestamp,
+}
+
+/// Paged site arrival/departure events.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArrivalEventPage {
+    pub items: Vec<ArrivalEvent>,
+    pub limit: i64,
+    pub offset: i64,
+    pub total: i64,
+}

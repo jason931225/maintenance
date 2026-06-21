@@ -40,6 +40,8 @@ src/main/kotlin/com/maintenance/api/client/model/AppendManualCostLedgerRequest.k
 src/main/kotlin/com/maintenance/api/client/model/AppleAppSiteAssociation.kt
 src/main/kotlin/com/maintenance/api/client/model/AppleAppSiteAssociationWebcredentials.kt
 src/main/kotlin/com/maintenance/api/client/model/ApprovalStepSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/ArrivalEvent.kt
+src/main/kotlin/com/maintenance/api/client/model/ArrivalEventPage.kt
 src/main/kotlin/com/maintenance/api/client/model/AssignSubstituteRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AssignTicketRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AssignWorkOrderRequest.kt

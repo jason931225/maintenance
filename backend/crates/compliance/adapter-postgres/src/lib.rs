@@ -6,8 +6,9 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_compliance_application::{
-    ConsentTransitionCommand, ConsentTransitionKind, LocationConsentLedgerEntry,
-    LocationConsentLedgerPage, LocationConsentLedgerQuery, consent_audit_event,
+    ArrivalEvent, ArrivalEventPage, ArrivalEventQuery, ConsentTransitionCommand,
+    ConsentTransitionKind, LocationConsentLedgerEntry, LocationConsentLedgerPage,
+    LocationConsentLedgerQuery, consent_audit_event,
 };
 use mnt_compliance_domain::{
     LocationConsent, LocationConsentState, LocationPing, PersistedLocationConsent,
@@ -466,6 +467,85 @@ impl PgComplianceStore {
         Ok(total)
     }
 
+    /// Read the site arrival/departure events log (issue #13), tenant-scoped and
+    /// branch-filtered, newest first. The durable, coordinate-free attendance
+    /// rows are hydrated with the work-order request_no and site name.
+    pub async fn list_arrival_events(
+        &self,
+        branch_scope: &BranchScope,
+        query: ArrivalEventQuery,
+    ) -> Result<ArrivalEventPage, PgComplianceError> {
+        let total = self.count_arrival_events(branch_scope, &query).await?;
+        let mut builder = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT l.id, l.user_id, l.branch_id, l.work_order_id,
+                   w.request_no AS work_order_no, l.site_id, s.name AS site_name,
+                   l.kind, l.occurred_at
+            FROM site_attendance_events l
+            JOIN work_orders w    ON w.id = l.work_order_id
+            JOIN registry_sites s ON s.id = l.site_id
+            WHERE
+            "#,
+        );
+        push_arrival_event_filters(&mut builder, branch_scope, &query);
+        builder.push(" ORDER BY l.occurred_at DESC, l.id DESC LIMIT ");
+        builder.push_bind(query.limit);
+        builder.push(" OFFSET ");
+        builder.push_bind(query.offset);
+
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
+        let mut items = Vec::with_capacity(rows.len());
+        for row in rows {
+            let id: uuid::Uuid = row.try_get("id")?;
+            let user_id: uuid::Uuid = row.try_get("user_id")?;
+            let branch_id: uuid::Uuid = row.try_get("branch_id")?;
+            let work_order_id: uuid::Uuid = row.try_get("work_order_id")?;
+            let site_id: uuid::Uuid = row.try_get("site_id")?;
+            items.push(ArrivalEvent {
+                id: id.to_string(),
+                user_id: UserId::from_uuid(user_id),
+                branch_id: BranchId::from_uuid(branch_id),
+                work_order_id: work_order_id.to_string(),
+                work_order_no: row.try_get("work_order_no")?,
+                site_id: site_id.to_string(),
+                site_name: row.try_get("site_name")?,
+                kind: row.try_get("kind")?,
+                occurred_at: row.try_get("occurred_at")?,
+            });
+        }
+        Ok(ArrivalEventPage {
+            items,
+            limit: query.limit,
+            offset: query.offset,
+            total,
+        })
+    }
+
+    async fn count_arrival_events(
+        &self,
+        branch_scope: &BranchScope,
+        query: &ArrivalEventQuery,
+    ) -> Result<i64, PgComplianceError> {
+        let mut builder = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT COUNT(*)
+            FROM site_attendance_events l
+            WHERE
+            "#,
+        );
+        push_arrival_event_filters(&mut builder, branch_scope, query);
+        let org = current_org().map_err(KernelError::from)?;
+        let total: i64 = with_org_conn::<_, _, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build_query_scalar().fetch_one(tx.as_mut()).await?) })
+        })
+        .await?;
+        Ok(total)
+    }
+
     async fn current_or_unrecorded(
         &self,
         user_id: UserId,
@@ -666,6 +746,22 @@ fn push_location_consent_ledger_filters(
     builder: &mut QueryBuilder<Postgres>,
     branch_scope: &BranchScope,
     query: &LocationConsentLedgerQuery,
+) {
+    push_branch_scope_filter(builder, branch_scope);
+    if let Some(branch_id) = query.branch_id {
+        builder.push(" AND l.branch_id = ");
+        builder.push_bind(*branch_id.as_uuid());
+    }
+    if let Some(user_id) = query.user_id {
+        builder.push(" AND l.user_id = ");
+        builder.push_bind(*user_id.as_uuid());
+    }
+}
+
+fn push_arrival_event_filters(
+    builder: &mut QueryBuilder<Postgres>,
+    branch_scope: &BranchScope,
+    query: &ArrivalEventQuery,
 ) {
     push_branch_scope_filter(builder, branch_scope);
     if let Some(branch_id) = query.branch_id {

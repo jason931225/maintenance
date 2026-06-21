@@ -41,6 +41,7 @@ export type KpiRollup = components["schemas"]["KpiRollup"];
 export type KpiRollupScope = components["schemas"]["KpiRollupScope"];
 export type UnavailableMetric = components["schemas"]["UnavailableMetric"];
 export type OpsSummary = components["schemas"]["OpsSummary"];
+export type ArrivalEvent = components["schemas"]["ArrivalEvent"];
 export type OpsFunnel = components["schemas"]["OpsFunnel"];
 export type OpsEquipmentStatus = components["schemas"]["OpsEquipmentStatus"];
 export type OpsMechanicLoad = components["schemas"]["OpsMechanicLoad"];

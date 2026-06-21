@@ -860,6 +860,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/location/arrival-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the site arrival/departure events log (#13)
+         * @description Ops-facing feed of mechanic site arrivals/departures derived from on-duty location pings (geofenced). OpsDashboardRead-gated; tenant + branch scoped.
+         */
+        get: operations["listArrivalEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/location-consents/ledger.csv": {
         parameters: {
             query?: never;
@@ -2567,6 +2587,27 @@ export interface components {
         };
         LocationConsentLedgerPage: {
             items: components["schemas"]["LocationConsentLedgerEntry"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
+        ArrivalEvent: {
+            id: string;
+            user_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            work_order_id: string;
+            work_order_no: string;
+            site_id: string;
+            site_name: string;
+            /** @enum {string} */
+            kind: "ARRIVAL" | "DEPARTURE";
+            occurred_at: components["schemas"]["Timestamp"];
+        };
+        ArrivalEventPage: {
+            items: components["schemas"]["ArrivalEvent"][];
             /** Format: int64 */
             limit: number;
             /** Format: int64 */
@@ -4883,6 +4924,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LocationConsentLedgerPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listArrivalEvents: {
+        parameters: {
+            query?: {
+                user_id?: components["schemas"]["Uuid"];
+                branch_id?: components["schemas"]["Uuid"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paged site arrival/departure events. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArrivalEventPage"];
                 };
             };
             401: components["responses"]["Unauthorized"];

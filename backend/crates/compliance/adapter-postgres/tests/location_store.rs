@@ -401,3 +401,249 @@ async fn partition_exists(pool: &PgPool, partition: &str) -> bool {
         .unwrap();
     row.get("exists")
 }
+
+// ── Geofence arrival/departure (issue #13) ──────────────────────────────────
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn geofence_arrival_departure_is_audited_and_survives_withdrawal(pool: PgPool) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let (user_id, branch_id) = seed_user_and_branch(&pool, "Geofence Mechanic").await;
+        let customer_id = seed_customer(&pool, branch_id).await;
+        // Site at Seoul City Hall; default 150 m geofence (no per-site override).
+        let site_id = seed_site(&pool, branch_id, customer_id, 37.5665, 126.9780).await;
+        let equipment_id = seed_equipment(&pool, branch_id, customer_id, site_id).await;
+        seed_assigned_work_order(
+            &pool,
+            branch_id,
+            equipment_id,
+            customer_id,
+            site_id,
+            user_id,
+        )
+        .await;
+
+        let store = PgComplianceStore::new(pool.clone());
+        store
+            .transition_consent(command(
+                ConsentTransitionKind::Grant,
+                user_id,
+                branch_id,
+                datetime!(2026-06-12 08:00:00 UTC),
+            ))
+            .await
+            .unwrap();
+
+        // Ping INSIDE the geofence (the site coordinate) → exactly one ARRIVAL.
+        record_on_duty_ping(
+            &store,
+            user_id,
+            branch_id,
+            37.5665,
+            126.9780,
+            datetime!(2026-06-12 09:00:00 UTC),
+        )
+        .await;
+        assert_eq!(count_attendance(&pool, "ARRIVAL").await, 1);
+        assert_eq!(count_attendance(&pool, "DEPARTURE").await, 0);
+
+        // Re-ping a few metres away, still inside → no new event (edge-triggered).
+        record_on_duty_ping(
+            &store,
+            user_id,
+            branch_id,
+            37.56655,
+            126.97805,
+            datetime!(2026-06-12 09:01:00 UTC),
+        )
+        .await;
+        assert_eq!(count_attendance(&pool, "ARRIVAL").await, 1);
+
+        // Ping far outside the geofence → one DEPARTURE.
+        record_on_duty_ping(
+            &store,
+            user_id,
+            branch_id,
+            37.6500,
+            127.1000,
+            datetime!(2026-06-12 09:30:00 UTC),
+        )
+        .await;
+        assert_eq!(count_attendance(&pool, "DEPARTURE").await, 1);
+
+        // Both crossings are audited; one presence row tracks current state.
+        assert_eq!(count_audit_action(&pool, "site.arrival").await, 1);
+        assert_eq!(count_audit_action(&pool, "site.departure").await, 1);
+        assert_eq!(count_presence(&pool, user_id).await, 1);
+
+        // Consent withdrawal erases the raw pings AND the transient geofence
+        // presence state, but the durable coordinate-free attendance events
+        // survive — the #13 carve-out (work fact, not location data).
+        store
+            .transition_consent(command(
+                ConsentTransitionKind::Withdraw,
+                user_id,
+                branch_id,
+                datetime!(2026-06-12 10:00:00 UTC),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(count_location_pings(&pool, user_id).await, 0);
+        assert_eq!(count_presence(&pool, user_id).await, 0);
+        assert_eq!(count_attendance(&pool, "ARRIVAL").await, 1);
+        assert_eq!(count_attendance(&pool, "DEPARTURE").await, 1);
+    })
+    .await;
+}
+
+async fn seed_customer(pool: &PgPool, branch_id: BranchId) -> uuid::Uuid {
+    sqlx::query_scalar(
+        "INSERT INTO registry_customers (branch_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(*branch_id.as_uuid())
+    .bind("Geofence Customer")
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn seed_site(
+    pool: &PgPool,
+    branch_id: BranchId,
+    customer_id: uuid::Uuid,
+    latitude: f64,
+    longitude: f64,
+) -> uuid::Uuid {
+    sqlx::query_scalar(
+        "INSERT INTO registry_sites (branch_id, customer_id, name, latitude, longitude, org_id) \
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+    )
+    .bind(*branch_id.as_uuid())
+    .bind(customer_id)
+    .bind("Geofence Site")
+    .bind(latitude)
+    .bind(longitude)
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn seed_equipment(
+    pool: &PgPool,
+    branch_id: BranchId,
+    customer_id: uuid::Uuid,
+    site_id: uuid::Uuid,
+) -> uuid::Uuid {
+    sqlx::query_scalar(
+        "INSERT INTO registry_equipment (branch_id, customer_id, site_id, equipment_no, \
+         management_no, model, manufacturer_code, kind_code, power_code, status, specification, \
+         ton_text, ton_milli, source_sheet, source_row, org_id) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id",
+    )
+    .bind(*branch_id.as_uuid())
+    .bind(customer_id)
+    .bind(site_id)
+    .bind("GEOFN-0001")
+    .bind("GEOFN-001")
+    .bind("Geofence Model")
+    .bind("GEO-MAKER")
+    .bind("FORK")
+    .bind("ELEC")
+    .bind("임대")
+    .bind("15t/6m")
+    .bind("15t")
+    .bind(15000_i32)
+    .bind("geofence-seed")
+    .bind(1_i32)
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn seed_assigned_work_order(
+    pool: &PgPool,
+    branch_id: BranchId,
+    equipment_id: uuid::Uuid,
+    customer_id: uuid::Uuid,
+    site_id: uuid::Uuid,
+    user_id: UserId,
+) -> uuid::Uuid {
+    let work_order_id: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO work_orders (request_no, branch_id, equipment_id, customer_id, site_id, \
+         requested_by, status, priority, symptom, org_id) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id",
+    )
+    .bind("20260612-900")
+    .bind(*branch_id.as_uuid())
+    .bind(equipment_id)
+    .bind(customer_id)
+    .bind(site_id)
+    .bind(*user_id.as_uuid())
+    .bind("IN_PROGRESS")
+    .bind("P2")
+    .bind("geofence work order")
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO work_order_assignments (work_order_id, mechanic_id, role, assigned_at, org_id) \
+         VALUES ($1, $2, $3, now(), $4)",
+    )
+    .bind(work_order_id)
+    .bind(*user_id.as_uuid())
+    .bind("PRIMARY")
+    .bind(*OrgId::knl().as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    work_order_id
+}
+
+async fn record_on_duty_ping(
+    store: &PgComplianceStore,
+    user_id: UserId,
+    branch_id: BranchId,
+    latitude: f64,
+    longitude: f64,
+    recorded_at: OffsetDateTime,
+) {
+    let ping = LocationPing::new(
+        LocationPingId::new(),
+        user_id,
+        branch_id,
+        latitude,
+        longitude,
+        Some(7.0),
+        recorded_at,
+        true,
+    )
+    .unwrap();
+    store.record_location_ping(ping).await.unwrap();
+}
+
+async fn count_attendance(pool: &PgPool, kind: &str) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM site_attendance_events WHERE kind = $1")
+        .bind(kind)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn count_audit_action(pool: &PgPool, action: &str) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE action = $1")
+        .bind(action)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn count_presence(pool: &PgPool, user_id: UserId) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM site_geofence_presence WHERE user_id = $1")
+        .bind(*user_id.as_uuid())
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}

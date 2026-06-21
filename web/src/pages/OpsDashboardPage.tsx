@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import type { OpsSummary } from "../api/types";
+import type { ArrivalEvent, OpsSummary } from "../api/types";
 import { useAuth } from "../context/auth";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
@@ -61,8 +61,81 @@ export function OpsDashboardPage() {
             {ko.ops.empty}
           </p>
         )}
+        <ArrivalEventsCard />
       </div>
     </>
+  );
+}
+
+/** Site arrival/departure feed (#13), fetched independently of the ops summary. */
+function ArrivalEventsCard() {
+  const { api } = useAuth();
+  const [events, setEvents] = useState<ArrivalEvent[]>([]);
+  const [state, setState] = useState<ReadState>("loading");
+
+  const load = useCallback(async () => {
+    setState("loading");
+    const response = await api
+      .GET("/api/v1/location/arrival-events", { params: { query: { limit: 20 } } })
+      .catch(() => undefined);
+    if (!response?.data) {
+      setState("error");
+      return;
+    }
+    setEvents(response.data.items);
+    setState("idle");
+  }, [api]);
+
+  useEffect(() => {
+    void Promise.resolve().then(load);
+  }, [load]);
+
+  return (
+    <Card>
+      <h2 className="mb-3 text-sm font-semibold text-slate-700">
+        {ko.ops.arrivals.title}
+      </h2>
+      {state === "error" ? (
+        <p className="rounded-md border border-dashed border-red-300 p-3 text-sm text-red-700">
+          {ko.ops.arrivals.error}
+        </p>
+      ) : events.length === 0 ? (
+        <p className="rounded-md border border-dashed border-slate-300 p-3 text-sm text-slate-600">
+          {ko.ops.arrivals.empty}
+        </p>
+      ) : (
+        <ul className="grid gap-2">
+          {events.map((event) => (
+            <li
+              key={event.id}
+              className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+            >
+              <span className="truncate text-sm text-slate-800">
+                <span
+                  className={
+                    event.kind === "ARRIVAL"
+                      ? "font-semibold text-emerald-700"
+                      : "font-semibold text-slate-600"
+                  }
+                >
+                  {event.kind === "ARRIVAL"
+                    ? ko.ops.arrivals.arrival
+                    : ko.ops.arrivals.departure}
+                </span>
+                {" · "}
+                {event.site_name} · {event.work_order_no}
+              </span>
+              <span className="ml-2 shrink-0 text-xs text-slate-500">
+                {new Date(event.occurred_at).toLocaleString("ko-KR", {
+                  dateStyle: "short",
+                  timeStyle: "short",
+                })}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
 

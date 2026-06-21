@@ -11,8 +11,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_compliance_adapter_postgres::{PgComplianceError, PgComplianceStore};
 use mnt_compliance_application::{
-    ConsentTransitionCommand, ConsentTransitionKind, LocationConsentLedgerEntry,
-    LocationConsentLedgerPage, LocationConsentLedgerQuery,
+    ArrivalEventPage, ArrivalEventQuery, ConsentTransitionCommand, ConsentTransitionKind,
+    LocationConsentLedgerEntry, LocationConsentLedgerPage, LocationConsentLedgerQuery,
 };
 use mnt_compliance_domain::{LocationConsent, LocationConsentState, LocationPing};
 use mnt_kernel_core::{
@@ -32,6 +32,7 @@ pub const COMPLIANCE_ROUTE_PATHS: &[&str] = &[
     "/api/v1/location-pings",
     "/api/v1/location-consents/ledger",
     "/api/v1/location-consents/ledger.csv",
+    "/api/v1/location/arrival-events",
 ];
 
 #[derive(Clone)]
@@ -65,6 +66,7 @@ pub fn router(state: ComplianceRestState) -> Router {
             "/api/v1/location-consents/ledger.csv",
             get(export_ledger_csv),
         )
+        .route("/api/v1/location/arrival-events", get(list_arrival_events))
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
@@ -336,6 +338,76 @@ fn authorize_ledger_read(
             }
             BranchScope::Branches(_) => Err(RestError::from_kernel(KernelError::validation(
                 "branch_id is required for multi-branch ledger reads",
+            ))),
+        },
+    }
+}
+
+/// GET /api/v1/location/arrival-events — the ops-facing site arrival/departure
+/// feed (issue #13). Tenant-scoped + branch-filtered, OpsDashboardRead-gated.
+async fn list_arrival_events(
+    State(state): State<ComplianceRestState>,
+    headers: HeaderMap,
+    Query(query): Query<LedgerRequest>,
+) -> Result<Json<ArrivalEventPage>, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    authorize_arrival_read(&principal, query.branch_id)?;
+    let page = state
+        .store
+        .list_arrival_events(&principal.branch_scope, normalize_arrival_query(query)?)
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(page))
+}
+
+fn normalize_arrival_query(query: LedgerRequest) -> Result<ArrivalEventQuery, RestError> {
+    let limit = query.limit.unwrap_or(100).clamp(1, 1_000);
+    let offset = query.offset.unwrap_or(0);
+    if offset < 0 {
+        return Err(RestError::from_kernel(KernelError::validation(
+            "offset must be non-negative",
+        )));
+    }
+    Ok(ArrivalEventQuery {
+        user_id: query.user_id,
+        branch_id: query.branch_id,
+        limit,
+        offset,
+    })
+}
+
+fn authorize_arrival_read(
+    principal: &Principal,
+    branch_id: Option<BranchId>,
+) -> Result<(), RestError> {
+    match branch_id {
+        Some(branch_id) => authorize(principal, Action::new(Feature::OpsDashboardRead), branch_id)
+            .map_err(RestError::from_kernel),
+        None => match &principal.branch_scope {
+            BranchScope::All => {
+                let has_feature_permission = principal.roles.iter().any(|role| {
+                    mnt_platform_authz::permission_for(*role, Feature::OpsDashboardRead)
+                        .satisfies_for_rest()
+                });
+                if has_feature_permission {
+                    Ok(())
+                } else {
+                    Err(RestError::from_kernel(KernelError::forbidden(
+                        "role is not allowed to use feature",
+                    )))
+                }
+            }
+            BranchScope::Branches(branches) if branches.len() == 1 => {
+                let Some(branch_id) = branches.iter().copied().next() else {
+                    return Err(RestError::from_kernel(KernelError::validation(
+                        "branch_id is required",
+                    )));
+                };
+                authorize(principal, Action::new(Feature::OpsDashboardRead), branch_id)
+                    .map_err(RestError::from_kernel)
+            }
+            BranchScope::Branches(_) => Err(RestError::from_kernel(KernelError::validation(
+                "branch_id is required for multi-branch arrival reads",
             ))),
         },
     }

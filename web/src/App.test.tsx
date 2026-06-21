@@ -54,6 +54,9 @@ const server = setupServer(
     return HttpResponse.json(kpiReport);
   }),
   http.get("*/api/v1/ops/summary", () => HttpResponse.json(opsSummary)),
+  http.get("*/api/v1/location/arrival-events", () =>
+    HttpResponse.json({ items: [], limit: 20, offset: 0, total: 0 }),
+  ),
   http.get("*/api/v1/location-consent/status", () =>
     HttpResponse.json({
       consent_id: "00000000-0000-4000-8000-000000000011",

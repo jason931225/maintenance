@@ -35,6 +35,7 @@ import com.maintenance.api.client.model.AdminIssueOtpResponse
 import com.maintenance.api.client.model.AndroidAssetLinkStatement
 import com.maintenance.api.client.model.AppendManualCostLedgerRequest
 import com.maintenance.api.client.model.AppleAppSiteAssociation
+import com.maintenance.api.client.model.ArrivalEventPage
 import com.maintenance.api.client.model.AssignSubstituteRequest
 import com.maintenance.api.client.model.AssignTicketRequest
 import com.maintenance.api.client.model.AssignWorkOrderRequest
@@ -4773,6 +4774,102 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/equipment/import",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/location/arrival-events
+     * Read the site arrival/departure events log (#13)
+     * Ops-facing feed of mechanic site arrivals/departures derived from on-duty location pings (geofenced). OpsDashboardRead-gated; tenant + branch scoped.
+     * @param userId  (optional)
+     * @param branchId  (optional)
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return ArrivalEventPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listArrivalEvents(userId: java.util.UUID? = null, branchId: java.util.UUID? = null, limit: kotlin.Long? = 100L, offset: kotlin.Long? = 0L) : ArrivalEventPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listArrivalEventsWithHttpInfo(userId = userId, branchId = branchId, limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ArrivalEventPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/location/arrival-events
+     * Read the site arrival/departure events log (#13)
+     * Ops-facing feed of mechanic site arrivals/departures derived from on-duty location pings (geofenced). OpsDashboardRead-gated; tenant + branch scoped.
+     * @param userId  (optional)
+     * @param branchId  (optional)
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<ArrivalEventPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listArrivalEventsWithHttpInfo(userId: java.util.UUID?, branchId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<ArrivalEventPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listArrivalEventsRequestConfig(userId = userId, branchId = branchId, limit = limit, offset = offset)
+
+        return@withContext request<Unit, ArrivalEventPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listArrivalEvents
+     *
+     * @param userId  (optional)
+     * @param branchId  (optional)
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun listArrivalEventsRequestConfig(userId: java.util.UUID?, branchId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (userId != null) {
+                    put("user_id", listOf(userId.toString()))
+                }
+                if (branchId != null) {
+                    put("branch_id", listOf(branchId.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/location/arrival-events",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

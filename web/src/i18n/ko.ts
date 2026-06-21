@@ -919,6 +919,13 @@ export const ko = {
       activeAssignments: "진행 배정",
       empty: "진행 중인 배정이 없습니다.",
     },
+    arrivals: {
+      title: "현장 도착·출발",
+      arrival: "도착",
+      departure: "출발",
+      empty: "최근 도착·출발 기록이 없습니다.",
+      error: "도착·출발 기록을 불러오지 못했습니다.",
+    },
   },
   wallboard: {
     title: "일일현황 월보드",
