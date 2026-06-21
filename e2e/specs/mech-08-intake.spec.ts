@@ -30,6 +30,9 @@ test("MECH-08 intake form: required-field errors, 호기 autopull, then submit",
   await page.getByRole("button", { name: /접수 저장/ }).click();
   await expect(page.getByText(/호기를 입력하세요\./).first()).toBeVisible();
   await expect(page.getByText(/고장내용을 입력하세요\./).first()).toBeVisible();
+  await expect(
+    page.getByText(/정비문의 연락처를 입력하세요\./).first(),
+  ).toBeVisible();
 
   // ── 호기 autopull ──────────────────────────────────────────────────────────
   // Type the management_no; the debounce fires after ~300ms.
@@ -45,6 +48,16 @@ test("MECH-08 intake form: required-field errors, 호기 autopull, then submit",
   await page
     .getByRole("textbox", { name: /고장내용/ })
     .fill("엔진 시동 불가 — E2E 테스트");
+  await page
+    .getByRole("textbox", { name: /정비문의/ })
+    .fill("010-2625-0987");
+
+  // Evidence: the intake form with required-field markers, 요청일자, 정비문의,
+  // and the 호기 autopull populated.
+  await page.screenshot({
+    path: "e2e/.artifacts/intake-form.png",
+    fullPage: true,
+  });
 
   // ── Submit ─────────────────────────────────────────────────────────────────
   await page.getByRole("button", { name: /접수 저장/ }).click();

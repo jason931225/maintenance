@@ -388,7 +388,7 @@ describe("IntakePage", () => {
     const user = userEvent.setup();
     renderAt("/intake");
 
-    await user.type(screen.getByLabelText("호기"), "#290");
+    await user.type(screen.getByLabelText(/호기/), "#290");
 
     expect((await screen.findAllByText("GTS25DE"))[0]).toBeVisible();
     expect(await screen.findByText("케이앤엘")).toBeVisible();

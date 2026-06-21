@@ -66,6 +66,9 @@ test("RECP intake form: 호기 autopull then submit (접수증)", async ({
   await page
     .getByRole("textbox", { name: /고장내용/ })
     .fill("접수 데스크 신고 — E2E 테스트");
+  await page
+    .getByRole("textbox", { name: /정비문의/ })
+    .fill("010-2625-0987");
 
   // Audit the filled form before submitting.
   await auditPage(page, { context: "/intake (receptionist)", consoleGuard });

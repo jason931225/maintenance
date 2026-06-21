@@ -40,7 +40,19 @@ interface IntakeFormProps {
 
 interface Errors {
   managementNo?: string;
+  requestedOn?: string;
   symptom?: string;
+  contactPhone?: string;
+}
+
+// Visual required-field indicator. Kept out of the accessible name (aria-hidden);
+// required-ness is conveyed to assistive tech via aria-required on each input.
+function RequiredMark() {
+  return (
+    <span aria-hidden="true" className="ml-0.5 text-red-600">
+      *
+    </span>
+  );
 }
 
 export function IntakeForm({
@@ -52,7 +64,11 @@ export function IntakeForm({
   onCreated,
 }: IntakeFormProps) {
   const [managementNo, setManagementNo] = useState("");
+  const [requestedOn, setRequestedOn] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
   const [symptom, setSymptom] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
   const [customerRequest, setCustomerRequest] = useState("");
   const [serviceCategory, setServiceCategory] = useState<ServiceCategory | "">(
     "",
@@ -75,8 +91,14 @@ export function IntakeForm({
     if (managementNo.trim().length === 0) {
       nextErrors.managementNo = ko.intake.requiredManagementNo;
     }
+    if (requestedOn.trim().length === 0) {
+      nextErrors.requestedOn = ko.intake.requiredRequestedOn;
+    }
     if (symptom.trim().length === 0) {
       nextErrors.symptom = ko.intake.requiredSymptom;
+    }
+    if (contactPhone.trim().length === 0) {
+      nextErrors.contactPhone = ko.intake.requiredContactPhone;
     }
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
@@ -85,14 +107,20 @@ export function IntakeForm({
 
     setStatus("saving");
     try {
-      // The backend work-order has no category column; record the maintenance
-      // classification as a structured prefix on the existing customer_request.
+      // The backend work-order has no first-class columns for the request date,
+      // maintenance-contact phone, or category, so they are recorded as structured
+      // prefixes on the existing customer_request free-text field (the form's
+      // documented convention — see the ServiceCategory note above).
+      const requestedOnTag = `[${ko.intake.requestedOn}: ${requestedOn}]`;
+      const contactTag = `[${ko.intake.contactPhone}: ${contactPhone.trim()}]`;
       const categoryTag = serviceCategory
         ? `[${ko.intake.serviceCategory}: ${ko.intake.serviceCategories[serviceCategory]}]`
         : "";
       const trimmedRequest = customerRequest.trim();
       const customerRequestValue =
-        [categoryTag, trimmedRequest].filter(Boolean).join(" ") || undefined;
+        [requestedOnTag, contactTag, categoryTag, trimmedRequest]
+          .filter(Boolean)
+          .join(" ") || undefined;
       const created = await onCreateWorkOrder({
         branch_id: branchId,
         management_no: managementNo.trim(),
@@ -127,9 +155,11 @@ export function IntakeForm({
         <div className="grid gap-2">
           <label className="text-sm font-medium text-slate-700" htmlFor="management-no">
             {ko.intake.managementNo}
+            <RequiredMark />
           </label>
           <Input
             id="management-no"
+            aria-required="true"
             value={managementNo}
             placeholder={ko.intake.managementNoPlaceholder}
             onChange={(event) => {
@@ -167,11 +197,41 @@ export function IntakeForm({
         <EquipmentLookupPanel state={equipmentLookupState} />
 
         <div className="grid gap-2">
+          <label className="text-sm font-medium text-slate-700" htmlFor="requested-on">
+            {ko.intake.requestedOn}
+            <RequiredMark />
+          </label>
+          <Input
+            id="requested-on"
+            type="date"
+            aria-required="true"
+            value={requestedOn}
+            onChange={(event) => {
+              setRequestedOn(event.currentTarget.value);
+            }}
+            aria-invalid={Boolean(errors.requestedOn)}
+            aria-describedby={
+              errors.requestedOn ? "requested-on-error" : undefined
+            }
+          />
+          {errors.requestedOn ? (
+            <p
+              id="requested-on-error"
+              className="text-sm font-medium text-red-700"
+            >
+              {errors.requestedOn}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="grid gap-2">
           <label className="text-sm font-medium text-slate-700" htmlFor="symptom">
             {ko.intake.symptom}
+            <RequiredMark />
           </label>
           <Textarea
             id="symptom"
+            aria-required="true"
             value={symptom}
             placeholder={ko.intake.symptomPlaceholder}
             onChange={(event) => {
@@ -183,6 +243,36 @@ export function IntakeForm({
           {errors.symptom ? (
             <p id="symptom-error" className="text-sm font-medium text-red-700">
               {errors.symptom}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="grid gap-2">
+          <label className="text-sm font-medium text-slate-700" htmlFor="contact-phone">
+            {ko.intake.contactPhone}
+            <RequiredMark />
+          </label>
+          <Input
+            id="contact-phone"
+            type="tel"
+            inputMode="tel"
+            aria-required="true"
+            value={contactPhone}
+            placeholder={ko.intake.contactPhonePlaceholder}
+            onChange={(event) => {
+              setContactPhone(event.currentTarget.value);
+            }}
+            aria-invalid={Boolean(errors.contactPhone)}
+            aria-describedby={
+              errors.contactPhone ? "contact-phone-error" : undefined
+            }
+          />
+          {errors.contactPhone ? (
+            <p
+              id="contact-phone-error"
+              className="text-sm font-medium text-red-700"
+            >
+              {errors.contactPhone}
             </p>
           ) : null}
         </div>
