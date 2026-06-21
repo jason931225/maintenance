@@ -337,10 +337,7 @@ impl PgRegistryStore {
     /// before/after snapshots. This is the only coordinate entry point: a site
     /// is pinnable only once an admin writes a valid lat/lon pair here.
     // mnt-gate: state-changing-handler
-    pub async fn update_site(
-        &self,
-        command: UpdateSiteCommand,
-    ) -> Result<(), PgRegistryError> {
+    pub async fn update_site(&self, command: UpdateSiteCommand) -> Result<(), PgRegistryError> {
         if command.fields.is_empty() {
             return Err(KernelError::validation("no site fields to update").into());
         }
@@ -916,10 +913,7 @@ async fn fetch_site_admin_row(
 /// Build the audit after-snapshot by overlaying the requested field changes onto
 /// the before-snapshot. `Some(value)` sets, `Some(None)` clears (JSON null),
 /// `None` leaves the prior value untouched.
-fn site_after_snapshot(
-    before: &serde_json::Value,
-    fields: &UpdateSiteFields,
-) -> serde_json::Value {
+fn site_after_snapshot(before: &serde_json::Value, fields: &UpdateSiteFields) -> serde_json::Value {
     let mut after = before.clone();
     overlay_text(&mut after, "address", &fields.address);
     overlay_text(&mut after, "province", &fields.province);

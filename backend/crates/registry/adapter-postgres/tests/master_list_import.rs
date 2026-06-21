@@ -469,13 +469,12 @@ async fn site_contact_update_persists_and_is_audited(pool: PgPool) {
             })
             .await
             .unwrap();
-        let (name2, email2): (Option<String>, Option<String>) = sqlx::query_as(
-            "SELECT contact_name, contact_email FROM registry_sites WHERE id = $1",
-        )
-        .bind(*site_id.as_uuid())
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let (name2, email2): (Option<String>, Option<String>) =
+            sqlx::query_as("SELECT contact_name, contact_email FROM registry_sites WHERE id = $1")
+                .bind(*site_id.as_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(email2, None, "Some(None) clears contact_email");
         assert_eq!(name2.as_deref(), Some("김담당"), "absent field untouched");
         assert_audit_count(&pool, "site.update", 2).await;

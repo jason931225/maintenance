@@ -15,9 +15,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_kernel_core::{
-    BranchId, BranchScope, CONTACT_EMAIL_MAX_CHARS, CONTACT_NAME_MAX_CHARS, CONTACT_PHONE_MAX_CHARS,
-    EquipmentId, EquipmentSubstitutionId, ErrorKind, KernelError, OrgId, SiteId, TraceContext,
-    UserId, validate_bounded_text, validate_coordinate_pair,
+    BranchId, BranchScope, CONTACT_EMAIL_MAX_CHARS, CONTACT_NAME_MAX_CHARS,
+    CONTACT_PHONE_MAX_CHARS, EquipmentId, EquipmentSubstitutionId, ErrorKind, KernelError, OrgId,
+    SiteId, TraceContext, UserId, validate_bounded_text, validate_coordinate_pair,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{
@@ -384,8 +384,16 @@ fn validate_site_coordinates(body: &UpdateSiteRequest) -> Result<(), RestError> 
 fn validate_site_contact(body: &UpdateSiteRequest) -> Result<(), RestError> {
     for (change, max, field) in [
         (&body.contact_name, CONTACT_NAME_MAX_CHARS, "contact_name"),
-        (&body.contact_phone, CONTACT_PHONE_MAX_CHARS, "contact_phone"),
-        (&body.contact_email, CONTACT_EMAIL_MAX_CHARS, "contact_email"),
+        (
+            &body.contact_phone,
+            CONTACT_PHONE_MAX_CHARS,
+            "contact_phone",
+        ),
+        (
+            &body.contact_email,
+            CONTACT_EMAIL_MAX_CHARS,
+            "contact_email",
+        ),
     ] {
         if let Some(Some(text)) = change {
             validate_bounded_text(text, max, field).map_err(RestError::from_kernel)?;
