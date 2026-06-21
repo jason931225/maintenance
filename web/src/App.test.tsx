@@ -230,10 +230,13 @@ describe("AppRouter authenticated", () => {
 });
 
 describe("routing", () => {
-  it("redirects / to /dispatch", async () => {
+  it("renders the public KNL storefront home at /", async () => {
+    // #6: `/` is now the unauthenticated KNL storefront home (PublicLayout),
+    // replacing the previous `/`→`/dispatch` redirect. The header carries the
+    // public nav; the page shows the hero copy.
     renderAt("/");
     expect(
-      await screen.findByRole("heading", { name: "작업지시 목록" }),
+      (await screen.findAllByText("현장에 맞는 지게차를 더 빠르게"))[0],
     ).toBeVisible();
   });
 

@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
+import { PublicLayout } from "./components/public/PublicLayout";
 import { AppShell } from "./components/shell/AppShell";
 import { PlatformShell } from "./components/shell/PlatformShell";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -10,10 +11,18 @@ import { RequireKpiRoute } from "./components/RequireKpiRoute";
 import { RequirePlatformRoute } from "./components/RequirePlatformRoute";
 import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
 import { PageSpinner } from "./components/states/PageSpinner";
-import { LandingPage } from "./pages/LandingPage";
 import { LoginPage } from "./pages/LoginPage";
 import { WallBoardPage } from "./pages/WallBoardPage";
 import { CustomerIntakePage } from "./pages/CustomerIntakePage";
+// KNL storefront (#6). Public marketing pages render inside <PublicLayout/> and
+// supersede the previous #10 LandingPage as the primary public surface. Default
+// exports, eager-loaded — they sit on the public, unauthenticated fast path.
+import StorefrontHomePage from "./pages/StorefrontHomePage";
+import RentalPage from "./pages/RentalPage";
+import UsedSalesPage from "./pages/UsedSalesPage";
+import MaintenancePage from "./pages/MaintenancePage";
+import AboutPage from "./pages/AboutPage";
+import ContactPage from "./pages/ContactPage";
 
 // Authenticated-shell pages are code-split so the login / wallboard / public
 // intake fast paths don't pay for them. Each module uses a named export, so we
@@ -101,13 +110,31 @@ const PlatformOpsPage = lazy(() =>
     default: m.PlatformOpsPage,
   })),
 );
+const CatalogAdminPage = lazy(() =>
+  import("./pages/CatalogAdminPage").then((m) => ({
+    default: m.CatalogAdminPage,
+  })),
+);
 
 export function AppRouter() {
   return (
     <Routes>
       {/* Shell-less full-screen routes */}
-      {/* Public marketing landing page (GitHub #10) */}
-      <Route path="/landing" element={<LandingPage />} />
+      {/* Public KNL storefront (#6). Nested under PublicLayout (site-header +
+          footer); each page renders only its own <main>. This unifies and
+          replaces the previous #10 LandingPage — `/` and `/landing` both resolve
+          to the KNL home, the primary public surface. Placed before the
+          ProtectedRoute guard so it stays unauthenticated. */}
+      <Route element={<PublicLayout />}>
+        <Route path="/" element={<StorefrontHomePage />} />
+        <Route path="/home" element={<StorefrontHomePage />} />
+        <Route path="/landing" element={<StorefrontHomePage />} />
+        <Route path="/rental" element={<RentalPage />} />
+        <Route path="/used" element={<UsedSalesPage />} />
+        <Route path="/maintenance" element={<MaintenancePage />} />
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/contact" element={<ContactPage />} />
+      </Route>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/wallboard" element={<WallBoardPage />} />
       {/* Public, unauthenticated customer support intake */}
@@ -144,9 +171,11 @@ export function AppRouter() {
           </Route>
         </Route>
 
-        {/* App shell layout */}
+        {/* App shell layout. No index (`/`) route: `/` is the public KNL
+            storefront home (#6); authenticated entry lands on /dispatch via the
+            login redirect, and the shell catch-all below bounces unknown
+            authenticated paths there. */}
         <Route element={<AppShell />}>
-          <Route index element={<Navigate to="/dispatch" replace />} />
           <Route path="/dispatch" element={<DispatchPage />} />
           <Route path="/dispatch-map" element={<DispatchMapPage />} />
           <Route path="/intake" element={<IntakePage />} />
@@ -165,6 +194,7 @@ export function AppRouter() {
           <Route path="/settings/profile" element={<ProfilePage />} />
           <Route path="/settings/location" element={<LocationSettingsPage />} />
           <Route element={<RequireAdminRoute />}>
+            <Route path="/catalog" element={<CatalogAdminPage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/inspection" element={<InspectionPage />} />
             <Route path="/ops" element={<OpsDashboardPage />} />

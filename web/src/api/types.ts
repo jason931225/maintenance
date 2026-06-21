@@ -120,6 +120,28 @@ export type CostLedgerEntrySummary =
 export type CostLedgerSource = components["schemas"]["CostLedgerSource"];
 export type QuoteLine = components["schemas"]["QuoteLine"];
 
+// Storefront / sales catalog (#6 KNL forklift storefront).
+export type ListingKind = components["schemas"]["ListingKind"];
+export type ListingType = components["schemas"]["ListingType"];
+export type ListingStatus = components["schemas"]["ListingStatus"];
+export type InquiryTopic = components["schemas"]["InquiryTopic"];
+export type InquiryStatus = components["schemas"]["InquiryStatus"];
+export type ListingMediaView = components["schemas"]["ListingMediaView"];
+export type SalesListingView = components["schemas"]["SalesListingView"];
+export type SalesListingPage = components["schemas"]["SalesListingPage"];
+export type CustomerInquiryView =
+  components["schemas"]["CustomerInquiryView"];
+export type CustomerInquiryPage =
+  components["schemas"]["CustomerInquiryPage"];
+export type SubmitInquiryRequest =
+  components["schemas"]["SubmitInquiryRequest"];
+export type CreateListingRequest =
+  components["schemas"]["CreateListingRequest"];
+export type UpdateListingRequest =
+  components["schemas"]["UpdateListingRequest"];
+export type UpdateInquiryStatusRequest =
+  components["schemas"]["UpdateInquiryStatusRequest"];
+
 export type Team = components["schemas"]["Team"];
 export type UserSummary = components["schemas"]["UserSummary"];
 export type CreateUserRequest = components["schemas"]["CreateUserRequest"];

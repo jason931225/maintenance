@@ -1,6 +1,22 @@
 @import "tailwindcss";
 
 /*
+ * KNL storefront design tokens (#6). Tailwind v4 reads custom properties named
+ * `--color-*` inside @theme and generates the matching utilities, so these emit
+ * bg-ink / text-signal / border-line / bg-brand-teal etc. for the public
+ * storefront pages. The console palette (slate-*) is unchanged.
+ */
+@theme {
+  --color-ink: #101820;
+  --color-signal: #f6b521;
+  --color-signal-dark: #c88800;
+  --color-brand-teal: #0f766e;
+  --color-steel: #51606c;
+  --color-muted-panel: #eef2f5;
+  --color-line: #d7dee5;
+}
+
+/*
  * Pretendard, woff2-only. The @fontsource/pretendard CSS entrypoints ship both
  * woff2 and a legacy .woff per weight (~2x the bytes); every browser we target
  * supports woff2, so we declare the faces ourselves and reference only the woff2

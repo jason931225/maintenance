@@ -6,6 +6,7 @@ import {
   CheckSquare,
   ClipboardList,
   Contact,
+  Store,
   FilePlus,
   FileSpreadsheet,
   Gauge,
@@ -80,6 +81,9 @@ const KPI_ROLES: readonly Role[] = [
  */
 const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["approvals", ADMIN_ROLES],
+  // catalog (sales-listing & inquiry admin, #6): ADMIN/SUPER_ADMIN only,
+  // matching the `RequireAdminRoute` guard on `/catalog`.
+  ["catalog", ADMIN_ROLES],
   // daily-plan (DailyPlanRequest / DailyPlanReview): MECHANIC/ADMIN/SUPER_ADMIN.
   ["daily-plan", DAILY_PLAN_ROLES],
   ["kpi", KPI_ROLES],
@@ -137,6 +141,8 @@ export const NAV_GROUPS = [
       // is ungated like the other shared pages.
       { key: "reporting", href: "/reporting", labelKey: "nav.reporting", Icon: FileSpreadsheet },
       { key: "equipment", href: "/equipment", labelKey: "nav.equipment", Icon: Wrench },
+      // catalog (sales-listing & inquiry admin, #6): ADMIN/SUPER_ADMIN only.
+      { key: "catalog", href: "/catalog", labelKey: "nav.catalog", Icon: Store },
       // financial: the page surfaces purchase requests, whose read gate
       // (PurchaseRequestRead) is at least Limited for every role
       // ([A, L, A, A, A] in the backend matrix), so the item is ungated like the
