@@ -444,7 +444,6 @@ impl GeofenceCrossing {
 /// arrival but a first-seen-outside is not an event. Distance uses the shared
 /// kernel haversine, so this stays dependency-free of the dispatch crate.
 #[must_use]
-#[allow(clippy::cast_precision_loss)] // distances are << 2^53 m; no real loss
 pub fn evaluate_geofence(
     ping_latitude: f64,
     ping_longitude: f64,
@@ -453,13 +452,15 @@ pub fn evaluate_geofence(
     radius_meters: f64,
     prior_inside: Option<bool>,
 ) -> (bool, Option<GeofenceCrossing>) {
-    let distance = mnt_kernel_core::haversine_meters(
+    // Unrounded distance: rounding to whole metres before the compare would push
+    // the boundary out ~0.5 m, which is material for a small geofence radius.
+    let distance = mnt_kernel_core::haversine_meters_f64(
         ping_latitude,
         ping_longitude,
         site_latitude,
         site_longitude,
     );
-    let now_inside = (distance as f64) <= radius_meters;
+    let now_inside = distance <= radius_meters;
     let crossing = match prior_inside {
         None => now_inside.then_some(GeofenceCrossing::Arrival),
         Some(was) if was == now_inside => None,

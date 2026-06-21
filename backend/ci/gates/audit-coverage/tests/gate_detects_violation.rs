@@ -21,18 +21,26 @@ fn write_file(path: &Path, content: &str) -> Result<(), Box<dyn std::error::Erro
 }
 
 #[test]
-fn allowed_exclusion_set_contains_only_location_ping_ingestion() {
+fn allowed_exclusion_set_is_the_two_location_carveouts() {
     let exclusions = allowed_audit_exclusions();
-    assert_eq!(exclusions.len(), 1);
+    assert_eq!(exclusions.len(), 2);
+    // Each exemption is bound to the REAL writer: repo-relative file + function.
+    // This is what prevents the carve-out from silently applying to the wrong
+    // handler (ADR-0014 "exactly one path" invariant).
     assert_eq!(exclusions[0].reason, "location_ping_ingestion");
-    // The exemption is bound to the REAL ping writer: repo-relative file +
-    // function. This is what prevents the carve-out from silently applying to
-    // the wrong handler (ADR-0014 "exactly one path" invariant).
     assert_eq!(
         exclusions[0].file,
         "crates/compliance/adapter-postgres/src/lib.rs"
     );
     assert_eq!(exclusions[0].function, "record_location_ping");
+    // The retention purge erases expired location-derived data; not a business
+    // write. Bound to the retention writer.
+    assert_eq!(exclusions[1].reason, "location_data_retention_purge");
+    assert_eq!(
+        exclusions[1].file,
+        "crates/compliance/adapter-postgres/src/lib.rs"
+    );
+    assert_eq!(exclusions[1].function, "purge_expired_location_data");
 }
 
 #[test]

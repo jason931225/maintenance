@@ -88,11 +88,22 @@ impl GateResult {
 
 #[must_use]
 pub fn allowed_audit_exclusions() -> &'static [AuditExclusion] {
-    &[AuditExclusion {
-        reason: "location_ping_ingestion",
-        file: "crates/compliance/adapter-postgres/src/lib.rs",
-        function: "record_location_ping",
-    }]
+    &[
+        AuditExclusion {
+            reason: "location_ping_ingestion",
+            file: "crates/compliance/adapter-postgres/src/lib.rs",
+            function: "record_location_ping",
+        },
+        // The retention purge ERASES expired location-derived data (ping
+        // partitions, collection logs, geofence presence) to honour the
+        // retention window; it is data-lifecycle maintenance, not an auditable
+        // business write, and never touches the durable attendance facts.
+        AuditExclusion {
+            reason: "location_data_retention_purge",
+            file: "crates/compliance/adapter-postgres/src/lib.rs",
+            function: "purge_expired_location_data",
+        },
+    ]
 }
 
 pub fn check_workspace(workspace_dir: &Path) -> Result<GateResult, String> {

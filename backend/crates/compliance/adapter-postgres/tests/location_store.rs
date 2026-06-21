@@ -647,3 +647,135 @@ async fn count_presence(pool: &PgPool, user_id: UserId) -> i64 {
         .await
         .unwrap()
 }
+
+/// Regression: a multi-branch mechanic pings tagged to branch B while assigned to
+/// a work order whose site belongs to branch A. The durable attendance fact must
+/// be filed under the WORK ORDER's branch (A), not the ping's branch (B), or a
+/// branch-A supervisor's branch-scoped read would never see the event.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn attendance_is_filed_under_the_work_order_branch_not_the_ping_branch(pool: PgPool) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let (user_id, branch_a) = seed_user_and_branch(&pool, "Multi-Branch Mechanic").await;
+        let branch_b = seed_second_branch(&pool, user_id, "Mechanic Branch B").await;
+        let customer_id = seed_customer(&pool, branch_a).await;
+        let site_id = seed_site(&pool, branch_a, customer_id, 37.5665, 126.9780).await;
+        let equipment_id = seed_equipment(&pool, branch_a, customer_id, site_id).await;
+        seed_assigned_work_order(&pool, branch_a, equipment_id, customer_id, site_id, user_id)
+            .await;
+
+        let store = PgComplianceStore::new(pool.clone());
+        store
+            .transition_consent(command(
+                ConsentTransitionKind::Grant,
+                user_id,
+                branch_b,
+                datetime!(2026-06-12 08:00:00 UTC),
+            ))
+            .await
+            .unwrap();
+        // On duty in branch B, but physically at the branch-A site.
+        record_on_duty_ping(
+            &store,
+            user_id,
+            branch_b,
+            37.5665,
+            126.9780,
+            datetime!(2026-06-12 09:00:00 UTC),
+        )
+        .await;
+
+        let event_branch: uuid::Uuid = sqlx::query_scalar(
+            "SELECT branch_id FROM site_attendance_events WHERE kind = 'ARRIVAL'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            event_branch,
+            *branch_a.as_uuid(),
+            "filed under work-order branch A"
+        );
+        assert_ne!(event_branch, *branch_b.as_uuid(), "not the ping's branch B");
+
+        // The audit row carries the same (work-order) branch.
+        let audit_branch: Option<uuid::Uuid> =
+            sqlx::query_scalar("SELECT branch_id FROM audit_events WHERE action = 'site.arrival'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(audit_branch, Some(*branch_a.as_uuid()));
+    })
+    .await;
+}
+
+/// Regression: recorded_at is a client capture time and offline-queued pings flush
+/// out of order. A stale ping older than the last recorded transition must be
+/// dropped, never flip the geofence state or emit a phantom crossing.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn out_of_order_stale_ping_does_not_emit_a_phantom_crossing(pool: PgPool) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let (user_id, branch_id) = seed_user_and_branch(&pool, "Out Of Order Mechanic").await;
+        let customer_id = seed_customer(&pool, branch_id).await;
+        let site_id = seed_site(&pool, branch_id, customer_id, 37.5665, 126.9780).await;
+        let equipment_id = seed_equipment(&pool, branch_id, customer_id, site_id).await;
+        seed_assigned_work_order(
+            &pool,
+            branch_id,
+            equipment_id,
+            customer_id,
+            site_id,
+            user_id,
+        )
+        .await;
+
+        let store = PgComplianceStore::new(pool.clone());
+        store
+            .transition_consent(command(
+                ConsentTransitionKind::Grant,
+                user_id,
+                branch_id,
+                datetime!(2026-06-12 08:00:00 UTC),
+            ))
+            .await
+            .unwrap();
+
+        // Arrival at 09:00.
+        record_on_duty_ping(
+            &store,
+            user_id,
+            branch_id,
+            37.5665,
+            126.9780,
+            datetime!(2026-06-12 09:00:00 UTC),
+        )
+        .await;
+        assert_eq!(count_attendance(&pool, "ARRIVAL").await, 1);
+
+        // A STALE ping captured at 08:30 (before the arrival) flushed late, far
+        // outside the geofence — must be DROPPED, not emit a phantom DEPARTURE.
+        record_on_duty_ping(
+            &store,
+            user_id,
+            branch_id,
+            37.6500,
+            127.1000,
+            datetime!(2026-06-12 08:30:00 UTC),
+        )
+        .await;
+        assert_eq!(count_attendance(&pool, "DEPARTURE").await, 0);
+        assert_eq!(count_attendance(&pool, "ARRIVAL").await, 1);
+
+        // A FRESH ping at 09:30 far outside → the real DEPARTURE still lands.
+        record_on_duty_ping(
+            &store,
+            user_id,
+            branch_id,
+            37.6500,
+            127.1000,
+            datetime!(2026-06-12 09:30:00 UTC),
+        )
+        .await;
+        assert_eq!(count_attendance(&pool, "DEPARTURE").await, 1);
+    })
+    .await;
+}

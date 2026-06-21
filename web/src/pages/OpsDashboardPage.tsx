@@ -95,7 +95,7 @@ function ArrivalEventsCard() {
       <h2 className="mb-3 text-sm font-semibold text-slate-700">
         {ko.ops.arrivals.title}
       </h2>
-      {state === "error" ? (
+      {state === "loading" ? null : state === "error" ? (
         <p className="rounded-md border border-dashed border-red-300 p-3 text-sm text-red-700">
           {ko.ops.arrivals.error}
         </p>

@@ -348,7 +348,6 @@ impl PgComplianceStore {
                     tx,
                     org_uuid,
                     user_uuid,
-                    branch_uuid,
                     latitude,
                     longitude,
                     recorded_at,
@@ -361,6 +360,12 @@ impl PgComplianceStore {
         .await
     }
 
+    // mnt-gate: audit-exempt location_data_retention_purge
+    // Automated data-lifecycle maintenance: it ERASES expired location-derived
+    // data (ping partitions, collection logs, and now geofence presence) to honour
+    // the retention window. It is not an auditable business event and writes no
+    // audit row — consistent with the existing ping/collection-log purge it
+    // extends. The durable site_attendance_events work facts are never purged here.
     pub async fn purge_expired_location_data(
         &self,
         retain_after: Timestamp,
@@ -368,6 +373,20 @@ impl PgComplianceStore {
         let org = current_org().map_err(KernelError::from)?;
         let row = with_org_conn::<_, _, PgComplianceError>(&self.pool, org, move |tx| {
             Box::pin(async move {
+                // site_geofence_presence is location-DERIVED transient state, so it
+                // must age out on the same retention horizon as the raw pings —
+                // otherwise an orphaned presence row (e.g. its work order went
+                // terminal) would outlive the location-data retention window. The
+                // org GUC is armed by with_org_conn, so RLS scopes the delete to
+                // this tenant. (The durable, coordinate-free site_attendance_events
+                // are NOT purged here — they are a work record, not location data.)
+                sqlx::query!(
+                    "DELETE FROM site_geofence_presence WHERE updated_at < $1",
+                    retain_after,
+                )
+                .execute(tx.as_mut())
+                .await?;
+
                 Ok(sqlx::query!(
                     r#"
             SELECT dropped_ping_partitions, deleted_collection_logs
@@ -608,15 +627,21 @@ async fn record_geofence_crossings(
     tx: &mut sqlx::Transaction<'_, Postgres>,
     org_uuid: uuid::Uuid,
     user_uuid: uuid::Uuid,
-    branch_uuid: uuid::Uuid,
     ping_latitude: f64,
     ping_longitude: f64,
     recorded_at: Timestamp,
 ) -> Result<(), PgComplianceError> {
+    // The branch is taken from the WORK ORDER's site (w.branch_id), never the
+    // ping's branch: a multi-branch mechanic may ping tagged to branch B while
+    // assigned to a work order whose site belongs to branch A, and the durable
+    // attendance fact + its audit must be filed under the owning branch A so the
+    // branch-scoped arrival read attributes it correctly. Inactive/rejected work
+    // orders are excluded so no attendance is derived for them.
     let candidates = sqlx::query!(
         r#"
         SELECT a.work_order_id     AS "work_order_id!",
                w.site_id           AS "site_id!",
+               w.branch_id         AS "wo_branch_id!",
                s.latitude          AS "latitude!",
                s.longitude         AS "longitude!",
                s.geofence_radius_m AS "geofence_radius_m"
@@ -624,7 +649,7 @@ async fn record_geofence_crossings(
         JOIN work_orders w    ON w.id = a.work_order_id
         JOIN registry_sites s ON s.id = w.site_id
         WHERE a.mechanic_id = $1
-          AND w.status NOT IN ('FINAL_COMPLETED', 'CANCELLED', 'ARCHIVED')
+          AND w.status NOT IN ('FINAL_COMPLETED', 'CANCELLED', 'ARCHIVED', 'REJECTED')
           AND s.latitude IS NOT NULL
           AND s.longitude IS NOT NULL
         "#,
@@ -636,13 +661,14 @@ async fn record_geofence_crossings(
     for candidate in candidates {
         let work_order_id = candidate.work_order_id;
         let site_id = candidate.site_id;
+        let wo_branch_id = candidate.wo_branch_id;
         let radius = candidate
             .geofence_radius_m
             .unwrap_or(DEFAULT_GEOFENCE_RADIUS_M);
 
-        let prior_inside = sqlx::query_scalar!(
+        let prior = sqlx::query!(
             r#"
-            SELECT inside FROM site_geofence_presence
+            SELECT inside, since FROM site_geofence_presence
             WHERE org_id = $1 AND user_id = $2 AND work_order_id = $3 AND site_id = $4
             FOR UPDATE
             "#,
@@ -654,6 +680,17 @@ async fn record_geofence_crossings(
         .fetch_optional(tx.as_mut())
         .await?;
 
+        // Edge detection assumes monotonic time, but recorded_at is a client
+        // capture time and native apps flush offline-queued pings out of order.
+        // A ping older than the last recorded transition must not flip the state
+        // (it would emit a phantom crossing and move `since` backwards), so drop it.
+        if let Some(ref row) = prior
+            && recorded_at < row.since
+        {
+            continue;
+        }
+        let prior_inside = prior.as_ref().map(|row| row.inside);
+
         let (now_inside, crossing) = evaluate_geofence(
             ping_latitude,
             ping_longitude,
@@ -664,11 +701,18 @@ async fn record_geofence_crossings(
         );
 
         if prior_inside.is_none() {
-            sqlx::query!(
+            // First sighting. ON CONFLICT DO NOTHING serializes concurrent
+            // first-pings for the same (user, work order, site): the loser's
+            // insert returns no row, so it yields the first-seen crossing to the
+            // winner instead of duplicating the event or aborting the ping tx on
+            // the unique constraint.
+            let inserted = sqlx::query_scalar!(
                 r#"
                 INSERT INTO site_geofence_presence
                     (org_id, user_id, work_order_id, site_id, inside, since)
                 VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (org_id, user_id, work_order_id, site_id) DO NOTHING
+                RETURNING inside
                 "#,
                 org_uuid,
                 user_uuid,
@@ -677,8 +721,11 @@ async fn record_geofence_crossings(
                 now_inside,
                 recorded_at,
             )
-            .execute(tx.as_mut())
+            .fetch_optional(tx.as_mut())
             .await?;
+            if inserted.is_none() {
+                continue;
+            }
         } else if crossing.is_some() {
             sqlx::query!(
                 r#"
@@ -707,7 +754,7 @@ async fn record_geofence_crossings(
                 "#,
                 org_uuid,
                 user_uuid,
-                branch_uuid,
+                wo_branch_id,
                 work_order_id,
                 site_id,
                 crossing.kind(),
@@ -732,7 +779,7 @@ async fn record_geofence_crossings(
                 TraceContext::generate(),
                 recorded_at,
             )
-            .with_branch(BranchId::from_uuid(branch_uuid))
+            .with_branch(BranchId::from_uuid(wo_branch_id))
             .with_snapshots(None, Some(after))
             .with_org(OrgId::from_uuid(org_uuid));
             insert_audit_event(tx, &event).await?;

@@ -123,16 +123,18 @@ pub fn validate_bounded_text(
 /// GPS accuracy is typically 5–30 m, so 150 m clears that jitter with margin.
 pub const DEFAULT_GEOFENCE_RADIUS_M: f64 = 150.0;
 
-/// Great-circle (haversine) distance in **whole metres** between two WGS84
+/// Great-circle (haversine) distance in **fractional metres** between two WGS84
 /// coordinates, using the mean Earth radius (6 371 000 m). This is the single
 /// kernel home for the geofence/dispatch distance primitive so domain crates
 /// (which may not depend on one another) share it without duplication.
 ///
-/// Inputs are assumed already range-validated (see [`validate_coordinate_pair`]);
-/// the function is pure and infallible, rounding to the nearest metre — ideal for
-/// a threshold compare such as `haversine_meters(..) <= radius_m`.
+/// Use this unrounded form for a threshold compare such as
+/// `haversine_meters_f64(..) <= radius_m`: rounding to whole metres first (see
+/// [`haversine_meters`]) would push the boundary out by up to ~0.5 m, which is
+/// material for a small geofence radius. Inputs are assumed already
+/// range-validated (see [`validate_coordinate_pair`]); pure and infallible.
 #[must_use]
-pub fn haversine_meters(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> i64 {
+pub fn haversine_meters_f64(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     let radius_meters = 6_371_000.0_f64;
     let phi1 = lat1.to_radians();
     let phi2 = lat2.to_radians();
@@ -141,7 +143,15 @@ pub fn haversine_meters(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> i64 {
     let a =
         (delta_lat / 2.0).sin().powi(2) + phi1.cos() * phi2.cos() * (delta_lon / 2.0).sin().powi(2);
     let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
-    (radius_meters * c).round() as i64
+    radius_meters * c
+}
+
+/// Great-circle distance rounded to the nearest **whole metre**. Presentation /
+/// display form (e.g. "1 234 m away"); for an inside/outside decision prefer the
+/// unrounded [`haversine_meters_f64`].
+#[must_use]
+pub fn haversine_meters(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> i64 {
+    haversine_meters_f64(lat1, lon1, lat2, lon2).round() as i64
 }
 
 #[cfg(test)]

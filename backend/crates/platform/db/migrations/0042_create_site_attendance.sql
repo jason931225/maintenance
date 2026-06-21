@@ -49,7 +49,11 @@ CREATE INDEX idx_site_attendance_events_org_branch_time
 CREATE INDEX idx_site_attendance_events_org_user_time
     ON site_attendance_events (org_id, user_id, occurred_at DESC);
 
--- mnt-gate: audited-table site_geofence_presence
+-- NOT an audited-table: site_geofence_presence is TRANSIENT, location-derived
+-- state, not a durable audit record. It is hard-deleted on consent withdrawal
+-- and time-purged with the raw pings (the location-data carve-out), so it must
+-- stay droppable — marking it `audited-table` would wrongly pin it as
+-- un-droppable durable data. Only site_attendance_events (above) is audited.
 CREATE TABLE site_geofence_presence (
     id            UUID        NOT NULL DEFAULT gen_random_uuid(),
     org_id        UUID        NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
