@@ -10,6 +10,7 @@ import { RequireKpiRoute } from "./components/RequireKpiRoute";
 import { RequirePlatformRoute } from "./components/RequirePlatformRoute";
 import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
 import { PageSpinner } from "./components/states/PageSpinner";
+import { LandingPage } from "./pages/LandingPage";
 import { LoginPage } from "./pages/LoginPage";
 import { WallBoardPage } from "./pages/WallBoardPage";
 import { CustomerIntakePage } from "./pages/CustomerIntakePage";
@@ -102,6 +103,8 @@ export function AppRouter() {
   return (
     <Routes>
       {/* Shell-less full-screen routes */}
+      {/* Public marketing landing page (GitHub #10) */}
+      <Route path="/landing" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/wallboard" element={<WallBoardPage />} />
       {/* Public, unauthenticated customer support intake */}
