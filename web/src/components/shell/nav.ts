@@ -9,6 +9,7 @@ import {
   FileSpreadsheet,
   Gauge,
   LifeBuoy,
+  Map as MapIcon,
   MapPin,
   MessageSquare,
   Receipt,
@@ -111,6 +112,10 @@ export const NAV_GROUPS = [
     label: "nav.groups.operations",
     items: [
       { key: "dispatch",  href: "/dispatch",  labelKey: "nav.dispatch",  Icon: ClipboardList },
+      // dispatch-map (geographic dispatch view): ungated. Its data read is
+      // WorkOrderReadAll (every authenticated role), so it is visible to all,
+      // like dispatch/intake/messenger/support.
+      { key: "dispatch-map", href: "/dispatch-map", labelKey: "nav.dispatch-map", Icon: MapIcon },
       { key: "intake",    href: "/intake",    labelKey: "nav.intake",    Icon: FilePlus },
       { key: "approvals", href: "/approvals", labelKey: "nav.approvals", Icon: CheckSquare },
       { key: "daily-plan", href: "/daily-plan", labelKey: "nav.daily-plan", Icon: CalendarCheck },

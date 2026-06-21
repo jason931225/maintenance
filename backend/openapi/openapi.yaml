@@ -1945,6 +1945,64 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '503':
           description: JWT verification is not configured.
+  /api/v1/equipment-by-location:
+    get:
+      operationId: listEquipmentByLocation
+      summary: Aggregate equipment by site for the dispatch map
+      description: >-
+        Every site visible to the principal with its equipment counts and
+        admin-entered coordinates. Read access (WorkOrderReadAll, all roles);
+        branch-scoped like the substitute search, so a non-SUPER_ADMIN sees only
+        their own branches. Sites with no entered coordinates come back with null
+        latitude/longitude and are listed as ungeocoded rather than pinned.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Sites grouped with equipment counts and coordinates.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EquipmentByLocationPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: JWT verification is not configured.
+  /api/v1/sites/{id}:
+    patch:
+      operationId: updateSite
+      summary: Update a site's coordinates and administrative address
+      description: >-
+        Admin-gated (EquipmentManage). The only coordinate entry point: a site is
+        pinnable on the dispatch map only once an admin writes a valid lat/lon
+        pair here. Latitude/longitude must be updated together and fall within
+        WGS84 ranges; supplying one without the other is a 422. Only supplied
+        fields are written; nullable fields explicitly set to null are cleared.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/SiteId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSiteRequest'
+      responses:
+        '204':
+          description: Site updated.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
   /api/v1/equipment-substitutions:
     post:
       operationId: assignEquipmentSubstitute
@@ -3109,6 +3167,13 @@ components:
         type: string
         format: uuid
     EquipmentSubstitutionId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SiteId:
       name: id
       in: path
       required: true
@@ -5439,6 +5504,106 @@ components:
         total:
           type: integer
           minimum: 0
+    SiteLocationGroup:
+      type: object
+      required:
+      - site_id
+      - site_name
+      - customer_name
+      - branch_id
+      - province
+      - city
+      - latitude
+      - longitude
+      - equipment_count
+      - rented_count
+      - spare_count
+      - substitution_active_count
+      properties:
+        site_id:
+          $ref: '#/components/schemas/Uuid'
+        site_name:
+          type: string
+        customer_name:
+          type: string
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        province:
+          type:
+          - string
+          - 'null'
+        city:
+          type:
+          - string
+          - 'null'
+        latitude:
+          type:
+          - number
+          - 'null'
+          format: double
+        longitude:
+          type:
+          - number
+          - 'null'
+          format: double
+        equipment_count:
+          type: integer
+          format: int64
+        rented_count:
+          type: integer
+          format: int64
+        spare_count:
+          type: integer
+          format: int64
+        substitution_active_count:
+          type: integer
+          format: int64
+    EquipmentByLocationPage:
+      type: object
+      required:
+      - items
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SiteLocationGroup'
+        total:
+          type: integer
+          minimum: 0
+    UpdateSiteRequest:
+      type: object
+      description: >-
+        Partial site update. Absent keys are left unchanged; nullable keys set to
+        null clear the column. Latitude and longitude must be supplied together
+        and within WGS84 ranges.
+      properties:
+        address:
+          type:
+          - string
+          - 'null'
+        province:
+          type:
+          - string
+          - 'null'
+        city:
+          type:
+          - string
+          - 'null'
+        postal_code:
+          type:
+          - string
+          - 'null'
+        latitude:
+          type:
+          - number
+          - 'null'
+          format: double
+        longitude:
+          type:
+          - number
+          - 'null'
+          format: double
     AssignSubstituteRequest:
       type: object
       required:

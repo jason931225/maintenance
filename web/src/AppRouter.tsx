@@ -23,6 +23,11 @@ const OnboardingPage = lazy(() =>
 const DispatchPage = lazy(() =>
   import("./pages/DispatchPage").then((m) => ({ default: m.DispatchPage })),
 );
+const DispatchMapPage = lazy(() =>
+  import("./pages/DispatchMapPage").then((m) => ({
+    default: m.DispatchMapPage,
+  })),
+);
 const IntakePage = lazy(() =>
   import("./pages/IntakePage").then((m) => ({ default: m.IntakePage })),
 );
@@ -137,6 +142,7 @@ export function AppRouter() {
         <Route element={<AppShell />}>
           <Route index element={<Navigate to="/dispatch" replace />} />
           <Route path="/dispatch" element={<DispatchPage />} />
+          <Route path="/dispatch-map" element={<DispatchMapPage />} />
           <Route path="/intake" element={<IntakePage />} />
           <Route element={<RequireDailyPlanRoute />}>
             <Route path="/daily-plan" element={<DailyPlanPage />} />

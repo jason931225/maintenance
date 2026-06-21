@@ -400,6 +400,20 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/equipment/{id}/substitutes`.
     /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/substitutes/get(listEquipmentSubstitutes)`.
     func listEquipmentSubstitutes(_ input: Operations.ListEquipmentSubstitutes.Input) async throws -> Operations.ListEquipmentSubstitutes.Output
+    /// Aggregate equipment by site for the dispatch map
+    ///
+    /// Every site visible to the principal with its equipment counts and admin-entered coordinates. Read access (WorkOrderReadAll, all roles); branch-scoped like the substitute search, so a non-SUPER_ADMIN sees only their own branches. Sites with no entered coordinates come back with null latitude/longitude and are listed as ungeocoded rather than pinned.
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment-by-location`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment-by-location/get(listEquipmentByLocation)`.
+    func listEquipmentByLocation(_ input: Operations.ListEquipmentByLocation.Input) async throws -> Operations.ListEquipmentByLocation.Output
+    /// Update a site's coordinates and administrative address
+    ///
+    /// Admin-gated (EquipmentManage). The only coordinate entry point: a site is pinnable on the dispatch map only once an admin writes a valid lat/lon pair here. Latitude/longitude must be updated together and fall within WGS84 ranges; supplying one without the other is a 422. Only supplied fields are written; nullable fields explicitly set to null are cleared.
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/sites/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/sites/{id}/patch(updateSite)`.
+    func updateSite(_ input: Operations.UpdateSite.Input) async throws -> Operations.UpdateSite.Output
     /// Assign a substitute (대차) unit to a down/under-repair equipment
     ///
     /// Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
@@ -1548,6 +1562,32 @@ extension APIProtocol {
             path: path,
             query: query,
             headers: headers
+        ))
+    }
+    /// Aggregate equipment by site for the dispatch map
+    ///
+    /// Every site visible to the principal with its equipment counts and admin-entered coordinates. Read access (WorkOrderReadAll, all roles); branch-scoped like the substitute search, so a non-SUPER_ADMIN sees only their own branches. Sites with no entered coordinates come back with null latitude/longitude and are listed as ungeocoded rather than pinned.
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment-by-location`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment-by-location/get(listEquipmentByLocation)`.
+    public func listEquipmentByLocation(headers: Operations.ListEquipmentByLocation.Input.Headers = .init()) async throws -> Operations.ListEquipmentByLocation.Output {
+        try await listEquipmentByLocation(Operations.ListEquipmentByLocation.Input(headers: headers))
+    }
+    /// Update a site's coordinates and administrative address
+    ///
+    /// Admin-gated (EquipmentManage). The only coordinate entry point: a site is pinnable on the dispatch map only once an admin writes a valid lat/lon pair here. Latitude/longitude must be updated together and fall within WGS84 ranges; supplying one without the other is a 422. Only supplied fields are written; nullable fields explicitly set to null are cleared.
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/sites/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/sites/{id}/patch(updateSite)`.
+    public func updateSite(
+        path: Operations.UpdateSite.Input.Path,
+        headers: Operations.UpdateSite.Input.Headers = .init(),
+        body: Operations.UpdateSite.Input.Body
+    ) async throws -> Operations.UpdateSite.Output {
+        try await updateSite(Operations.UpdateSite.Input(
+            path: path,
+            headers: headers,
+            body: body
         ))
     }
     /// Assign a substitute (대차) unit to a down/under-repair equipment
@@ -6241,6 +6281,161 @@ public enum Components {
                 case total
             }
         }
+        /// - Remark: Generated from `#/components/schemas/SiteLocationGroup`.
+        public struct SiteLocationGroup: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/site_id`.
+            public var siteId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/site_name`.
+            public var siteName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/customer_name`.
+            public var customerName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/province`.
+            public var province: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/city`.
+            public var city: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/latitude`.
+            public var latitude: Swift.Double?
+            /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/longitude`.
+            public var longitude: Swift.Double?
+            /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/equipment_count`.
+            public var equipmentCount: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/rented_count`.
+            public var rentedCount: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/spare_count`.
+            public var spareCount: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/substitution_active_count`.
+            public var substitutionActiveCount: Swift.Int64
+            /// Creates a new `SiteLocationGroup`.
+            ///
+            /// - Parameters:
+            ///   - siteId:
+            ///   - siteName:
+            ///   - customerName:
+            ///   - branchId:
+            ///   - province:
+            ///   - city:
+            ///   - latitude:
+            ///   - longitude:
+            ///   - equipmentCount:
+            ///   - rentedCount:
+            ///   - spareCount:
+            ///   - substitutionActiveCount:
+            public init(
+                siteId: Components.Schemas.Uuid,
+                siteName: Swift.String,
+                customerName: Swift.String,
+                branchId: Components.Schemas.Uuid,
+                province: Swift.String? = nil,
+                city: Swift.String? = nil,
+                latitude: Swift.Double? = nil,
+                longitude: Swift.Double? = nil,
+                equipmentCount: Swift.Int64,
+                rentedCount: Swift.Int64,
+                spareCount: Swift.Int64,
+                substitutionActiveCount: Swift.Int64
+            ) {
+                self.siteId = siteId
+                self.siteName = siteName
+                self.customerName = customerName
+                self.branchId = branchId
+                self.province = province
+                self.city = city
+                self.latitude = latitude
+                self.longitude = longitude
+                self.equipmentCount = equipmentCount
+                self.rentedCount = rentedCount
+                self.spareCount = spareCount
+                self.substitutionActiveCount = substitutionActiveCount
+            }
+            public enum CodingKeys: String, CodingKey {
+                case siteId = "site_id"
+                case siteName = "site_name"
+                case customerName = "customer_name"
+                case branchId = "branch_id"
+                case province
+                case city
+                case latitude
+                case longitude
+                case equipmentCount = "equipment_count"
+                case rentedCount = "rented_count"
+                case spareCount = "spare_count"
+                case substitutionActiveCount = "substitution_active_count"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EquipmentByLocationPage`.
+        public struct EquipmentByLocationPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EquipmentByLocationPage/items`.
+            public var items: [Components.Schemas.SiteLocationGroup]
+            /// - Remark: Generated from `#/components/schemas/EquipmentByLocationPage/total`.
+            public var total: Swift.Int
+            /// Creates a new `EquipmentByLocationPage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - total:
+            public init(
+                items: [Components.Schemas.SiteLocationGroup],
+                total: Swift.Int
+            ) {
+                self.items = items
+                self.total = total
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case total
+            }
+        }
+        /// Partial site update. Absent keys are left unchanged; nullable keys set to null clear the column. Latitude and longitude must be supplied together and within WGS84 ranges.
+        ///
+        /// - Remark: Generated from `#/components/schemas/UpdateSiteRequest`.
+        public struct UpdateSiteRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UpdateSiteRequest/address`.
+            public var address: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateSiteRequest/province`.
+            public var province: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateSiteRequest/city`.
+            public var city: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateSiteRequest/postal_code`.
+            public var postalCode: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdateSiteRequest/latitude`.
+            public var latitude: Swift.Double?
+            /// - Remark: Generated from `#/components/schemas/UpdateSiteRequest/longitude`.
+            public var longitude: Swift.Double?
+            /// Creates a new `UpdateSiteRequest`.
+            ///
+            /// - Parameters:
+            ///   - address:
+            ///   - province:
+            ///   - city:
+            ///   - postalCode:
+            ///   - latitude:
+            ///   - longitude:
+            public init(
+                address: Swift.String? = nil,
+                province: Swift.String? = nil,
+                city: Swift.String? = nil,
+                postalCode: Swift.String? = nil,
+                latitude: Swift.Double? = nil,
+                longitude: Swift.Double? = nil
+            ) {
+                self.address = address
+                self.province = province
+                self.city = city
+                self.postalCode = postalCode
+                self.latitude = latitude
+                self.longitude = longitude
+            }
+            public enum CodingKeys: String, CodingKey {
+                case address
+                case province
+                case city
+                case postalCode = "postal_code"
+                case latitude
+                case longitude
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/AssignSubstituteRequest`.
         public struct AssignSubstituteRequest: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/AssignSubstituteRequest/source_equipment_id`.
@@ -8150,6 +8345,8 @@ public enum Components {
         public typealias QuoteId = Swift.String
         /// - Remark: Generated from `#/components/parameters/EquipmentSubstitutionId`.
         public typealias EquipmentSubstitutionId = Swift.String
+        /// - Remark: Generated from `#/components/parameters/SiteId`.
+        public typealias SiteId = Swift.String
         /// - Remark: Generated from `#/components/parameters/EquipmentIdV2`.
         public typealias EquipmentIdV2 = Swift.String
         /// - Remark: Generated from `#/components/parameters/PurchaseRequestId`.
@@ -21833,6 +22030,449 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.serviceUnavailable`.
             /// - SeeAlso: `.serviceUnavailable`.
             public var serviceUnavailable: Operations.ListEquipmentSubstitutes.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Aggregate equipment by site for the dispatch map
+    ///
+    /// Every site visible to the principal with its equipment counts and admin-entered coordinates. Read access (WorkOrderReadAll, all roles); branch-scoped like the substitute search, so a non-SUPER_ADMIN sees only their own branches. Sites with no entered coordinates come back with null latitude/longitude and are listed as ungeocoded rather than pinned.
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment-by-location`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment-by-location/get(listEquipmentByLocation)`.
+    public enum ListEquipmentByLocation {
+        public static let id: Swift.String = "listEquipmentByLocation"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/equipment-by-location/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListEquipmentByLocation.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListEquipmentByLocation.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListEquipmentByLocation.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.ListEquipmentByLocation.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment-by-location/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/equipment-by-location/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.EquipmentByLocationPage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.EquipmentByLocationPage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListEquipmentByLocation.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListEquipmentByLocation.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Sites grouped with equipment counts and coordinates.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-by-location/get(listEquipmentByLocation)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListEquipmentByLocation.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListEquipmentByLocation.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-by-location/get(listEquipmentByLocation)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-by-location/get(listEquipmentByLocation)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-by-location/get(listEquipmentByLocation)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ListEquipmentByLocation.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment-by-location/get(listEquipmentByLocation)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ListEquipmentByLocation.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Update a site's coordinates and administrative address
+    ///
+    /// Admin-gated (EquipmentManage). The only coordinate entry point: a site is pinnable on the dispatch map only once an admin writes a valid lat/lon pair here. Latitude/longitude must be updated together and fall within WGS84 ranges; supplying one without the other is a 422. Only supplied fields are written; nullable fields explicitly set to null are cleared.
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/sites/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/sites/{id}/patch(updateSite)`.
+    public enum UpdateSite {
+        public static let id: Swift.String = "updateSite"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/sites/{id}/PATCH/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/sites/{id}/PATCH/path/id`.
+                public var id: Components.Parameters.SiteId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Parameters.SiteId) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.UpdateSite.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/sites/{id}/PATCH/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdateSite.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdateSite.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.UpdateSite.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/sites/{id}/PATCH/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/sites/{id}/PATCH/requestBody/content/application\/json`.
+                case json(Components.Schemas.UpdateSiteRequest)
+            }
+            public var body: Operations.UpdateSite.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.UpdateSite.Input.Path,
+                headers: Operations.UpdateSite.Input.Headers = .init(),
+                body: Operations.UpdateSite.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                public init() {}
+            }
+            /// Site updated.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sites/{id}/patch(updateSite)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.UpdateSite.Output.NoContent)
+            /// Site updated.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sites/{id}/patch(updateSite)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            public static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            public var noContent: Operations.UpdateSite.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sites/{id}/patch(updateSite)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sites/{id}/patch(updateSite)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sites/{id}/patch(updateSite)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sites/{id}/patch(updateSite)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sites/{id}/patch(updateSite)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.UpdateSite.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sites/{id}/patch(updateSite)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.UpdateSite.Output.ServiceUnavailable {
                 get throws {
                     switch self {
                     case let .serviceUnavailable(response):

@@ -6,7 +6,7 @@
 
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId,
-    KernelError, Timestamp, TraceContext, UserId,
+    KernelError, SiteId, Timestamp, TraceContext, UserId,
 };
 use mnt_registry_domain::{EquipmentNo, EquipmentStatus, MoneyWon, SubstituteMatchKind, Ton};
 use time::Date;
@@ -263,6 +263,88 @@ pub struct DeleteEquipmentCommand {
     pub equipment_id: EquipmentId,
     pub trace: TraceContext,
     pub occurred_at: Timestamp,
+}
+
+/// Branch-scoped read of the dispatch map's per-site equipment aggregation.
+/// The scope is the principal's `branch_scope` so a non-SUPER_ADMIN sees only
+/// their branches — the same filter `list_equipment_substitutes` applies.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EquipmentByLocationQuery {
+    pub branch_scope: BranchScope,
+}
+
+/// One site row for the dispatch map. Sites with no entered coordinates come
+/// back with `latitude`/`longitude` = `None`; the UI lists them as "ungeocoded"
+/// instead of dropping a fabricated pin. Counts are computed in SQL from the
+/// Korean status literals (`임대` rented, `예비` spare) and the active-substitution
+/// table, so the map never shows a fake number either.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SiteLocationGroup {
+    pub site_id: SiteId,
+    pub site_name: String,
+    pub customer_name: String,
+    pub branch_id: BranchId,
+    pub province: Option<String>,
+    pub city: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub equipment_count: i64,
+    pub rented_count: i64,
+    pub spare_count: i64,
+    pub substitution_active_count: i64,
+}
+
+/// Partial coordinate/address update for one site. Every field is optional so a
+/// caller can set only what it has; absent fields are left unchanged. This is
+/// the ONLY coordinate entry point — coordinates exist solely because an admin
+/// (EquipmentManage) typed them, satisfying "no fake pins until data entered".
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UpdateSiteFields {
+    pub address: Option<Option<String>>,
+    pub province: Option<Option<String>>,
+    pub city: Option<Option<String>>,
+    pub postal_code: Option<Option<String>>,
+    pub latitude: Option<Option<f64>>,
+    pub longitude: Option<Option<f64>>,
+}
+
+impl UpdateSiteFields {
+    /// True when no field would be written, so the adapter can reject an empty
+    /// patch with a validation error instead of opening a transaction.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UpdateSiteCommand {
+    pub actor: UserId,
+    pub site_id: SiteId,
+    pub fields: UpdateSiteFields,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+pub fn site_update_audit_event(
+    actor: UserId,
+    branch_id: BranchId,
+    site_id: SiteId,
+    before: serde_json::Value,
+    after: serde_json::Value,
+    trace: TraceContext,
+    occurred_at: Timestamp,
+) -> Result<AuditEvent, KernelError> {
+    Ok(AuditEvent::new(
+        Some(actor),
+        AuditAction::new("site.update")?,
+        "registry_sites",
+        site_id.to_string(),
+        trace,
+        occurred_at,
+    )
+    .with_branch(branch_id)
+    .with_snapshots(Some(before), Some(after)))
 }
 
 pub fn equipment_create_audit_event(

@@ -18,6 +18,7 @@ function visibleItems(roles: readonly string[]): string[] {
 const EXPECTED_VISIBLE: Record<string, string[]> = {
   [ROLES.SUPER_ADMIN]: [
     "dispatch",
+    "dispatch-map",
     "intake",
     "approvals",
     "daily-plan",
@@ -37,6 +38,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
   ],
   [ROLES.ADMIN]: [
     "dispatch",
+    "dispatch-map",
     "intake",
     "approvals",
     "daily-plan",
@@ -58,6 +60,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
   // shared; reporting (ExcelDownload) is allowed for every role.
   [ROLES.EXECUTIVE]: [
     "dispatch",
+    "dispatch-map",
     "intake",
     "messenger",
     "support",
@@ -72,6 +75,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
   // approvals/kpi/users/org/security. reporting is shared (ExcelDownload [A...]).
   [ROLES.MECHANIC]: [
     "dispatch",
+    "dispatch-map",
     "intake",
     "daily-plan",
     "messenger",
@@ -85,6 +89,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
   // Receptionist: same surface as mechanic minus daily-plan (no DailyPlanRequest).
   [ROLES.RECEPTIONIST]: [
     "dispatch",
+    "dispatch-map",
     "intake",
     "messenger",
     "support",
@@ -149,7 +154,7 @@ describe("nav role gating", () => {
 
   it("shows shared pages to all roles", () => {
     for (const role of Object.values(ROLES)) {
-      for (const key of ["dispatch", "intake", "messenger", "support", "reporting", "equipment", "financial", "location", "profile"]) {
+      for (const key of ["dispatch", "dispatch-map", "intake", "messenger", "support", "reporting", "equipment", "financial", "location", "profile"]) {
         expect(isNavItemVisible(key, [role])).toBe(true);
       }
     }

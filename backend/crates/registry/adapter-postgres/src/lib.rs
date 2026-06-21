@@ -11,18 +11,19 @@ use std::path::Path;
 
 use calamine::{Data, DataType, Range, Reader, open_workbook_auto};
 use mnt_kernel_core::{
-    BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId, KernelError, OrgId, TraceContext,
-    UserId,
+    BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId, KernelError, OrgId, SiteId,
+    TraceContext, UserId,
 };
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_platform_request_context::current_org;
 use mnt_registry_application::{
-    CreateEquipmentCommand, DeleteEquipmentCommand, ImportSheet, MasterListEquipment,
-    ParsedMasterList, RegistryImportReport, RegistryRowError, SubstituteAssignment,
-    SubstituteAssignmentCommand, SubstituteCandidate, SubstituteReturnCommand, SubstituteSearch,
-    UpdateEquipmentCommand, equipment_create_audit_event, equipment_delete_audit_event,
-    equipment_update_audit_event, registry_import_audit_event, substitute_assign_audit_event,
-    substitute_return_audit_event,
+    CreateEquipmentCommand, DeleteEquipmentCommand, EquipmentByLocationQuery, ImportSheet,
+    MasterListEquipment, ParsedMasterList, RegistryImportReport, RegistryRowError,
+    SiteLocationGroup, SubstituteAssignment, SubstituteAssignmentCommand, SubstituteCandidate,
+    SubstituteReturnCommand, SubstituteSearch, UpdateEquipmentCommand, UpdateSiteCommand,
+    UpdateSiteFields, equipment_create_audit_event, equipment_delete_audit_event,
+    equipment_update_audit_event, registry_import_audit_event, site_update_audit_event,
+    substitute_assign_audit_event, substitute_return_audit_event,
 };
 use mnt_registry_domain::{
     EquipmentNo, EquipmentStatus, MoneyWon, SubstituteEquipmentProfile, Ton,
@@ -272,6 +273,103 @@ impl PgRegistryStore {
                 .bind(EquipmentStatus::Disposed.as_db_str())
                 .execute(tx.as_mut())
                 .await?;
+                Ok(())
+            })
+        })
+        .await
+    }
+
+    /// Aggregate every site visible to `query.branch_scope` with its equipment
+    /// counts and (admin-entered) coordinates, for the dispatch map. RLS-armed:
+    /// the whole aggregation runs inside `with_org_conn`, so a missing tenant
+    /// sees nothing. Sites with NULL coordinates are returned with `None`
+    /// coordinates so the UI can list them as ungeocoded instead of pinning a
+    /// fabricated location. The branch filter mirrors `substitute_candidates`.
+    pub async fn equipment_by_location(
+        &self,
+        query: EquipmentByLocationQuery,
+    ) -> Result<Vec<SiteLocationGroup>, PgRegistryError> {
+        let mut builder = QueryBuilder::<Postgres>::new(
+            r#"
+        SELECT
+            s.id            AS site_id,
+            s.name          AS site_name,
+            c.name          AS customer_name,
+            s.branch_id     AS branch_id,
+            s.province      AS province,
+            s.city          AS city,
+            s.latitude      AS latitude,
+            s.longitude     AS longitude,
+            COUNT(e.id) FILTER (WHERE e.id IS NOT NULL)        AS equipment_count,
+            COUNT(e.id) FILTER (WHERE e.status = '임대')         AS rented_count,
+            COUNT(e.id) FILTER (WHERE e.status = '예비')         AS spare_count,
+            COUNT(sub.id)                                      AS substitution_active_count
+        FROM registry_sites s
+        JOIN registry_customers c ON c.id = s.customer_id
+        LEFT JOIN registry_equipment e ON e.site_id = s.id
+        LEFT JOIN equipment_substitutions sub
+            ON sub.substitute_equipment_id = e.id
+           AND sub.returned_at IS NULL
+        "#,
+        );
+        push_site_branch_filter(&mut builder, &query.branch_scope)?;
+        builder.push(
+            r#"
+        GROUP BY s.id, s.name, c.name, s.branch_id, s.province, s.city, s.latitude, s.longitude
+        ORDER BY s.province NULLS LAST, s.city NULLS LAST, s.name ASC
+        "#,
+        );
+
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgRegistryError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
+        rows.iter().map(site_location_group_from_row).collect()
+    }
+
+    /// Apply a partial coordinate/address update to one site, audited with
+    /// before/after snapshots. This is the only coordinate entry point: a site
+    /// is pinnable only once an admin writes a valid lat/lon pair here.
+    // mnt-gate: state-changing-handler
+    pub async fn update_site(
+        &self,
+        command: UpdateSiteCommand,
+    ) -> Result<(), PgRegistryError> {
+        if command.fields.is_empty() {
+            return Err(KernelError::validation("no site fields to update").into());
+        }
+        let existing = fetch_site_admin_row(self.pool(), command.site_id)
+            .await?
+            .ok_or_else(|| KernelError::not_found("site was not found"))?;
+        let org = current_org().map_err(KernelError::from)?;
+        let after = site_after_snapshot(&existing.snapshot, &command.fields);
+        let event = site_update_audit_event(
+            command.actor,
+            existing.branch_id,
+            command.site_id,
+            existing.snapshot.clone(),
+            after,
+            command.trace.clone(),
+            command.occurred_at,
+        )?
+        .with_org(org);
+        let site_id = command.site_id;
+        let fields = command.fields;
+
+        with_audit::<_, (), PgRegistryError>(&self.pool, event, move |tx| {
+            Box::pin(async move {
+                let mut builder =
+                    QueryBuilder::<Postgres>::new("UPDATE registry_sites SET updated_at = now()");
+                push_site_assignment(&mut builder, "address", &fields.address);
+                push_site_assignment(&mut builder, "province", &fields.province);
+                push_site_assignment(&mut builder, "city", &fields.city);
+                push_site_assignment(&mut builder, "postal_code", &fields.postal_code);
+                push_site_f64_assignment(&mut builder, "latitude", &fields.latitude);
+                push_site_f64_assignment(&mut builder, "longitude", &fields.longitude);
+                builder.push(" WHERE id = ");
+                builder.push_bind(*site_id.as_uuid());
+                builder.build().execute(tx.as_mut()).await?;
                 Ok(())
             })
         })
@@ -699,6 +797,157 @@ fn push_candidate_branch_filter(
             builder.push(")");
             Ok(())
         }
+    }
+}
+
+/// Restrict the by-location aggregation to `scope`'s branches. `s.branch_id` is
+/// the site's branch; an empty branch list yields no rows (`WHERE FALSE`). This
+/// is the same scope rule `push_candidate_branch_filter` applies, so a
+/// non-SUPER_ADMIN only ever aggregates their own branches.
+fn push_site_branch_filter(
+    builder: &mut QueryBuilder<Postgres>,
+    scope: &BranchScope,
+) -> Result<(), PgRegistryError> {
+    match scope {
+        BranchScope::All => Ok(()),
+        BranchScope::Branches(branches) if branches.is_empty() => {
+            builder.push(" WHERE FALSE");
+            Ok(())
+        }
+        BranchScope::Branches(branches) => {
+            let branch_ids = branches
+                .iter()
+                .map(|branch_id| *branch_id.as_uuid())
+                .collect::<Vec<_>>();
+            builder.push(" WHERE s.branch_id = ANY(");
+            builder.push_bind(branch_ids);
+            builder.push(")");
+            Ok(())
+        }
+    }
+}
+
+fn site_location_group_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<SiteLocationGroup, PgRegistryError> {
+    Ok(SiteLocationGroup {
+        site_id: SiteId::from_uuid(row.try_get("site_id")?),
+        site_name: row.try_get("site_name")?,
+        customer_name: row.try_get("customer_name")?,
+        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+        province: row.try_get("province")?,
+        city: row.try_get("city")?,
+        latitude: row.try_get("latitude")?,
+        longitude: row.try_get("longitude")?,
+        equipment_count: row.try_get("equipment_count")?,
+        rented_count: row.try_get("rented_count")?,
+        spare_count: row.try_get("spare_count")?,
+        substitution_active_count: row.try_get("substitution_active_count")?,
+    })
+}
+
+/// One site row plus the JSON before-snapshot used to audit a coordinate write.
+struct SiteAdminRow {
+    branch_id: BranchId,
+    snapshot: serde_json::Value,
+}
+
+async fn fetch_site_admin_row(
+    pool: &PgPool,
+    site_id: SiteId,
+) -> Result<Option<SiteAdminRow>, PgRegistryError> {
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgRegistryError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
+        SELECT id, branch_id, name, address, province, city, postal_code, latitude, longitude
+        FROM registry_sites
+        WHERE id = $1
+        "#,
+            )
+            .bind(*site_id.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?)
+        })
+    })
+    .await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let snapshot = json!({
+        "id": SiteId::from_uuid(row.try_get("id")?),
+        "name": row.try_get::<String, _>("name")?,
+        "address": row.try_get::<Option<String>, _>("address")?,
+        "province": row.try_get::<Option<String>, _>("province")?,
+        "city": row.try_get::<Option<String>, _>("city")?,
+        "postal_code": row.try_get::<Option<String>, _>("postal_code")?,
+        "latitude": row.try_get::<Option<f64>, _>("latitude")?,
+        "longitude": row.try_get::<Option<f64>, _>("longitude")?,
+    });
+    Ok(Some(SiteAdminRow {
+        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+        snapshot,
+    }))
+}
+
+/// Build the audit after-snapshot by overlaying the requested field changes onto
+/// the before-snapshot. `Some(value)` sets, `Some(None)` clears (JSON null),
+/// `None` leaves the prior value untouched.
+fn site_after_snapshot(
+    before: &serde_json::Value,
+    fields: &UpdateSiteFields,
+) -> serde_json::Value {
+    let mut after = before.clone();
+    overlay_text(&mut after, "address", &fields.address);
+    overlay_text(&mut after, "province", &fields.province);
+    overlay_text(&mut after, "city", &fields.city);
+    overlay_text(&mut after, "postal_code", &fields.postal_code);
+    overlay_f64(&mut after, "latitude", &fields.latitude);
+    overlay_f64(&mut after, "longitude", &fields.longitude);
+    after
+}
+
+fn overlay_text(target: &mut serde_json::Value, key: &str, change: &Option<Option<String>>) {
+    if let Some(value) = change {
+        target[key] = match value {
+            Some(text) => serde_json::Value::String(text.clone()),
+            None => serde_json::Value::Null,
+        };
+    }
+}
+
+fn overlay_f64(target: &mut serde_json::Value, key: &str, change: &Option<Option<f64>>) {
+    if let Some(value) = change {
+        target[key] = match value {
+            Some(number) => serde_json::json!(number),
+            None => serde_json::Value::Null,
+        };
+    }
+}
+
+/// Push ` , <col> = <bind>` for a nullable text field when the caller supplied a
+/// change. `Some(text)` sets the value; `Some(None)` clears it to NULL.
+fn push_site_assignment(
+    builder: &mut QueryBuilder<Postgres>,
+    column: &str,
+    change: &Option<Option<String>>,
+) {
+    if let Some(value) = change {
+        builder.push(format!(", {column} = "));
+        builder.push_bind(value.clone());
+    }
+}
+
+/// Like [`push_site_assignment`] for a nullable `DOUBLE PRECISION` column.
+fn push_site_f64_assignment(
+    builder: &mut QueryBuilder<Postgres>,
+    column: &str,
+    change: &Option<Option<f64>>,
+) {
+    if let Some(value) = change {
+        builder.push(format!(", {column} = "));
+        builder.push_bind(*value);
     }
 }
 

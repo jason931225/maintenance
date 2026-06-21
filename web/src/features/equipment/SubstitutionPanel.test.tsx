@@ -99,6 +99,12 @@ function searchHandlers() {
       HttpResponse.json({ items: [equipment], limit: 5 }),
     ),
     http.get("*/api/v1/equipment/lookup", () => HttpResponse.json(equipment)),
+    // The /equipment page mounts the admin SiteGeographyPanel, which loads the
+    // dispatch-map site aggregation on render; stub it so the request never
+    // falls through to the real network.
+    http.get("*/api/v1/equipment-by-location", () =>
+      HttpResponse.json({ items: [], total: 0 }),
+    ),
   ];
 }
 

@@ -6,6 +6,7 @@ import { hasAnyRole, ROLES } from "../components/shell/nav";
 import { PageHeader } from "../components/shell/PageHeader";
 import { PageError } from "../components/states/PageError";
 import { EquipmentManagementPanel } from "../features/equipment/EquipmentManagementPanel";
+import { SiteGeographyPanel } from "../features/equipment/SiteGeographyPanel";
 import { SubstitutionPanel } from "../features/equipment/SubstitutionPanel";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
@@ -179,6 +180,9 @@ export function EquipmentPage() {
             onMutated={refreshSearch}
           />
         ) : null}
+        {/* Site coordinate entry feeds the dispatch map; coordinates are
+            admin-entered (EquipmentManage) and exist only once saved here. */}
+        {canManage ? <SiteGeographyPanel api={api} /> : null}
         {/* Reading substitute candidates is a read-access capability available to
             mechanics; only the assign/return mutations require EquipmentManage,
             which the panel gates internally via `canManage`. */}

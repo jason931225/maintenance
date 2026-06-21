@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse, ws } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter } from "react-router-dom";
@@ -64,6 +64,10 @@ const server = setupServer(
   http.get("*/api/v1/equipment/lookup", () =>
     HttpResponse.json({ message: "not found" }, { status: 404 }),
   ),
+  // Dispatch-map aggregation: no sites in a cold-start tenant → empty page.
+  http.get("*/api/v1/equipment-by-location", () =>
+    HttpResponse.json({ items: [], total: 0 }),
+  ),
   http.get("*/api/v1/kpi", () => HttpResponse.json(emptyKpiReport)),
   http.get("*/api/messenger/threads", () =>
     HttpResponse.json({ items: [] }),
@@ -82,6 +86,24 @@ const server = setupServer(
     HttpResponse.json({ items: [], limit: 10, offset: 0, total: 0 }),
   ),
 );
+
+// Track in-flight requests so a test can wait for late on-mount fetches (e.g.
+// the dispatch-map aggregation the equipment screen issues) to fully resolve
+// before it ends — otherwise the request would escape this file's MSW window
+// and hit the real network during a later test file.
+let inFlight = 0;
+server.events.on("request:start", () => {
+  inFlight += 1;
+});
+server.events.on("request:end", () => {
+  inFlight -= 1;
+});
+
+async function waitForNetworkIdle() {
+  await waitFor(() => {
+    expect(inFlight).toBe(0);
+  });
+}
 
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" });
@@ -182,6 +204,14 @@ describe("every page renders cleanly against an empty backend", () => {
         "호기를 입력하면 장비와 고객 정보를 조회합니다.",
       ),
     ).toBeVisible();
+    // The admin site-coordinate panel mounts and loads its (empty) site list;
+    // its select must render and the equipment-by-location fetch must fully
+    // settle within this MSW window so it cannot leak to the real network in a
+    // later test.
+    expect(
+      await screen.findByRole("combobox", { name: "사업장 선택" }),
+    ).toBeVisible();
+    await waitForNetworkIdle();
   });
 
   it("renders /intake against an empty backend", async () => {
@@ -189,6 +219,22 @@ describe("every page renders cleanly against an empty backend", () => {
     expect(
       await screen.findByRole("heading", { name: "접수 입력", level: 1 }),
     ).toBeVisible();
+  });
+
+  it("renders /dispatch-map empty-state (no geocoded sites) without a blank map", async () => {
+    renderAt("/dispatch-map");
+    expect(
+      await screen.findByRole("heading", { name: "배차 지도", level: 1 }),
+    ).toBeVisible();
+    // Zero geocoded sites must surface the empty-state message + a link to site
+    // management, never a blank map or a fabricated pin.
+    expect(
+      await screen.findByText(/좌표가 입력된 사업장이 없습니다/),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "사업장 관리로 이동" }),
+    ).toBeVisible();
+    await waitForNetworkIdle();
   });
 
   it("renders /settings/location against an empty backend", async () => {

@@ -1365,6 +1365,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/equipment-by-location": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Aggregate equipment by site for the dispatch map
+         * @description Every site visible to the principal with its equipment counts and admin-entered coordinates. Read access (WorkOrderReadAll, all roles); branch-scoped like the substitute search, so a non-SUPER_ADMIN sees only their own branches. Sites with no entered coordinates come back with null latitude/longitude and are listed as ungeocoded rather than pinned.
+         */
+        get: operations["listEquipmentByLocation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sites/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update a site's coordinates and administrative address
+         * @description Admin-gated (EquipmentManage). The only coordinate entry point: a site is pinnable on the dispatch map only once an admin writes a valid lat/lon pair here. Latitude/longitude must be updated together and fall within WGS84 ranges; supplying one without the other is a 422. Only supplied fields are written; nullable fields explicitly set to null are cleared.
+         */
+        patch: operations["updateSite"];
+        trace?: never;
+    };
     "/api/v1/equipment-substitutions": {
         parameters: {
             query?: never;
@@ -2765,6 +2805,41 @@ export interface components {
             items: components["schemas"]["SubstituteCandidate"][];
             total: number;
         };
+        SiteLocationGroup: {
+            site_id: components["schemas"]["Uuid"];
+            site_name: string;
+            customer_name: string;
+            branch_id: components["schemas"]["Uuid"];
+            province: string | null;
+            city: string | null;
+            /** Format: double */
+            latitude: number | null;
+            /** Format: double */
+            longitude: number | null;
+            /** Format: int64 */
+            equipment_count: number;
+            /** Format: int64 */
+            rented_count: number;
+            /** Format: int64 */
+            spare_count: number;
+            /** Format: int64 */
+            substitution_active_count: number;
+        };
+        EquipmentByLocationPage: {
+            items: components["schemas"]["SiteLocationGroup"][];
+            total: number;
+        };
+        /** @description Partial site update. Absent keys are left unchanged; nullable keys set to null clear the column. Latitude and longitude must be supplied together and within WGS84 ranges. */
+        UpdateSiteRequest: {
+            address?: string | null;
+            province?: string | null;
+            city?: string | null;
+            postal_code?: string | null;
+            /** Format: double */
+            latitude?: number | null;
+            /** Format: double */
+            longitude?: number | null;
+        };
         AssignSubstituteRequest: {
             /** Format: uuid */
             source_equipment_id: string;
@@ -3240,6 +3315,7 @@ export interface components {
         EquipmentId: string;
         QuoteId: string;
         EquipmentSubstitutionId: string;
+        SiteId: string;
         EquipmentIdV2: string;
         PurchaseRequestId: string;
         DispatchId: string;
@@ -4999,6 +5075,70 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SubstituteCandidatePage"];
                 };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listEquipmentByLocation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sites grouped with equipment counts and coordinates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EquipmentByLocationPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateSite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSiteRequest"];
+            };
+        };
+        responses: {
+            /** @description Site updated. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];

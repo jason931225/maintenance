@@ -77,6 +77,7 @@ src/main/kotlin/com/maintenance/api/client/model/DeviceRegistrationResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/DispatchResponseKind.kt
 src/main/kotlin/com/maintenance/api/client/model/DispatchStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/EquipmentAutocompletePage.kt
+src/main/kotlin/com/maintenance/api/client/model/EquipmentByLocationPage.kt
 src/main/kotlin/com/maintenance/api/client/model/EquipmentLookupResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/EquipmentStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/EquipmentSummary.kt
@@ -151,6 +152,7 @@ src/main/kotlin/com/maintenance/api/client/model/ReturnSubstituteRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ReviewDailyPlanRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ReviewTargetChangeRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SendMessengerMessageRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/SiteLocationGroup.kt
 src/main/kotlin/com/maintenance/api/client/model/StartP1DispatchRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/StatusHistorySummary.kt
 src/main/kotlin/com/maintenance/api/client/model/SubmitReportRequest.kt
@@ -186,6 +188,7 @@ src/main/kotlin/com/maintenance/api/client/model/UnavailableMetric.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateBranchRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateEquipmentRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateSelfProfileRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/UpdateSiteRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateUserRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UpdateWorkOrderPriorityRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/UserSummary.kt

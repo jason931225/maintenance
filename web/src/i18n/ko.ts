@@ -1,6 +1,7 @@
 export const ko = {
   nav: {
     dispatch: "배차",
+    "dispatch-map": "배차 지도",
     intake: "접수",
     approvals: "승인",
     "daily-plan": "계획업무",
@@ -626,6 +627,46 @@ export const ko = {
       GRANTED: "동의됨",
       SUSPENDED: "GPS 꺼짐",
       WITHDRAWN: "철회됨",
+    },
+  },
+  dispatchMap: {
+    title: "배차 지도",
+    description: "사업장 좌표가 입력된 장비 현황을 지도에서 확인합니다.",
+    empty:
+      "좌표가 입력된 사업장이 없습니다. 사업장 관리에서 위도·경도를 입력하면 지도에 표시됩니다.",
+    emptyLink: "사업장 관리로 이동",
+    loadFailed: "배차 지도를 불러오지 못했습니다.",
+    ungeocodedTitle: "좌표 미입력 사업장",
+    ungeocodedHint: "아래 사업장은 좌표가 없어 지도에 표시되지 않습니다.",
+    sitePanelTitle: "사업장 장비 현황",
+    substitutionTitle: "대차 배정",
+    fields: {
+      province: "시도",
+      city: "시군구",
+      address: "주소",
+      postalCode: "우편번호",
+      latitude: "위도",
+      longitude: "경도",
+    },
+    counts: {
+      equipment: "전체 장비",
+      rented: "임대",
+      spare: "예비",
+      substitutionActive: "대차 진행",
+    },
+    manage: {
+      title: "사업장 좌표 관리",
+      description:
+        "사업장을 선택해 위도·경도와 주소(시도·시군구)를 입력하면 배차 지도에 핀으로 표시됩니다.",
+      selectSite: "사업장 선택",
+      selectSitePlaceholder: "좌표를 입력할 사업장을 선택하세요.",
+      save: "좌표 저장",
+      saving: "저장 중",
+      saveSuccess: "사업장 좌표를 저장했습니다.",
+      saveFailed: "사업장 좌표를 저장하지 못했습니다.",
+      pairRequired: "위도와 경도를 함께 입력해야 합니다.",
+      latitudePlaceholder: "예: 37.5665",
+      longitudePlaceholder: "예: 126.9780",
     },
   },
   equipment: {

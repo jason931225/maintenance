@@ -16,7 +16,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_kernel_core::{
     BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId, ErrorKind, KernelError, OrgId,
-    TraceContext, UserId,
+    SiteId, TraceContext, UserId, validate_coordinate_pair,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{
@@ -24,9 +24,10 @@ use mnt_platform_authz::{
 };
 use mnt_registry_adapter_postgres::{PgRegistryError, PgRegistryStore};
 use mnt_registry_application::{
-    CreateEquipmentCommand, DeleteEquipmentCommand, RegistryImportReport, SubstituteAssignment,
-    SubstituteAssignmentCommand, SubstituteCandidate, SubstituteReturnCommand, SubstituteSearch,
-    UpdateEquipmentCommand, UpdateEquipmentFields,
+    CreateEquipmentCommand, DeleteEquipmentCommand, EquipmentByLocationQuery, RegistryImportReport,
+    SiteLocationGroup, SubstituteAssignment, SubstituteAssignmentCommand, SubstituteCandidate,
+    SubstituteReturnCommand, SubstituteSearch, UpdateEquipmentCommand, UpdateEquipmentFields,
+    UpdateSiteCommand, UpdateSiteFields,
 };
 use mnt_registry_domain::{EquipmentNo, EquipmentStatus, MoneyWon, SubstituteMatchKind, Ton};
 use serde::{Deserialize, Serialize};
@@ -40,6 +41,8 @@ pub const EQUIPMENT_SUBSTITUTES_PATH_TEMPLATE: &str = "/api/v1/equipment/{id}/su
 pub const EQUIPMENT_SUBSTITUTIONS_PATH: &str = "/api/v1/equipment-substitutions";
 pub const EQUIPMENT_SUBSTITUTION_RETURN_PATH_TEMPLATE: &str =
     "/api/v1/equipment-substitutions/{id}/return";
+pub const EQUIPMENT_BY_LOCATION_PATH: &str = "/api/v1/equipment-by-location";
+pub const SITE_ID_PATH_TEMPLATE: &str = "/api/v1/sites/{id}";
 pub const REGISTRY_ROUTE_PATHS: &[&str] = &[
     EQUIPMENT_PATH,
     EQUIPMENT_IMPORT_PATH,
@@ -47,6 +50,8 @@ pub const REGISTRY_ROUTE_PATHS: &[&str] = &[
     EQUIPMENT_SUBSTITUTES_PATH_TEMPLATE,
     EQUIPMENT_SUBSTITUTIONS_PATH,
     EQUIPMENT_SUBSTITUTION_RETURN_PATH_TEMPLATE,
+    EQUIPMENT_BY_LOCATION_PATH,
+    SITE_ID_PATH_TEMPLATE,
 ];
 
 /// Hard cap on an uploaded master-list workbook. The reference master-list is a
@@ -99,6 +104,8 @@ pub fn router(state: RegistryRestState) -> Router {
             EQUIPMENT_ID_PATH_TEMPLATE,
             axum::routing::patch(update_equipment).delete(delete_equipment),
         )
+        .route(EQUIPMENT_BY_LOCATION_PATH, get(equipment_by_location))
+        .route(SITE_ID_PATH_TEMPLATE, axum::routing::patch(update_site))
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
@@ -186,6 +193,163 @@ impl From<SubstituteCandidate> for SubstituteCandidateResponse {
             match_kind: value.match_kind,
             ton_delta_milli: value.ton_delta_milli,
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Equipment-by-location — dispatch-map aggregation (read, all read-access roles)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+struct EquipmentByLocationPage {
+    items: Vec<SiteLocationResponse>,
+    total: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct SiteLocationResponse {
+    site_id: SiteId,
+    site_name: String,
+    customer_name: String,
+    branch_id: BranchId,
+    province: Option<String>,
+    city: Option<String>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+    equipment_count: i64,
+    rented_count: i64,
+    spare_count: i64,
+    substitution_active_count: i64,
+}
+
+impl From<SiteLocationGroup> for SiteLocationResponse {
+    fn from(value: SiteLocationGroup) -> Self {
+        Self {
+            site_id: value.site_id,
+            site_name: value.site_name,
+            customer_name: value.customer_name,
+            branch_id: value.branch_id,
+            province: value.province,
+            city: value.city,
+            latitude: value.latitude,
+            longitude: value.longitude,
+            equipment_count: value.equipment_count,
+            rented_count: value.rented_count,
+            spare_count: value.spare_count,
+            substitution_active_count: value.substitution_active_count,
+        }
+    }
+}
+
+/// GET /api/v1/equipment-by-location — every site visible to the principal with
+/// its equipment counts and admin-entered coordinates, for the dispatch map.
+/// Read access (WorkOrderReadAll, all roles); branch-scoped like the substitute
+/// search so a non-SUPER_ADMIN only sees their own branches.
+async fn equipment_by_location(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+) -> Result<Json<EquipmentByLocationPage>, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    authorize_read_access(&principal)?;
+
+    let items = state
+        .store
+        .equipment_by_location(EquipmentByLocationQuery {
+            branch_scope: principal.branch_scope,
+        })
+        .await
+        .map_err(RestError::from_store)?
+        .into_iter()
+        .map(SiteLocationResponse::from)
+        .collect::<Vec<_>>();
+    let total = items.len();
+
+    Ok(Json(EquipmentByLocationPage { items, total }))
+}
+
+// ---------------------------------------------------------------------------
+// Site coordinate/address update — audited write (EquipmentManage)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct UpdateSiteRequest {
+    #[serde(default, deserialize_with = "double_option")]
+    address: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    province: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    city: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    postal_code: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    latitude: Option<Option<f64>>,
+    #[serde(default, deserialize_with = "double_option")]
+    longitude: Option<Option<f64>>,
+}
+
+/// PATCH /api/v1/sites/{id} — the ONLY coordinate entry point. Admin-gated
+/// (EquipmentManage); the lat/lon ranges and pairing are validated in the
+/// kernel before the audited write opens a transaction, so a bad value is a 422
+/// rather than a DB error. No geocoding service: coordinates exist only because
+/// an admin typed them here.
+async fn update_site(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+    Path(site_id): Path<SiteId>,
+    Json(body): Json<UpdateSiteRequest>,
+) -> Result<StatusCode, RestError> {
+    let principal = principal_from_headers_db(&state, &headers).await?;
+    authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
+
+    // Validate the supplied coordinate edits in the domain. A present-but-null
+    // pair (clearing both) is allowed; a one-sided present value is rejected to
+    // mirror the registry_sites_lat_lon_paired CHECK.
+    validate_site_coordinates(&body)?;
+
+    let fields = UpdateSiteFields {
+        address: body.address,
+        province: body.province,
+        city: body.city,
+        postal_code: body.postal_code,
+        latitude: body.latitude,
+        longitude: body.longitude,
+    };
+    if fields.is_empty() {
+        return Err(RestError::from_kernel(KernelError::validation(
+            "no site fields to update",
+        )));
+    }
+    state
+        .store
+        .update_site(UpdateSiteCommand {
+            actor: principal.user_id,
+            site_id,
+            fields,
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Validate the coordinate edits on a site PATCH. Only validates when at least
+/// one coordinate field is present in the request; when neither key is supplied
+/// the existing stored pair is untouched and needs no check here.
+fn validate_site_coordinates(body: &UpdateSiteRequest) -> Result<(), RestError> {
+    match (&body.latitude, &body.longitude) {
+        // Neither coordinate field present — nothing to validate.
+        (None, None) => Ok(()),
+        // Both present: must be jointly set or jointly cleared, and in range.
+        (Some(lat), Some(lon)) => {
+            validate_coordinate_pair(*lat, *lon).map_err(RestError::from_kernel)
+        }
+        // Exactly one coordinate key present: a half-update would leave the row
+        // with one coordinate set and the other stale, breaking the pairing
+        // invariant. Reject it explicitly.
+        _ => Err(RestError::from_kernel(KernelError::validation(
+            "latitude and longitude must be updated together",
+        ))),
     }
 }
 

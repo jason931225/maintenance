@@ -16,7 +16,18 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      // react-leaflet 5's bundled .d.ts files deep-import
+      // `@react-leaflet/core/lib/*`, a subpath the core package's `exports` map
+      // does not expose, so `moduleResolution: Bundler` (with skipLibCheck off)
+      // cannot resolve it. Map the subpath to the real declaration files. The
+      // runtime resolves it fine via the bundler; this is types-only.
+      "@react-leaflet/core/lib/*": [
+        "../node_modules/@react-leaflet/core/lib/*"
+      ]
+    }
   },
   "include": ["src", "vite.config.ts"],
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/test"],

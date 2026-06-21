@@ -20,6 +20,10 @@ export type SubstituteCandidatePage =
   components["schemas"]["SubstituteCandidatePage"];
 export type SubstituteAssignment =
   components["schemas"]["SubstituteAssignment"];
+export type SiteLocationGroup = components["schemas"]["SiteLocationGroup"];
+export type EquipmentByLocationPage =
+  components["schemas"]["EquipmentByLocationPage"];
+export type UpdateSiteRequest = components["schemas"]["UpdateSiteRequest"];
 export type InspectionScheduleSummary =
   components["schemas"]["InspectionScheduleSummary"];
 export type InspectionCycle = components["schemas"]["InspectionCycle"];
