@@ -296,6 +296,8 @@ impl PgRegistryStore {
             s.name          AS site_name,
             c.name          AS customer_name,
             s.branch_id     AS branch_id,
+            s.address       AS address,
+            s.postal_code   AS postal_code,
             s.province      AS province,
             s.city          AS city,
             s.latitude      AS latitude,
@@ -319,8 +321,9 @@ impl PgRegistryStore {
         push_site_branch_filter(&mut builder, &query.branch_scope)?;
         builder.push(
             r#"
-        GROUP BY s.id, s.name, c.name, s.branch_id, s.province, s.city, s.latitude, s.longitude,
-                 s.geofence_radius_m, s.contact_name, s.contact_phone, s.contact_email
+        GROUP BY s.id, s.name, c.name, s.branch_id, s.address, s.postal_code, s.province, s.city,
+                 s.latitude, s.longitude, s.geofence_radius_m, s.contact_name, s.contact_phone,
+                 s.contact_email
         ORDER BY s.province NULLS LAST, s.city NULLS LAST, s.name ASC
         "#,
         );
@@ -344,6 +347,13 @@ impl PgRegistryStore {
         let existing = fetch_site_admin_row(self.pool(), command.site_id)
             .await?
             .ok_or_else(|| KernelError::not_found("site was not found"))?;
+        // Sites are branch-scoped: a branch-limited actor may only edit sites in
+        // its own branch(es). A site in another branch of the same org is treated
+        // as not found so its existence is not revealed (RLS already blocks
+        // cross-tenant; this closes the within-org cross-branch gap).
+        if !command.branch_scope.allows(existing.branch_id) {
+            return Err(KernelError::not_found("site was not found").into());
+        }
         let org = current_org().map_err(KernelError::from)?;
         let after = site_after_snapshot(&existing.snapshot, &command.fields);
         let event = site_update_audit_event(
@@ -845,6 +855,8 @@ fn site_location_group_from_row(
         site_name: row.try_get("site_name")?,
         customer_name: row.try_get("customer_name")?,
         branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+        address: row.try_get("address")?,
+        postal_code: row.try_get("postal_code")?,
         province: row.try_get("province")?,
         city: row.try_get("city")?,
         latitude: row.try_get("latitude")?,

@@ -5642,6 +5642,8 @@ components:
       - site_name
       - customer_name
       - branch_id
+      - address
+      - postal_code
       - province
       - city
       - latitude
@@ -5663,6 +5665,14 @@ components:
           type: string
         branch_id:
           $ref: '#/components/schemas/Uuid'
+        address:
+          type:
+          - string
+          - 'null'
+        postal_code:
+          type:
+          - string
+          - 'null'
         province:
           type:
           - string

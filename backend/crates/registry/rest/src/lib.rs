@@ -15,9 +15,10 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_kernel_core::{
-    BranchId, BranchScope, CONTACT_EMAIL_MAX_CHARS, CONTACT_NAME_MAX_CHARS,
-    CONTACT_PHONE_MAX_CHARS, EquipmentId, EquipmentSubstitutionId, ErrorKind, KernelError, OrgId,
-    SiteId, TraceContext, UserId, validate_bounded_text, validate_coordinate_pair,
+    ADDRESS_MAX_CHARS, BranchId, BranchScope, CITY_MAX_CHARS, CONTACT_EMAIL_MAX_CHARS,
+    CONTACT_NAME_MAX_CHARS, CONTACT_PHONE_MAX_CHARS, EquipmentId, EquipmentSubstitutionId,
+    ErrorKind, KernelError, OrgId, POSTAL_CODE_MAX_CHARS, PROVINCE_MAX_CHARS, SiteId, TraceContext,
+    UserId, validate_bounded_text, validate_coordinate_pair,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{
@@ -323,6 +324,7 @@ async fn update_site(
     // mirror the registry_sites_lat_lon_paired CHECK.
     validate_site_coordinates(&body)?;
     validate_site_contact(&body)?;
+    validate_site_address_fields(&body)?;
     validate_site_geofence_radius(&body)?;
 
     let fields = UpdateSiteFields {
@@ -348,6 +350,7 @@ async fn update_site(
             actor: principal.user_id,
             site_id,
             fields,
+            branch_scope: principal.branch_scope.clone(),
             trace: TraceContext::generate(),
             occurred_at: OffsetDateTime::now_utc(),
         })
@@ -394,6 +397,24 @@ fn validate_site_contact(body: &UpdateSiteRequest) -> Result<(), RestError> {
             CONTACT_EMAIL_MAX_CHARS,
             "contact_email",
         ),
+    ] {
+        if let Some(Some(text)) = change {
+            validate_bounded_text(text, max, field).map_err(RestError::from_kernel)?;
+        }
+    }
+    Ok(())
+}
+
+/// Bound the optional address/region fields on a site PATCH to the same lengths
+/// as the migration 0039 CHECKs, returning a 422 before the write rather than
+/// surfacing an over-long value as a raw 500 DB CHECK error. Absent and
+/// explicit-null fields need no bound.
+fn validate_site_address_fields(body: &UpdateSiteRequest) -> Result<(), RestError> {
+    for (change, max, field) in [
+        (&body.address, ADDRESS_MAX_CHARS, "address"),
+        (&body.province, PROVINCE_MAX_CHARS, "province"),
+        (&body.city, CITY_MAX_CHARS, "city"),
+        (&body.postal_code, POSTAL_CODE_MAX_CHARS, "postal_code"),
     ] {
         if let Some(Some(text)) = change {
             validate_bounded_text(text, max, field).map_err(RestError::from_kernel)?;

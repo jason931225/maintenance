@@ -35,6 +35,8 @@ import kotlinx.serialization.Contextual
  * @param siteName
  * @param customerName
  * @param branchId
+ * @param address
+ * @param postalCode
  * @param province
  * @param city
  * @param latitude
@@ -63,6 +65,12 @@ data class SiteLocationGroup (
 
     @Contextual @SerialName(value = "branch_id")
     val branchId: java.util.UUID,
+
+    @SerialName(value = "address")
+    val address: kotlin.String?,
+
+    @SerialName(value = "postal_code")
+    val postalCode: kotlin.String?,
 
     @SerialName(value = "province")
     val province: kotlin.String?,

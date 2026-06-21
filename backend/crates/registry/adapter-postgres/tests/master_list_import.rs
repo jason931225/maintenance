@@ -435,6 +435,7 @@ async fn site_contact_update_persists_and_is_audited(pool: PgPool) {
                     contact_email: Some(Some("ops@example.com".to_string())),
                     ..UpdateSiteFields::default()
                 },
+                branch_scope: BranchScope::All,
                 trace: TraceContext::generate(),
                 occurred_at: OffsetDateTime::now_utc(),
             })
@@ -464,6 +465,7 @@ async fn site_contact_update_persists_and_is_audited(pool: PgPool) {
                     contact_email: Some(None),
                     ..UpdateSiteFields::default()
                 },
+                branch_scope: BranchScope::All,
                 trace: TraceContext::generate(),
                 occurred_at: OffsetDateTime::now_utc(),
             })
@@ -478,6 +480,45 @@ async fn site_contact_update_persists_and_is_audited(pool: PgPool) {
         assert_eq!(email2, None, "Some(None) clears contact_email");
         assert_eq!(name2.as_deref(), Some("김담당"), "absent field untouched");
         assert_audit_count(&pool, "site.update", 2).await;
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn site_update_rejects_a_site_outside_the_actor_branch_scope(pool: PgPool) {
+    // Issue #13 review: sites are branch-scoped (unlike org-global equipment), so
+    // a branch-limited actor must not edit a site in another branch of the org.
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let store = PgRegistryStore::new(pool.clone());
+        let branch_id = seed_branch(&pool, "수도권", "본사").await;
+        let actor = seed_user(&pool, branch_id, "ADMIN").await;
+        let site_id = seed_site(&pool, branch_id).await;
+
+        // Actor scoped to a DIFFERENT branch → the site is treated as not found.
+        let result = store
+            .update_site(UpdateSiteCommand {
+                actor,
+                site_id,
+                fields: UpdateSiteFields {
+                    contact_name: Some(Some("불가".to_string())),
+                    ..UpdateSiteFields::default()
+                },
+                branch_scope: BranchScope::single(BranchId::new()),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await;
+        assert!(result.is_err(), "cross-branch site edit must be rejected");
+
+        // The write did not happen and nothing was audited.
+        let name: Option<String> =
+            sqlx::query_scalar("SELECT contact_name FROM registry_sites WHERE id = $1")
+                .bind(*site_id.as_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(name, None, "no contact written for an out-of-scope site");
+        assert_audit_count(&pool, "site.update", 0).await;
     })
     .await;
 }

@@ -2858,6 +2858,8 @@ export interface components {
             site_name: string;
             customer_name: string;
             branch_id: components["schemas"]["Uuid"];
+            address: string | null;
+            postal_code: string | null;
             province: string | null;
             city: string | null;
             /** Format: double */

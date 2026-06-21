@@ -14,6 +14,8 @@ const SITE = {
   branch_id: "00000000-0000-4000-8000-000000000001",
   province: "경기도",
   city: "안산시",
+  address: "경기 안산시 단원구 산단로 123",
+  postal_code: "15588",
   latitude: 37.32,
   longitude: 126.83,
   contact_name: null,
@@ -73,6 +75,10 @@ describe("SiteGeographyPanel representative contact", () => {
       // Untouched coordinate fields are echoed back from the loaded row.
       latitude: 37.32,
       longitude: 126.83,
+      // Regression (#13 review): address/postal_code now round-trip from the
+      // read, so an unedited save preserves them instead of nulling them.
+      address: "경기 안산시 단원구 산단로 123",
+      postal_code: "15588",
     });
     expect(await screen.findByText("사업장 정보를 저장했습니다.")).toBeVisible();
   });

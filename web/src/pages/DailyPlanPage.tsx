@@ -18,6 +18,7 @@ import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { Textarea } from "../components/ui/textarea";
 import { ko } from "../i18n/ko";
+import { todayInSeoul } from "../lib/utils";
 
 /** DailyPlanRequest holders (backend matrix: MECHANIC/ADMIN/SUPER_ADMIN). */
 const PLAN_REQUEST_ROLES = [
@@ -36,7 +37,7 @@ interface PlanItem {
 }
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayInSeoul();
 }
 
 export function DailyPlanPage() {

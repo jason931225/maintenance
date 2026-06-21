@@ -284,6 +284,8 @@ pub struct SiteLocationGroup {
     pub site_name: String,
     pub customer_name: String,
     pub branch_id: BranchId,
+    pub address: Option<String>,
+    pub postal_code: Option<String>,
     pub province: Option<String>,
     pub city: Option<String>,
     pub latitude: Option<f64>,
@@ -330,6 +332,10 @@ pub struct UpdateSiteCommand {
     pub actor: UserId,
     pub site_id: SiteId,
     pub fields: UpdateSiteFields,
+    /// The actor's branch scope. Sites are branch-scoped (unlike org-global
+    /// equipment), so the adapter rejects an edit to a site outside this scope —
+    /// a branch admin cannot write another branch's site even within the org.
+    pub branch_scope: BranchScope,
     pub trace: TraceContext,
     pub occurred_at: Timestamp,
 }

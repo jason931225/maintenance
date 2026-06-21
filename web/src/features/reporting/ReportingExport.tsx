@@ -8,6 +8,7 @@ import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { PageError } from "../../components/states/PageError";
 import { ko } from "../../i18n/ko";
+import { todayInSeoul } from "../../lib/utils";
 
 /** The reporting export endpoints, keyed by the report the user selects. */
 const REPORT_PATHS = {
@@ -22,9 +23,9 @@ const REPORT_LABELS: Record<ReportKind, string> = {
   "daily-status": ko.reporting.reports.dailyStatus,
 };
 
-/** Today's date in YYYY-MM-DD (local), the default report date. */
+/** Today's date in YYYY-MM-DD (Korea Standard Time), the default report date. */
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayInSeoul();
 }
 
 /**

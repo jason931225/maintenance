@@ -6447,6 +6447,10 @@ public enum Components {
             public var customerName: Swift.String
             /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/branch_id`.
             public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/address`.
+            public var address: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/postal_code`.
+            public var postalCode: Swift.String?
             /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/province`.
             public var province: Swift.String?
             /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/city`.
@@ -6486,6 +6490,8 @@ public enum Components {
             ///   - siteName:
             ///   - customerName:
             ///   - branchId:
+            ///   - address:
+            ///   - postalCode:
             ///   - province:
             ///   - city:
             ///   - latitude:
@@ -6503,6 +6509,8 @@ public enum Components {
                 siteName: Swift.String,
                 customerName: Swift.String,
                 branchId: Components.Schemas.Uuid,
+                address: Swift.String? = nil,
+                postalCode: Swift.String? = nil,
                 province: Swift.String? = nil,
                 city: Swift.String? = nil,
                 latitude: Swift.Double? = nil,
@@ -6520,6 +6528,8 @@ public enum Components {
                 self.siteName = siteName
                 self.customerName = customerName
                 self.branchId = branchId
+                self.address = address
+                self.postalCode = postalCode
                 self.province = province
                 self.city = city
                 self.latitude = latitude
@@ -6538,6 +6548,8 @@ public enum Components {
                 case siteName = "site_name"
                 case customerName = "customer_name"
                 case branchId = "branch_id"
+                case address
+                case postalCode = "postal_code"
                 case province
                 case city
                 case latitude

@@ -96,6 +96,16 @@ pub const CONTACT_PHONE_MAX_CHARS: usize = 40;
 /// `registry_sites_contact_email_max_chars` CHECK in migration 0040.
 pub const CONTACT_EMAIL_MAX_CHARS: usize = 320;
 
+/// Max code points for a site street address. Matches the address CHECK in
+/// migration 0039 (`char_length(address) <= 500`).
+pub const ADDRESS_MAX_CHARS: usize = 500;
+/// Max code points for a site province (시/도). Matches migration 0039.
+pub const PROVINCE_MAX_CHARS: usize = 100;
+/// Max code points for a site city (시/군/구). Matches migration 0039.
+pub const CITY_MAX_CHARS: usize = 100;
+/// Max code points for a site postal code (우편번호). Matches migration 0039.
+pub const POSTAL_CODE_MAX_CHARS: usize = 20;
+
 /// Reject text longer than `max_chars` Unicode code points (counted via
 /// `chars()`, matching the DB CHECK's `char_length`). `field` names the offending
 /// field in the error message; empty or short text passes. Returning a 422 here

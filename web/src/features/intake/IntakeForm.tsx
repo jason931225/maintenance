@@ -14,6 +14,7 @@ import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { ko } from "../../i18n/ko";
+import { todayInSeoul } from "../../lib/utils";
 
 /**
  * Intake-time maintenance classification. The work-order backend has no
@@ -64,9 +65,7 @@ export function IntakeForm({
   onCreated,
 }: IntakeFormProps) {
   const [managementNo, setManagementNo] = useState("");
-  const [requestedOn, setRequestedOn] = useState(() =>
-    new Date().toISOString().slice(0, 10),
-  );
+  const [requestedOn, setRequestedOn] = useState(() => todayInSeoul());
   const [symptom, setSymptom] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [customerRequest, setCustomerRequest] = useState("");
@@ -111,8 +110,11 @@ export function IntakeForm({
       // maintenance-contact phone, or category, so they are recorded as structured
       // prefixes on the existing customer_request free-text field (the form's
       // documented convention — see the ServiceCategory note above).
-      const requestedOnTag = `[${ko.intake.requestedOn}: ${requestedOn}]`;
-      const contactTag = `[${ko.intake.contactPhone}: ${contactPhone.trim()}]`;
+      // Strip the [ ] delimiter from user-supplied tag values so a value can't
+      // forge or break a tag boundary that a future parser would read back.
+      const tagValue = (v: string) => v.replace(/[[\]]/g, "");
+      const requestedOnTag = `[${ko.intake.requestedOn}: ${tagValue(requestedOn)}]`;
+      const contactTag = `[${ko.intake.contactPhone}: ${tagValue(contactPhone.trim())}]`;
       const categoryTag = serviceCategory
         ? `[${ko.intake.serviceCategory}: ${ko.intake.serviceCategories[serviceCategory]}]`
         : "";

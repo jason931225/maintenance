@@ -15,6 +15,7 @@ import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { ko } from "../i18n/ko";
+import { todayInSeoul } from "../lib/utils";
 
 const CYCLES: InspectionCycle[] = [
   "DAILY",
@@ -26,13 +27,15 @@ const CYCLES: InspectionCycle[] = [
 ];
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayInSeoul();
 }
 
 function plusDays(days: number): string {
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+  // Anchor the offset to the Seoul business date; noon UTC keeps the Y-M-D
+  // stable across timezones so the due-date suggestion never slips a day.
+  const base = new Date(`${todayInSeoul()}T12:00:00Z`);
+  base.setUTCDate(base.getUTCDate() + days);
+  return base.toISOString().slice(0, 10);
 }
 
 interface FormState {

@@ -50,10 +50,10 @@ function seedForm(site: SiteLocationGroup): FormState {
   return {
     province: site.province ?? "",
     city: site.city ?? "",
-    // address/postal_code are write-only here (the by-location read doesn't carry
-    // them), so they seed empty; contact + province/city/coords seed from the row.
-    address: "",
-    postalCode: "",
+    // The by-location read now carries address/postal_code, so they round-trip:
+    // an unedited save preserves the stored values instead of nulling them.
+    address: site.address ?? "",
+    postalCode: site.postal_code ?? "",
     latitude: site.latitude === null ? "" : String(site.latitude),
     longitude: site.longitude === null ? "" : String(site.longitude),
     geofenceRadius:
