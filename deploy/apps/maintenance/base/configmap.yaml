@@ -31,7 +31,7 @@ data:
   #     awaiting the registered iOS bundle id to form "98Q89GFZWP.<bundle-id>".
   #   MNT_ANDROID_CERT_SHA256: the release signing-cert SHA-256 (colon-hex);
   #     awaiting the keystore fingerprint. assetlinks serves once package+cert set.
-  MNT_IOS_APP_IDS: ""
+  MNT_IOS_APP_IDS: "98Q89GFZWP.com.maintenance.field"
   MNT_ANDROID_PACKAGE: "com.maintenance.field"
   MNT_ANDROID_CERT_SHA256: ""
   # Evidence object storage — OCI Object Storage (S3-compatible), Chuncheon.

@@ -12,13 +12,14 @@
 // must be overridden by CI for any signed/distributable build. They are inert
 // for the unsigned Simulator test build the CI job runs.
 
-// --- Identity (override in CI) ---
-// REAL VALUE GOES HERE via CI: MNT_IOS_BUNDLE_ID (e.g. com.maintenance.field).
-// The Android applicationId is com.maintenance.field
-// (deploy/apps/maintenance/base/configmap.yaml MNT_ANDROID_PACKAGE); the iOS
-// bundle id is expected to match but is authoritatively sourced from CI, not
-// assumed here.
-MNT_IOS_BUNDLE_ID = $(MNT_IOS_BUNDLE_ID:default=com.maintenance.field.uitests-placeholder)
+// --- Identity ---
+// Bundle id is com.maintenance.field (matches the Android applicationId + the
+// keychain-access-group baked into the entitlements: <prefix>com.maintenance.field.shared).
+// This is the App ID to register under Team 98Q89GFZWP in the Apple Developer
+// portal WITH the Associated Domains capability enabled (or let Xcode automatic
+// signing create it on first build). Overridable via the MNT_IOS_BUNDLE_ID /
+// MNT_IOS_TEAM_ID CI variables if a different identity is ever needed.
+MNT_IOS_BUNDLE_ID = $(MNT_IOS_BUNDLE_ID:default=com.maintenance.field)
 MNT_IOS_TEAM_ID = $(MNT_IOS_TEAM_ID:default=98Q89GFZWP)
 
 PRODUCT_BUNDLE_IDENTIFIER = $(MNT_IOS_BUNDLE_ID)
