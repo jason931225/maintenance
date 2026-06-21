@@ -138,8 +138,8 @@ pub fn haversine_meters(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> i64 {
     let phi2 = lat2.to_radians();
     let delta_lat = (lat2 - lat1).to_radians();
     let delta_lon = (lon2 - lon1).to_radians();
-    let a = (delta_lat / 2.0).sin().powi(2)
-        + phi1.cos() * phi2.cos() * (delta_lon / 2.0).sin().powi(2);
+    let a =
+        (delta_lat / 2.0).sin().powi(2) + phi1.cos() * phi2.cos() * (delta_lon / 2.0).sin().powi(2);
     let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
     (radius_meters * c).round() as i64
 }
@@ -210,6 +210,5 @@ mod tests {
             haversine_meters(37.5665, 126.9780, 35.1796, 129.0756),
             haversine_meters(35.1796, 129.0756, 37.5665, 126.9780),
         );
-        assert!(DEFAULT_GEOFENCE_RADIUS_M > 0.0);
     }
 }

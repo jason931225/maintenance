@@ -11,11 +11,13 @@ use mnt_compliance_application::{
 };
 use mnt_compliance_domain::{
     LocationConsent, LocationConsentState, LocationPing, PersistedLocationConsent,
+    evaluate_geofence,
 };
 use mnt_kernel_core::{
-    BranchId, BranchScope, ConsentId, ErrorKind, KernelError, Timestamp, UserId,
+    AuditAction, AuditEvent, BranchId, BranchScope, ConsentId, DEFAULT_GEOFENCE_RADIUS_M,
+    ErrorKind, KernelError, OrgId, Timestamp, TraceContext, UserId,
 };
-use mnt_platform_db::{DbError, with_audit, with_org_conn};
+use mnt_platform_db::{DbError, insert_audit_event, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 
@@ -216,6 +218,17 @@ impl PgComplianceStore {
                     sqlx::query!("DELETE FROM location_pings WHERE user_id = $1", user_uuid,)
                         .execute(tx.as_mut())
                         .await?;
+
+                    // The geofence presence state is location-derived, so it is
+                    // erased with the raw pings on consent withdrawal. The durable,
+                    // coordinate-free site_attendance_events (work facts) are NOT
+                    // deleted here — they survive withdrawal like a timesheet (#13).
+                    sqlx::query!(
+                        "DELETE FROM site_geofence_presence WHERE user_id = $1",
+                        user_uuid,
+                    )
+                    .execute(tx.as_mut())
+                    .await?;
                 }
 
                 Ok(returned)
@@ -325,6 +338,20 @@ impl PgComplianceStore {
                     org_uuid,
                 )
                 .execute(tx.as_mut())
+                .await?;
+
+                // Derive arrival/departure for this on-duty ping against the
+                // mechanic's active work-order site geofences, in the same tx so
+                // the ping and any crossing event commit atomically (#13).
+                record_geofence_crossings(
+                    tx,
+                    org_uuid,
+                    user_uuid,
+                    branch_uuid,
+                    latitude,
+                    longitude,
+                    recorded_at,
+                )
                 .await?;
 
                 Ok(())
@@ -482,6 +509,157 @@ impl PgComplianceStore {
             updated_at: row.updated_at,
         }))
     }
+}
+
+/// Derive arrival/departure events for one on-duty ping against the mechanic's
+/// active work-order site geofences, inside the already-armed ping transaction.
+///
+/// For each active (non-terminal) work order assigned to the user whose site is
+/// geocoded: load the prior inside/outside state (FOR UPDATE), evaluate the
+/// haversine distance vs the site's effective radius (per-site override or the
+/// 150 m default), and on an inside/outside EDGE upsert the presence row + append
+/// a coordinate-free `site_attendance_events` row + an audit event. Edge-
+/// triggered, so a steady stream of pings emits nothing.
+///
+/// The ping itself is audit-exempt, but these derived attendance writes ARE
+/// audited (site.arrival / site.departure) — hence the marker + insert_audit_event.
+// mnt-gate: state-changing-handler
+async fn record_geofence_crossings(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+    user_uuid: uuid::Uuid,
+    branch_uuid: uuid::Uuid,
+    ping_latitude: f64,
+    ping_longitude: f64,
+    recorded_at: Timestamp,
+) -> Result<(), PgComplianceError> {
+    let candidates = sqlx::query!(
+        r#"
+        SELECT a.work_order_id     AS "work_order_id!",
+               w.site_id           AS "site_id!",
+               s.latitude          AS "latitude!",
+               s.longitude         AS "longitude!",
+               s.geofence_radius_m AS "geofence_radius_m"
+        FROM work_order_assignments a
+        JOIN work_orders w    ON w.id = a.work_order_id
+        JOIN registry_sites s ON s.id = w.site_id
+        WHERE a.mechanic_id = $1
+          AND w.status NOT IN ('FINAL_COMPLETED', 'CANCELLED', 'ARCHIVED')
+          AND s.latitude IS NOT NULL
+          AND s.longitude IS NOT NULL
+        "#,
+        user_uuid,
+    )
+    .fetch_all(tx.as_mut())
+    .await?;
+
+    for candidate in candidates {
+        let work_order_id = candidate.work_order_id;
+        let site_id = candidate.site_id;
+        let radius = candidate
+            .geofence_radius_m
+            .unwrap_or(DEFAULT_GEOFENCE_RADIUS_M);
+
+        let prior_inside = sqlx::query_scalar!(
+            r#"
+            SELECT inside FROM site_geofence_presence
+            WHERE org_id = $1 AND user_id = $2 AND work_order_id = $3 AND site_id = $4
+            FOR UPDATE
+            "#,
+            org_uuid,
+            user_uuid,
+            work_order_id,
+            site_id,
+        )
+        .fetch_optional(tx.as_mut())
+        .await?;
+
+        let (now_inside, crossing) = evaluate_geofence(
+            ping_latitude,
+            ping_longitude,
+            candidate.latitude,
+            candidate.longitude,
+            radius,
+            prior_inside,
+        );
+
+        if prior_inside.is_none() {
+            sqlx::query!(
+                r#"
+                INSERT INTO site_geofence_presence
+                    (org_id, user_id, work_order_id, site_id, inside, since)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                "#,
+                org_uuid,
+                user_uuid,
+                work_order_id,
+                site_id,
+                now_inside,
+                recorded_at,
+            )
+            .execute(tx.as_mut())
+            .await?;
+        } else if crossing.is_some() {
+            sqlx::query!(
+                r#"
+                UPDATE site_geofence_presence
+                SET inside = $5, since = $6, updated_at = now()
+                WHERE org_id = $1 AND user_id = $2 AND work_order_id = $3 AND site_id = $4
+                "#,
+                org_uuid,
+                user_uuid,
+                work_order_id,
+                site_id,
+                now_inside,
+                recorded_at,
+            )
+            .execute(tx.as_mut())
+            .await?;
+        }
+
+        if let Some(crossing) = crossing {
+            let event_id = sqlx::query_scalar!(
+                r#"
+                INSERT INTO site_attendance_events
+                    (org_id, user_id, branch_id, work_order_id, site_id, kind, occurred_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                RETURNING id
+                "#,
+                org_uuid,
+                user_uuid,
+                branch_uuid,
+                work_order_id,
+                site_id,
+                crossing.kind(),
+                recorded_at,
+            )
+            .fetch_one(tx.as_mut())
+            .await?;
+
+            // Coordinate-free work fact (no lat/lon) so the durable record is not
+            // location data subject to the consent-withdrawal erasure carve-out.
+            let after = serde_json::json!({
+                "work_order_id": work_order_id,
+                "site_id": site_id,
+                "kind": crossing.kind(),
+                "occurred_at": recorded_at,
+            });
+            let event = AuditEvent::new(
+                Some(UserId::from_uuid(user_uuid)),
+                AuditAction::new(crossing.audit_action())?,
+                "site_attendance_events",
+                event_id.to_string(),
+                TraceContext::generate(),
+                recorded_at,
+            )
+            .with_branch(BranchId::from_uuid(branch_uuid))
+            .with_snapshots(None, Some(after))
+            .with_org(OrgId::from_uuid(org_uuid));
+            insert_audit_event(tx, &event).await?;
+        }
+    }
+
+    Ok(())
 }
 
 fn push_location_consent_ledger_filters(
