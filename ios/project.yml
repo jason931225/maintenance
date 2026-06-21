@@ -1,0 +1,92 @@
+# XcodeGen project definition for the CI-only XCUITest run.
+#
+# The day-to-day build is `swift build` / `swift test` against Package.swift.
+# XCUITest, however, needs a real .xcodeproj with an app host target and a UI-test
+# target — SwiftPM cannot produce one, and `swift package generate-xcodeproj` was
+# removed. CI runs `xcodegen generate` to materialize MaintenanceField.xcodeproj
+# from this file, then `xcodebuild test`. The generated project is NOT committed
+# (it is a build artifact); this declarative file is the source of truth.
+#
+# The app target reuses the SAME source + resources as the SwiftPM app target, so
+# the UI under test is the real app, not a copy.
+#
+# Bundle id is NOT hardcoded: settings come from Config/App.xcconfig, whose
+# MNT_IOS_BUNDLE_ID / MNT_IOS_TEAM_ID are populated by CI from repo variables that
+# mirror MNT_IOS_APP_IDS in deploy/apps/maintenance/base/configmap.yaml. See
+# Config/README.md.
+
+name: MaintenanceField
+options:
+  bundleIdPrefix: com.maintenance.field
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+configFiles:
+  Debug: Config/App.xcconfig
+  Release: Config/App.xcconfig
+
+settings:
+  base:
+    SWIFT_VERSION: "6.1"
+    # Identity + signing are sourced from Config/App.xcconfig (xcconfig wins for
+    # values it sets); CI exports MNT_IOS_BUNDLE_ID / MNT_IOS_TEAM_ID into the
+    # environment which the xcconfig reads. No literal bundle id here.
+
+packages:
+  MaintenanceField:
+    path: .
+
+targets:
+  MaintenanceFieldApp:
+    type: application
+    platform: iOS
+    # The app's real sources + resources, reused verbatim from the SwiftPM layout.
+    sources:
+      - path: Sources/MaintenanceFieldApp
+        excludes:
+          - "Info.plist"
+      - path: Sources/MaintenanceFieldApp/Resources
+        buildPhase: resources
+    dependencies:
+      - package: MaintenanceField
+        product: MaintenanceFieldCore
+    settings:
+      base:
+        # Use the hand-written Info.plist verbatim (NSCameraUsageDescription and
+        # any future keys) rather than generating one, so no key is silently
+        # dropped. CFBundleDisplayName is supplied here because the source plist
+        # is intentionally minimal.
+        GENERATE_INFOPLIST_FILE: "NO"
+        INFOPLIST_FILE: Sources/MaintenanceFieldApp/Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: "정비 필드"
+        CODE_SIGN_ENTITLEMENTS: Config/MaintenanceFieldApp.entitlements
+        # PRODUCT_BUNDLE_IDENTIFIER / DEVELOPMENT_TEAM come from App.xcconfig.
+
+  MaintenanceFieldUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    # The dependency on the app target wires the UI-test host (XcodeGen sets the
+    # target's "Target Application" / TEST_TARGET_NAME from this for a
+    # bundle.ui-testing target). Do not also set TEST_TARGET_NAME by hand — the
+    # dependency is the source of truth.
+    dependencies:
+      - target: MaintenanceFieldApp
+    settings:
+      base:
+        CODE_SIGN_ENTITLEMENTS: Config/MaintenanceFieldUITests.entitlements
+        # The UITests bundle id derives from the app's; XcodeGen sets a sensible
+        # default ($(PRODUCT_BUNDLE_IDENTIFIER).uitests-style) — no literal here.
+
+schemes:
+  MaintenanceFieldApp:
+    build:
+      targets:
+        MaintenanceFieldApp: all
+        MaintenanceFieldUITests: [test]
+    test:
+      targets:
+        - MaintenanceFieldUITests
+      gatherCoverageData: false

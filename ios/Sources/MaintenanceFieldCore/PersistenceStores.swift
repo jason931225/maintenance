@@ -52,25 +52,43 @@ public actor KeychainSessionTokenStore: SessionTokenStore {
     private let account: String
     private let keychain: any KeychainAccess
 
+    /// Optional legacy store (the app's default access group). When the primary
+    /// store reads from a shared access group, a session written by an older
+    /// build lives in the default group; this lets `load()` find and migrate it
+    /// once so updating to a shared-group build does not log the user out.
+    private let legacyKeychain: (any KeychainAccess)?
+
     public init(
         tokenProvider: CurrentTokenProvider,
         namespace: String = "maintenance.field",
-        keychain: any KeychainAccess = SecKeychainAccess()
+        keychain: any KeychainAccess = SecKeychainAccess(),
+        legacyKeychain: (any KeychainAccess)? = nil
     ) {
         self.tokenProvider = tokenProvider
         self.service = namespace
         self.account = "\(namespace).session"
         self.keychain = keychain
-        tokenProvider.set(Self.decode(keychain.read(service: service, account: account))?.accessToken)
+        self.legacyKeychain = legacyKeychain
+        tokenProvider.set(Self.decode(Self.read(primary: keychain, legacy: legacyKeychain, service: service, account: account))?.accessToken)
     }
 
     public func load() -> AuthTokens? {
-        guard let tokens = Self.decode(keychain.read(service: service, account: account)) else {
-            tokenProvider.set(nil)
-            return nil
+        // Primary (possibly shared-group) read first; fall back to the legacy
+        // default-group item and migrate it into the primary store one time.
+        if let tokens = Self.decode(keychain.read(service: service, account: account)) {
+            tokenProvider.set(tokens.accessToken)
+            return tokens
         }
-        tokenProvider.set(tokens.accessToken)
-        return tokens
+        if let legacyKeychain,
+           let legacyData = legacyKeychain.read(service: service, account: account),
+           let tokens = Self.decode(legacyData) {
+            keychain.write(legacyData, service: service, account: account)
+            legacyKeychain.delete(service: service, account: account)
+            tokenProvider.set(tokens.accessToken)
+            return tokens
+        }
+        tokenProvider.set(nil)
+        return nil
     }
 
     public func save(_ tokens: AuthTokens) {
@@ -82,7 +100,21 @@ public actor KeychainSessionTokenStore: SessionTokenStore {
 
     public func clear() {
         keychain.delete(service: service, account: account)
+        legacyKeychain?.delete(service: service, account: account)
         tokenProvider.set(nil)
+    }
+
+    /// Read the token blob, preferring the primary store and falling back to the
+    /// legacy store (used by `init` to seed the token provider before the actor
+    /// is available for `load()`).
+    private static func read(
+        primary: any KeychainAccess,
+        legacy: (any KeychainAccess)?,
+        service: String,
+        account: String
+    ) -> Data? {
+        primary.read(service: service, account: account)
+            ?? legacy?.read(service: service, account: account)
     }
 
     private static func decode(_ data: Data?) -> AuthTokens? {
@@ -100,16 +132,30 @@ public protocol KeychainAccess: Sendable {
 }
 
 public struct SecKeychainAccess: KeychainAccess {
-    public init() {}
+    private let accessGroup: String?
+
+    /// - Parameter accessGroup: when non-nil, every Keychain query is scoped to
+    ///   this `kSecAttrAccessGroup`. A shared access group is the supported way
+    ///   for two targets that ship the same `keychain-access-groups` entitlement
+    ///   to read each other's items. The default (`nil`) preserves the original
+    ///   behavior: items live in the app's default access group. This is what
+    ///   lets the CI UITests target seed a real session into the same group the
+    ///   app reads from, without any test-only branch in the app's launch path.
+    public init(accessGroup: String? = nil) {
+        self.accessGroup = accessGroup
+    }
 
     public func read(service: String, account: String) -> Data? {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
         var result: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else {
             return nil
@@ -118,11 +164,14 @@ public struct SecKeychainAccess: KeychainAccess {
     }
 
     public func write(_ data: Data, service: String, account: String) {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
         let attributes: [String: Any] = [
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
@@ -136,12 +185,75 @@ public struct SecKeychainAccess: KeychainAccess {
     }
 
     public func delete(service: String, account: String) {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
         SecItemDelete(query as CFDictionary)
+    }
+}
+
+/// Resolves the app's *granted* shared keychain access group at runtime.
+///
+/// The fully-qualified group is `<AppIdentifierPrefix>.<suffix>`. The
+/// `<AppIdentifierPrefix>` differs between a properly-signed device build (the
+/// Team ID) and an ad-hoc-signed Simulator build (a placeholder), so it must not
+/// be hardcoded. This probes the Keychain — adds a throwaway generic-password
+/// item declaring the suffixed group and reads back the resolved
+/// `kSecAttrAccessGroup` the system actually granted — and returns that exact
+/// string, so the app and any cooperating process (e.g. the CI UI-test seeder)
+/// agree on one value. Returns `nil` when the build is not entitled to the group
+/// (the app then transparently uses its default group).
+public enum KeychainAccessGroup {
+    public static func resolveShared(
+        suffix: String,
+        service: String = "maintenance.field",
+        probeAccount: String = "maintenance.field.group.probe"
+    ) -> String? {
+        // Try each plausible group spelling the entitlement may resolve to:
+        // the bare suffix (ad-hoc Simulator, no prefix) is covered by reading
+        // back whatever the system grants when we add with the suffix group.
+        let add: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: probeAccount,
+            kSecAttrAccessGroup as String: suffix,
+            kSecValueData as String: Data("probe".utf8),
+            kSecReturnAttributes as String: true,
+        ]
+        var result: CFTypeRef?
+        var status = SecItemAdd(add as CFDictionary, &result)
+        if status == errSecDuplicateItem {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: probeAccount,
+                kSecAttrAccessGroup as String: suffix,
+                kSecReturnAttributes as String: true,
+                kSecMatchLimit as String: kSecMatchLimitOne,
+            ]
+            status = SecItemCopyMatching(query as CFDictionary, &result)
+        }
+        defer {
+            SecItemDelete([
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: probeAccount,
+                kSecAttrAccessGroup as String: suffix,
+            ] as CFDictionary)
+        }
+        guard
+            status == errSecSuccess,
+            let attributes = result as? [String: Any],
+            let granted = attributes[kSecAttrAccessGroup as String] as? String
+        else {
+            return nil
+        }
+        return granted
     }
 }
 

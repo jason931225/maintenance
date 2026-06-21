@@ -8,9 +8,31 @@ struct FieldAppContainer {
     let messengerRepository: MessengerRepository
     let locationConsentRepository: LocationConsentRepository
 
+    /// Suffix of the shared keychain access group (the part after the
+    /// AppIdentifierPrefix). Must match the `keychain-access-groups` entitlement
+    /// (`$(AppIdentifierPrefix)com.maintenance.field.shared`) in
+    /// `Config/MaintenanceFieldApp.entitlements`. The session lives in this
+    /// shared group so a real session can be restored by the app's normal launch
+    /// path; the CI UI-test suite seeds into the same group (no fakes).
+    static let sharedKeychainGroupSuffix = "com.maintenance.field.shared"
+
     static func live() -> FieldAppContainer {
         let tokenProvider = CurrentTokenProvider()
-        let sessionStore = KeychainSessionTokenStore(tokenProvider: tokenProvider)
+        // Persist the session in the shared access group when the build is
+        // entitled to it; otherwise fall back to the default group. A legacy
+        // default-group store is always provided so a session written by a
+        // pre-shared-group build is found once and migrated forward (no logout
+        // on update).
+        let sessionStore: KeychainSessionTokenStore
+        if let sharedGroup = KeychainAccessGroup.resolveShared(suffix: sharedKeychainGroupSuffix) {
+            sessionStore = KeychainSessionTokenStore(
+                tokenProvider: tokenProvider,
+                keychain: SecKeychainAccess(accessGroup: sharedGroup),
+                legacyKeychain: SecKeychainAccess()
+            )
+        } else {
+            sessionStore = KeychainSessionTokenStore(tokenProvider: tokenProvider)
+        }
         let deviceIDStore = UserDefaultsDeviceIDStore()
         let serverURL = Self.resolveServerURL()
         let gateway = GeneratedMaintenanceAPIGateway(serverURL: serverURL, tokenProvider: tokenProvider)

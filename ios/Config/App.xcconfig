@@ -1,0 +1,59 @@
+// Build settings for the MaintenanceFieldApp host target (Xcode app wrapper used
+// only by CI's `xcodebuild test`; the day-to-day build is `swift build`).
+//
+// The bundle id is NOT hardcoded to a guessed value. CI populates
+// `MNT_IOS_BUNDLE_ID` (and `MNT_IOS_TEAM_ID`) from a repository variable/secret
+// that mirrors the registered app id behind `MNT_IOS_APP_IDS` in
+// deploy/apps/maintenance/base/configmap.yaml (Team ID 98Q89GFZWP). See
+// ios/Config/README.md for how CI generates the concrete values.
+//
+// Local fallbacks below let `xcodebuild` resolve the project when a developer
+// opens it without the CI variables; they are placeholders, clearly marked, and
+// must be overridden by CI for any signed/distributable build. They are inert
+// for the unsigned Simulator test build the CI job runs.
+
+// --- Identity (override in CI) ---
+// REAL VALUE GOES HERE via CI: MNT_IOS_BUNDLE_ID (e.g. com.maintenance.field).
+// The Android applicationId is com.maintenance.field
+// (deploy/apps/maintenance/base/configmap.yaml MNT_ANDROID_PACKAGE); the iOS
+// bundle id is expected to match but is authoritatively sourced from CI, not
+// assumed here.
+MNT_IOS_BUNDLE_ID = $(MNT_IOS_BUNDLE_ID:default=com.maintenance.field.uitests-placeholder)
+MNT_IOS_TEAM_ID = $(MNT_IOS_TEAM_ID:default=98Q89GFZWP)
+
+PRODUCT_BUNDLE_IDENTIFIER = $(MNT_IOS_BUNDLE_ID)
+DEVELOPMENT_TEAM = $(MNT_IOS_TEAM_ID)
+
+// --- Shared Keychain access group ---
+// The no-fakes session seeding writes the real session token pair into the
+// Keychain from the UITests process; the app reads it back through its NORMAL
+// launch path (KeychainSessionTokenStore.init / restore()). For one process to
+// read another's Keychain item both must share this access group.
+//
+// IMPORTANT: this literal is only a CI override hint. On a properly-signed
+// device build "$(AppIdentifierPrefix)" is the Team ID, but on the ad-hoc-signed
+// Simulator build it is a placeholder, so both the app
+// (KeychainAccessGroup.resolveShared) and the test seeder
+// (RealSessionSeed.resolvedAccessGroup) resolve the ACTUAL granted group at
+// runtime by probing the Keychain — they never rely on this exact string
+// matching. The override below is used only if a probe write to it succeeds.
+MNT_IOS_KEYCHAIN_GROUP = $(MNT_IOS_TEAM_ID).com.maintenance.field.shared
+
+// --- Simulator test build: ad-hoc sign so entitlements actually embed ---
+// The shared keychain-access-group seeding requires the keychain-access-groups
+// entitlement to be PRESENT in the built binary; an entirely unsigned build
+// (CODE_SIGNING_ALLOWED=NO) embeds no entitlements and SecItem returns
+// errSecMissingEntitlement (-34018). The iOS Simulator honors ad-hoc signing
+// ("-") with entitlements, which is enough for cross-process keychain sharing
+// there — no real provisioning profile or registered bundle id needed. The
+// RealSessionSeed path skips honestly (XCTSkip) if the entitlement is still
+// absent, so this never produces a false green.
+CODE_SIGN_STYLE = Manual
+CODE_SIGNING_REQUIRED = YES
+CODE_SIGNING_ALLOWED = YES
+CODE_SIGN_IDENTITY = -
+
+INFOPLIST_KEY_NSCameraUsageDescription = 작업 증빙 사진을 촬영하기 위해 카메라 접근 권한이 필요합니다.
+
+SWIFT_VERSION = 6.1
+IPHONEOS_DEPLOYMENT_TARGET = 17.0
