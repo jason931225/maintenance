@@ -128,6 +128,8 @@ typed_id!(PurchaseRequestId);
 typed_id!(InspectionId);
 typed_id!(InspectionScheduleId);
 typed_id!(InspectionRoundId);
+typed_id!(SalesListingId);
+typed_id!(CustomerInquiryId);
 typed_id!(SupportTicketId);
 typed_id!(SupportTicketCommentId);
 typed_id!(AuditEventId);
