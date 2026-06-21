@@ -39,6 +39,7 @@ import kotlinx.serialization.Contextual
  * @param city
  * @param latitude
  * @param longitude
+ * @param geofenceRadiusM Per-site geofence radius in metres for arrival/departure detection; null uses the system default (150 m).
  * @param contactName On-site representative contact name (담당자명).
  * @param contactPhone On-site contact phone (연락처).
  * @param contactEmail Optional contact email (이메일).
@@ -74,6 +75,10 @@ data class SiteLocationGroup (
 
     @SerialName(value = "longitude")
     val longitude: kotlin.Double?,
+
+    /* Per-site geofence radius in metres for arrival/departure detection; null uses the system default (150 m). */
+    @SerialName(value = "geofence_radius_m")
+    val geofenceRadiusM: kotlin.Double?,
 
     /* On-site representative contact name (담당자명). */
     @SerialName(value = "contact_name")

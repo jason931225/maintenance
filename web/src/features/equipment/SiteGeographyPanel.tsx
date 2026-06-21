@@ -25,6 +25,7 @@ interface FormState {
   postalCode: string;
   latitude: string;
   longitude: string;
+  geofenceRadius: string;
   contactName: string;
   contactPhone: string;
   contactEmail: string;
@@ -38,6 +39,7 @@ function emptyForm(): FormState {
     postalCode: "",
     latitude: "",
     longitude: "",
+    geofenceRadius: "",
     contactName: "",
     contactPhone: "",
     contactEmail: "",
@@ -54,6 +56,8 @@ function seedForm(site: SiteLocationGroup): FormState {
     postalCode: "",
     latitude: site.latitude === null ? "" : String(site.latitude),
     longitude: site.longitude === null ? "" : String(site.longitude),
+    geofenceRadius:
+      site.geofence_radius_m === null ? "" : String(site.geofence_radius_m),
     contactName: site.contact_name ?? "",
     contactPhone: site.contact_phone ?? "",
     contactEmail: site.contact_email ?? "",
@@ -136,6 +140,10 @@ export function SiteGeographyPanel({ api }: SiteGeographyPanelProps) {
       postal_code: nullableTrim(form.postalCode),
       latitude: latRaw === "" ? null : Number(latRaw),
       longitude: lonRaw === "" ? null : Number(lonRaw),
+      geofence_radius_m:
+        form.geofenceRadius.trim() === ""
+          ? null
+          : Number(form.geofenceRadius.trim()),
       contact_name: nullableTrim(form.contactName),
       contact_phone: nullableTrim(form.contactPhone),
       contact_email: nullableTrim(form.contactEmail),
@@ -248,6 +256,16 @@ export function SiteGeographyPanel({ api }: SiteGeographyPanelProps) {
               inputMode="decimal"
               onChange={(v) => {
                 setField("longitude", v);
+              }}
+            />
+            <Field
+              id="site-geo-radius"
+              label={f.geofenceRadius}
+              value={form.geofenceRadius}
+              placeholder={t.geofenceRadiusPlaceholder}
+              inputMode="decimal"
+              onChange={(v) => {
+                setField("geofenceRadius", v);
               }}
             />
           </div>

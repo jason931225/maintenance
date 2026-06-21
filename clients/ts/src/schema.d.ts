@@ -2823,6 +2823,11 @@ export interface components {
             latitude: number | null;
             /** Format: double */
             longitude: number | null;
+            /**
+             * Format: double
+             * @description Per-site geofence radius in metres for arrival/departure detection; null uses the system default (150 m).
+             */
+            geofence_radius_m: number | null;
             /** @description On-site representative contact name (담당자명). */
             contact_name: string | null;
             /** @description On-site contact phone (연락처). */
@@ -2852,6 +2857,11 @@ export interface components {
             latitude?: number | null;
             /** Format: double */
             longitude?: number | null;
+            /**
+             * Format: double
+             * @description Per-site geofence radius in metres (> 0, ≤ 100000). Null clears the override so the system default (150 m) applies.
+             */
+            geofence_radius_m?: number | null;
             /** @description On-site representative contact name (담당자명). Null clears it. */
             contact_name?: string | null;
             /** @description On-site contact phone (연락처). Null clears it. */

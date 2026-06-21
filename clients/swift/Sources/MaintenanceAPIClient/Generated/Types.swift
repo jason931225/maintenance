@@ -6328,6 +6328,10 @@ public enum Components {
             public var latitude: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/longitude`.
             public var longitude: Swift.Double?
+            /// Per-site geofence radius in metres for arrival/departure detection; null uses the system default (150 m).
+            ///
+            /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/geofence_radius_m`.
+            public var geofenceRadiusM: Swift.Double?
             /// On-site representative contact name (담당자명).
             ///
             /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/contact_name`.
@@ -6359,6 +6363,7 @@ public enum Components {
             ///   - city:
             ///   - latitude:
             ///   - longitude:
+            ///   - geofenceRadiusM: Per-site geofence radius in metres for arrival/departure detection; null uses the system default (150 m).
             ///   - contactName: On-site representative contact name (담당자명).
             ///   - contactPhone: On-site contact phone (연락처).
             ///   - contactEmail: Optional contact email (이메일).
@@ -6375,6 +6380,7 @@ public enum Components {
                 city: Swift.String? = nil,
                 latitude: Swift.Double? = nil,
                 longitude: Swift.Double? = nil,
+                geofenceRadiusM: Swift.Double? = nil,
                 contactName: Swift.String? = nil,
                 contactPhone: Swift.String? = nil,
                 contactEmail: Swift.String? = nil,
@@ -6391,6 +6397,7 @@ public enum Components {
                 self.city = city
                 self.latitude = latitude
                 self.longitude = longitude
+                self.geofenceRadiusM = geofenceRadiusM
                 self.contactName = contactName
                 self.contactPhone = contactPhone
                 self.contactEmail = contactEmail
@@ -6408,6 +6415,7 @@ public enum Components {
                 case city
                 case latitude
                 case longitude
+                case geofenceRadiusM = "geofence_radius_m"
                 case contactName = "contact_name"
                 case contactPhone = "contact_phone"
                 case contactEmail = "contact_email"
@@ -6456,6 +6464,10 @@ public enum Components {
             public var latitude: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/UpdateSiteRequest/longitude`.
             public var longitude: Swift.Double?
+            /// Per-site geofence radius in metres (> 0, ≤ 100000). Null clears the override so the system default (150 m) applies.
+            ///
+            /// - Remark: Generated from `#/components/schemas/UpdateSiteRequest/geofence_radius_m`.
+            public var geofenceRadiusM: Swift.Double?
             /// On-site representative contact name (담당자명). Null clears it.
             ///
             /// - Remark: Generated from `#/components/schemas/UpdateSiteRequest/contact_name`.
@@ -6477,6 +6489,7 @@ public enum Components {
             ///   - postalCode:
             ///   - latitude:
             ///   - longitude:
+            ///   - geofenceRadiusM: Per-site geofence radius in metres (> 0, ≤ 100000). Null clears the override so the system default (150 m) applies.
             ///   - contactName: On-site representative contact name (담당자명). Null clears it.
             ///   - contactPhone: On-site contact phone (연락처). Null clears it.
             ///   - contactEmail: Optional contact email (이메일). Null clears it.
@@ -6487,6 +6500,7 @@ public enum Components {
                 postalCode: Swift.String? = nil,
                 latitude: Swift.Double? = nil,
                 longitude: Swift.Double? = nil,
+                geofenceRadiusM: Swift.Double? = nil,
                 contactName: Swift.String? = nil,
                 contactPhone: Swift.String? = nil,
                 contactEmail: Swift.String? = nil
@@ -6497,6 +6511,7 @@ public enum Components {
                 self.postalCode = postalCode
                 self.latitude = latitude
                 self.longitude = longitude
+                self.geofenceRadiusM = geofenceRadiusM
                 self.contactName = contactName
                 self.contactPhone = contactPhone
                 self.contactEmail = contactEmail
@@ -6508,6 +6523,7 @@ public enum Components {
                 case postalCode = "postal_code"
                 case latitude
                 case longitude
+                case geofenceRadiusM = "geofence_radius_m"
                 case contactName = "contact_name"
                 case contactPhone = "contact_phone"
                 case contactEmail = "contact_email"

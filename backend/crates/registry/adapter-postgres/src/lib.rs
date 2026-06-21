@@ -300,6 +300,7 @@ impl PgRegistryStore {
             s.city          AS city,
             s.latitude      AS latitude,
             s.longitude     AS longitude,
+            s.geofence_radius_m AS geofence_radius_m,
             s.contact_name  AS contact_name,
             s.contact_phone AS contact_phone,
             s.contact_email AS contact_email,
@@ -319,7 +320,7 @@ impl PgRegistryStore {
         builder.push(
             r#"
         GROUP BY s.id, s.name, c.name, s.branch_id, s.province, s.city, s.latitude, s.longitude,
-                 s.contact_name, s.contact_phone, s.contact_email
+                 s.geofence_radius_m, s.contact_name, s.contact_phone, s.contact_email
         ORDER BY s.province NULLS LAST, s.city NULLS LAST, s.name ASC
         "#,
         );
@@ -374,6 +375,11 @@ impl PgRegistryStore {
                 push_site_assignment(&mut builder, "contact_email", &fields.contact_email);
                 push_site_f64_assignment(&mut builder, "latitude", &fields.latitude);
                 push_site_f64_assignment(&mut builder, "longitude", &fields.longitude);
+                push_site_f64_assignment(
+                    &mut builder,
+                    "geofence_radius_m",
+                    &fields.geofence_radius_m,
+                );
                 builder.push(" WHERE id = ");
                 builder.push_bind(*site_id.as_uuid());
                 builder.build().execute(tx.as_mut()).await?;
@@ -846,6 +852,7 @@ fn site_location_group_from_row(
         city: row.try_get("city")?,
         latitude: row.try_get("latitude")?,
         longitude: row.try_get("longitude")?,
+        geofence_radius_m: row.try_get("geofence_radius_m")?,
         contact_name: row.try_get("contact_name")?,
         contact_phone: row.try_get("contact_phone")?,
         contact_email: row.try_get("contact_email")?,
@@ -872,7 +879,7 @@ async fn fetch_site_admin_row(
             Ok(sqlx::query(
                 r#"
         SELECT id, branch_id, name, address, province, city, postal_code, latitude, longitude,
-               contact_name, contact_phone, contact_email
+               geofence_radius_m, contact_name, contact_phone, contact_email
         FROM registry_sites
         WHERE id = $1
         "#,
@@ -895,6 +902,7 @@ async fn fetch_site_admin_row(
         "postal_code": row.try_get::<Option<String>, _>("postal_code")?,
         "latitude": row.try_get::<Option<f64>, _>("latitude")?,
         "longitude": row.try_get::<Option<f64>, _>("longitude")?,
+        "geofence_radius_m": row.try_get::<Option<f64>, _>("geofence_radius_m")?,
         "contact_name": row.try_get::<Option<String>, _>("contact_name")?,
         "contact_phone": row.try_get::<Option<String>, _>("contact_phone")?,
         "contact_email": row.try_get::<Option<String>, _>("contact_email")?,
@@ -922,6 +930,7 @@ fn site_after_snapshot(
     overlay_text(&mut after, "contact_email", &fields.contact_email);
     overlay_f64(&mut after, "latitude", &fields.latitude);
     overlay_f64(&mut after, "longitude", &fields.longitude);
+    overlay_f64(&mut after, "geofence_radius_m", &fields.geofence_radius_m);
     after
 }
 

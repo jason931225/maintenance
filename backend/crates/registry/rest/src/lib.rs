@@ -217,6 +217,7 @@ struct SiteLocationResponse {
     city: Option<String>,
     latitude: Option<f64>,
     longitude: Option<f64>,
+    geofence_radius_m: Option<f64>,
     contact_name: Option<String>,
     contact_phone: Option<String>,
     contact_email: Option<String>,
@@ -237,6 +238,7 @@ impl From<SiteLocationGroup> for SiteLocationResponse {
             city: value.city,
             latitude: value.latitude,
             longitude: value.longitude,
+            geofence_radius_m: value.geofence_radius_m,
             contact_name: value.contact_name,
             contact_phone: value.contact_phone,
             contact_email: value.contact_email,
@@ -293,6 +295,8 @@ struct UpdateSiteRequest {
     #[serde(default, deserialize_with = "double_option")]
     longitude: Option<Option<f64>>,
     #[serde(default, deserialize_with = "double_option")]
+    geofence_radius_m: Option<Option<f64>>,
+    #[serde(default, deserialize_with = "double_option")]
     contact_name: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     contact_phone: Option<Option<String>>,
@@ -319,6 +323,7 @@ async fn update_site(
     // mirror the registry_sites_lat_lon_paired CHECK.
     validate_site_coordinates(&body)?;
     validate_site_contact(&body)?;
+    validate_site_geofence_radius(&body)?;
 
     let fields = UpdateSiteFields {
         address: body.address,
@@ -327,6 +332,7 @@ async fn update_site(
         postal_code: body.postal_code,
         latitude: body.latitude,
         longitude: body.longitude,
+        geofence_radius_m: body.geofence_radius_m,
         contact_name: body.contact_name,
         contact_phone: body.contact_phone,
         contact_email: body.contact_email,
@@ -384,6 +390,21 @@ fn validate_site_contact(body: &UpdateSiteRequest) -> Result<(), RestError> {
         if let Some(Some(text)) = change {
             validate_bounded_text(text, max, field).map_err(RestError::from_kernel)?;
         }
+    }
+    Ok(())
+}
+
+/// Bound the optional per-site geofence radius on a site PATCH to the same range
+/// as the `registry_sites_geofence_radius_positive` CHECK (migration 0041): a
+/// present value must be finite, > 0, and ≤ 100 000 m. An explicit-null (clear →
+/// fall back to the system default) or an absent field needs no check.
+fn validate_site_geofence_radius(body: &UpdateSiteRequest) -> Result<(), RestError> {
+    if let Some(Some(radius)) = body.geofence_radius_m
+        && (!radius.is_finite() || radius <= 0.0 || radius > 100_000.0)
+    {
+        return Err(RestError::from_kernel(KernelError::validation(
+            "geofence_radius_m must be greater than 0 and at most 100000 metres",
+        )));
     }
     Ok(())
 }
