@@ -24,7 +24,7 @@ patches:
     patch: |-
       - op: replace
         path: /data/MNT_WEBAUTHN_RP_ID
-        value: fsm.knllogistic.com
+        value: knllogistic.com
       - op: replace
         path: /data/MNT_WEBAUTHN_RP_ORIGIN
         value: https://fsm.knllogistic.com

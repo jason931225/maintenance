@@ -139,6 +139,29 @@ once, out-of-band, then drives tenant onboarding.
   > admin should be (re)issued through `POST /platform/orgs` semantics rather than
   > the global cold-start OTP, which now belongs to the platform tier.
 
+## Native app-link association + session TTLs (non-secret config)
+
+These are non-secret runtime config and live on the `mnt-config` ConfigMap (NOT
+`mnt-secrets`). They are listed here so the operator knows where they come from
+during native-app rollout.
+
+- **Native passkeys** are inert until the platform serves the Apple App Site
+  Association + Android Digital Asset Links documents at the fixed `/.well-known/*`
+  paths over the RP origin. These are served public + unauthenticated; the values
+  come from the ConfigMap (comma-separated lists, empty until provisioned — the
+  endpoints then serve a valid empty document):
+  - `MNT_IOS_APP_IDS` — iOS app identifiers `<TeamID>.<bundle-id>` (the Team ID
+    from the Apple Developer account + the app's bundle id), e.g.
+    `ABCDE12345.com.knl.fsm`. Multiple builds (prod/dev) are comma-separated.
+  - `MNT_ANDROID_PACKAGE` — the Android `applicationId`, e.g. `com.knl.fsm`.
+  - `MNT_ANDROID_CERT_SHA256` — the SHA-256 fingerprint(s) of the app's signing
+    cert(s), colon-separated hex (from `keytool -list -v` / Play App Signing).
+    Comma-separate multiple signing keys (e.g. upload + Play-managed).
+- **Refresh-family absolute TTL** (`MNT_REFRESH_FAMILY_ABSOLUTE_TTL_SECS`, default
+  `86400` = 24h) — the NIST 800-63B AAL2 absolute session-lifetime cap. A refresh
+  family rotates freely within this window of its creation; past it the next
+  rotation is rejected and the family revoked, forcing a fresh primary sign-in.
+
 ## CI / release secrets (GitHub repo settings)
 
 - `RELEASE_PLEASE_TOKEN` — fine-grained PAT (contents:write) so the release tag
