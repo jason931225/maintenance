@@ -406,17 +406,29 @@ jobs:
 
       - name: Gradle build
         working-directory: android
-        run: ./gradlew build
+        run: ./gradlew build --stacktrace
 
       - name: Robolectric Compose UI + accessibility tests
         working-directory: android
-        run: ./gradlew testDebugUnitTest
+        run: ./gradlew testDebugUnitTest --stacktrace
 
       - name: Roborazzi screenshot verification
         working-directory: android
         # Goldens are recorded and committed under android/app/src/test/snapshots.
         # verifyRoborazziDebug is the regression gate; it fails on any pixel diff.
-        run: ./gradlew verifyRoborazziDebug
+        run: ./gradlew verifyRoborazziDebug --stacktrace
+
+      - name: Upload test + Roborazzi reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-test-reports
+          path: |
+            android/app/build/reports/tests/**
+            android/app/build/test-results/**
+            android/app/build/outputs/roborazzi/**
+          if-no-files-found: ignore
+          retention-days: 7
 
   android-instrumented:
     name: Android app — instrumented post-login E2E (emulator)
