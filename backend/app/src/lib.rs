@@ -941,7 +941,12 @@ fn http_trace_layer() -> TraceLayer<
             tracing::info_span!(
                 "http.request",
                 method = %request.method(),
-                uri = %request.uri(),
+                // Path ONLY — never the query string. A query can carry PII (a
+                // search term, a name, a phone), and the pii-no-logs gate is a
+                // literal scanner that cannot catch a runtime query value, so we
+                // drop it at the source. The path identifies the route, which is
+                // what tracing needs.
+                path = %request.uri().path(),
                 version = ?request.version(),
                 trace_id = tracing::field::Empty,
                 span_id = tracing::field::Empty,
@@ -952,7 +957,8 @@ fn http_trace_layer() -> TraceLayer<
             tracing::info!(
                 trace_id = %trace_id,
                 method = %request.method(),
-                uri = %request.uri(),
+                // Path only — drop the query string (potential PII); see make_span_with.
+                path = %request.uri().path(),
                 "http request started"
             );
         })
