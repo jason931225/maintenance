@@ -8,9 +8,12 @@ metadata:
 spec:
   ingressClassName: traefik
   tls:
-    - hosts: [fsm.example.com] # host set by the prod overlay
+    # One SAN cert for the console host + the public apex + www (hosts set by the
+    # prod overlay): fsm.knllogistic.com, knllogistic.com, www.knllogistic.com.
+    - hosts: [fsm.example.com, apex.example.com, www.example.com]
       secretName: mnt-tls
   rules:
+    # Console (authenticated app); WebAuthn RP origin. prod: fsm.knllogistic.com.
     - host: fsm.example.com
       http:
         paths:
@@ -22,6 +25,41 @@ spec:
                 name: mnt-app
                 port: { number: 8080 }
           # Everything else → the SPA (which does client-side routing).
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mnt-web
+                port: { number: 8080 }
+    # Public storefront apex (the #6 KNL landing). prod: knllogistic.com.
+    # Same SPA + API: "/" is the storefront home; the public storefront calls the
+    # unauthenticated /api/v1/storefront/* endpoints, so /api must route here too.
+    - host: apex.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: mnt-app
+                port: { number: 8080 }
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mnt-web
+                port: { number: 8080 }
+    # www → same storefront (canonical points at the apex for SEO de-dup).
+    # prod: www.knllogistic.com.
+    - host: www.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: mnt-app
+                port: { number: 8080 }
           - path: /
             pathType: Prefix
             backend:

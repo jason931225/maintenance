@@ -34,11 +34,17 @@ patches:
   - target: { kind: Ingress, name: mnt }
     patch: |-
       - op: replace
-        path: /spec/tls/0/hosts/0
-        value: fsm.knllogistic.com
+        path: /spec/tls/0/hosts
+        value: [fsm.knllogistic.com, knllogistic.com, www.knllogistic.com]
       - op: replace
         path: /spec/rules/0/host
         value: fsm.knllogistic.com
+      - op: replace
+        path: /spec/rules/1/host
+        value: knllogistic.com
+      - op: replace
+        path: /spec/rules/2/host
+        value: www.knllogistic.com
   - target: { kind: ObjectStore, name: mnt-backups }
     patch: |-
       - op: replace
