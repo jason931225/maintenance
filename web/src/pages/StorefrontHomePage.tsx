@@ -198,7 +198,7 @@ export default function StorefrontHomePage() {
             </span>
             <a
               href={ko.storefront.nav.phoneHref}
-              className="text-[clamp(24px,3vw,36px)] font-extrabold"
+              className="text-xl font-extrabold"
             >
               {t.contactBand.number}
             </a>

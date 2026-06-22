@@ -1376,7 +1376,6 @@ export const ko = {
       about: "회사소개",
       contact: "고객센터",
       phoneLabel: "사업 문의",
-      phone: "070.4443.0319",
       phoneHref: "tel:07044430319",
       openMenu: "메뉴 열기",
       closeMenu: "메뉴 닫기",
@@ -1385,6 +1384,7 @@ export const ko = {
       phoneConsult: "전화 상담",
       console: "운영자 콘솔",
       consoleAria: "운영자 콘솔 로그인 (직원 전용)",
+      request: "정비 접수",
     },
     footer: {
       logoAlt: "KNL",
@@ -1444,7 +1444,7 @@ export const ko = {
         rental: { title: "렌탈", caption: "초기 비용 절감" },
         maintenance: { title: "정비", caption: "예방 점검 및 긴급 대응" },
         used: { title: "중고", caption: "검수 장비 상담" },
-        contact: { title: "상담", caption: "070.4443.0319" },
+        contact: { title: "온라인 접수", caption: "24시간 언제든 접수" },
       },
       contactBand: {
         eyebrow: "Customer Center",

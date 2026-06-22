@@ -82,12 +82,12 @@ export function PublicLayout() {
           >
             {ko.storefront.nav.console}
           </a>
-          <a
-            href={ko.storefront.nav.phoneHref}
-            className="hidden rounded border border-white/35 px-3.5 py-2.5 text-sm font-extrabold sm:inline-block"
+          <Link
+            to="/support/new"
+            className="hidden min-h-[44px] items-center rounded border border-signal bg-signal px-4 text-sm font-extrabold text-[#14120c] transition-transform hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:inline-flex"
           >
-            {ko.storefront.nav.phone}
-          </a>
+            {ko.storefront.nav.request}
+          </Link>
           <button
             type="button"
             aria-label={ko.storefront.nav.openMenu}
@@ -141,9 +141,15 @@ export function PublicLayout() {
                 {item.label}
               </NavLink>
             ))}
+            <Link
+              to="/support/new"
+              className="mt-2 inline-flex min-h-[52px] items-center justify-center rounded bg-signal px-4 text-[20px] font-extrabold text-[#14120c] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            >
+              {ko.storefront.nav.request}
+            </Link>
             <a
               href={ko.storefront.nav.phoneHref}
-              className="border-b border-white/15 py-4 text-[22px] font-extrabold"
+              className="mt-3 inline-flex min-h-[44px] items-center text-[18px] font-bold text-white/70 transition-colors hover:text-signal focus-visible:text-signal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
             >
               {ko.storefront.nav.phoneConsult}
             </a>
