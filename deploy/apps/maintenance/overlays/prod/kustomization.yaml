@@ -8,15 +8,16 @@ resources:
 
 images:
   # Deploy by immutable, cosign-signed @sha256 digest (not a mutable tag): the
-  # exact scanned+signed artifact from image-release for the cutover build
-  # feat/multi-tenant-phase1@3b5bee8. Renovate / release-please bump these.
-  # mnt-worker shares the mnt-app image.
+  # exact scanned+signed artifact from image-release. mnt-app is the cutover
+  # build feat/multi-tenant-phase1@3b5bee8 (backend unchanged since); mnt-web is
+  # the one-stop front-door redesign @d919a66. Renovate / release-please bump
+  # these. mnt-worker shares the mnt-app image.
   - name: mnt-app
     newName: ghcr.io/jason931225/mnt-app
     digest: sha256:a0ab7939a2dbaca20535c3d1c93c46b769e4aced2595173d7ada850ee6e99589
   - name: mnt-web
     newName: ghcr.io/jason931225/mnt-web
-    digest: sha256:9a6796eef469cb9c504c7a631a017e5926f22b2bb745308a42888728d0688d64
+    digest: sha256:b278e1499373119b12c01b4bfbacdae7424b53ef8de2b46814a6bf5b44cd8b94
 
 patches:
   # Public host (WebAuthn rp id/origin must equal the served origin) + the OCI
