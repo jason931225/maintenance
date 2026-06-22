@@ -56,13 +56,32 @@ talosctl config endpoint 127.0.0.1 && talosctl config node 10.0.0.227 && talosct
 kubectl exec -n maintenance mnt-db-1 -c postgres -- psql -U postgres -d maintenance -c '\dt'
 ```
 - Migrations run as an Argo **PreSync hook** `mnt-migrate` (mnt-app image, MNT_APP_ROLE=migrate).
-- **KNOWN fresh-deploy bug:** migrate (PreSync) needs `mnt-db-app`, but the `mnt-db`
-  Cluster is a regular Sync resource → created after the hook → deadlock. Bootstrap
-  the DB first (apply the Cluster/ObjectStore from the prod render). Also migration
-  0033 backfills `auth_bootstrap_credentials.org_id` from its user BEFORE the user
-  itself is backfilled → the cold-start cred stays NULL → 0034 fails. Fix:
-  `UPDATE auth_bootstrap_credentials c SET org_id=u.org_id FROM users u WHERE u.id=c.user_id AND c.org_id IS NULL;`
-  (proper fix: reorder 0033 / give the cred a default-org backfill).
+- **KNOWN fresh-deploy DB gotchas** (apply in order on a clean cluster; each has a
+  proper fix to land so the next rebuild is hands-off):
+  1. **DB-before-migrate deadlock.** migrate (PreSync) needs `mnt-db-app`, but the
+     `mnt-db` Cluster is a regular Sync resource → created *after* the hook. Bootstrap
+     the DB first: `kubectl apply --server-side -f` the Cluster + ObjectStore from the
+     prod render. *Proper fix:* a pre-migrate sync-wave / separate bootstrap app.
+  2. **Migration role needs BYPASSRLS.** `organizations`/`users` have FORCE RLS (0030),
+     so 0034's FK validation — run as `mnt_app` (subject to RLS, no `app.current_org`) —
+     sees zero orgs and the FK looks violated. `ALTER ROLE mnt_app BYPASSRLS;` (only the
+     migration role; runtime `mnt_rt` STAYS NOBYPASSRLS = the real tenant boundary).
+     *Proper fix:* CNPG `managed.roles` set `mnt_app` bypassrls.
+  3. **0033 backfill order.** It backfills `auth_bootstrap_credentials.org_id` from its
+     user, but before the user's own org backfill → the cold-start cred stays NULL →
+     0034 NOT-NULL fails:
+     `UPDATE auth_bootstrap_credentials c SET org_id=u.org_id FROM users u WHERE u.id=c.user_id AND c.org_id IS NULL;`
+     *Proper fix:* reorder 0033 (users first) or give the cred a default-org backfill.
+  4. **mnt-db-rt password must be URL-encoded** in the `uri`. `openssl rand -base64`
+     yields `+`/`/`, which break `host:port` parsing → backend crashes
+     `Database(Configuration(InvalidPort))`. Percent-encode the password in the uri.
+     *Proper fix:* SECRETS.md uses `rand -hex` or percent-encodes.
+  5. **apalis job queue needs runtime DDL grants.** The worker's apalis queue self-creates
+     its tables at startup as `mnt_rt` (no apalis migration exists), needing
+     `GRANT CREATE ON DATABASE maintenance TO mnt_rt; GRANT CREATE,USAGE ON SCHEMA public TO mnt_rt;`
+     — else `permission denied for database/schema public`. This does NOT weaken tenant
+     isolation (mnt_rt stays NOBYPASSRLS; the job queue is infra, not org data).
+     *Proper fix:* create the apalis schema in a migration (as `mnt_app`) + grant mnt_rt DML.
 
 ## 5. The GitOps server (Argo CD, ns `argocd`)
 - Argo watches branch **feat/multi-tenant-phase1** (the cutover branch), app-of-apps
