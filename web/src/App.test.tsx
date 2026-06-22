@@ -233,10 +233,25 @@ describe("routing", () => {
   it("renders the public KNL storefront home at /", async () => {
     // #6: `/` is now the unauthenticated KNL storefront home (PublicLayout),
     // replacing the previous `/`→`/dispatch` redirect. The header carries the
-    // public nav; the page shows the hero copy.
+    // public nav; the page shows the integrated one-stop hero title.
     renderAt("/");
     expect(
-      (await screen.findAllByText("고장·점검, 지게차 정비를 빠르게 접수하세요"))[0],
+      (await screen.findAllByText(
+        "물류장비 렌탈부터 정비·운영까지, 하나로 잇는 원스탑 솔루션",
+      ))[0],
+    ).toBeVisible();
+  });
+
+  it("renders the public /platform-fsm showcase", async () => {
+    // The FSM-platform marketing page mounts inside PublicLayout at
+    // /platform-fsm (the gated console owns /platform). Its hero reuses the
+    // landing.* copy, so the landing hero title renders as the page H1.
+    renderAt("/platform-fsm");
+    expect(
+      await screen.findByRole("heading", {
+        name: "접수부터 배차·현장 정비·정산·KPI까지, 하나의 콘솔로",
+        level: 1,
+      }),
     ).toBeVisible();
   });
 

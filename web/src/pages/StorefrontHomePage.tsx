@@ -1,10 +1,14 @@
 import { ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 
+import { consoleHref } from "../lib/consoleUrl";
 import { ko } from "../i18n/ko";
 import { cn } from "../lib/utils";
 
 const t = ko.storefront.home;
+const landing = ko.landing;
+const cert = ko.storefront.about.cert;
+const partners = ko.storefront.about.partners;
 
 /** Service Map gateway cards (4: rental / used / maintenance / about). */
 const GATEWAY_CARDS = [
@@ -26,20 +30,20 @@ const SHORTCUTS = [
   { to: "/support/new", label: t.quickFinder.maintenanceRequest },
 ] as const;
 
-/** Dark proof strip metrics. */
-const PROOF = [
-  t.proofStrip.rental,
-  t.proofStrip.maintenance,
-  t.proofStrip.used,
-  t.proofStrip.contact,
+/** FSM platform band capability chips. */
+const PLATFORM_CHIPS = [
+  t.platform.chips.dispatch,
+  t.platform.chips.field,
+  t.platform.chips.kpi,
 ] as const;
 
 /**
  * KNL storefront home (#6). Routed child of PublicLayout (which supplies the
  * dark site-header + footer), so this returns only its own <main> content:
- * dark photo hero with a left gradient scrim, Quick Finder shortcuts, the
- * Service Map gateway grid, a dark proof strip, and the amber contact band.
- * All copy comes from ko.storefront.home.*.
+ * dark photo hero with a left gradient scrim + ISO chip row, Quick Finder
+ * shortcuts, the Service Map gateway grid, a credibility band (ISO + brand
+ * wall), a fenced FSM-platform band, and the amber contact band. All copy comes
+ * from ko.storefront.* / ko.landing.*.
  */
 export default function StorefrontHomePage() {
   return (
@@ -50,7 +54,7 @@ export default function StorefrontHomePage() {
         className="relative grid min-h-[82svh] items-center overflow-hidden text-white"
       >
         <div
-          className="absolute inset-0 scale-[1.03] bg-cover bg-center"
+          className="absolute inset-0 bg-cover bg-center motion-safe:scale-[1.03]"
           style={{ backgroundImage: "url('/sales/asset-04.jpg')" }}
           aria-hidden="true"
         />
@@ -58,34 +62,52 @@ export default function StorefrontHomePage() {
           className="absolute inset-0 bg-gradient-to-r from-[#050d14]/[0.86] via-[#050d14]/60 to-[#050d14]/25"
           aria-hidden="true"
         />
-        <div className="relative z-[1] mx-auto w-full max-w-[1240px] px-5 pb-[74px] pt-[130px] sm:px-8 lg:px-[110px]">
-          <p className="mb-4 text-[13px] font-black uppercase text-signal">
+        <div className="relative z-[1] mx-auto w-full max-w-[1240px] px-5 pb-[74px] pt-[130px] sm:px-8 lg:px-12">
+          <p className="mb-4 text-[13px] font-black uppercase tracking-[0.14em] text-signal">
             {t.hero.eyebrow}
           </p>
           <h1
             id="home-hero-title"
-            className="m-0 max-w-[820px] text-[clamp(44px,7.5vw,88px)] font-extrabold leading-[1.04]"
+            className="m-0 max-w-[820px] text-[clamp(40px,6vw,72px)] font-extrabold leading-[1.05] tracking-[-0.02em]"
           >
-            {t.hero.title}
+            {t.hero.titleOneStop}
           </h1>
-          <p className="mt-6 max-w-[660px] text-[clamp(18px,2vw,24px)] leading-[1.58] text-white/85">
+          <p className="mt-6 max-w-[660px] text-[clamp(17px,2vw,22px)] leading-[1.7] text-white/85">
             {t.hero.copy}
           </p>
-          <div className="mt-9 flex flex-wrap gap-3">
+          <div className="mt-9 flex flex-wrap items-center gap-3">
             <Link
               to="/support/new"
-              className="inline-flex min-h-[54px] items-center justify-center gap-3.5 rounded border border-signal bg-signal px-[22px] font-black text-[#14120c] transition-transform hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+              className="inline-flex min-h-[52px] items-center justify-center gap-3.5 rounded bg-signal px-[22px] font-black text-ink transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-safe:hover:-translate-y-0.5"
             >
               {t.hero.primary}
               <ArrowRight aria-hidden="true" size={20} />
             </Link>
             <Link
               to="/rental"
-              className="inline-flex min-h-[54px] items-center justify-center gap-3.5 rounded border border-white/35 bg-white/10 px-[22px] font-black text-white transition-transform hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+              className="inline-flex min-h-[52px] items-center justify-center gap-3.5 rounded border border-white/35 bg-white/10 px-[22px] font-black text-white transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-safe:hover:-translate-y-0.5"
             >
               {t.hero.secondary}
             </Link>
+            <Link
+              to="/platform-fsm"
+              className="inline-flex min-h-[52px] items-center gap-2 px-1 font-bold text-white/85 underline-offset-4 transition-colors hover:text-signal hover:underline focus-visible:text-signal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            >
+              {t.hero.platformLink}
+              <ArrowRight aria-hidden="true" size={18} />
+            </Link>
           </div>
+          {/* ISO chip row */}
+          <ul className="m-0 mt-8 flex list-none flex-wrap gap-2 p-0">
+            {cert.items.map((item) => (
+              <li
+                key={item.name}
+                className="inline-flex min-h-[34px] items-center rounded border border-white/30 px-3 text-[13px] font-bold text-white/85"
+              >
+                {item.name}
+              </li>
+            ))}
+          </ul>
         </div>
       </section>
 
@@ -94,14 +116,14 @@ export default function StorefrontHomePage() {
         aria-labelledby="home-finder-title"
         className="relative z-[3] border-b border-line bg-white shadow-[0_22px_70px_rgba(5,18,32,0.18)]"
       >
-        <div className="mx-auto grid max-w-[1240px] items-end gap-7 px-5 py-[34px] sm:px-8 lg:grid-cols-[minmax(260px,0.8fr)_1.6fr] lg:px-10">
+        <div className="mx-auto grid max-w-[1240px] items-end gap-7 px-5 py-[34px] sm:px-8 lg:grid-cols-[minmax(260px,0.8fr)_1.6fr] lg:px-12">
           <div>
-            <p className="mb-2 text-[13px] font-black uppercase text-brand-teal">
+            <p className="mb-2 text-[13px] font-black uppercase tracking-[0.14em] text-brand-teal">
               {t.quickFinder.eyebrow}
             </p>
             <h2
               id="home-finder-title"
-              className="m-0 text-[clamp(29px,4vw,52px)] font-extrabold leading-[1.12]"
+              className="m-0 text-[clamp(28px,3.4vw,44px)] font-extrabold leading-[1.12]"
             >
               {t.quickFinder.title}
             </h2>
@@ -114,7 +136,7 @@ export default function StorefrontHomePage() {
               <Link
                 key={s.to}
                 to={s.to}
-                className="flex min-h-[58px] items-center justify-center rounded bg-ink px-3.5 text-center font-black text-white transition-colors hover:bg-ink/90"
+                className="flex min-h-[58px] items-center justify-center rounded bg-ink px-3.5 text-center font-black text-white transition-colors hover:bg-ink/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
               >
                 {s.label}
               </Link>
@@ -124,14 +146,20 @@ export default function StorefrontHomePage() {
       </section>
 
       {/* Service Map: gateway grid of purpose-built pages */}
-      <section className="px-5 py-[clamp(74px,10vw,128px)] sm:px-8 lg:px-10">
+      <section
+        aria-labelledby="home-servicemap-title"
+        className="px-5 py-[clamp(72px,9vw,120px)] sm:px-8 lg:px-12"
+      >
         <div className="mx-auto max-w-[1240px]">
           <div className="mb-10 grid items-end gap-6 lg:grid-cols-[minmax(280px,0.75fr)_1fr]">
             <div>
-              <p className="mb-2 text-[13px] font-black uppercase text-brand-teal">
+              <p className="mb-2 text-[13px] font-black uppercase tracking-[0.14em] text-brand-teal">
                 {t.serviceMap.eyebrow}
               </p>
-              <h2 className="m-0 text-[clamp(29px,4vw,52px)] font-extrabold leading-[1.12]">
+              <h2
+                id="home-servicemap-title"
+                className="m-0 text-[clamp(28px,3.4vw,44px)] font-extrabold leading-[1.12]"
+              >
                 {t.serviceMap.title}
               </h2>
             </div>
@@ -144,51 +172,158 @@ export default function StorefrontHomePage() {
               <Link
                 key={to}
                 to={to}
-                className="group grid gap-4 overflow-hidden rounded-lg border border-line bg-white transition-all hover:-translate-y-[3px] hover:shadow-[0_22px_70px_rgba(5,18,32,0.18)]"
+                className="group flex flex-col overflow-hidden rounded-xl border border-line bg-white transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-teal motion-safe:hover:-translate-y-[3px] motion-safe:hover:shadow-[0_22px_70px_rgba(5,18,32,0.18)]"
               >
-                <img
-                  src={image}
-                  alt={card.imageAlt}
-                  className="aspect-[4/3] w-full object-cover"
-                />
-                <span className="mx-[22px] text-[13px] font-black uppercase text-brand-teal">
-                  {card.tag}
-                </span>
-                <h3 className="mx-[22px] m-0 text-2xl font-extrabold">
-                  {card.title}
-                </h3>
-                <p className="mx-[22px] mb-6 mt-0 leading-[1.6] text-steel">
-                  {card.copy}
-                </p>
+                <div className="relative aspect-[4/3] overflow-hidden">
+                  <img
+                    src={image}
+                    alt={card.imageAlt}
+                    className="h-full w-full object-cover transition-transform duration-300 motion-safe:group-hover:scale-105"
+                  />
+                  <div
+                    className="absolute inset-0 bg-gradient-to-t from-ink/40 to-transparent"
+                    aria-hidden="true"
+                  />
+                </div>
+                <div className="p-6">
+                  <span className="text-[13px] font-black uppercase tracking-[0.14em] text-brand-teal">
+                    {card.tag}
+                  </span>
+                  <h3 className="m-0 mt-2 text-2xl font-extrabold">
+                    {card.title}
+                  </h3>
+                  <p className="mb-4 mt-2 leading-[1.6] text-steel">
+                    {card.copy}
+                  </p>
+                  <span className="inline-flex items-center gap-1.5 text-sm font-bold text-brand-teal">
+                    {card.title}
+                    <ArrowRight aria-hidden="true" size={16} />
+                  </span>
+                </div>
               </Link>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Proof strip: dark band of value metrics */}
-      <section className="bg-ink px-5 py-[34px] text-white sm:px-8 lg:px-10">
-        <div className="mx-auto grid max-w-[1240px] gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
-          {PROOF.map((item) => (
-            <article
-              key={item.title}
-              className="grid gap-1.5 border-l-[3px] border-signal pl-[18px]"
+      {/* Credibility band: ISO certs + brand wall */}
+      <section
+        aria-labelledby="home-credibility-title"
+        className="bg-muted-panel px-5 py-[clamp(72px,9vw,120px)] sm:px-8 lg:px-12"
+      >
+        <div className="mx-auto max-w-[1240px]">
+          <p className="mb-2 text-[13px] font-black uppercase tracking-[0.14em] text-brand-teal">
+            {t.credibility.eyebrow}
+          </p>
+          <h2
+            id="home-credibility-title"
+            className="m-0 mb-10 text-[clamp(28px,3.4vw,44px)] font-extrabold leading-[1.12]"
+          >
+            {t.credibility.title}
+          </h2>
+          <div className="grid gap-12 lg:grid-cols-[0.7fr_1.3fr]">
+            {/* LEFT: ISO certs */}
+            <div>
+              <p className="mb-4 text-[13px] font-bold text-steel">
+                {t.credibility.certLabel}
+              </p>
+              <ul className="m-0 flex list-none flex-wrap gap-3 p-0">
+                {cert.items.map((item) => (
+                  <li
+                    key={item.name}
+                    className="inline-flex min-h-[44px] items-center rounded border border-line bg-white px-4 text-[15px] font-extrabold text-ink"
+                  >
+                    {item.name}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            {/* RIGHT: brand wall */}
+            <div>
+              <p className="mb-4 text-[13px] font-bold text-steel">
+                {t.credibility.partnerLabel}
+              </p>
+              <ul
+                aria-label={partners.aria}
+                className="m-0 grid list-none grid-cols-2 gap-2 p-0 sm:grid-cols-3 lg:grid-cols-4"
+              >
+                {partners.items.map((item) => (
+                  <li
+                    key={item.name}
+                    className="inline-flex min-h-[56px] items-center justify-center rounded border border-line bg-white px-3 text-center text-[14px] font-bold uppercase tracking-[0.08em] text-steel"
+                  >
+                    {item.name}
+                  </li>
+                ))}
+              </ul>
+              <p className="m-0 mt-4 text-[13px] leading-[1.6] text-steel">
+                {t.credibility.partnerNote}
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Fenced FSM platform band: full-bleed dark with a signal top-rule */}
+      <section
+        aria-labelledby="home-platform-title"
+        className="border-t border-signal bg-ink px-5 py-[clamp(72px,9vw,120px)] text-white sm:px-8 lg:px-12"
+      >
+        <div className="mx-auto max-w-[1240px]">
+          <p className="mb-3 text-[13px] font-black uppercase tracking-[0.14em] text-signal">
+            {t.platform.eyebrow}
+          </p>
+          <h2
+            id="home-platform-title"
+            className="m-0 max-w-[900px] text-[clamp(28px,3.4vw,44px)] font-extrabold leading-[1.12]"
+          >
+            {landing.hero.title}
+          </h2>
+          <p className="mt-5 max-w-[760px] text-[17px] leading-[1.7] text-white/80">
+            {landing.hero.subtitle}
+          </p>
+          <ul className="m-0 mt-8 flex list-none flex-wrap gap-2.5 p-0">
+            {PLATFORM_CHIPS.map((chip) => (
+              <li
+                key={chip}
+                className="inline-flex min-h-[40px] items-center rounded border border-brand-teal/60 bg-brand-teal/10 px-4 text-[14px] font-bold text-white"
+              >
+                {chip}
+              </li>
+            ))}
+          </ul>
+          <div className="mt-9 flex flex-wrap gap-3">
+            <Link
+              to="/platform-fsm"
+              className="inline-flex min-h-[52px] items-center justify-center gap-3 rounded bg-signal px-[22px] font-black text-ink transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-safe:hover:-translate-y-0.5"
             >
-              <strong className="text-[26px] font-extrabold">{item.title}</strong>
-              <span className="text-white/70">{item.caption}</span>
-            </article>
-          ))}
+              {t.platform.detailCta}
+              <ArrowRight aria-hidden="true" size={20} />
+            </Link>
+            <a
+              href={consoleHref()}
+              className="inline-flex min-h-[52px] items-center justify-center rounded border border-white/35 bg-white/10 px-[22px] font-black text-white transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-safe:hover:-translate-y-0.5"
+            >
+              {landing.nav.console}
+            </a>
+          </div>
         </div>
       </section>
 
       {/* Contact band: amber CTA to the customer center */}
-      <section className="bg-signal px-5 py-[46px] sm:px-8 lg:px-10">
+      <section
+        aria-labelledby="home-contact-title"
+        className="bg-signal px-5 py-[clamp(40px,5vw,64px)] sm:px-8 lg:px-12"
+      >
         <div className="mx-auto grid max-w-[1240px] items-center gap-6 lg:grid-cols-[1.3fr_auto_auto]">
           <div>
-            <p className="mb-4 text-[13px] font-black uppercase text-ink/70">
+            <p className="mb-4 text-[13px] font-black uppercase tracking-[0.14em] text-ink/70">
               {t.contactBand.eyebrow}
             </p>
-            <h2 className="m-0 text-[clamp(29px,4vw,52px)] font-extrabold leading-[1.12]">
+            <h2
+              id="home-contact-title"
+              className="m-0 text-[clamp(28px,3.4vw,44px)] font-extrabold leading-[1.12]"
+            >
               {t.contactBand.title}
             </h2>
           </div>
@@ -206,8 +341,8 @@ export default function StorefrontHomePage() {
           <Link
             to="/support/new"
             className={cn(
-              "inline-flex min-h-[54px] items-center justify-center rounded border border-ink bg-ink px-[22px] font-black text-white",
-              "transition-transform hover:-translate-y-0.5",
+              "inline-flex min-h-[52px] items-center justify-center rounded border border-ink bg-ink px-[22px] font-black text-white",
+              "transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink motion-safe:hover:-translate-y-0.5",
             )}
           >
             {t.contactBand.cta}

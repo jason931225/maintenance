@@ -1382,23 +1382,37 @@ export const ko = {
       menuAria: "주요 메뉴",
       mobileMenuAria: "모바일 메뉴",
       phoneConsult: "전화 상담",
-      console: "운영자 콘솔",
-      consoleAria: "운영자 콘솔 로그인 (직원 전용)",
       request: "정비 접수",
+      platform: "FSM 플랫폼",
+      platformAria: "FSM 플랫폼 — 지게차 임대·정비 운영 콘솔 소개",
+      login: "로그인",
+      loginAria: "고객사·직원 로그인",
     },
     footer: {
       logoAlt: "KNL",
       address: "경상남도 창원시 성산구 성산패총로24번길 1",
       email: "KNL@cossok.com",
       tagline: "물류장비 렌탈과 정비를 연결하는 KNL",
+      sitemap: {
+        services: "서비스",
+        platform: "FSM 플랫폼",
+        company: "회사",
+        family: "패밀리 사이트",
+        console: "운영자 콘솔",
+      },
+      family: {
+        koss: "Koss",
+        bestec: "Bestec",
+      },
     },
     home: {
       hero: {
         eyebrow: "Korea Next Logistics",
-        title: "고장·점검, 지게차 정비를 빠르게 접수하세요",
+        titleOneStop: "물류장비 렌탈부터 정비·운영까지, 하나로 잇는 원스탑 솔루션",
         copy: "현장 정보만 입력하면 KNL 정비팀이 확인 후 연락드립니다. 렌탈·중고 상담도 같은 자리에서 이어집니다.",
         primary: "정비·수리 접수하기",
         secondary: "렌탈 서비스 보기",
+        platformLink: "FSM 운영 플랫폼 보기",
       },
       quickFinder: {
         eyebrow: "Quick Finder",
@@ -1440,18 +1454,29 @@ export const ko = {
           },
         },
       },
-      proofStrip: {
-        rental: { title: "렌탈", caption: "초기 비용 절감" },
-        maintenance: { title: "정비", caption: "예방 점검 및 긴급 대응" },
-        used: { title: "중고", caption: "검수 장비 상담" },
-        contact: { title: "온라인 접수", caption: "24시간 언제든 접수" },
-      },
       contactBand: {
         eyebrow: "Customer Center",
         title: "어떤 장비가 맞는지 모르겠다면 고객센터에서 시작하세요.",
         numberLabel: "사업 문의",
         number: "070.4443.0319",
         cta: "온라인 접수",
+      },
+      credibility: {
+        eyebrow: "Trust & Brands",
+        title: "인증과 주요 대응 브랜드",
+        certLabel: "품질·환경·안전보건 경영시스템 인증",
+        partnerLabel: "주요 대응 지게차 브랜드",
+        partnerNote:
+          "브랜드명은 정비 대응 가능 범위를 나타내며, 각 상표권은 해당 제조사에 있습니다.",
+      },
+      platform: {
+        eyebrow: "FSM · CX 플랫폼",
+        detailCta: "플랫폼 자세히 보기",
+        chips: {
+          dispatch: "접수·배차",
+          field: "현장 정비·모바일",
+          kpi: "KPI·운영 대시보드",
+        },
       },
     },
     rental: {
@@ -1698,6 +1723,11 @@ export const ko = {
           { name: "BYD" },
           { name: "HELI" },
           { name: "Hangcha" },
+          { name: "Doosan" },
+          { name: "Hyundai" },
+          { name: "Clark" },
+          { name: "Jungheinrich" },
+          { name: "Nichiyu" },
         ],
       },
     },
@@ -1770,6 +1800,21 @@ export const ko = {
             a: "장비 모델, 현장 위치, 고장 증상, 현재 운행 가능 여부를 알려주시면 상담이 빨라집니다.",
           },
         ],
+      },
+    },
+    platformFsm: {
+      meta: {
+        title: "FSM 운영 플랫폼",
+        intro:
+          "이 페이지는 KNL이 직접 현장에서 검증한 지게차 임대·정비 운영 플랫폼(FSM/CX)을 소개합니다.",
+      },
+      dashboards: {
+        eyebrow: "Dashboards & Observability",
+        title: "현장의 흐름을 실시간 대시보드로 봅니다",
+      },
+      governance: {
+        eyebrow: "Governance",
+        title: "멀티테넌트 운영·감사·KPI를 한 콘솔에서",
       },
     },
   },
