@@ -11,7 +11,7 @@ spec:
     # Official pinned release manifest, wrapped by a thin kustomization so
     # Renovate can bump the tag. Installs the operator into cnpg-system.
     repoURL: https://github.com/jason931225/maintenance.git # replace OWNER
-    targetRevision: main
+    targetRevision: feat/multi-tenant-phase1
     path: deploy/infra/cnpg-operator
   destination:
     server: https://kubernetes.default.svc

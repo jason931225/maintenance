@@ -9,7 +9,7 @@ spec:
   project: maintenance
   source:
     repoURL: https://github.com/jason931225/maintenance.git # replace OWNER
-    targetRevision: main
+    targetRevision: feat/multi-tenant-phase1
     path: deploy/infra/cert-manager
   destination:
     server: https://kubernetes.default.svc
