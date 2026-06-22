@@ -139,11 +139,13 @@ export function AppRouter() {
             public marketing surface is mounted at /platform-fsm so it stays
             unauthenticated. */}
         <Route path="/platform-fsm" element={<PlatformFsmPage />} />
+        {/* Public, unauthenticated customer support intake — the dominant
+            storefront CTA target. Nested inside PublicLayout so it inherits the
+            KNL header/nav/footer; the page renders only its own <main>. */}
+        <Route path="/support/new" element={<CustomerIntakePage />} />
       </Route>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/wallboard" element={<WallBoardPage />} />
-      {/* Public, unauthenticated customer support intake */}
-      <Route path="/support/new" element={<CustomerIntakePage />} />
 
       {/* Auth guard — redirects to /login when unauthenticated */}
       <Route element={<ProtectedRoute />}>

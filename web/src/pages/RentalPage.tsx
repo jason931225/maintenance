@@ -1,10 +1,7 @@
-import { type SyntheticEvent, useId, useState } from "react";
+import { type SyntheticEvent, useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ChevronRight } from "lucide-react";
+import { ArrowRight, ChevronRight } from "lucide-react";
 
-import { Button } from "../components/ui/button";
-import { Card } from "../components/ui/card";
-import { Select } from "../components/ui/select";
 import { ko } from "../i18n/ko";
 
 const t = ko.storefront.rental;
@@ -30,13 +27,17 @@ const TERM_OPTIONS = [
   t.finder.termOptions.over1y,
 ] as const;
 
-/** Contact deep-link with the topic preselected for the inquiry form. */
-const CONTACT_RENTAL = "/contact?topic=RENTAL";
+// Online intake deep-link with the topic preselected (the dominant CTA target).
+const INTAKE_RENTAL = "/support/new?topic=RENTAL";
+
+const SELECT_CLASS =
+  "min-h-[54px] w-full rounded border border-line bg-white px-3.5 text-[16px] font-bold text-ink outline-none transition-colors focus-visible:border-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink";
 
 /**
  * Rental page (#6 KNL). Routed child of PublicLayout — returns only its <main>.
  * Sections: page-hero, client-side Rental Finder (3 selects → recommendation
- * string + CTA), Why-Rental value cards, numbered process, contact band.
+ * string + CTA), Why-Rental value cards, numbered process, contact band. The
+ * dominant CTA routes to the online intake (/support/new); phone is last resort.
  */
 export default function RentalPage() {
   const [type, setType] = useState<string>(TYPE_OPTIONS[0]);
@@ -47,6 +48,7 @@ export default function RentalPage() {
   const typeFieldId = useId();
   const capacityFieldId = useId();
   const termFieldId = useId();
+  const resultRef = useRef<HTMLDivElement>(null);
 
   function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -54,58 +56,66 @@ export default function RentalPage() {
       [type, capacity, term].join(t.finder.resultSeparator) +
         t.finder.resultSuffix,
     );
+    // Move focus to the recommendation so the result is announced and reachable.
+    void Promise.resolve().then(() => resultRef.current?.focus());
   }
 
   return (
     <main className="flex-1">
-      {/* Page hero */}
+      {/* Page hero — decorative photo background. */}
       <section
-        className="relative flex min-h-[62svh] items-end bg-cover bg-center pt-[86px] text-white"
+        aria-labelledby="rental-hero-title"
+        className="relative flex min-h-[62svh] items-end bg-cover bg-center text-white"
         style={{
           backgroundImage:
-            "linear-gradient(90deg, rgba(5,13,20,0.88), rgba(5,13,20,0.58)), url('/sales/asset-04.jpg')",
+            "linear-gradient(90deg, rgba(16,24,32,0.88), rgba(16,24,32,0.58)), url('/sales/asset-04.jpg')",
         }}
-        aria-label={t.hero.imageAlt}
       >
-        <div className="mx-auto w-full max-w-[1240px] px-5 pb-14 pt-24 sm:px-8 lg:px-10 lg:pb-24 lg:pt-32">
-          <p className="mb-4 text-[13px] font-black uppercase text-signal">
+        <div className="mx-auto w-full max-w-[1240px] px-5 pb-14 pt-[clamp(110px,14vw,150px)] sm:px-8 lg:px-10">
+          <p className="mb-4 text-[13px] font-black uppercase tracking-[0.14em] text-signal">
             {t.hero.eyebrow}
           </p>
-          <h1 className="max-w-[820px] text-[clamp(2.375rem,6vw,4.5rem)] font-bold leading-[1.08]">
+          <h1
+            id="rental-hero-title"
+            className="m-0 max-w-[820px] text-[clamp(38px,6vw,72px)] font-extrabold leading-[1.08] tracking-[-0.02em]"
+          >
             {t.hero.title}
           </h1>
-          <p className="mt-5 max-w-[720px] text-[clamp(1.0625rem,2vw,1.375rem)] leading-relaxed text-white/80">
+          <p className="mt-5 max-w-[720px] text-[clamp(17px,2vw,22px)] leading-[1.7] text-white/85">
             {t.hero.copy}
           </p>
           <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-            <Button
-              asChild
-              className="min-h-[54px] rounded bg-signal px-6 font-black text-ink hover:bg-signal-dark"
+            <Link
+              to={INTAKE_RENTAL}
+              className="inline-flex min-h-[54px] items-center justify-center gap-2.5 rounded bg-signal px-6 font-black text-ink transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-safe:hover:-translate-y-0.5"
             >
-              <Link to={CONTACT_RENTAL}>
-                {t.hero.primary}
-                <ChevronRight className="h-4 w-4" aria-hidden="true" />
-              </Link>
-            </Button>
-            <Button
-              asChild
-              variant="secondary"
-              className="min-h-[54px] rounded border-white/40 bg-white/10 px-6 font-black text-white hover:bg-white/20"
+              {t.hero.primary}
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
+            <a
+              href="#rental-process"
+              className="inline-flex min-h-[54px] items-center justify-center rounded border border-white/40 bg-white/10 px-6 font-black text-white transition-colors hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             >
-              <a href="#rental-process">{t.hero.secondary}</a>
-            </Button>
+              {t.hero.secondary}
+            </a>
           </div>
         </div>
       </section>
 
       {/* Rental Finder */}
-      <section className="relative z-10 border-b border-line bg-white shadow-[0_22px_70px_rgba(5,18,32,0.18)]">
+      <section
+        aria-labelledby="rental-finder-title"
+        className="relative z-10 border-b border-line bg-white shadow-[0_22px_70px_rgba(5,18,32,0.18)]"
+      >
         <div className="mx-auto grid max-w-[1240px] items-end gap-7 px-5 py-8 sm:px-8 lg:grid-cols-[minmax(260px,0.8fr)_1.6fr] lg:px-10">
           <div>
-            <p className="mb-2 text-[13px] font-black uppercase text-brand-teal">
+            <p className="mb-2 text-[13px] font-black uppercase tracking-[0.14em] text-brand-teal">
               {t.finder.eyebrow}
             </p>
-            <h2 className="text-[clamp(1.8125rem,4vw,3.25rem)] font-bold leading-[1.12]">
+            <h2
+              id="rental-finder-title"
+              className="m-0 text-[clamp(28px,3.4vw,44px)] font-extrabold leading-[1.12]"
+            >
               {t.finder.title}
             </h2>
           </div>
@@ -115,115 +125,126 @@ export default function RentalPage() {
           >
             <label
               htmlFor={typeFieldId}
-              className="grid gap-2 text-xs font-black uppercase text-steel"
+              className="grid gap-2 text-[12px] font-black uppercase tracking-[0.08em] text-steel"
             >
               {t.finder.typeLabel}
-              <Select
+              <select
                 id={typeFieldId}
                 value={type}
                 onChange={(event) => {
                   setType(event.target.value);
                 }}
-                className="min-h-[54px]"
+                className={SELECT_CLASS}
               >
                 {TYPE_OPTIONS.map((option) => (
                   <option key={option} value={option}>
                     {option}
                   </option>
                 ))}
-              </Select>
+              </select>
             </label>
             <label
               htmlFor={capacityFieldId}
-              className="grid gap-2 text-xs font-black uppercase text-steel"
+              className="grid gap-2 text-[12px] font-black uppercase tracking-[0.08em] text-steel"
             >
               {t.finder.capacityLabel}
-              <Select
+              <select
                 id={capacityFieldId}
                 value={capacity}
                 onChange={(event) => {
                   setCapacity(event.target.value);
                 }}
-                className="min-h-[54px]"
+                className={SELECT_CLASS}
               >
                 {CAPACITY_OPTIONS.map((option) => (
                   <option key={option} value={option}>
                     {option}
                   </option>
                 ))}
-              </Select>
+              </select>
             </label>
             <label
               htmlFor={termFieldId}
-              className="grid gap-2 text-xs font-black uppercase text-steel"
+              className="grid gap-2 text-[12px] font-black uppercase tracking-[0.08em] text-steel"
             >
               {t.finder.termLabel}
-              <Select
+              <select
                 id={termFieldId}
                 value={term}
                 onChange={(event) => {
                   setTerm(event.target.value);
                 }}
-                className="min-h-[54px]"
+                className={SELECT_CLASS}
               >
                 {TERM_OPTIONS.map((option) => (
                   <option key={option} value={option}>
                     {option}
                   </option>
                 ))}
-              </Select>
+              </select>
             </label>
-            <Button
+            <button
               type="submit"
-              className="min-h-[54px] self-end rounded bg-ink font-black text-white hover:bg-ink/90"
+              className="min-h-[54px] self-end rounded bg-ink px-4 font-black text-white transition-colors hover:bg-ink/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
             >
               {t.finder.submit}
-            </Button>
+            </button>
           </form>
         </div>
-        {recommendation && (
-          <div className="bg-ink px-5 py-4 text-center sm:px-8 lg:px-10">
-            <p className="m-0 font-extrabold text-white" role="status">
+        {recommendation ? (
+          <div className="bg-ink px-5 py-5 text-center sm:px-8 lg:px-10">
+            <p
+              ref={resultRef}
+              tabIndex={-1}
+              role="status"
+              className="m-0 font-extrabold text-white outline-none"
+            >
               {recommendation}
             </p>
-            <Button
-              asChild
-              className="mt-3 rounded bg-signal font-black text-ink hover:bg-signal-dark"
+            <Link
+              to={INTAKE_RENTAL}
+              className="mt-3 inline-flex min-h-[48px] items-center justify-center gap-2 rounded bg-signal px-6 font-black text-ink transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-safe:hover:-translate-y-0.5"
             >
-              <Link to={CONTACT_RENTAL}>
-                {t.hero.primary}
-                <ChevronRight className="h-4 w-4" aria-hidden="true" />
-              </Link>
-            </Button>
+              {t.hero.primary}
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
           </div>
-        )}
+        ) : null}
       </section>
 
       {/* Why Rental */}
-      <section className="py-[clamp(4.625rem,10vw,8rem)]">
+      <section
+        aria-labelledby="rental-why-title"
+        className="py-[clamp(74px,10vw,128px)]"
+      >
         <div className="mx-auto max-w-[1240px] px-5 sm:px-8 lg:px-10">
           <div className="mb-10 grid items-end gap-6 lg:grid-cols-[minmax(280px,0.75fr)_1fr]">
             <div>
-              <p className="mb-2 text-[13px] font-black uppercase text-brand-teal">
+              <p className="mb-2 text-[13px] font-black uppercase tracking-[0.14em] text-brand-teal">
                 {t.why.eyebrow}
               </p>
-              <h2 className="text-[clamp(1.8125rem,4vw,3.25rem)] font-bold leading-[1.12]">
+              <h2
+                id="rental-why-title"
+                className="m-0 text-[clamp(28px,3.4vw,44px)] font-extrabold leading-[1.12]"
+              >
                 {t.why.title}
               </h2>
             </div>
-            <p className="text-lg leading-relaxed text-steel">{t.why.copy}</p>
+            <p className="m-0 text-[18px] leading-[1.7] text-steel">
+              {t.why.copy}
+            </p>
           </div>
           <div className="grid gap-[18px] md:grid-cols-3">
             {t.why.cards.map((card) => (
-              <Card
+              <article
                 key={card.title}
-                className="rounded-lg border-line p-[26px]"
+                className="rounded-xl border border-line bg-white p-[26px]"
               >
-                <h3 className="m-0 text-2xl font-bold">{card.title}</h3>
-                <p className="mt-3 text-[17px] leading-relaxed text-steel">
+                <h3 className="m-0 text-2xl font-extrabold">{card.title}</h3>
+                <p className="mt-3 text-[17px] leading-[1.7] text-steel">
                   {card.copy}
                 </p>
-              </Card>
+              </article>
             ))}
           </div>
         </div>
@@ -232,44 +253,54 @@ export default function RentalPage() {
       {/* Process */}
       <section
         id="rental-process"
-        className="bg-muted-panel py-[clamp(4.625rem,10vw,8rem)]"
+        aria-labelledby="rental-process-title"
+        className="scroll-mt-[86px] bg-muted-panel py-[clamp(74px,10vw,128px)]"
       >
         <div className="mx-auto max-w-[1240px] px-5 sm:px-8 lg:px-10">
           <div className="mb-10 max-w-[780px]">
-            <p className="mb-2 text-[13px] font-black uppercase text-brand-teal">
+            <p className="mb-2 text-[13px] font-black uppercase tracking-[0.14em] text-brand-teal">
               {t.process.eyebrow}
             </p>
-            <h2 className="text-[clamp(1.8125rem,4vw,3.25rem)] font-bold leading-[1.12]">
+            <h2
+              id="rental-process-title"
+              className="m-0 text-[clamp(28px,3.4vw,44px)] font-extrabold leading-[1.12]"
+            >
               {t.process.title}
             </h2>
           </div>
           <div className="grid gap-[18px] sm:grid-cols-2 lg:grid-cols-4">
             {t.process.steps.map((step) => (
-              <Card
+              <article
                 key={step.no}
-                className="rounded-lg border-line p-[26px]"
+                className="rounded-xl border border-line bg-white p-[26px]"
               >
-                <span className="text-[13px] font-black uppercase text-brand-teal">
+                <span className="text-[13px] font-black uppercase tracking-[0.14em] text-brand-teal">
                   {step.no}
                 </span>
-                <h3 className="mt-2 text-2xl font-bold">{step.title}</h3>
-                <p className="mt-3 text-[17px] leading-relaxed text-steel">
+                <h3 className="mt-2 text-2xl font-extrabold">{step.title}</h3>
+                <p className="mt-3 text-[17px] leading-[1.7] text-steel">
                   {step.copy}
                 </p>
-              </Card>
+              </article>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Contact band */}
-      <section className="bg-signal py-[46px]">
-        <div className="mx-auto grid max-w-[1240px] items-center gap-6 px-5 sm:px-8 lg:grid-cols-[1.3fr_auto_auto] lg:px-10">
+      {/* Contact band — online intake first, phone last resort. */}
+      <section
+        aria-labelledby="rental-contact-title"
+        className="bg-signal px-5 py-[clamp(40px,5vw,64px)] sm:px-8 lg:px-10"
+      >
+        <div className="mx-auto grid max-w-[1240px] items-center gap-6 lg:grid-cols-[1.3fr_auto_auto]">
           <div>
-            <p className="mb-2 text-[13px] font-black uppercase text-ink/70">
+            <p className="mb-2 text-[13px] font-black uppercase tracking-[0.14em] text-ink/70">
               {t.contactBand.eyebrow}
             </p>
-            <h2 className="m-0 text-[clamp(1.8125rem,4vw,3.25rem)] font-bold leading-[1.12]">
+            <h2
+              id="rental-contact-title"
+              className="m-0 text-[clamp(28px,3.4vw,44px)] font-extrabold leading-[1.12]"
+            >
               {t.contactBand.title}
             </h2>
           </div>
@@ -278,18 +309,19 @@ export default function RentalPage() {
               {t.contactBand.numberLabel}
             </span>
             <a
-              href="tel:07044430319"
-              className="text-[clamp(1.5rem,3vw,2.25rem)] font-black text-ink"
+              href={ko.storefront.nav.phoneHref}
+              className="text-xl font-extrabold text-ink underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
             >
               {t.contactBand.number}
             </a>
           </div>
-          <Button
-            asChild
-            className="min-h-[54px] rounded bg-ink px-6 font-black text-white hover:bg-ink/90"
+          <Link
+            to={INTAKE_RENTAL}
+            className="inline-flex min-h-[52px] items-center justify-center gap-2.5 rounded border border-ink bg-ink px-6 font-black text-white transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink motion-safe:hover:-translate-y-0.5"
           >
-            <Link to={CONTACT_RENTAL}>{t.contactBand.cta}</Link>
-          </Button>
+            {t.contactBand.cta}
+            <ArrowRight aria-hidden="true" size={18} />
+          </Link>
         </div>
       </section>
     </main>

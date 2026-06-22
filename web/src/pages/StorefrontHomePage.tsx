@@ -7,7 +7,6 @@ import { cn } from "../lib/utils";
 
 const t = ko.storefront.home;
 const landing = ko.landing;
-const cert = ko.storefront.about.cert;
 const partners = ko.storefront.about.partners;
 
 /** Service Map gateway cards (4: rental / used / maintenance / about). */
@@ -40,9 +39,9 @@ const PLATFORM_CHIPS = [
 /**
  * KNL storefront home (#6). Routed child of PublicLayout (which supplies the
  * dark site-header + footer), so this returns only its own <main> content:
- * dark photo hero with a left gradient scrim + ISO chip row, Quick Finder
- * shortcuts, the Service Map gateway grid, a credibility band (ISO + brand
- * wall), a fenced FSM-platform band, and the amber contact band. All copy comes
+ * dark photo hero with a left gradient scrim, Quick Finder shortcuts, the
+ * Service Map gateway grid, a partner-brand credibility band, a fenced
+ * FSM-platform band, and the amber contact band. All copy comes
  * from ko.storefront.* / ko.landing.*.
  */
 export default function StorefrontHomePage() {
@@ -59,7 +58,7 @@ export default function StorefrontHomePage() {
           aria-hidden="true"
         />
         <div
-          className="absolute inset-0 bg-gradient-to-r from-[#050d14]/[0.86] via-[#050d14]/60 to-[#050d14]/25"
+          className="absolute inset-0 bg-gradient-to-r from-ink/[0.86] via-ink/60 to-ink/25"
           aria-hidden="true"
         />
         <div className="relative z-[1] mx-auto w-full max-w-[1240px] px-5 pb-[74px] pt-[130px] sm:px-8 lg:px-12">
@@ -97,17 +96,6 @@ export default function StorefrontHomePage() {
               <ArrowRight aria-hidden="true" size={18} />
             </Link>
           </div>
-          {/* ISO chip row */}
-          <ul className="m-0 mt-8 flex list-none flex-wrap gap-2 p-0">
-            {cert.items.map((item) => (
-              <li
-                key={item.name}
-                className="inline-flex min-h-[34px] items-center rounded border border-white/30 px-3 text-[13px] font-bold text-white/85"
-              >
-                {item.name}
-              </li>
-            ))}
-          </ul>
         </div>
       </section>
 
@@ -196,7 +184,7 @@ export default function StorefrontHomePage() {
                     {card.copy}
                   </p>
                   <span className="inline-flex items-center gap-1.5 text-sm font-bold text-brand-teal">
-                    {card.title}
+                    {t.serviceMap.cardCta}
                     <ArrowRight aria-hidden="true" size={16} />
                   </span>
                 </div>
@@ -206,7 +194,7 @@ export default function StorefrontHomePage() {
         </div>
       </section>
 
-      {/* Credibility band: ISO certs + brand wall */}
+      {/* Credibility band: partner brand wall */}
       <section
         aria-labelledby="home-credibility-title"
         className="bg-muted-panel px-5 py-[clamp(72px,9vw,120px)] sm:px-8 lg:px-12"
@@ -221,46 +209,22 @@ export default function StorefrontHomePage() {
           >
             {t.credibility.title}
           </h2>
-          <div className="grid gap-12 lg:grid-cols-[0.7fr_1.3fr]">
-            {/* LEFT: ISO certs */}
-            <div>
-              <p className="mb-4 text-[13px] font-bold text-steel">
-                {t.credibility.certLabel}
-              </p>
-              <ul className="m-0 flex list-none flex-wrap gap-3 p-0">
-                {cert.items.map((item) => (
-                  <li
-                    key={item.name}
-                    className="inline-flex min-h-[44px] items-center rounded border border-line bg-white px-4 text-[15px] font-extrabold text-ink"
-                  >
-                    {item.name}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            {/* RIGHT: brand wall */}
-            <div>
-              <p className="mb-4 text-[13px] font-bold text-steel">
-                {t.credibility.partnerLabel}
-              </p>
-              <ul
-                aria-label={partners.aria}
-                className="m-0 grid list-none grid-cols-2 gap-2 p-0 sm:grid-cols-3 lg:grid-cols-4"
+          <ul
+            aria-label={partners.aria}
+            className="m-0 grid list-none grid-cols-2 gap-2 p-0 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6"
+          >
+            {partners.items.map((item) => (
+              <li
+                key={item.name}
+                className="inline-flex min-h-[56px] items-center justify-center rounded border border-line bg-white px-3 text-center text-[14px] font-bold uppercase tracking-[0.08em] text-steel"
               >
-                {partners.items.map((item) => (
-                  <li
-                    key={item.name}
-                    className="inline-flex min-h-[56px] items-center justify-center rounded border border-line bg-white px-3 text-center text-[14px] font-bold uppercase tracking-[0.08em] text-steel"
-                  >
-                    {item.name}
-                  </li>
-                ))}
-              </ul>
-              <p className="m-0 mt-4 text-[13px] leading-[1.6] text-steel">
-                {t.credibility.partnerNote}
-              </p>
-            </div>
-          </div>
+                {item.name}
+              </li>
+            ))}
+          </ul>
+          <p className="m-0 mt-5 text-[13px] leading-[1.6] text-steel">
+            {t.credibility.partnerNote}
+          </p>
         </div>
       </section>
 
@@ -333,7 +297,7 @@ export default function StorefrontHomePage() {
             </span>
             <a
               href={ko.storefront.nav.phoneHref}
-              className="text-xl font-extrabold"
+              className="inline-flex min-h-[44px] w-fit items-center text-xl font-extrabold text-ink underline-offset-4 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
             >
               {t.contactBand.number}
             </a>

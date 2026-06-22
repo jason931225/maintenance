@@ -1022,6 +1022,25 @@ export const ko = {
       requiredRequesterContact: "연락처를 입력하세요.",
       submitFailed: "티켓을 등록하지 못했습니다. 다시 시도하세요.",
       rateLimited: "요청이 너무 많습니다. 잠시 후 다시 시도하세요.",
+      // Customer-facing intake copy: plain language, no internal taxonomy.
+      categoryHelp: "문의 성격에 가장 가까운 항목을 골라주세요.",
+      priorityHelp: "현장 운행에 미치는 영향을 기준으로 골라주세요.",
+      titleHelp: "예: 290호기 시동 불량, 리치트럭 렌탈 견적 요청",
+      bodyHelp: "장비 모델, 현장 위치, 증상, 운행 가능 여부를 적어주시면 상담이 빨라집니다.",
+      contactHelp: "회신받을 전화번호 또는 이메일을 남겨주세요.",
+      categoryOptions: {
+        EQUIPMENT_INQUIRY: "렌탈·중고 장비 문의",
+        OPERATIONAL: "정비·점검 요청",
+        COMPLAINT: "고장·장애 신고",
+        OTHER: "기타 문의",
+      },
+      priorityOptions: {
+        LOW: "여유 있음 — 일반 상담",
+        MEDIUM: "보통 — 며칠 내 처리",
+        HIGH: "급함 — 빠른 대응 필요",
+        URGENT: "긴급 — 현장 운행 중단",
+      },
+      errorSummary: "입력 내용을 확인해 주세요.",
     },
     comments: {
       title: "대화 내역",
@@ -1046,10 +1065,17 @@ export const ko = {
       none: "추가 가능한 상태 변경이 없습니다.",
     },
     intake: {
-      title: "고객 지원 요청",
-      subtitle: "정비/장비 관련 문의를 남겨주시면 담당자가 연락드립니다.",
-      submitted: "요청이 접수되었습니다. 담당자가 곧 연락드리겠습니다.",
-      another: "다른 요청 남기기",
+      eyebrow: "Online Request",
+      title: "정비·장비 온라인 접수",
+      subtitle:
+        "현장 정보만 남겨 주시면 KNL 담당자가 확인 후 연락드립니다. 전화 없이 온라인으로 바로 접수하세요.",
+      formAria: "온라인 접수 양식",
+      submitted: "접수가 완료되었습니다.",
+      submittedDetail: "담당자가 확인 후 빠르게 연락드리겠습니다. 접수 내용은 등록하신 연락처로 안내됩니다.",
+      another: "새 접수 작성",
+      phoneFallbackLabel: "급한 경우 전화 상담",
+      phoneFallback: "070.4443.0319",
+      phoneFallbackHref: "tel:07044430319",
     },
     ticketStatus: {
       OPEN: "접수",
@@ -1427,6 +1453,7 @@ export const ko = {
         eyebrow: "Service Map",
         title: "한 페이지에 섞지 않고 목적별로 나눴습니다.",
         copy: "방문자는 자신의 목적에 맞는 페이지에서 필요한 정보만 빠르게 확인하고, 상담이 필요할 때 고객센터로 이동할 수 있습니다.",
+        cardCta: "자세히 보기",
         cards: {
           rental: {
             tag: "Rental",
@@ -1462,10 +1489,8 @@ export const ko = {
         cta: "온라인 접수",
       },
       credibility: {
-        eyebrow: "Trust & Brands",
-        title: "인증과 주요 대응 브랜드",
-        certLabel: "품질·환경·안전보건 경영시스템 인증",
-        partnerLabel: "주요 대응 지게차 브랜드",
+        eyebrow: "Brands",
+        title: "주요 대응 지게차 브랜드",
         partnerNote:
           "브랜드명은 정비 대응 가능 범위를 나타내며, 각 상표권은 해당 제조사에 있습니다.",
       },
@@ -1484,8 +1509,7 @@ export const ko = {
         eyebrow: "Rental Service",
         title: "구매보다 가볍게, 필요한 기간만 지게차 렌탈",
         copy: "전동, 디젤, LPG, 리치트럭까지 현장 조건에 맞는 장비를 상담하고 정비 포함 운영까지 연결합니다.",
-        imageAlt: "지게차 렌탈 장비",
-        primary: "렌탈 견적 문의",
+        primary: "렌탈 견적 접수",
         secondary: "진행 절차 보기",
       },
       finder: {
@@ -1513,7 +1537,6 @@ export const ko = {
           to12m: "6~12개월",
           over1y: "1년 이상",
         },
-        resultPrefix: "추천 결과",
         resultSeparator: " · ",
         resultSuffix: " 조건이면 렌탈 상담 후 정비 포함 견적을 우선 추천합니다.",
       },
@@ -1567,7 +1590,8 @@ export const ko = {
         title: "렌탈 조건을 알려주시면 장비 후보부터 좁혀드립니다.",
         numberLabel: "렌탈 문의",
         number: "070.4443.0319",
-        cta: "견적 문의",
+        cta: "온라인 접수하기",
+        phone: "전화 상담",
       },
     },
     used: {
@@ -1575,9 +1599,8 @@ export const ko = {
         eyebrow: "Used Forklift Sales",
         title: "검수된 중고 지게차를 조건별로 비교",
         copy: "예산, 톤수, 사용 환경에 맞는 중고 장비를 카드형 목록과 상담 CTA로 쉽게 탐색하게 했습니다.",
-        imageAlt: "중고 지게차 상담",
         primary: "재고형 목록 보기",
-        secondary: "구매 상담",
+        secondary: "구매 상담 접수",
       },
       inventory: {
         eyebrow: "Inventory",
@@ -1600,9 +1623,8 @@ export const ko = {
         condition: "상태",
         year: "연식",
         hours: "사용시간",
-        price: "가격",
-        inquiry: "문의",
-        cta: "상담 요청",
+        availability: "공급 상태",
+        cta: "상담 접수",
         priceOnRequest: "가격 문의",
         yearUnit: "년식",
         hoursUnit: "시간",
@@ -1621,14 +1643,15 @@ export const ko = {
       empty: {
         title: "현재 등록된 장비가 없습니다.",
         copy: "원하시는 조건을 남겨 주시면 입고 시 가장 먼저 안내해 드립니다.",
-        cta: "구매 상담",
+        cta: "구매 상담 접수",
       },
       contactBand: {
         eyebrow: "Used Sales",
         title: "예산과 용도를 알려주시면 후보 장비를 비교해드립니다.",
         numberLabel: "중고 판매 문의",
         number: "070.4443.0319",
-        cta: "구매 상담",
+        cta: "온라인 접수하기",
+        phone: "전화 상담",
       },
     },
     maintenance: {
@@ -1636,8 +1659,7 @@ export const ko = {
         eyebrow: "Maintenance",
         title: "멈추지 않는 현장을 위한 지게차 정비",
         copy: "예방 점검, 고장 문의, 렌탈 장비 운영 관리를 별도 페이지에서 분명하게 안내합니다.",
-        imageAlt: "지게차 정비 작업",
-        primary: "정비 문의",
+        primary: "정비·수리 접수",
         secondary: "정비 범위 보기",
       },
       scope: {
@@ -1663,7 +1685,7 @@ export const ko = {
         eyebrow: "Operation Care",
         title: "정비 흐름을 한눈에 보여줍니다.",
         copy: "고객은 고장이 났을 때 어디로 문의해야 하는지, 어떤 정보가 필요한지, 어떤 순서로 처리되는지 알고 싶어합니다.",
-        cta: "고장 문의하기",
+        cta: "온라인 접수하기",
         steps: [
           {
             no: "01",
@@ -1688,24 +1710,25 @@ export const ko = {
         numberLabel: "고장 문의",
         number: "070.4443.0320",
         numberHref: "tel:07044430320",
-        cta: "정비 문의",
+        cta: "온라인 접수하기",
+        phone: "전화 상담",
       },
     },
     about: {
       hero: {
         eyebrow: "About KNL",
         title: "물류장비 렌탈과 정비를 연결하는 KNL",
-        copy: "회사소개 페이지는 브랜드 신뢰, 인증, 파트너 브랜드, 사업 영역을 분리해서 보여주는 역할을 합니다.",
+        copy: "Korea Next Logistics는 지게차 렌탈·정비·중고 판매를 하나로 잇는 물류장비 운영 파트너입니다. 도입부터 운영까지 현장의 비용과 리스크를 함께 관리합니다.",
         imageAlt: "물류 현장 상담",
       },
       company: {
         eyebrow: "Company",
-        title: "KNL은 물류장비 운영을 더 가볍고 안정적으로 만듭니다.",
-        copy: "Korea Next Logistics는 지게차 렌탈, 정비, 중고 판매를 통해 고객 현장의 비용 부담과 장비 운영 리스크를 줄이는 솔루션을 제공합니다.",
+        title: "물류장비 운영을 더 가볍고 안정적으로",
+        copy: "KNL은 지게차 렌탈, 정비, 중고 판매를 한곳에서 제공해 고객 현장의 초기 비용 부담과 장비 운영 리스크를 줄입니다. 장비 선정부터 예방 점검, 긴급 대응까지 운영 전반을 책임집니다.",
       },
       cert: {
         eyebrow: "Certification",
-        title: "인증과 관리 체계를 별도 섹션으로 노출",
+        title: "검증된 품질·환경·안전 경영 체계",
         items: [
           { name: "ISO 9001", imageAlt: "ISO 9001 인증서" },
           { name: "ISO 14001", imageAlt: "ISO 14001 인증서" },
@@ -1714,8 +1737,9 @@ export const ko = {
       },
       partners: {
         eyebrow: "Partners",
-        title: "주요 브랜드 대응",
+        title: "주요 대응 지게차 브랜드",
         aria: "파트너 브랜드",
+        note: "브랜드명은 정비 대응 가능 범위를 나타내며, 각 상표권은 해당 제조사에 있습니다.",
         items: [
           { name: "Toyota" },
           { name: "Yale" },
@@ -1729,6 +1753,13 @@ export const ko = {
           { name: "Jungheinrich" },
           { name: "Nichiyu" },
         ],
+      },
+      ctaBand: {
+        eyebrow: "Get Started",
+        title: "어떤 장비가 맞는지 모르겠다면 지금 바로 접수하세요.",
+        copy: "현장 정보만 남기면 담당자가 확인 후 연락드립니다. 렌탈·중고·정비 상담을 한 번에 이어갑니다.",
+        cta: "온라인 접수하기",
+        secondary: "전화 상담",
       },
     },
     contact: {

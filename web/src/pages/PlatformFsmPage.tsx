@@ -76,7 +76,7 @@ export default function PlatformFsmPage() {
               <a
                 key={item.href}
                 href={item.href}
-                className="inline-flex min-h-[40px] items-center rounded border border-white/25 px-4 text-[14px] font-bold text-white/85 transition-colors hover:border-signal hover:text-signal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+                className="inline-flex min-h-[44px] items-center rounded border border-white/25 px-4 text-[14px] font-bold text-white/85 transition-colors hover:border-signal hover:text-signal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
               >
                 {item.label}
               </a>

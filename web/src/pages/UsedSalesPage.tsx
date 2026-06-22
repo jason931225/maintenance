@@ -2,9 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowRight, Check, Loader2, RotateCw } from "lucide-react";
 import { Link } from "react-router-dom";
 
-import { Badge } from "../components/ui/badge";
-import { Button } from "../components/ui/button";
-import { Card } from "../components/ui/card";
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
 import { cn } from "../lib/utils";
@@ -14,12 +11,12 @@ import type { ListingKind, SalesListingView } from "../api/types";
  * Used-sales catalog page (#6 KNL). Routed child of PublicLayout — returns only
  * its <main>. Data-backed: on mount (and on filter change) it pulls the public
  * storefront listings and renders each as an equipment card with an inquiry CTA
- * that deep-links into the contact form (?listing={id}&topic=USED_SALES). All
- * copy comes from ko.storefront.used.*.
+ * that deep-links into the online intake (/support/new?listing={id}&topic=USED_SALES).
+ * All copy comes from ko.storefront.used.*.
  */
 
-// Kind filter tabs. `kind: null` is the "all" tab (no query filter). The other
-// three map to the static site's electric / diesel / reach-truck filters.
+// Kind filter buttons. `kind: null` is the "all" filter (no query filter). The
+// other map to the static site's electric / diesel / lpg / reach-truck filters.
 const FILTERS: ReadonlyArray<{ key: string; label: string; kind: ListingKind | null }> = [
   { key: "all", label: ko.storefront.used.filters.all, kind: null },
   { key: "electric", label: ko.storefront.used.filters.electric, kind: "ELECTRIC" },
@@ -27,6 +24,9 @@ const FILTERS: ReadonlyArray<{ key: string; label: string; kind: ListingKind | n
   { key: "lpg", label: ko.storefront.used.filters.lpg, kind: "LPG" },
   { key: "reach", label: ko.storefront.used.filters.reach, kind: "REACH" },
 ];
+
+// Online intake deep-link with the topic preselected (the dominant CTA target).
+const INTAKE_USED = "/support/new?topic=USED_SALES";
 
 // The static site fell back to asset-17..20 photography for every card. We have
 // no media-serving endpoint (ListingMediaView carries no URL — only id /
@@ -56,6 +56,12 @@ function formatPrice(priceWon: number | null): string {
   if (priceWon == null) return ko.storefront.used.card.priceOnRequest;
   return `₩${priceWon.toLocaleString("ko-KR")}`;
 }
+
+const SECONDARY_BTN =
+  "inline-flex min-h-[48px] items-center justify-center gap-2 rounded border border-line bg-white px-5 font-bold text-ink transition-colors hover:border-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink";
+
+const AMBER_BTN =
+  "inline-flex min-h-[48px] items-center justify-center gap-2 rounded bg-signal px-5 font-black text-ink transition-transform hover:bg-signal-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink motion-safe:hover:-translate-y-0.5";
 
 type LoadState = "loading" | "ready" | "error";
 
@@ -94,67 +100,81 @@ export default function UsedSalesPage() {
     void Promise.resolve().then(() => load(activeFilter));
   }, [load, activeFilter]);
 
+  // Keep the grid mounted on refetch — dim it rather than blanking to a spinner.
+  const refetching = state === "loading" && listings.length > 0;
+
   return (
     <main className="flex-1">
-      {/* Hero — dark photo with left gradient scrim */}
-      <section className="relative isolate overflow-hidden bg-ink text-white">
-        <img
-          src="/sales/asset-06.jpg"
-          alt={ko.storefront.used.hero.imageAlt}
-          className="absolute inset-0 -z-10 h-full w-full object-cover"
+      {/* Hero — decorative photo background with a left gradient scrim. */}
+      <section
+        aria-labelledby="used-hero-title"
+        className="relative isolate overflow-hidden bg-ink text-white"
+      >
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 -z-10 bg-cover bg-center"
+          style={{ backgroundImage: "url('/sales/asset-06.jpg')" }}
         />
-        <div className="absolute inset-0 -z-10 bg-gradient-to-r from-ink via-ink/85 to-ink/30" />
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 -z-10 bg-gradient-to-r from-ink via-ink/85 to-ink/30"
+        />
         <div className="mx-auto w-full max-w-[1240px] px-5 py-20 sm:px-8 sm:py-24 lg:px-12 lg:py-28">
-          <p className="text-sm font-bold uppercase tracking-[0.18em] text-signal">
+          <p className="text-[13px] font-black uppercase tracking-[0.14em] text-signal">
             {ko.storefront.used.hero.eyebrow}
           </p>
-          <h1 className="mt-4 max-w-3xl text-3xl font-extrabold leading-tight sm:text-4xl lg:text-5xl">
+          <h1
+            id="used-hero-title"
+            className="mt-4 max-w-3xl text-[clamp(38px,6vw,72px)] font-extrabold leading-[1.08] tracking-[-0.02em]"
+          >
             {ko.storefront.used.hero.title}
           </h1>
-          <p className="mt-5 max-w-2xl text-base leading-relaxed text-white/85 sm:text-lg">
+          <p className="mt-5 max-w-2xl text-[clamp(17px,2vw,22px)] leading-[1.7] text-white/85">
             {ko.storefront.used.hero.copy}
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <Button
-              asChild
-              className="bg-signal text-ink hover:bg-signal-dark focus-visible:outline-signal"
+            <a
+              href="#inventory"
+              className={cn(AMBER_BTN, "min-h-[52px] px-6")}
             >
-              <a href="#inventory">
-                {ko.storefront.used.hero.primary}
-                <ArrowRight aria-hidden="true" size={18} />
-              </a>
-            </Button>
-            <Button
-              asChild
-              variant="secondary"
-              className="border-white/40 bg-transparent text-white hover:bg-white/10 focus-visible:outline-white"
+              {ko.storefront.used.hero.primary}
+              <ArrowRight aria-hidden="true" size={18} />
+            </a>
+            <Link
+              to={INTAKE_USED}
+              className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded border border-white/40 bg-white/10 px-6 font-black text-white transition-colors hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             >
-              <Link to="/contact?topic=USED_SALES">
-                {ko.storefront.used.hero.secondary}
-              </Link>
-            </Button>
+              {ko.storefront.used.hero.secondary}
+            </Link>
           </div>
         </div>
       </section>
 
       {/* Inventory — data-backed equipment grid */}
-      <section id="inventory" className="bg-[#f6f8fa]">
+      <section
+        id="inventory"
+        aria-labelledby="used-inventory-title"
+        className="bg-muted-panel"
+      >
         <div className="mx-auto w-full max-w-[1240px] px-5 py-16 sm:px-8 lg:px-12 lg:py-20">
           <div className="max-w-2xl">
-            <p className="text-sm font-bold uppercase tracking-[0.18em] text-brand-teal">
+            <p className="text-[13px] font-black uppercase tracking-[0.14em] text-brand-teal">
               {ko.storefront.used.inventory.eyebrow}
             </p>
-            <h2 className="mt-3 text-2xl font-extrabold text-ink sm:text-3xl">
+            <h2
+              id="used-inventory-title"
+              className="mt-3 text-[clamp(28px,3.4vw,44px)] font-extrabold leading-[1.12] text-ink"
+            >
               {ko.storefront.used.inventory.title}
             </h2>
-            <p className="mt-3 text-base leading-relaxed text-steel">
+            <p className="mt-3 text-[18px] leading-[1.7] text-steel">
               {ko.storefront.used.inventory.copy}
             </p>
           </div>
 
-          {/* Kind filter tabs */}
+          {/* Kind filter buttons (plain button group with aria-pressed). */}
           <div
-            role="tablist"
+            role="group"
             aria-label={ko.storefront.used.filters.aria}
             className="mt-8 flex flex-wrap gap-2"
           >
@@ -164,13 +184,12 @@ export default function UsedSalesPage() {
                 <button
                   key={filter.key}
                   type="button"
-                  role="tab"
-                  aria-selected={isActive}
+                  aria-pressed={isActive}
                   onClick={() => {
                     setActiveFilter(filter.key);
                   }}
                   className={cn(
-                    "min-h-10 rounded border px-4 text-sm font-bold transition-colors",
+                    "min-h-[44px] rounded border px-4 text-sm font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink",
                     isActive
                       ? "border-ink bg-ink text-white"
                       : "border-line bg-white text-steel hover:border-ink hover:text-ink",
@@ -182,10 +201,23 @@ export default function UsedSalesPage() {
             })}
           </div>
 
-          {/* States */}
-          {state === "loading" ? (
+          {/* Live region announcing the current result count / state. */}
+          <p className="sr-only" role="status" aria-live="polite">
+            {state === "loading"
+              ? ko.storefront.used.inventory.loading
+              : state === "error"
+                ? ko.storefront.used.inventory.error
+                : String(listings.length)}
+          </p>
+
+          {/* Initial load (no listings yet) */}
+          {state === "loading" && listings.length === 0 ? (
             <div className="mt-12 flex items-center justify-center gap-3 py-16 text-steel">
-              <Loader2 aria-hidden="true" size={22} className="animate-spin" />
+              <Loader2
+                aria-hidden="true"
+                size={22}
+                className="motion-safe:animate-spin"
+              />
               <span className="text-sm font-semibold">
                 {ko.storefront.used.inventory.loading}
               </span>
@@ -193,38 +225,44 @@ export default function UsedSalesPage() {
           ) : null}
 
           {state === "error" ? (
-            <Card className="mt-12 flex flex-col items-center gap-4 border-line py-14 text-center">
-              <p className="max-w-md text-sm text-steel">
+            <div className="mt-12 flex flex-col items-center gap-4 rounded-xl border border-line bg-white py-14 text-center">
+              <p className="max-w-md text-[15px] text-steel">
                 {ko.storefront.used.inventory.error}
               </p>
-              <Button variant="secondary" onClick={() => void load(activeFilter)}>
+              <button
+                type="button"
+                onClick={() => void load(activeFilter)}
+                className={SECONDARY_BTN}
+              >
                 <RotateCw aria-hidden="true" size={16} />
                 {ko.storefront.used.inventory.retry}
-              </Button>
-            </Card>
+              </button>
+            </div>
           ) : null}
 
           {state === "ready" && listings.length === 0 ? (
-            <Card className="mt-12 flex flex-col items-center gap-3 border-line py-16 text-center">
+            <div className="mt-12 flex flex-col items-center gap-3 rounded-xl border border-line bg-white py-16 text-center">
               <h3 className="text-lg font-extrabold text-ink">
                 {ko.storefront.used.empty.title}
               </h3>
-              <p className="max-w-md text-sm leading-relaxed text-steel">
+              <p className="max-w-md text-[15px] leading-[1.7] text-steel">
                 {ko.storefront.used.empty.copy}
               </p>
-              <Button
-                asChild
-                className="mt-2 bg-signal text-ink hover:bg-signal-dark focus-visible:outline-signal"
-              >
-                <Link to="/contact?topic=USED_SALES">
-                  {ko.storefront.used.empty.cta}
-                </Link>
-              </Button>
-            </Card>
+              <Link to={INTAKE_USED} className={cn(AMBER_BTN, "mt-2")}>
+                {ko.storefront.used.empty.cta}
+                <ArrowRight aria-hidden="true" size={16} />
+              </Link>
+            </div>
           ) : null}
 
-          {state === "ready" && listings.length > 0 ? (
-            <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {listings.length > 0 ? (
+            <div
+              className={cn(
+                "mt-10 grid gap-6 transition-opacity sm:grid-cols-2 lg:grid-cols-3",
+                refetching && "opacity-50",
+              )}
+              aria-busy={refetching}
+            >
               {listings.map((listing, index) => (
                 <EquipmentCard key={listing.id} listing={listing} index={index} />
               ))}
@@ -234,13 +272,19 @@ export default function UsedSalesPage() {
       </section>
 
       {/* Buying guide — split panel with check-list */}
-      <section className="bg-muted-panel">
+      <section
+        aria-labelledby="used-guide-title"
+        className="bg-white"
+      >
         <div className="mx-auto grid w-full max-w-[1240px] gap-10 px-5 py-16 sm:px-8 lg:grid-cols-[1fr_1.1fr] lg:gap-16 lg:px-12 lg:py-20">
           <div>
-            <p className="text-sm font-bold uppercase tracking-[0.18em] text-brand-teal">
+            <p className="text-[13px] font-black uppercase tracking-[0.14em] text-brand-teal">
               {ko.storefront.used.buyingGuide.eyebrow}
             </p>
-            <h2 className="mt-3 text-2xl font-extrabold leading-snug text-ink sm:text-3xl">
+            <h2
+              id="used-guide-title"
+              className="mt-3 text-[clamp(28px,3.4vw,44px)] font-extrabold leading-[1.12] text-ink"
+            >
               {ko.storefront.used.buyingGuide.title}
             </h2>
           </div>
@@ -248,48 +292,53 @@ export default function UsedSalesPage() {
             {ko.storefront.used.buyingGuide.items.map((item) => (
               <li
                 key={item}
-                className="flex items-start gap-3 rounded-lg border border-line bg-white px-5 py-4 text-base text-ink"
+                className="flex items-start gap-3 rounded-xl border border-line bg-white px-5 py-4 text-[17px] text-ink"
               >
                 <span className="mt-0.5 inline-flex h-6 w-6 flex-none items-center justify-center rounded-full bg-brand-teal text-white">
                   <Check aria-hidden="true" size={15} />
                 </span>
-                <span className="leading-relaxed">{item}</span>
+                <span className="leading-[1.7]">{item}</span>
               </li>
             ))}
           </ul>
         </div>
       </section>
 
-      {/* Contact band */}
-      <section className="bg-ink text-white">
+      {/* Contact band — online intake first, phone last resort. */}
+      <section
+        aria-labelledby="used-contact-title"
+        className="bg-ink text-white"
+      >
         <div className="mx-auto grid w-full max-w-[1240px] items-center gap-6 px-5 py-14 sm:px-8 lg:grid-cols-[1.4fr_auto_auto] lg:gap-10 lg:px-12">
           <div>
-            <p className="text-sm font-bold uppercase tracking-[0.18em] text-signal">
+            <p className="text-[13px] font-black uppercase tracking-[0.14em] text-signal">
               {ko.storefront.used.contactBand.eyebrow}
             </p>
-            <h2 className="mt-3 text-2xl font-extrabold leading-snug sm:text-3xl">
+            <h2
+              id="used-contact-title"
+              className="mt-3 text-[clamp(28px,3.4vw,44px)] font-extrabold leading-[1.12]"
+            >
               {ko.storefront.used.contactBand.title}
             </h2>
           </div>
           <div className="flex flex-col">
-            <span className="text-xs font-bold uppercase tracking-[0.14em] text-white/60">
+            <span className="text-[12px] font-black uppercase tracking-[0.14em] text-white/60">
               {ko.storefront.used.contactBand.numberLabel}
             </span>
             <a
               href={ko.storefront.nav.phoneHref}
-              className="mt-1 text-2xl font-extrabold text-signal"
+              className="mt-1 text-xl font-extrabold text-signal underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
             >
               {ko.storefront.used.contactBand.number}
             </a>
           </div>
-          <Button
-            asChild
-            className="bg-signal text-ink hover:bg-signal-dark focus-visible:outline-signal"
+          <Link
+            to={INTAKE_USED}
+            className="inline-flex min-h-[52px] items-center justify-center gap-2.5 rounded bg-signal px-6 font-black text-ink transition-transform hover:bg-signal-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-safe:hover:-translate-y-0.5"
           >
-            <Link to="/contact?topic=USED_SALES">
-              {ko.storefront.used.contactBand.cta}
-            </Link>
-          </Button>
+            {ko.storefront.used.contactBand.cta}
+            <ArrowRight aria-hidden="true" size={18} />
+          </Link>
         </div>
       </section>
     </main>
@@ -318,7 +367,7 @@ function EquipmentCard({
       ? { label: cardCopy.condition, value: listing.condition_label }
       : null,
     listing.availability
-      ? { label: cardCopy.inquiry, value: listing.availability }
+      ? { label: cardCopy.availability, value: listing.availability }
       : null,
     listing.model_year
       ? {
@@ -338,7 +387,7 @@ function EquipmentCard({
   );
 
   return (
-    <Card className="flex flex-col overflow-hidden p-0">
+    <article className="flex flex-col overflow-hidden rounded-xl border border-line bg-white">
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-muted-panel">
         <img
           src={placeholderFor(index)}
@@ -354,9 +403,9 @@ function EquipmentCard({
 
       <div className="flex flex-1 flex-col gap-4 p-5">
         {listing.badge ? (
-          <Badge className="self-start border-brand-teal/30 bg-brand-teal/10 text-brand-teal">
+          <span className="inline-flex min-h-8 w-fit items-center rounded border border-brand-teal/30 bg-brand-teal/10 px-2.5 py-1 text-xs font-bold text-brand-teal">
             {listing.badge}
-          </Badge>
+          </span>
         ) : null}
 
         <h3 className="text-lg font-extrabold text-ink">{listing.model_name}</h3>
@@ -376,14 +425,15 @@ function EquipmentCard({
           <span className="text-lg font-extrabold text-ink">
             {formatPrice(listing.price_won)}
           </span>
-          <Button asChild size="sm">
-            <Link to={`/contact?listing=${listing.id}&topic=USED_SALES`}>
-              {cardCopy.cta}
-              <ArrowRight aria-hidden="true" size={16} />
-            </Link>
-          </Button>
+          <Link
+            to={`/support/new?listing=${listing.id}&topic=USED_SALES`}
+            className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded bg-ink px-4 text-sm font-black text-white transition-colors hover:bg-ink/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+          >
+            {cardCopy.cta}
+            <ArrowRight aria-hidden="true" size={16} />
+          </Link>
         </div>
       </div>
-    </Card>
+    </article>
   );
 }
