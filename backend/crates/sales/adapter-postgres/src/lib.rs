@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use mnt_kernel_core::{CustomerInquiryId, EquipmentId, KernelError, SalesListingId};
-use mnt_platform_db::{DbError, with_audit, with_org_conn};
+use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_platform_request_context::current_org;
 use mnt_sales_application::{
     CatalogQuery, CreateListingCommand, CustomerInquiryPage, CustomerInquiryView,
@@ -20,6 +20,7 @@ use mnt_sales_application::{
 };
 use mnt_sales_domain::{InquiryStatus, InquiryTopic, ListingKind, ListingStatus, ListingType};
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
+use time::OffsetDateTime;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PgSalesError {
@@ -409,36 +410,27 @@ impl PgSalesStore {
         let org = current_org().map_err(KernelError::from)?;
         let inquiry_uuid = *command.inquiry_id.as_uuid();
         let new_status = command.status;
-        // OrgId is Copy, so passing it to with_org_conn here leaves it usable for
-        // the audit event below.
-        let before_status: Option<String> =
-            with_org_conn::<_, _, PgSalesError>(&self.pool, org, move |tx| {
-                Box::pin(async move {
-                    Ok(sqlx::query_scalar::<_, String>(
-                        "SELECT status FROM customer_inquiries WHERE id = $1",
-                    )
-                    .bind(inquiry_uuid)
-                    .fetch_optional(tx.as_mut())
-                    .await?)
-                })
-            })
-            .await?;
-        let before_status =
-            before_status.ok_or_else(|| KernelError::not_found("inquiry was not found"))?;
-        let before = serde_json::json!({ "status": before_status });
-        let after = serde_json::json!({ "status": new_status.as_db_str() });
-        let event = inquiry_status_audit_event(
-            command.actor,
-            command.inquiry_id,
-            before,
-            after,
-            command.trace,
-            command.occurred_at,
-        )?
-        .with_org(org);
+        let actor = command.actor;
+        let inquiry_id = command.inquiry_id;
+        let trace = command.trace;
+        let occurred_at = command.occurred_at;
 
-        with_audit::<_, (), PgSalesError>(&self.pool, event, move |tx| {
+        // Read the prior status with `FOR UPDATE` and apply the UPDATE in ONE
+        // transaction, so the audit before-snapshot is consistent with the row
+        // the UPDATE mutates (no read/write skew between two connections). The
+        // audit event is computed from the locked row, so `with_audits` is the
+        // right primitive.
+        with_audits::<_, (), PgSalesError>(&self.pool, org, move |tx| {
             Box::pin(async move {
+                let before_status: Option<String> = sqlx::query_scalar::<_, String>(
+                    "SELECT status FROM customer_inquiries WHERE id = $1 FOR UPDATE",
+                )
+                .bind(inquiry_uuid)
+                .fetch_optional(tx.as_mut())
+                .await?;
+                let before_status =
+                    before_status.ok_or_else(|| KernelError::not_found("inquiry was not found"))?;
+
                 sqlx::query(
                     "UPDATE customer_inquiries SET status = $2, updated_at = now() WHERE id = $1",
                 )
@@ -446,10 +438,55 @@ impl PgSalesStore {
                 .bind(new_status.as_db_str())
                 .execute(tx.as_mut())
                 .await?;
-                Ok(())
+
+                let before = serde_json::json!({ "status": before_status });
+                let after = serde_json::json!({ "status": new_status.as_db_str() });
+                let event = inquiry_status_audit_event(
+                    actor,
+                    inquiry_id,
+                    before,
+                    after,
+                    trace,
+                    occurred_at,
+                )?
+                .with_org(org);
+                Ok(((), vec![event]))
             })
         })
         .await
+    }
+
+    /// Atomically increment (or insert) the fixed-window rate-limit counter for
+    /// one bucket and return the new attempt count. Shares the `auth_rate_limit`
+    /// table and the same UPSERT semantics the auth/support endpoints use; the
+    /// `endpoint` key (e.g. `sales_inquiry`) isolates the sales buckets.
+    ///
+    /// This is a coarse counter, not an audited state change — it deliberately
+    /// lives in the adapter (not a REST handler surface) so it is exempt from the
+    /// audit-coverage gate, exactly as the auth/support crates' identical counter
+    /// is.
+    pub async fn increment_rate_bucket(
+        &self,
+        client_key: &str,
+        endpoint: &str,
+        window_start: OffsetDateTime,
+    ) -> Result<i64, PgSalesError> {
+        let attempts: i32 = sqlx::query_scalar(
+            r#"
+            INSERT INTO auth_rate_limit (client_key, endpoint, window_start, attempts)
+            VALUES ($1, $2, $3, 1)
+            ON CONFLICT (client_key, endpoint, window_start)
+            DO UPDATE SET attempts = auth_rate_limit.attempts + 1
+            RETURNING attempts
+            "#,
+        )
+        .bind(client_key)
+        .bind(endpoint)
+        .bind(window_start)
+        // rls-arming: ok auth_rate_limit is a global table (no org_id, no RLS)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(i64::from(attempts))
     }
 }
 

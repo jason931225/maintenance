@@ -73,9 +73,10 @@ export default function ContactPage() {
 
     const trimmedLocation = location.trim();
     const trimmedMessage = message.trim();
-    const { error: apiError } = await api.POST(
-      "/api/v1/storefront/inquiries",
-      {
+    // A thrown network error (offline, DNS, CORS) must not leave the form stuck
+    // in "submitting"; treat it as a failure like any non-2xx response.
+    const { error: apiError } = await api
+      .POST("/api/v1/storefront/inquiries", {
         body: {
           name: trimmedName,
           phone: trimmedPhone,
@@ -84,8 +85,8 @@ export default function ContactPage() {
           ...(trimmedMessage ? { message: trimmedMessage } : {}),
           ...(listingId ? { listing_id: listingId } : {}),
         },
-      },
-    );
+      })
+      .catch(() => ({ error: true }) as const);
 
     if (apiError) {
       setError(t.error.failed);

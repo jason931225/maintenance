@@ -24,6 +24,7 @@ const FILTERS: ReadonlyArray<{ key: string; label: string; kind: ListingKind | n
   { key: "all", label: ko.storefront.used.filters.all, kind: null },
   { key: "electric", label: ko.storefront.used.filters.electric, kind: "ELECTRIC" },
   { key: "diesel", label: ko.storefront.used.filters.diesel, kind: "DIESEL" },
+  { key: "lpg", label: ko.storefront.used.filters.lpg, kind: "LPG" },
   { key: "reach", label: ko.storefront.used.filters.reach, kind: "REACH" },
 ];
 
@@ -42,11 +43,11 @@ function placeholderFor(index: number): string {
   return PLACEHOLDER_IMAGES[index % PLACEHOLDER_IMAGES.length];
 }
 
-// capacity_milli is kilograms × 1000 (milligrams-of-ton per the contract). To a
-// human tonnage value: capacity_milli / 1_000_000 → tonnes. Trim trailing ".0".
+// capacity_milli is the load capacity in milli-tons (2.5 t = 2500). To a human
+// tonnage value: capacity_milli / 1_000 → tonnes. Trim trailing ".0".
 function formatCapacity(capacityMilli: number | null): string | null {
   if (capacityMilli == null) return null;
-  const tonnes = capacityMilli / 1_000_000;
+  const tonnes = capacityMilli / 1_000;
   const text = Number.isInteger(tonnes) ? String(tonnes) : tonnes.toFixed(1);
   return `${text}${ko.storefront.used.card.capacityUnit}`;
 }

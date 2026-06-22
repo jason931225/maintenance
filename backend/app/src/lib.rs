@@ -1064,10 +1064,10 @@ pub fn build_router(state: AppState) -> Router {
                     registry_store,
                     state.jwt_verifier.clone(),
                 )))
-                .merge(mnt_sales_rest::router(SalesRestState::new(
-                    sales_store,
-                    state.jwt_verifier.clone(),
-                )))
+                .merge(mnt_sales_rest::router(
+                    SalesRestState::new(sales_store, state.jwt_verifier.clone())
+                        .with_trusted_proxy_count(state.config.trusted_proxy_count),
+                ))
                 .merge(mnt_reporting_rest::router(KpiRestState::new(
                     kpi_repository,
                     state.jwt_verifier.clone(),

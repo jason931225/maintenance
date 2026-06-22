@@ -144,15 +144,67 @@ function toCreateRequest(form: ListingForm): CreateListingRequest {
   };
 }
 
+/**
+ * Build a PATCH body that contains ONLY the fields the user actually changed.
+ *
+ * openapi-fetch drops `undefined` keys, so an unchanged field is omitted (left
+ * unchanged server-side). A field the user cleared is sent as explicit `null`
+ * to clear the stored column; a field set to a new value is sent as that value.
+ * This avoids wiping unedited columns back to null on every save.
+ */
+function toUpdateRequest(
+  original: SalesListingView,
+  form: ListingForm,
+): UpdateListingRequest {
+  const next = toCreateRequest(form);
+  const body: UpdateListingRequest = {};
+
+  // Required (non-nullable) string: only send when it changed.
+  if (next.model_name !== original.model_name) body.model_name = next.model_name;
+
+  // Non-nullable enums / number.
+  if (next.kind !== original.kind) body.kind = next.kind;
+  if (next.listing_type !== original.listing_type)
+    body.listing_type = next.listing_type;
+  if (next.status !== original.status) body.status = next.status;
+  if (next.sort_weight !== original.sort_weight)
+    body.sort_weight = next.sort_weight;
+
+  // Nullable fields: send the new value (including explicit null to clear) only
+  // when it differs from what is stored.
+  if (next.capacity_milli !== original.capacity_milli)
+    body.capacity_milli = next.capacity_milli;
+  if (next.model_year !== original.model_year)
+    body.model_year = next.model_year;
+  if (next.usage_hours !== original.usage_hours)
+    body.usage_hours = next.usage_hours;
+  if (next.price_won !== original.price_won) body.price_won = next.price_won;
+  if (next.badge !== original.badge) body.badge = next.badge;
+  if (next.usage_label !== original.usage_label)
+    body.usage_label = next.usage_label;
+  if (next.condition_label !== original.condition_label)
+    body.condition_label = next.condition_label;
+  if (next.availability !== original.availability)
+    body.availability = next.availability;
+  if (next.location !== original.location) body.location = next.location;
+  if (next.description !== original.description)
+    body.description = next.description;
+  if (next.equipment_id !== original.equipment_id)
+    body.equipment_id = next.equipment_id;
+
+  return body;
+}
+
 function formatPrice(price: number | null): string {
   if (price === null) return ko.storefront.used.card.priceOnRequest;
-  return `${price.toLocaleString("ko-KR")}${ko.storefront.used.card.price}`;
+  return `₩${price.toLocaleString("ko-KR")}`;
 }
 
 function formatCapacity(capacityMilli: number | null): string {
   if (capacityMilli === null) return "—";
-  // capacity_milli is kg×1000; render as tons with up to one decimal.
-  const tons = capacityMilli / 1_000_000;
+  // capacity_milli is milli-tons (2.5 t = 2500); render as tons with up to one
+  // decimal.
+  const tons = capacityMilli / 1_000;
   return `${String(Number.isInteger(tons) ? tons : tons.toFixed(1))}T`;
 }
 
@@ -261,7 +313,7 @@ export function CatalogAdminPage() {
     setSaveError(false);
     try {
       if (editing) {
-        const body: UpdateListingRequest = toCreateRequest(form);
+        const body = toUpdateRequest(editing, form);
         const { error } = await api.PATCH("/api/v1/sales/listings/{id}", {
           params: { path: { id: editing.id } },
           body,

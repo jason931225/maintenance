@@ -1565,6 +1565,7 @@ export const ko = {
         all: "전체",
         electric: "전동",
         diesel: "디젤",
+        lpg: "LPG",
         reach: "리치트럭",
       },
       card: {
@@ -1806,7 +1807,7 @@ export const ko = {
       editTitle: "매물 수정",
       kindLabel: "장비 유형",
       modelNameLabel: "모델명",
-      capacityLabel: "적재 톤수(kg)",
+      capacityLabel: "적재 톤수(톤)",
       modelYearLabel: "연식",
       usageHoursLabel: "사용시간",
       priceWonLabel: "가격(원)",
