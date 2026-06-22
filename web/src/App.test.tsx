@@ -236,7 +236,7 @@ describe("routing", () => {
     // public nav; the page shows the hero copy.
     renderAt("/");
     expect(
-      (await screen.findAllByText("현장에 맞는 지게차를 더 빠르게"))[0],
+      (await screen.findAllByText("고장·점검, 지게차 정비를 빠르게 접수하세요"))[0],
     ).toBeVisible();
   });
 

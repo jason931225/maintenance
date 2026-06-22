@@ -1383,6 +1383,8 @@ export const ko = {
       menuAria: "주요 메뉴",
       mobileMenuAria: "모바일 메뉴",
       phoneConsult: "전화 상담",
+      console: "운영자 콘솔",
+      consoleAria: "운영자 콘솔 로그인 (직원 전용)",
     },
     footer: {
       logoAlt: "KNL",
@@ -1393,9 +1395,9 @@ export const ko = {
     home: {
       hero: {
         eyebrow: "Korea Next Logistics",
-        title: "현장에 맞는 지게차를 더 빠르게",
-        copy: "렌탈, 임대, 중고 판매, 정비까지 필요한 페이지를 명확히 나누고 상담 전환은 더 쉽게 만들었습니다.",
-        primary: "빠른 견적 받기",
+        title: "고장·점검, 지게차 정비를 빠르게 접수하세요",
+        copy: "현장 정보만 입력하면 KNL 정비팀이 확인 후 연락드립니다. 렌탈·중고 상담도 같은 자리에서 이어집니다.",
+        primary: "정비·수리 접수하기",
         secondary: "렌탈 서비스 보기",
       },
       quickFinder: {
@@ -1405,7 +1407,7 @@ export const ko = {
         rental: "렌탈·임대",
         used: "중고 판매",
         maintenance: "정비 지원",
-        inquiry: "견적 문의",
+        maintenanceRequest: "정비 접수",
       },
       serviceMap: {
         eyebrow: "Service Map",
@@ -1449,7 +1451,7 @@ export const ko = {
         title: "어떤 장비가 맞는지 모르겠다면 고객센터에서 시작하세요.",
         numberLabel: "사업 문의",
         number: "070.4443.0319",
-        cta: "온라인 문의",
+        cta: "온라인 접수",
       },
     },
     rental: {

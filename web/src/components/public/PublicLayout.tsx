@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Menu, X } from "lucide-react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 
+import { consoleHref } from "../../lib/consoleUrl";
 import { ko } from "../../i18n/ko";
 import { cn } from "../../lib/utils";
 
@@ -24,6 +25,10 @@ const NAV_ITEMS = [
 export function PublicLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
   const { pathname } = useLocation();
+
+  // Operator-console (staff) link target: crosses to fsm.knllogistic.com in
+  // production, stays same-origin (/login) on the console host, dev, and previews.
+  const consoleLink = consoleHref();
 
   // Close the mobile drawer whenever the route changes (e.g. tapping a link).
   // Defer off the synchronous effect body to avoid cascading renders.
@@ -70,6 +75,13 @@ export function PublicLayout() {
         </nav>
 
         <div className="flex items-center gap-4">
+          <a
+            href={consoleLink}
+            aria-label={ko.storefront.nav.consoleAria}
+            className="hidden min-h-[44px] items-center rounded px-3 text-sm font-bold text-white/70 transition-colors hover:text-signal focus-visible:text-signal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal sm:inline-flex"
+          >
+            {ko.storefront.nav.console}
+          </a>
           <a
             href={ko.storefront.nav.phoneHref}
             className="hidden rounded border border-white/35 px-3.5 py-2.5 text-sm font-extrabold sm:inline-block"
@@ -135,6 +147,13 @@ export function PublicLayout() {
             >
               {ko.storefront.nav.phoneConsult}
             </a>
+            <a
+              href={consoleLink}
+              aria-label={ko.storefront.nav.consoleAria}
+              className="mt-3 inline-flex min-h-[44px] items-center text-[18px] font-bold text-white/70 transition-colors hover:text-signal focus-visible:text-signal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+            >
+              {ko.storefront.nav.console}
+            </a>
           </aside>
         </div>
       ) : null}
@@ -154,6 +173,13 @@ export function PublicLayout() {
             </p>
           </div>
           <p className="m-0 text-sm">{ko.storefront.footer.tagline}</p>
+          <a
+            href={consoleLink}
+            aria-label={ko.storefront.nav.consoleAria}
+            className="inline-flex min-h-[44px] items-center text-sm font-bold text-white/70 transition-colors hover:text-signal focus-visible:text-signal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+          >
+            {ko.storefront.nav.console}
+          </a>
         </div>
       </footer>
     </div>

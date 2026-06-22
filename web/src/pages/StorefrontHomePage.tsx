@@ -23,7 +23,7 @@ const SHORTCUTS = [
   { to: "/rental", label: t.quickFinder.rental },
   { to: "/used", label: t.quickFinder.used },
   { to: "/maintenance", label: t.quickFinder.maintenance },
-  { to: "/contact#quick-inquiry", label: t.quickFinder.inquiry },
+  { to: "/support/new", label: t.quickFinder.maintenanceRequest },
 ] as const;
 
 /** Dark proof strip metrics. */
@@ -73,15 +73,15 @@ export default function StorefrontHomePage() {
           </p>
           <div className="mt-9 flex flex-wrap gap-3">
             <Link
-              to="/contact#quick-inquiry"
-              className="inline-flex min-h-[54px] items-center justify-center gap-3.5 rounded border border-signal bg-signal px-[22px] font-black text-[#14120c] transition-transform hover:-translate-y-0.5"
+              to="/support/new"
+              className="inline-flex min-h-[54px] items-center justify-center gap-3.5 rounded border border-signal bg-signal px-[22px] font-black text-[#14120c] transition-transform hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             >
               {t.hero.primary}
               <ArrowRight aria-hidden="true" size={20} />
             </Link>
             <Link
               to="/rental"
-              className="inline-flex min-h-[54px] items-center justify-center gap-3.5 rounded border border-white/35 bg-white/10 px-[22px] font-black text-white transition-transform hover:-translate-y-0.5"
+              className="inline-flex min-h-[54px] items-center justify-center gap-3.5 rounded border border-white/35 bg-white/10 px-[22px] font-black text-white transition-transform hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             >
               {t.hero.secondary}
             </Link>
@@ -204,7 +204,7 @@ export default function StorefrontHomePage() {
             </a>
           </div>
           <Link
-            to="/contact#quick-inquiry"
+            to="/support/new"
             className={cn(
               "inline-flex min-h-[54px] items-center justify-center rounded border border-ink bg-ink px-[22px] font-black text-white",
               "transition-transform hover:-translate-y-0.5",
