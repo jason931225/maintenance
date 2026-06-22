@@ -1,6 +1,19 @@
-# Let's Encrypt issuers, solved over HTTP-01 through the Traefik ingress.
-# Use letsencrypt-staging while wiring DNS to avoid the prod rate limit, then
-# switch the Ingress annotation to letsencrypt-prod.
+# Let's Encrypt issuers, solved over DNS-01 via the Cloudflare API.
+#
+# The public records (knllogistic.com / www / fsm) are Cloudflare-PROXIED
+# (orange cloud), so HTTP-01 can't work — Cloudflare terminates TLS and forces
+# HTTPS, so Let's Encrypt can't fetch the port-80 challenge. DNS-01 issues the
+# cert by creating an unproxied `_acme-challenge` TXT record through the
+# Cloudflare API instead, which is independent of the proxy. Cloudflare SSL/TLS
+# mode must then be "Full (strict)" so it validates the real LE cert on origin.
+#
+# PREREQUISITE (operator, one-time): a Cloudflare API token scoped to
+# Zone:DNS:Edit + Zone:Zone:Read for the knllogistic.com zone, stored as a
+# Secret in the cert-manager namespace:
+#   kubectl -n cert-manager create secret generic cloudflare-api-token \
+#     --from-literal=api-token='<TOKEN>'
+# Use letsencrypt-staging first to avoid the prod rate limit, then switch the
+# Ingress annotation to letsencrypt-prod.
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
@@ -12,9 +25,11 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-prod-account
     solvers:
-      - http01:
-          ingress:
-            ingressClassName: traefik
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -27,6 +42,8 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-staging-account
     solvers:
-      - http01:
-          ingress:
-            ingressClassName: traefik
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token
