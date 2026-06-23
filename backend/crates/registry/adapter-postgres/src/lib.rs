@@ -462,7 +462,13 @@ impl PgRegistryStore {
         &self,
         management_no: &str,
     ) -> Result<Option<String>, PgRegistryError> {
-        let normalized = management_no.trim().trim_start_matches('#').to_owned();
+        let normalized = management_no
+            .trim()
+            .trim_start_matches('#')
+            .trim()
+            .trim_end_matches("호기")
+            .trim()
+            .to_owned();
         let org = current_org().map_err(KernelError::from)?;
         let model = with_org_conn::<_, _, PgRegistryError>(&self.pool, org, move |tx| {
             Box::pin(async move {
@@ -470,7 +476,7 @@ impl PgRegistryStore {
                     r#"
             SELECT model
             FROM registry_equipment
-            WHERE management_no = $1
+            WHERE ltrim(management_no, '0') = ltrim($1, '0')
             ORDER BY updated_at DESC
             LIMIT 1
             "#,

@@ -1745,6 +1745,9 @@ async fn lookup_equipment(
     let principal = principal_from_headers(&state, &headers)?;
     authorize_read_access(&principal)?;
     let management_no = normalize_management_no(&query.management_no)?;
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
     let mut builder = QueryBuilder::<Postgres>::new(
         r#"
         SELECT
@@ -1763,14 +1766,17 @@ async fn lookup_equipment(
         &principal.branch_scope,
         BranchColumn::new("e.branch_id").map_err(RestError::from_kernel)?,
     );
-    builder.push(" AND e.management_no = ");
+    // Leading-zero-insensitive exact match so '010' (stored) matches the
+    // normalized '10' / '10호기' / '#10호기' the caller typed.
+    builder.push(" AND ltrim(e.management_no, '0') = ltrim(");
     builder.push_bind(management_no);
+    builder.push(", '0')");
     builder.push(" ORDER BY e.updated_at DESC LIMIT 1");
-    let row = builder
-        .build()
-        .fetch_optional(state.store.pool())
-        .await?
-        .ok_or_else(|| RestError::from_kernel(KernelError::not_found("equipment was not found")))?;
+    let row = with_org_conn::<_, _, RestError>(state.store.pool(), org, move |tx| {
+        Box::pin(async move { Ok(builder.build().fetch_optional(tx.as_mut()).await?) })
+    })
+    .await?
+    .ok_or_else(|| RestError::from_kernel(KernelError::not_found("equipment was not found")))?;
     Ok(Json(equipment_lookup_from_row(&row)?))
 }
 
@@ -1783,6 +1789,9 @@ async fn autocomplete_equipment(
     authorize_read_access(&principal)?;
     let raw_query = normalize_management_no(&query.q)?;
     let limit = normalize_limit(query.limit, 10, 20)?;
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
     let prefix = format!("{raw_query}%");
     let mut builder = QueryBuilder::<Postgres>::new(
         r#"
@@ -1802,15 +1811,22 @@ async fn autocomplete_equipment(
         &principal.branch_scope,
         BranchColumn::new("e.branch_id").map_err(RestError::from_kernel)?,
     );
-    builder.push(" AND (e.management_no ILIKE ");
-    builder.push_bind(prefix.clone());
+    // management_no is leading-zero-insensitive (stored '010' matches typed
+    // '10' / '10호기'); equipment_no/model keep the plain normalized prefix so
+    // model / equipment-number search still works.
+    builder.push(" AND (ltrim(e.management_no, '0') ILIKE ltrim(");
+    builder.push_bind(raw_query.clone());
+    builder.push(", '0') || '%'");
     builder.push(" OR e.equipment_no ILIKE ");
     builder.push_bind(prefix.clone());
     builder.push(" OR e.model ILIKE ");
     builder.push_bind(prefix);
     builder.push(") ORDER BY e.management_no ASC NULLS LAST, e.updated_at DESC LIMIT ");
     builder.push_bind(limit);
-    let rows = builder.build().fetch_all(state.store.pool()).await?;
+    let rows = with_org_conn::<_, _, RestError>(state.store.pool(), org, move |tx| {
+        Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+    })
+    .await?;
     let items = rows
         .iter()
         .map(equipment_lookup_from_row)
@@ -2499,7 +2515,12 @@ fn normalize_assigned_to(raw: Option<String>, actor: UserId) -> Result<Option<Us
 }
 
 fn normalize_management_no(raw: &str) -> Result<String, RestError> {
-    let normalized = raw.trim().trim_start_matches('#').trim();
+    let normalized = raw
+        .trim()
+        .trim_start_matches('#')
+        .trim()
+        .trim_end_matches("호기")
+        .trim();
     if normalized.is_empty() {
         return Err(RestError::from_kernel(KernelError::validation(
             "management_no must not be empty",
@@ -3062,5 +3083,40 @@ fn status_for_error_kind(kind: ErrorKind) -> StatusCode {
         ErrorKind::Forbidden => StatusCode::FORBIDDEN,
         ErrorKind::Conflict | ErrorKind::InvalidTransition => StatusCode::CONFLICT,
         ErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_management_no;
+
+    /// The console equipment search lets a user type the 호기 the way it appears
+    /// on the floor: a leading '#', a trailing '호기', or both, with stray
+    /// whitespace. They must all normalize to the same bare token, which the
+    /// leading-zero-insensitive SQL then matches against the stored zero-padded
+    /// `management_no` (e.g. '010').
+    #[test]
+    fn normalize_management_no_strips_hash_and_hogi_suffix() {
+        for raw in ["#10호기", "10호기", " 10호기 ", "#10", "010", "10"] {
+            assert_eq!(
+                normalize_management_no(raw).unwrap(),
+                if raw.trim() == "010" { "010" } else { "10" },
+                "input {raw:?} must normalize to its bare 호기 core"
+            );
+        }
+        // '010' keeps its stored zero-padding; ltrim(...,'0') in SQL handles the
+        // leading-zero match, NOT this Rust normalization.
+        assert_eq!(normalize_management_no("010").unwrap(), "010");
+        assert_eq!(normalize_management_no("#010호기").unwrap(), "010");
+    }
+
+    #[test]
+    fn normalize_management_no_rejects_empty_input() {
+        for raw in ["", "   ", "#", "호기", " #호기 "] {
+            assert!(
+                normalize_management_no(raw).is_err(),
+                "blank-after-normalization input {raw:?} must error, never match every row"
+            );
+        }
     }
 }
