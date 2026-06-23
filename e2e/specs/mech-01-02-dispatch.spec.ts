@@ -54,11 +54,16 @@ test("MECH-01 mechanic sees dispatch board with work orders on /dispatch", async
   await expect(page.getByText(/-011$/).first()).toBeVisible({ timeout: 8_000 });
 
   // The work order's site (E2E사업장) has a registered representative contact
-  // (#13) — the dispatch card shows the 담당자 name and a clickable tel: phone.
-  await expect(page.getByText(/현장 담당자/).first()).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: "010-7777-8888" }).first(),
-  ).toHaveAttribute("href", "tel:010-7777-8888");
+  // (#13). WorkOrderList renders a "담당자: {name}" line (label is
+  // ko.dispatch.siteContact = "담당자") followed by a clickable tel: phone link.
+  // The contact value is NOT pinned here: the shared e2e DB is mutated by
+  // ADMIN-17 (which PATCHes this same seeded site's contact to 김현장 /
+  // 010-2625-0987), so a hardcoded seed value would be order-dependent. Assert
+  // the rendered SHAPE instead — the 담당자 label and a tel: contact link.
+  await expect(page.getByText(/담당자:/).first()).toBeVisible();
+  const contactTel = page.locator('a[href^="tel:"]').first();
+  await expect(contactTel).toBeVisible();
+  await expect(contactTel).toHaveAttribute("href", /^tel:\+?[\d-]+$/);
   await page.screenshot({
     path: "e2e/.artifacts/dispatch-contact.png",
     fullPage: true,
