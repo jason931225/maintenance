@@ -103,6 +103,7 @@ mnt-compliance-domain = { path = "crates/compliance/domain" }
 mnt-compliance-application = { path = "crates/compliance/application" }
 mnt-compliance-adapter-postgres = { path = "crates/compliance/adapter-postgres" }
 mnt-compliance-rest = { path = "crates/compliance/rest" }
+mnt-integrity = { path = "crates/compliance/integrity" }
 mnt-financial-domain = { path = "crates/financial/domain" }
 mnt-financial-application = { path = "crates/financial/application" }
 mnt-financial-adapter-postgres = { path = "crates/financial/adapter-postgres" }

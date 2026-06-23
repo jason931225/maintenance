@@ -751,3 +751,183 @@ async fn seed_evidence(
     .unwrap();
     evidence_id
 }
+
+/// Seed a user with the given role AND `is_org_lead = true` (대표/CEO).
+async fn seed_org_lead_user(pool: &PgPool, role: &str, branch_id: BranchId) -> UserId {
+    let user_id = UserId::new();
+    sqlx::query(
+        "INSERT INTO users (id, display_name, roles, org_id, is_org_lead)
+         VALUES ($1, $2, $3, $4, true)",
+    )
+    .bind(*user_id.as_uuid())
+    .bind("Org Lead")
+    .bind(Vec::from([role]))
+    .bind(*OrgId::knl().as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
+        .bind(*user_id.as_uuid())
+        .bind(*branch_id.as_uuid())
+        .bind(*OrgId::knl().as_uuid())
+        .execute(pool)
+        .await
+        .unwrap();
+    user_id
+}
+
+// ===========================================================================
+// Self-approval guard tests (Slice A, task #34)
+// ===========================================================================
+
+/// (a) A normal ADMIN who submitted/requested a 기안 must NOT be able to
+///     approve it. The guard must return a 422-equivalent validation error:
+///     "본인이 상신/요청한 건은 결재할 수 없습니다".
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn self_approval_blocked_for_normal_admin(pool: PgPool) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let seeded = seed_financial_context(&pool).await;
+        let store = PgFinancialStore::new(pool.clone());
+        let occurred_at = time::macros::datetime!(2026-06-23 09:00 UTC);
+        let config = financial_config();
+
+        // Create the purchase as the mechanic (they are requested_by).
+        let purchase = store
+            .create_purchase_request(CreatePurchaseRequestCommand {
+                actor: seeded.admin, // admin creates → admin is requested_by
+                branch_id: seeded.branch_id,
+                equipment_id: seeded.normal_equipment,
+                work_order_id: None,
+                statement_evidence_id: seeded.statement_evidence_id,
+                vendor_name: "Self Test Vendor".to_owned(),
+                amount_won: 500_000,
+                memo: "Self-approval test".to_owned(),
+                config: config.clone(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+
+        // Submit (moves to REQUEST_SUBMITTED).
+        store
+            .submit_purchase_request(PurchaseSubmitCommand {
+                actor: seeded.receptionist,
+                purchase_request_id: purchase.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+
+        // The SAME admin who created the request tries to approve it.
+        // Must be rejected with a validation error.
+        let result = store
+            .approve_purchase_admin(PurchaseApprovalCommand {
+                actor: seeded.admin,
+                purchase_request_id: purchase.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await;
+
+        let err = result.expect_err("self-approval must be blocked");
+        // KernelError::Validation maps to PgFinancialError::Domain.
+        use mnt_financial_adapter_postgres::PgFinancialError;
+        use mnt_kernel_core::ErrorKind;
+        match err {
+            PgFinancialError::Domain(e) => {
+                assert_eq!(e.kind, ErrorKind::Validation);
+                assert!(
+                    e.message
+                        .contains("본인이 상신/요청한 건은 결재할 수 없습니다"),
+                    "expected Korean self-approval error, got: {}",
+                    e.message
+                );
+            }
+            other => panic!("expected Domain(Validation), got: {other:?}"),
+        }
+    })
+    .await;
+}
+
+/// (b) The org 대표/CEO (is_org_lead = true) is ALLOWED to self-approve their
+///     own 기안. Additionally, an `anomaly.self_approval` governance finding
+///     must be written to `governance_findings` recording the exception.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn org_lead_self_approval_allowed_and_writes_finding(pool: PgPool) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let seeded = seed_financial_context(&pool).await;
+
+        // Seed the 대표 as an ADMIN with is_org_lead = true.
+        let org_lead = seed_org_lead_user(&pool, "ADMIN", seeded.branch_id).await;
+
+        let store = PgFinancialStore::new(pool.clone());
+        let occurred_at = time::macros::datetime!(2026-06-23 10:00 UTC);
+        let config = financial_config();
+
+        // Org lead creates the purchase request (they are requested_by).
+        let purchase = store
+            .create_purchase_request(CreatePurchaseRequestCommand {
+                actor: org_lead,
+                branch_id: seeded.branch_id,
+                equipment_id: seeded.normal_equipment,
+                work_order_id: None,
+                statement_evidence_id: seeded.statement_evidence_id,
+                vendor_name: "Lead Vendor".to_owned(),
+                amount_won: 300_000,
+                memo: "Org lead purchase".to_owned(),
+                config: config.clone(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+
+        // Submit.
+        store
+            .submit_purchase_request(PurchaseSubmitCommand {
+                actor: seeded.receptionist,
+                purchase_request_id: purchase.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .unwrap();
+
+        // Org lead self-approves — must succeed (exception case).
+        let approved = store
+            .approve_purchase_admin(PurchaseApprovalCommand {
+                actor: org_lead,
+                purchase_request_id: purchase.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+            .expect("org lead self-approval must be allowed");
+
+        use mnt_financial_domain::PurchaseStatus;
+        assert_eq!(
+            approved.status,
+            PurchaseStatus::AdminApproved,
+            "purchase must advance to ADMIN_APPROVED"
+        );
+
+        // A governance finding must have been written.
+        let finding_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM governance_findings \
+             WHERE detector_id = 'anomaly.self_approval' \
+               AND entity_id = $1",
+        )
+        .bind(purchase.id.as_uuid().to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(
+            finding_count, 1,
+            "org lead self-approval must write exactly one governance finding"
+        );
+    })
+    .await;
+}

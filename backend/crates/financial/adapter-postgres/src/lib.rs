@@ -578,6 +578,23 @@ impl PgFinancialStore {
                     executive_threshold_won: row.executive_threshold_won,
                 })?;
 
+                // ── Segregation-of-duties: self-approval block ────────────────
+                // Only applies on genuine approval transitions (admin or executive
+                // sign-off). Submission and execution are exempt from this guard.
+                if matches!(
+                    to,
+                    PurchaseStatus::AdminApproved | PurchaseStatus::ReadyToExecute
+                ) {
+                    check_self_approval_tx(
+                        tx,
+                        actor,
+                        purchase_request_id,
+                        org_uuid,
+                        action,
+                    )
+                    .await?;
+                }
+
                 let memo_trimmed = memo.as_deref().map(str::trim).filter(|value| !value.is_empty());
                 let expenditure_trimmed = expenditure_no
                     .as_deref()
@@ -1538,4 +1555,120 @@ fn months_elapsed(from: Option<Date>, to: Date) -> u32 {
         month_delta
     };
     u32::try_from(adjusted.max(0)).unwrap_or(0)
+}
+
+/// Segregation-of-duties: self-approval guard.
+///
+/// Blocks an approver from approving a purchase request they themselves
+/// originated (requested_by) or submitted (submitted_by). The only exceptions
+/// are the org 대표/CEO (`is_org_lead = true`) and SUPER_ADMIN — because no
+/// higher approver exists in the chain for these roles.
+///
+/// Even when the exception is allowed, a governance finding is written to
+/// `governance_findings` so the self-approval is recorded and visible to
+/// EXECUTIVE / SUPER_ADMIN on the integrity dashboard. Allowed ≠ invisible.
+async fn check_self_approval_tx(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    actor: UserId,
+    purchase_request_id: PurchaseRequestId,
+    org_uuid: uuid::Uuid,
+    action: &str,
+) -> Result<(), PgFinancialError> {
+    // Fetch requested_by and submitted_by for this purchase.
+    let row = sqlx::query(
+        r#"
+        SELECT requested_by, submitted_by
+        FROM financial_purchase_requests
+        WHERE id = $1
+        "#,
+    )
+    .bind(*purchase_request_id.as_uuid())
+    .fetch_optional(tx.as_mut())
+    .await?
+    .ok_or_else(|| KernelError::not_found("purchase request was not found"))?;
+
+    let requested_by: uuid::Uuid = row.try_get("requested_by")?;
+    let submitted_by: Option<uuid::Uuid> = row.try_get("submitted_by")?;
+    let actor_uuid = *actor.as_uuid();
+
+    let is_self_approval =
+        actor_uuid == requested_by || submitted_by.is_some_and(|s| s == actor_uuid);
+
+    if !is_self_approval {
+        return Ok(());
+    }
+
+    // Actor is self-approving. Check if they are the 대표 or SUPER_ADMIN.
+    let user_row = sqlx::query(
+        r#"
+        SELECT roles, is_org_lead
+        FROM users
+        WHERE id = $1
+        "#,
+    )
+    .bind(actor_uuid)
+    .fetch_optional(tx.as_mut())
+    .await?
+    .ok_or_else(|| KernelError::not_found("approving user was not found"))?;
+
+    let roles: Vec<String> = user_row.try_get("roles")?;
+    let is_org_lead: bool = user_row.try_get("is_org_lead")?;
+    let is_super_admin = roles.iter().any(|r| r == "SUPER_ADMIN");
+
+    let is_exempt = is_org_lead || is_super_admin;
+
+    if !is_exempt {
+        // Hard block: 422 Validation error.
+        return Err(KernelError::validation("본인이 상신/요청한 건은 결재할 수 없습니다").into());
+    }
+
+    // Allowed exception: 대표 or SUPER_ADMIN self-approving.
+    // Write a governance finding so this is audited and visible on the
+    // integrity dashboard. The finding is idempotent (ON CONFLICT DO UPDATE).
+    let finding_id = uuid::Uuid::new_v4();
+    let detector_id = "anomaly.self_approval";
+    let entity_type = "financial_purchase_request";
+    let entity_id = purchase_request_id.as_uuid().to_string();
+    let exemption_reason = if is_super_admin {
+        "super_admin_exempt"
+    } else {
+        "org_lead_exempt"
+    };
+    let evidence = serde_json::json!({
+        "action": action,
+        "requested_by": requested_by.to_string(),
+        "submitted_by": submitted_by.map(|u| u.to_string()),
+        "approver": actor_uuid.to_string(),
+        "exemption_reason": exemption_reason,
+    });
+    let now = OffsetDateTime::now_utc();
+
+    sqlx::query(
+        r#"
+        INSERT INTO governance_findings
+            (id, org_id, detector_id, entity_type, entity_id,
+             subject_user_id, score, severity, evidence, status, detected_at, created_at, updated_at)
+        VALUES
+            ($1, $2, $3, $4, $5, $6, 1.0, 'HIGH', $7, 'OPEN', $8, $8, $8)
+        ON CONFLICT (org_id, detector_id, entity_type, entity_id) DO UPDATE
+            SET score = EXCLUDED.score,
+                severity = EXCLUDED.severity,
+                evidence = EXCLUDED.evidence,
+                status = 'OPEN',
+                detected_at = EXCLUDED.detected_at,
+                updated_at = EXCLUDED.updated_at
+        "#,
+    )
+    .bind(finding_id)
+    .bind(org_uuid)
+    .bind(detector_id)
+    .bind(entity_type)
+    .bind(entity_id)
+    .bind(actor_uuid)
+    .bind(sqlx::types::Json(&evidence))
+    .bind(now)
+    .execute(tx.as_mut())
+    .await?;
+
+    Ok(())
 }
