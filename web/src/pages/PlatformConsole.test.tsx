@@ -242,6 +242,86 @@ describe("Platform ops dashboard", () => {
   });
 });
 
+describe("Platform tenant removal", () => {
+  it("removes an empty tenant after confirmation and refreshes the list", async () => {
+    const user = userEvent.setup();
+    const deleted = vi.fn();
+    let listCall = 0;
+    server.use(
+      http.get("*/api/platform/orgs", () => {
+        listCall += 1;
+        // First load returns both; after a successful delete the refetch drops Acme.
+        return HttpResponse.json(listCall === 1 ? orgs : [orgs[1]]);
+      }),
+      http.delete("*/api/platform/orgs/:id", ({ params }) => {
+        deleted(params.id);
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    renderApp("/platform/tenants", makeAuthContext(platformSession));
+
+    const row = (await screen.findByText("Acme Corporation")).closest("tr");
+    await user.click(
+      within(row as HTMLElement).getByRole("button", { name: "테넌트 삭제" }),
+    );
+
+    // The confirm dialog names the tenant and warns it is irreversible.
+    const dialog = await screen.findByRole("dialog", { name: "테넌트 삭제" });
+    expect(
+      within(dialog).getByText(/‘Acme Corporation’ 테넌트를 영구적으로 삭제/),
+    ).toBeVisible();
+    expect(
+      within(dialog).getByText("이 작업은 되돌릴 수 없습니다. 신중히 진행하세요."),
+    ).toBeVisible();
+
+    await user.click(within(dialog).getByRole("button", { name: "삭제" }));
+
+    await waitFor(() => {
+      expect(deleted).toHaveBeenCalledWith(
+        "11111111-1111-4111-8111-111111111111",
+      );
+    });
+    // The dialog closes and the removed tenant is gone from the refreshed list.
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: "테넌트 삭제" }),
+      ).not.toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Acme Corporation")).not.toBeInTheDocument();
+    });
+  });
+
+  it("surfaces the 409 archive-instead guard for a tenant with data", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
+      http.delete("*/api/platform/orgs/:id", () =>
+        HttpResponse.json({ error: { code: "tenant_has_data" } }, { status: 409 }),
+      ),
+    );
+
+    renderApp("/platform/tenants", makeAuthContext(platformSession));
+
+    const row = (await screen.findByText("Acme Corporation")).closest("tr");
+    await user.click(
+      within(row as HTMLElement).getByRole("button", { name: "테넌트 삭제" }),
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "테넌트 삭제" });
+    await user.click(within(dialog).getByRole("button", { name: "삭제" }));
+
+    // The guard message is surfaced and the dialog stays open (tenant not removed).
+    expect(
+      await within(dialog).findByText(
+        "이 테넌트에는 실제 운영 데이터가 있어 삭제할 수 없습니다. 대신 보관 처리하세요.",
+      ),
+    ).toBeVisible();
+    expect(screen.getByText("Acme Corporation")).toBeVisible();
+  });
+});
+
 describe("Platform onboard", () => {
   it("posts a new tenant and reveals the one-time OTP", async () => {
     const user = userEvent.setup();

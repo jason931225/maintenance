@@ -23,6 +23,7 @@ use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{PlatformFeature, PlatformPrincipal};
 use mnt_platform_provisioning::{
     OrganizationSummary, PlatformProvisioner, ProvisioningError, TenantHealth, TenantOnboarding,
+    TenantRemovalOutcome,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -60,7 +61,10 @@ pub fn router(state: PlatformRestState) -> Router {
     let verifier = state.jwt_verifier.clone();
     let router = Router::new()
         .route(PLATFORM_ORGS_PATH, get(list_orgs).post(create_org))
-        .route(PLATFORM_ORG_PATH_TEMPLATE, patch(update_org))
+        .route(
+            PLATFORM_ORG_PATH_TEMPLATE,
+            patch(update_org).delete(delete_org),
+        )
         .route(PLATFORM_OPS_PATH, get(ops_dashboard))
         .with_state(state);
     // PLATFORM extractor: resolves the PlatformPrincipal and REJECTS any tenant
@@ -283,6 +287,52 @@ async fn update_org(
         .map_err(PlatformError::from_provisioning)?;
 
     Ok(Json(OrgResponse::from(org)).into_response())
+}
+
+/// DELETE /platform/orgs/{id} â GUARDED hard-removal of an empty/test tenant.
+///
+/// Platform-super-admin (vendor tier) ONLY â identical gate to `update_org`; a
+/// tenant's own admin can never reach this (the platform extractor rejects a
+/// tenant token with 403 before this runs). Audited as `platform.tenant.remove`.
+///
+/// REFUSES with 409 (`conflict`, code `tenant_has_data`) when the tenant owns
+/// real operational data, telling the operator to archive instead. The org and
+/// its empty onboarding shell are deleted in ONE transaction only for an empty
+/// tenant; the tenant's immutable audit trail is preserved (re-homed to the
+/// platform sentinel). A missing tenant is 404.
+async fn delete_org(
+    State(state): State<PlatformRestState>,
+    Extension(principal): Extension<PlatformPrincipal>,
+    Path(id): Path<Uuid>,
+) -> Result<Response, PlatformError> {
+    principal
+        .authorize(PlatformFeature::TenantRemove)
+        .map_err(|_| PlatformError::forbidden("platform principal cannot remove tenants"))?;
+
+    let outcome = state
+        .provisioner
+        .remove_tenant(
+            &state.pool,
+            Some(principal.user_id),
+            id,
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(PlatformError::from_provisioning)?;
+
+    match outcome {
+        TenantRemovalOutcome::Removed => Ok(StatusCode::NO_CONTENT.into_response()),
+        TenantRemovalOutcome::BlockedHasData => Err(PlatformError::new(
+            StatusCode::CONFLICT,
+            "tenant_has_data",
+            "tenant has operational data and cannot be removed; archive it instead",
+        )),
+        TenantRemovalOutcome::NotFound => Err(PlatformError::new(
+            StatusCode::NOT_FOUND,
+            "not_found",
+            "no such tenant",
+        )),
+    }
 }
 
 // ---------------------------------------------------------------------------

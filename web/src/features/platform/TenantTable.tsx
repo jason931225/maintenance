@@ -17,10 +17,12 @@ export function TenantTable({
   orgs,
   isLoading,
   onChangeStatus,
+  onRemove,
 }: {
   orgs: PlatformOrg[];
   isLoading: boolean;
   onChangeStatus: (org: PlatformOrg, next: OrgStatus) => void;
+  onRemove: (org: PlatformOrg) => void;
 }) {
   if (isLoading) {
     return (
@@ -83,6 +85,18 @@ export function TenantTable({
                       {ko.platform.tenants.actionLabel[next]}
                     </Button>
                   ))}
+                  {/* Hard-removal is a distinct, irreversible action — separate
+                      from the suspend/archive status changes above. */}
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => {
+                      onRemove(org);
+                    }}
+                  >
+                    {ko.platform.tenants.removeLabel}
+                  </Button>
                 </div>
               </td>
             </tr>

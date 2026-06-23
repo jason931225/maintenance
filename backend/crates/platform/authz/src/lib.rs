@@ -366,6 +366,10 @@ pub enum PlatformFeature {
     TenantList,
     /// Suspend / reactivate a tenant (status change).
     TenantSuspend,
+    /// Hard-remove (delete) an empty/test tenant org + its onboarding shell.
+    /// Strictly more destructive than [`Self::TenantSuspend`]; a tenant's own
+    /// admin can never reach it (the platform extractor rejects a tenant token).
+    TenantRemove,
     /// Read a tenant's health/status.
     TenantHealthRead,
     /// Read the platform-tier audit trail.
@@ -373,10 +377,11 @@ pub enum PlatformFeature {
 }
 
 impl PlatformFeature {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::TenantCreate,
         Self::TenantList,
         Self::TenantSuspend,
+        Self::TenantRemove,
         Self::TenantHealthRead,
         Self::PlatformAuditRead,
     ];

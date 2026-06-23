@@ -3754,6 +3754,56 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/platform/orgs/{id}:
+    delete:
+      operationId: removePlatformOrg
+      summary: Hard-remove an empty/test tenant (platform vendor tier)
+      description: >-
+        GUARDED hard-removal of a tenant organization. Platform-super-admin
+        (vendor tier) ONLY: the route sits behind the platform extractor, so a
+        tenant token is rejected with 403 before the handler runs and a tenant's
+        own admin can never reach it. The removal is audited as
+        `platform.tenant.remove`.
+
+
+        The tenant and its empty onboarding shell (the seeded admin user, its
+        auth credentials, branch memberships, branches, and regions) are deleted
+        in one transaction, and the tenant's immutable audit trail is preserved
+        (re-homed to the platform sentinel). Removal is REFUSED with 409 when the
+        tenant owns real operational data (equipment, work orders, sites,
+        customers, inspections, sales, financial, messenger, consents, attendance,
+        or governance findings) — archive the tenant instead.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '204':
+          description: The empty/test tenant and its shell were removed.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: >-
+            The tenant has operational data and cannot be removed; archive it
+            instead. The error body `code` is `tenant_has_data`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
 components:
   securitySchemes:
     bearerAuth:

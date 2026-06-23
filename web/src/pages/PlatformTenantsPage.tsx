@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import {
   listPlatformOrgs,
+  removePlatformOrg,
   setPlatformOrgStatus,
 } from "../api/platform";
 import type { OrgStatus, PlatformOrg } from "../api/platform";
@@ -11,6 +12,7 @@ import { PageError } from "../components/states/PageError";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { useAuth } from "../context/auth";
+import { RemoveTenantDialog } from "../features/platform/RemoveTenantDialog";
 import { StatusChangeDialog } from "../features/platform/StatusChangeDialog";
 import { TenantTable } from "../features/platform/TenantTable";
 import { ko } from "../i18n/ko";
@@ -30,6 +32,9 @@ export function PlatformTenantsPage() {
   const [orgs, setOrgs] = useState<PlatformOrg[]>([]);
   const [listState, setListState] = useState<ReadState>("loading");
   const [pendingChange, setPendingChange] = useState<PendingChange | undefined>(
+    undefined,
+  );
+  const [pendingRemoval, setPendingRemoval] = useState<PlatformOrg | undefined>(
     undefined,
   );
 
@@ -61,6 +66,16 @@ export function PlatformTenantsPage() {
       current.map((org) => (org.id === updated.id ? updated : org)),
     );
     setPendingChange(undefined);
+    await loadOrgs();
+  }
+
+  async function applyRemoval(): Promise<void> {
+    if (!pendingRemoval) return;
+    // A 409 (tenant has data) / 404 / failure is thrown to the dialog, which
+    // surfaces the "archive instead" guidance and stays open. On success the
+    // tenant is gone, so close and refresh from the server.
+    await removePlatformOrg(token, pendingRemoval.id);
+    setPendingRemoval(undefined);
     await loadOrgs();
   }
 
@@ -104,6 +119,9 @@ export function PlatformTenantsPage() {
           onChangeStatus={(org, next) => {
             setPendingChange({ org, next });
           }}
+          onRemove={(org) => {
+            setPendingRemoval(org);
+          }}
         />
       )}
 
@@ -114,6 +132,16 @@ export function PlatformTenantsPage() {
           onConfirm={applyStatusChange}
           onClose={() => {
             setPendingChange(undefined);
+          }}
+        />
+      ) : null}
+
+      {pendingRemoval ? (
+        <RemoveTenantDialog
+          org={pendingRemoval}
+          onConfirm={applyRemoval}
+          onClose={() => {
+            setPendingRemoval(undefined);
           }}
         />
       ) : null}

@@ -190,3 +190,24 @@ export async function setPlatformOrgStatus(
   if (!response.ok) throw await parseError(response);
   return (await response.json()) as PlatformOrg;
 }
+
+/**
+ * DELETE /platform/orgs/{id} — GUARDED hard-removal of an empty/test tenant.
+ *
+ * Succeeds (204) only for an empty tenant. A tenant with real operational data
+ * is refused with 409 (`PlatformApiError.status === 409`, code `tenant_has_data`)
+ * — the caller surfaces the "archive instead" guidance. A missing tenant is 404.
+ */
+export async function removePlatformOrg(
+  bearerToken: string | undefined,
+  id: string,
+): Promise<void> {
+  const response = await platformFetch(
+    bearerToken,
+    `/api/platform/orgs/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+    },
+  );
+  if (!response.ok) throw await parseError(response);
+}

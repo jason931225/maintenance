@@ -752,6 +752,15 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `PATCH /api/v1/sales/inquiries/{id}`.
     /// - Remark: Generated from `#/paths//api/v1/sales/inquiries/{id}/patch(updateInquiryStatus)`.
     func updateInquiryStatus(_ input: Operations.UpdateInquiryStatus.Input) async throws -> Operations.UpdateInquiryStatus.Output
+    /// Hard-remove an empty/test tenant (platform vendor tier)
+    ///
+    /// GUARDED hard-removal of a tenant organization. Platform-super-admin (vendor tier) ONLY: the route sits behind the platform extractor, so a tenant token is rejected with 403 before the handler runs and a tenant's own admin can never reach it. The removal is audited as `platform.tenant.remove`.
+    ///
+    /// The tenant and its empty onboarding shell (the seeded admin user, its auth credentials, branch memberships, branches, and regions) are deleted in one transaction, and the tenant's immutable audit trail is preserved (re-homed to the platform sentinel). Removal is REFUSED with 409 when the tenant owns real operational data (equipment, work orders, sites, customers, inspections, sales, financial, messenger, consents, attendance, or governance findings) — archive the tenant instead.
+    ///
+    /// - Remark: HTTP `DELETE /api/platform/orgs/{id}`.
+    /// - Remark: Generated from `#/paths//api/platform/orgs/{id}/delete(removePlatformOrg)`.
+    func removePlatformOrg(_ input: Operations.RemovePlatformOrg.Input) async throws -> Operations.RemovePlatformOrg.Output
 }
 
 /// Convenience overloads for operation inputs.
@@ -2525,6 +2534,23 @@ extension APIProtocol {
             path: path,
             headers: headers,
             body: body
+        ))
+    }
+    /// Hard-remove an empty/test tenant (platform vendor tier)
+    ///
+    /// GUARDED hard-removal of a tenant organization. Platform-super-admin (vendor tier) ONLY: the route sits behind the platform extractor, so a tenant token is rejected with 403 before the handler runs and a tenant's own admin can never reach it. The removal is audited as `platform.tenant.remove`.
+    ///
+    /// The tenant and its empty onboarding shell (the seeded admin user, its auth credentials, branch memberships, branches, and regions) are deleted in one transaction, and the tenant's immutable audit trail is preserved (re-homed to the platform sentinel). Removal is REFUSED with 409 when the tenant owns real operational data (equipment, work orders, sites, customers, inspections, sales, financial, messenger, consents, attendance, or governance findings) — archive the tenant instead.
+    ///
+    /// - Remark: HTTP `DELETE /api/platform/orgs/{id}`.
+    /// - Remark: Generated from `#/paths//api/platform/orgs/{id}/delete(removePlatformOrg)`.
+    public func removePlatformOrg(
+        path: Operations.RemovePlatformOrg.Input.Path,
+        headers: Operations.RemovePlatformOrg.Input.Headers = .init()
+    ) async throws -> Operations.RemovePlatformOrg.Output {
+        try await removePlatformOrg(Operations.RemovePlatformOrg.Input(
+            path: path,
+            headers: headers
         ))
     }
 }
@@ -37246,6 +37272,293 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Hard-remove an empty/test tenant (platform vendor tier)
+    ///
+    /// GUARDED hard-removal of a tenant organization. Platform-super-admin (vendor tier) ONLY: the route sits behind the platform extractor, so a tenant token is rejected with 403 before the handler runs and a tenant's own admin can never reach it. The removal is audited as `platform.tenant.remove`.
+    ///
+    /// The tenant and its empty onboarding shell (the seeded admin user, its auth credentials, branch memberships, branches, and regions) are deleted in one transaction, and the tenant's immutable audit trail is preserved (re-homed to the platform sentinel). Removal is REFUSED with 409 when the tenant owns real operational data (equipment, work orders, sites, customers, inspections, sales, financial, messenger, consents, attendance, or governance findings) — archive the tenant instead.
+    ///
+    /// - Remark: HTTP `DELETE /api/platform/orgs/{id}`.
+    /// - Remark: Generated from `#/paths//api/platform/orgs/{id}/delete(removePlatformOrg)`.
+    public enum RemovePlatformOrg {
+        public static let id: Swift.String = "removePlatformOrg"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/platform/orgs/{id}/DELETE/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/platform/orgs/{id}/DELETE/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.RemovePlatformOrg.Input.Path
+            /// - Remark: Generated from `#/paths/api/platform/orgs/{id}/DELETE/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RemovePlatformOrg.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RemovePlatformOrg.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.RemovePlatformOrg.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.RemovePlatformOrg.Input.Path,
+                headers: Operations.RemovePlatformOrg.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                public init() {}
+            }
+            /// The empty/test tenant and its shell were removed.
+            ///
+            /// - Remark: Generated from `#/paths//api/platform/orgs/{id}/delete(removePlatformOrg)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.RemovePlatformOrg.Output.NoContent)
+            /// The empty/test tenant and its shell were removed.
+            ///
+            /// - Remark: Generated from `#/paths//api/platform/orgs/{id}/delete(removePlatformOrg)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            public static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            public var noContent: Operations.RemovePlatformOrg.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/platform/orgs/{id}/delete(removePlatformOrg)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/platform/orgs/{id}/delete(removePlatformOrg)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/platform/orgs/{id}/delete(removePlatformOrg)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/platform/orgs/{id}/DELETE/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/platform/orgs/{id}/DELETE/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.RemovePlatformOrg.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.RemovePlatformOrg.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// The tenant has operational data and cannot be removed; archive it instead. The error body `code` is `tenant_has_data`.
+            ///
+            /// - Remark: Generated from `#/paths//api/platform/orgs/{id}/delete(removePlatformOrg)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.RemovePlatformOrg.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.RemovePlatformOrg.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/platform/orgs/{id}/DELETE/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/platform/orgs/{id}/DELETE/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.RemovePlatformOrg.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.RemovePlatformOrg.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/platform/orgs/{id}/delete(removePlatformOrg)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.RemovePlatformOrg.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.RemovePlatformOrg.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
                             response: self
                         )
                     }

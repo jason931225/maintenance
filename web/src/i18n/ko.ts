@@ -389,6 +389,7 @@ export const ko = {
         SUSPENDED: "정지",
         ARCHIVED: "보관",
       },
+      removeLabel: "테넌트 삭제",
       statusChange: {
         title: "테넌트 상태 변경",
         confirm: "‘{name}’ 테넌트를 ‘{status}’ 상태로 변경하시겠습니까?",
@@ -397,6 +398,19 @@ export const ko = {
         apply: "변경",
         applying: "변경 중",
         failed: "상태를 변경하지 못했습니다. 다시 시도하세요.",
+      },
+      remove: {
+        title: "테넌트 삭제",
+        confirm:
+          "‘{name}’ 테넌트를 영구적으로 삭제하시겠습니까? 조직과 초기 설정 데이터가 모두 제거되며 되돌릴 수 없습니다.",
+        warning: "이 작업은 되돌릴 수 없습니다. 신중히 진행하세요.",
+        cancel: "취소",
+        apply: "삭제",
+        applying: "삭제 중",
+        failed: "테넌트를 삭제하지 못했습니다. 다시 시도하세요.",
+        blocked:
+          "이 테넌트에는 실제 운영 데이터가 있어 삭제할 수 없습니다. 대신 보관 처리하세요.",
+        notFound: "테넌트를 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.",
       },
     },
     onboard: {
