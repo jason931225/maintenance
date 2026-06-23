@@ -68,7 +68,10 @@ metadata:
   name: mnt-backups
   namespace: maintenance
 spec:
-  retentionPolicy: "30d"
+  # Indefinite retention (user 2026-06-23): with no retentionPolicy, barman-cloud
+  # never prunes base backups / WALs, so PITR reaches back to the first backup
+  # forever. NOTE: storage grows unbounded — re-add e.g. retentionPolicy: "90d"
+  # to cap it once the DB / OCI Always-Free object-storage budget warrants it.
   configuration:
     # OCI Object Storage, S3-compatible API, Chuncheon. NAMESPACE = the tenancy
     # object-storage namespace (oci os ns get); bucket pre-created out of band.
