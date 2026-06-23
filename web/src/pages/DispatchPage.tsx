@@ -252,6 +252,60 @@ export function DispatchPage() {
     }
   }
 
+  async function startP1Dispatch(workOrderId: string): Promise<boolean> {
+    setWriteState("idle");
+    try {
+      const response = await api.POST(
+        "/api/v1/work-orders/{workOrderId}/p1-dispatch",
+        {
+          params: { path: { workOrderId } },
+          body: { include_region: false },
+        },
+      );
+      if (!response.data) {
+        setWriteState("error");
+        return false;
+      }
+      setActiveDispatch(response.data);
+      await loadData();
+      return true;
+    } catch {
+      setWriteState("error");
+      return false;
+    }
+  }
+
+  async function createOutsourceWork(
+    workOrderId: string,
+    vendorName: string,
+    vendorContact: string,
+    reason: string,
+  ): Promise<boolean> {
+    setWriteState("idle");
+    try {
+      const response = await api.POST(
+        "/api/work-orders/{workOrderId}/outsource-works",
+        {
+          params: { path: { workOrderId } },
+          body: {
+            vendor_name: vendorName,
+            vendor_contact: vendorContact || undefined,
+            reason,
+          },
+        },
+      );
+      if (!response.data) {
+        setWriteState("error");
+        return false;
+      }
+      await loadData();
+      return true;
+    } catch {
+      setWriteState("error");
+      return false;
+    }
+  }
+
   const lookupDispatch = useCallback(
     async (dispatchId: string): Promise<P1DispatchSummary | undefined> => {
       const response = await api
@@ -335,6 +389,8 @@ export function DispatchPage() {
             onRequestSchedule={requestSchedule}
             onAssign={assignMechanics}
             onForceAssign={forceAssign}
+            onStartP1Dispatch={startP1Dispatch}
+            onCreateOutsourceWork={createOutsourceWork}
           />
         ) : null}
 

@@ -31,6 +31,12 @@ export type InspectionScheduleSummary =
 export type InspectionCycle = components["schemas"]["InspectionCycle"];
 export type CreateInspectionScheduleRequest =
   components["schemas"]["CreateInspectionScheduleRequest"];
+export type InspectionRoundOutcome =
+  components["schemas"]["InspectionRoundOutcome"];
+export type InspectionRoundSummary =
+  components["schemas"]["InspectionRoundSummary"];
+export type CompleteInspectionRoundRequest =
+  components["schemas"]["CompleteInspectionRoundRequest"];
 export type CreateMessengerThreadRequest =
   components["schemas"]["CreateMessengerThreadRequest"];
 export type DailyPlanStatus = components["schemas"]["DailyPlanStatus"];
@@ -120,7 +126,19 @@ export type CreateRentalQuoteRequest =
 export type CostLedgerEntrySummary =
   components["schemas"]["CostLedgerEntrySummary"];
 export type CostLedgerSource = components["schemas"]["CostLedgerSource"];
+export type AppendManualCostLedgerRequest =
+  components["schemas"]["AppendManualCostLedgerRequest"];
 export type QuoteLine = components["schemas"]["QuoteLine"];
+
+// Target due-date change review (work-order dispatch → approvals).
+export type TargetChangeRequestSummary =
+  components["schemas"]["TargetChangeRequestSummary"];
+export type TargetChangeDecision =
+  components["schemas"]["TargetChangeDecision"];
+
+// Equipment master-list bulk import (#18 importer surface).
+export type RegistryImportReport =
+  components["schemas"]["RegistryImportReport"];
 
 // Storefront / sales catalog (#6 KNL forklift storefront).
 export type ListingKind = components["schemas"]["ListingKind"];

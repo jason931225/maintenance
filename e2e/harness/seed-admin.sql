@@ -210,4 +210,53 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- ADMIN-19: a RECEIVED P1 work order WITHOUT a dispatch so the controls panel's
+-- "P1 배차 시작" action can start one (…f00009 already carries a BROADCASTING
+-- dispatch and cannot start another). Outsource-work create also runs here.
+-- ─────────────────────────────────────────────────────────────────────────────
+INSERT INTO work_orders (
+  id, request_no, branch_id, equipment_id, customer_id, site_id,
+  requested_by, status, priority, symptom, org_id
+)
+VALUES (
+  '00000000-0000-0000-0000-000000f00010',
+  to_char(CURRENT_DATE, 'YYYYMMDD') || '-101',
+  :'branch_id', :'equip_id', :'cust_id', :'site_id',
+  :'admin_id', 'RECEIVED', 'P1', 'P1 배차 시작 테스트 (E2E-19)', :'org_id'
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- ADMIN-20: a REQUESTED target due-date change request so the approvals review
+-- queue can approve/reject it by id. Attached to the seeded …f00009 work order.
+-- ─────────────────────────────────────────────────────────────────────────────
+INSERT INTO target_change_requests (
+  id, work_order_id, requested_by, requested_target_due_at, reason, status, org_id
+)
+VALUES (
+  '00000000-0000-0000-0000-0000000cc001',
+  '00000000-0000-0000-0000-000000f00009',
+  :'admin_id', now() + interval '7 days', 'E2E 일정 변경 검토 대상', 'REQUESTED',
+  :'org_id'
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- ADMIN-21: a SCHEDULED inspection round so the "점검 완료" action can complete it.
+-- The round adapter requires the assigned mechanic to be an active 예방 MECHANIC
+-- in the branch AND the actor to match, so the spec promotes …d0002 to 예방 and
+-- logs in as MECHANIC. The schedule is assigned to …d0002 for that path.
+-- ─────────────────────────────────────────────────────────────────────────────
+INSERT INTO regular_inspection_schedules (
+  id, branch_id, equipment_id, mechanic_id, cycle, interval_days, due_date,
+  status, note, created_by, created_at, org_id
+)
+VALUES (
+  '00000000-0000-0000-0000-0000000ab001',
+  :'branch_id', :'equip_id', :'mech_id', 'MONTHLY', 30, CURRENT_DATE,
+  'SCHEDULED', 'E2E 점검 완료 대상', :'admin_id', now(), :'org_id'
+)
+ON CONFLICT (id) DO NOTHING;
+
 COMMIT;

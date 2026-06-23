@@ -42,6 +42,14 @@ export interface WorkOrderDispatchControlsProps {
     assignments: MechanicAssignmentInput[],
   ) => Promise<boolean>;
   onForceAssign: (dispatchId: string, mechanicId: string) => Promise<boolean>;
+  /** Start a P1 emergency dispatch broadcast for this work order. */
+  onStartP1Dispatch: (workOrderId: string) => Promise<boolean>;
+  onCreateOutsourceWork: (
+    workOrderId: string,
+    vendorName: string,
+    vendorContact: string,
+    reason: string,
+  ) => Promise<boolean>;
 }
 
 /**
@@ -58,6 +66,8 @@ export function WorkOrderDispatchControls({
   onRequestSchedule,
   onAssign,
   onForceAssign,
+  onStartP1Dispatch,
+  onCreateOutsourceWork,
 }: WorkOrderDispatchControlsProps) {
   const t = ko.dispatch.controls;
 
@@ -72,6 +82,11 @@ export function WorkOrderDispatchControls({
   const [forceMechanicId, setForceMechanicId] = useState("");
   const [confirmingForce, setConfirmingForce] = useState(false);
   const [forcePending, setForcePending] = useState(false);
+  const [startingP1, setStartingP1] = useState(false);
+  const [outsourceVendor, setOutsourceVendor] = useState("");
+  const [outsourceContact, setOutsourceContact] = useState("");
+  const [outsourceReason, setOutsourceReason] = useState("");
+  const [creatingOutsource, setCreatingOutsource] = useState(false);
 
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
@@ -158,6 +173,39 @@ export function WorkOrderDispatchControls({
     }
   }
 
+  async function handleStartP1() {
+    setStartingP1(true);
+    setFeedback(undefined);
+    const ok = await onStartP1Dispatch(workOrder.id);
+    setStartingP1(false);
+    if (ok) reset(t.startP1Done);
+    else setError(t.actionFailed);
+  }
+
+  async function handleCreateOutsource() {
+    setFeedback(undefined);
+    if (!outsourceVendor.trim() || !outsourceReason.trim()) {
+      setError(t.actionFailed);
+      return;
+    }
+    setCreatingOutsource(true);
+    const ok = await onCreateOutsourceWork(
+      workOrder.id,
+      outsourceVendor.trim(),
+      outsourceContact.trim(),
+      outsourceReason.trim(),
+    );
+    setCreatingOutsource(false);
+    if (ok) {
+      reset(t.outsourceDone);
+      setOutsourceVendor("");
+      setOutsourceContact("");
+      setOutsourceReason("");
+    } else {
+      setError(t.actionFailed);
+    }
+  }
+
   const forceMechanicName =
     mechanics.find((m) => m.id === forceMechanicId)?.display_name ?? "";
 
@@ -216,6 +264,22 @@ export function WorkOrderDispatchControls({
             {t.setPriority}
           </Button>
         </div>
+      </div>
+
+      {/* start a P1 emergency dispatch broadcast */}
+      <div className="grid gap-2">
+        <p className="text-sm font-medium text-steel">{t.startP1Label}</p>
+        <p className="text-xs text-steel">{t.startP1Hint}</p>
+        <Button
+          type="button"
+          variant="destructive"
+          disabled={startingP1}
+          onClick={() => {
+            void handleStartP1();
+          }}
+        >
+          {startingP1 ? t.startingP1 : t.startP1}
+        </Button>
       </div>
 
       {/* schedule (target-due change request) */}
@@ -383,6 +447,52 @@ export function WorkOrderDispatchControls({
         ) : (
           <p className="text-sm text-steel">{t.forceAssignNeedsDispatch}</p>
         )}
+      </div>
+
+      {/* outsource work create */}
+      <div className="grid gap-2 border-t border-line pt-3">
+        <p className="text-sm font-medium text-steel">{t.outsourceLabel}</p>
+        <p className="text-xs text-steel">{t.outsourceHint}</p>
+        <Input
+          id={`outsource-vendor-${workOrder.id}`}
+          aria-label={t.outsourceVendor}
+          placeholder={t.outsourceVendorPlaceholder}
+          value={outsourceVendor}
+          onChange={(event) => {
+            setOutsourceVendor(event.target.value);
+          }}
+        />
+        <Input
+          id={`outsource-contact-${workOrder.id}`}
+          aria-label={t.outsourceContact}
+          placeholder={t.outsourceContactPlaceholder}
+          value={outsourceContact}
+          onChange={(event) => {
+            setOutsourceContact(event.target.value);
+          }}
+        />
+        <Textarea
+          aria-label={t.outsourceReason}
+          placeholder={t.outsourceReasonPlaceholder}
+          value={outsourceReason}
+          onChange={(event) => {
+            setOutsourceReason(event.target.value);
+          }}
+        />
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={
+            creatingOutsource ||
+            !outsourceVendor.trim() ||
+            !outsourceReason.trim()
+          }
+          onClick={() => {
+            void handleCreateOutsource();
+          }}
+        >
+          {creatingOutsource ? t.creatingOutsource : t.createOutsource}
+        </Button>
       </div>
 
       {confirmingForce ? (
