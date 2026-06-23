@@ -39,7 +39,7 @@ export default function PlatformFsmPage() {
           </p>
           <h1
             id="fsm-hero-title"
-            className="m-0 max-w-[820px] text-[clamp(40px,6vw,72px)] font-extrabold leading-[1.05] tracking-[-0.02em]"
+            className="balance-text m-0 max-w-[820px] text-[clamp(40px,6vw,72px)] font-extrabold leading-[1.05] tracking-[-0.02em]"
           >
             {landing.hero.title}
           </h1>

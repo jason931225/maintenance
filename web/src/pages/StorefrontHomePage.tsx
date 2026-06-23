@@ -67,33 +67,40 @@ export default function StorefrontHomePage() {
           </p>
           <h1
             id="home-hero-title"
-            className="m-0 max-w-[820px] text-[clamp(40px,6vw,72px)] font-extrabold leading-[1.05] tracking-[-0.02em]"
+            className="balance-text m-0 max-w-[15ch] text-[clamp(44px,7vw,84px)] font-extrabold leading-[1.02] tracking-[-0.025em]"
           >
             {t.hero.titleOneStop}
           </h1>
-          <p className="mt-6 max-w-[660px] text-[clamp(17px,2vw,22px)] leading-[1.7] text-white/85">
+          <p className="mt-6 max-w-[560px] text-[clamp(17px,2vw,22px)] leading-[1.7] text-white/85">
             {t.hero.copy}
           </p>
-          <div className="mt-9 flex flex-wrap items-center gap-3">
+          <div className="mt-10 flex flex-wrap items-center gap-x-4 gap-y-3">
+            {/* Primary action — the single dominant CTA. */}
             <Link
               to="/support/new"
-              className="inline-flex min-h-[52px] items-center justify-center gap-3.5 rounded bg-signal px-[22px] font-black text-ink transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-safe:hover:-translate-y-0.5"
+              className="inline-flex min-h-[54px] items-center justify-center gap-3 rounded bg-signal px-7 text-[17px] font-black text-ink shadow-[0_10px_30px_rgba(246,181,33,0.25)] transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-safe:hover:-translate-y-0.5"
             >
               {t.hero.primary}
               <ArrowRight aria-hidden="true" size={20} />
             </Link>
+            {/* Secondary — quiet ghost outline. */}
             <Link
               to="/rental"
-              className="inline-flex min-h-[52px] items-center justify-center gap-3.5 rounded border border-white/35 bg-white/10 px-[22px] font-black text-white transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-safe:hover:-translate-y-0.5"
+              className="inline-flex min-h-[54px] items-center justify-center rounded border border-white/30 px-6 font-bold text-white/90 transition-colors hover:border-white/70 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             >
               {t.hero.secondary}
             </Link>
+            {/* Tertiary — understated text link to the console. */}
             <Link
               to="/platform-fsm"
-              className="inline-flex min-h-[52px] items-center gap-2 px-1 font-bold text-white/85 underline-offset-4 transition-colors hover:text-signal hover:underline focus-visible:text-signal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+              className="group inline-flex min-h-[54px] items-center gap-1.5 px-1 text-[15px] font-bold text-white/70 underline-offset-4 transition-colors hover:text-signal hover:underline focus-visible:text-signal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             >
               {t.hero.platformLink}
-              <ArrowRight aria-hidden="true" size={18} />
+              <ArrowRight
+                aria-hidden="true"
+                size={16}
+                className="transition-transform motion-safe:group-hover:translate-x-0.5"
+              />
             </Link>
           </div>
         </div>

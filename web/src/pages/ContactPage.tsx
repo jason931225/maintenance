@@ -130,7 +130,7 @@ export default function ContactPage() {
           </p>
           <h1
             id="contact-hero-title"
-            className="m-0 max-w-[820px] text-[clamp(38px,6vw,72px)] font-extrabold leading-[1.08] tracking-[-0.02em]"
+            className="balance-text m-0 max-w-[820px] text-[clamp(38px,6vw,72px)] font-extrabold leading-[1.08] tracking-[-0.02em]"
           >
             {t.hero.title}
           </h1>

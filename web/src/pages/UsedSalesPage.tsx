@@ -135,7 +135,7 @@ export default function UsedSalesPage() {
           </p>
           <h1
             id="used-hero-title"
-            className="mt-4 max-w-3xl text-[clamp(38px,6vw,72px)] font-extrabold leading-[1.08] tracking-[-0.02em]"
+            className="balance-text mt-4 max-w-3xl text-[clamp(38px,6vw,72px)] font-extrabold leading-[1.08] tracking-[-0.02em]"
           >
             {ko.storefront.used.hero.title}
           </h1>

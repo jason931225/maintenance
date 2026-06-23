@@ -236,12 +236,10 @@ describe("routing", () => {
   it("renders the public KNL storefront home at /", async () => {
     // #6: `/` is now the unauthenticated KNL storefront home (PublicLayout),
     // replacing the previous `/`→`/dispatch` redirect. The header carries the
-    // public nav; the page shows the integrated one-stop hero title.
+    // public nav; the page shows the tightened one-stop hero title.
     renderAt("/");
     expect(
-      (await screen.findAllByText(
-        "물류장비 렌탈부터 정비·운영까지, 하나로 잇는 원스탑 솔루션",
-      ))[0],
+      (await screen.findAllByText("지게차 렌탈·정비·운영을 하나로"))[0],
     ).toBeVisible();
   });
 
