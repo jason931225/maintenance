@@ -505,9 +505,6 @@ export const ko = {
       PART_REPLACEMENT: "부품 교체",
       OTHER: "기타",
     },
-    priorityHintP1: "P1 권장",
-    priorityHintP2: "P2 권장",
-    priorityTriggers: ["즉시", "긴급"],
   },
   dispatch: {
     title: "배차 보드",

@@ -59,7 +59,24 @@ describe("IntakeForm", () => {
     );
     const firstCall = createWorkOrder.mock.calls[0][0] as CreateWorkOrderRequest;
     expect(firstCall.customer_request).toMatch(/\[요청일자: \d{4}-\d{2}-\d{2}\]/);
-    expect(await screen.findByText("P1 권장")).toBeVisible();
+    // The submitter cannot set 중요도; priority is server-assigned and the
+    // request carries no priority field (admin classifies the intake afterward).
+    expect("priority" in firstCall).toBe(false);
+  });
+
+  it("does not expose a priority control or auto-filled priority hint to the submitter", () => {
+    render(
+      <IntakeForm
+        branchId={branchId}
+        onCreateWorkOrder={vi.fn()}
+        equipmentLookupState={readyEquipment}
+      />,
+    );
+
+    // No 중요도/우선순위 selector and no "P2 권장"/"P1 권장" recommendation badge.
+    expect(screen.queryByText("P2 권장")).not.toBeInTheDocument();
+    expect(screen.queryByText("P1 권장")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/중요도/)).not.toBeInTheDocument();
   });
 
   it("marks the required fields with a visible asterisk and aria-required", () => {

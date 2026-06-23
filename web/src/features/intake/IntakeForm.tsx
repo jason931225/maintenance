@@ -78,12 +78,6 @@ export function IntakeForm({
     "idle" | "saving" | "created" | "error"
   >("idle");
 
-  const priorityHint = ko.intake.priorityTriggers.some((trigger) =>
-    symptom.includes(trigger),
-  )
-    ? ko.intake.priorityHintP1
-    : ko.intake.priorityHintP2;
-
   async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextErrors: Errors = {};
@@ -149,9 +143,6 @@ export function IntakeForm({
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold text-ink">{ko.intake.title}</h2>
-          <span className="rounded-md bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-900">
-            {priorityHint}
-          </span>
         </div>
 
         <div className="grid gap-2">
