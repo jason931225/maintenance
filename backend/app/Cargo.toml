@@ -38,6 +38,7 @@ mnt-platform-auth-rest = { workspace = true }
 mnt-platform-authz = { path = "../crates/platform/authz" }
 mnt-platform-request-context = { workspace = true }
 mnt-platform-db = { workspace = true }
+mnt-platform-email = { workspace = true }
 mnt-platform-jobs = { workspace = true }
 mnt-platform-provisioning = { path = "../crates/platform/provisioning" }
 mnt-platform-rest = { path = "../crates/platform/platform-rest" }

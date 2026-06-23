@@ -1,4 +1,4 @@
-import { KeyRound, Ticket } from "lucide-react";
+import { KeyRound, Mail, Ticket } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
@@ -7,7 +7,12 @@ import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
-import { OtpRedeemError, redeemOtp } from "../auth/webauthn";
+import {
+  OtpRedeemError,
+  SignupError,
+  redeemOtp,
+  signupOpen,
+} from "../auth/webauthn";
 
 /** Same-origin relative paths only; reject protocol-relative (//evil) and absolute URLs. */
 function safeNext(raw: string | null): string {
@@ -21,9 +26,13 @@ export function LoginPage() {
 
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
+  const [notice, setNotice] = useState<string | undefined>(undefined);
   const [otpOpen, setOtpOpen] = useState(false);
   const [otp, setOtp] = useState("");
   const [otpPending, setOtpPending] = useState(false);
+  const [signupOpenForm, setSignupOpenForm] = useState(false);
+  const [signupEmail, setSignupEmail] = useState("");
+  const [signupPending, setSignupPending] = useState(false);
 
   useEffect(() => {
     // Wait for the boot silent refresh to settle so a logged-in user who hard-
@@ -80,6 +89,37 @@ export function LoginPage() {
       setError(status === 429 ? ko.auth.otpRateLimited : ko.auth.otpInvalid);
     } finally {
       setOtpPending(false);
+    }
+  }
+
+  async function handleSignup() {
+    setError(undefined);
+    setNotice(undefined);
+    const email = signupEmail.trim();
+    if (!email) {
+      setError(ko.auth.signupRequired);
+      return;
+    }
+    setSignupPending(true);
+    try {
+      await signupOpen(api, email);
+      // The backend emailed a one-time code (logged by the stub sender in
+      // dev/e2e). Surface the OTP panel so the new user enters it and is driven
+      // into passkey enrollment via the existing redeem flow.
+      setSignupOpenForm(false);
+      setOtpOpen(true);
+      setNotice(ko.auth.signupSent);
+    } catch (cause) {
+      const status = cause instanceof SignupError ? cause.status : undefined;
+      if (status === 429) {
+        setError(ko.auth.signupRateLimited);
+      } else if (status === 400) {
+        setError(ko.auth.signupInvalid);
+      } else {
+        setError(ko.auth.signupFailed);
+      }
+    } finally {
+      setSignupPending(false);
     }
   }
 
@@ -152,6 +192,59 @@ export function LoginPage() {
               {ko.auth.otpReveal}
             </Button>
           )}
+
+          {signupOpenForm ? (
+            <div className="grid gap-2 border-t border-line pt-4">
+              <label
+                className="text-sm font-medium text-steel"
+                htmlFor="signup-email"
+              >
+                {ko.auth.signupLabel}
+              </label>
+              <Input
+                id="signup-email"
+                value={signupEmail}
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                placeholder={ko.auth.signupPlaceholder}
+                aria-invalid={error ? true : undefined}
+                onChange={(event) => {
+                  setSignupEmail(event.currentTarget.value);
+                }}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={signupPending}
+                onClick={() => {
+                  void handleSignup();
+                }}
+              >
+                <Mail aria-hidden="true" size={18} />
+                {signupPending ? ko.auth.signupSubmitting : ko.auth.signupSubmit}
+              </Button>
+            </div>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              className="justify-self-start"
+              onClick={() => {
+                setError(undefined);
+                setNotice(undefined);
+                setSignupOpenForm(true);
+              }}
+            >
+              {ko.auth.signupReveal}
+            </Button>
+          )}
+
+          {notice ? (
+            <p role="status" className="text-sm font-medium text-steel">
+              {notice}
+            </p>
+          ) : null}
 
           {error ? (
             <p role="alert" className="text-sm font-medium text-red-700">

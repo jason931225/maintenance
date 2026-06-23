@@ -7124,6 +7124,143 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// Open self-service signup
+    ///
+    /// Public, unauthenticated open signup. Creates a new lowest-privilege MEMBER account in the default organization and emails it a single-use one-time sign-in code; the caller then redeems that code via `POST /api/v1/auth/otp/redeem` and enrolls a passkey. The response reveals nothing about whether the email was newly registered (no account-existence oracle) and never mints a token. The new account sees the minimal role-gated surface until an admin elevates it. Rate-limited per client (IP and optional device).
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/signup`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/signup/post`.
+    public func postApiV1AuthSignup(_ input: Operations.PostApiV1AuthSignup.Input) async throws -> Operations.PostApiV1AuthSignup.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.PostApiV1AuthSignup.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/v1/auth/signup",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                let body: OpenAPIRuntime.HTTPBody?
+                switch input.body {
+                case let .json(value):
+                    body = try converter.setRequiredRequestBodyAsJSON(
+                        value,
+                        headerFields: &request.headerFields,
+                        contentType: "application/json; charset=utf-8"
+                    )
+                }
+                return (request, body)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 202:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.PostApiV1AuthSignup.Output.Accepted.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.SignupResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .accepted(.init(body: body))
+                case 400:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Components.Responses.ValidationError.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ErrorBody.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .badRequest(.init(body: body))
+                case 429:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Components.Responses.TooManyRequests.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ErrorBody.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .tooManyRequests(.init(body: body))
+                case 502:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Components.Responses.BadGateway.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ErrorBody.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .badGateway(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
     /// Start usernameless passkey login
     ///
     /// Starts a discoverable (usernameless) authentication ceremony. No request body is required; the challenge has an empty allowCredentials list and the user is resolved from the asserted credential at finish. Rate-limited per client.
@@ -15209,6 +15346,13 @@ public struct Client: APIProtocol {
                     in: &request,
                     style: .form,
                     explode: true,
+                    name: "condition",
+                    value: input.query.condition
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
                     name: "listing_type",
                     value: input.query.listingType
                 )
@@ -15314,6 +15458,93 @@ public struct Client: APIProtocol {
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Components.Responses.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ErrorBody.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// Serve one public sales-listing photo (#6)
+    ///
+    /// Public, unauthenticated serve of one listing photo's bytes, streamed from the object store. The media must belong to the listing and the listing must be storefront-visible (published/reserved); otherwise 404. The response body is the raw image with its stored content type.
+    ///
+    /// - Remark: HTTP `GET /api/v1/storefront/listings/{id}/media/{media_id}`.
+    /// - Remark: Generated from `#/paths//api/v1/storefront/listings/{id}/media/{media_id}/get(storefrontGetListingMedia)`.
+    public func storefrontGetListingMedia(_ input: Operations.StorefrontGetListingMedia.Input) async throws -> Operations.StorefrontGetListingMedia.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.StorefrontGetListingMedia.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/v1/storefront/listings/{}/media/{}",
+                    parameters: [
+                        input.path.id,
+                        input.path.mediaId
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.StorefrontGetListingMedia.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "image/*"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "image/*":
+                        body = try converter.getResponseBodyAsBinary(
+                            OpenAPIRuntime.HTTPBody.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .image_Ast_(value)
                             }
                         )
                     default:
@@ -15473,6 +15704,13 @@ public struct Client: APIProtocol {
                     explode: true,
                     name: "kind",
                     value: input.query.kind
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "condition",
+                    value: input.query.condition
                 )
                 try converter.setQueryItemAsURI(
                     in: &request,

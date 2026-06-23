@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -6,6 +7,8 @@ import { test as base, type CDPSession, type Page, expect } from "@playwright/te
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RESET_SQL = resolve(HERE, "../harness/reset-coldstart.sql");
+/** Backend log file the e2e harness writes (e2e/harness/boot-backend.sh). */
+const BACKEND_LOG = resolve(HERE, "../.auth/backend.log");
 const E2E_DB_URL =
   process.env.E2E_DATABASE_URL ??
   `postgres://${process.env.USER ?? "postgres"}@${
@@ -111,6 +114,49 @@ export async function redeemOtp(page: Page, code: string): Promise<void> {
   await page.locator("#otp-code").fill(code);
   // Submit ("코드로 로그인").
   await page.getByRole("button", { name: /^코드로 로그인$/ }).click();
+}
+
+/**
+ * Drive the LoginPage open-signup flow: reveal the email panel, type the address,
+ * and submit. The backend creates a MEMBER account and "sends" a one-time code —
+ * in e2e the stub email sender logs it instead, so the test reads it from the
+ * backend log via {@link readSignupOtpFromLog}. Selectors come from the rendered
+ * Korean strings (no test-ids exist).
+ */
+export async function submitSignup(page: Page, email: string): Promise<void> {
+  await page.goto("/login");
+  // Reveal the signup panel ("계정이 없으신가요? 이메일로 가입").
+  await page.getByRole("button", { name: /이메일로 가입/ }).click();
+  await page.locator("#signup-email").fill(email);
+  // Submit ("가입하고 코드 받기").
+  await page.getByRole("button", { name: /가입하고 코드 받기/ }).click();
+  // The page confirms the code was sent and reveals the OTP panel.
+  await expect(page.getByText(/인증 코드를 이메일로 보냈습니다/)).toBeVisible({
+    timeout: 15_000,
+  });
+}
+
+/**
+ * Read the one-time signup code the StubEmailSender logged for `email`.
+ *
+ * MNT_EMAIL_* is unset in the e2e harness, so the app uses the stub sender, which
+ * logs `[DEV] OTP for {email}: {code} (ttl ...)` at info on target `mnt::email`
+ * (see backend/crates/platform/email/src/lib.rs). The harness pipes all backend
+ * output to e2e/.auth/backend.log, so the test scrapes the LAST matching line for
+ * this address — the real OTP-delivery path, exercised end-to-end via the stub.
+ */
+export function readSignupOtpFromLog(email: string): string {
+  const log = readFileSync(BACKEND_LOG, "utf8");
+  const escaped = email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`OTP for ${escaped}: (\\S+) \\(ttl`, "g");
+  let code: string | undefined;
+  for (const match of log.matchAll(pattern)) {
+    code = match[1];
+  }
+  if (!code) {
+    throw new Error(`no stub OTP logged for ${email} in ${BACKEND_LOG}`);
+  }
+  return code;
 }
 
 /**

@@ -170,6 +170,8 @@ src/main/kotlin/com/maintenance/api/client/model/ReviewTargetChangeRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/SalesListingPage.kt
 src/main/kotlin/com/maintenance/api/client/model/SalesListingView.kt
 src/main/kotlin/com/maintenance/api/client/model/SendMessengerMessageRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/SignupRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/SignupResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/SiteContact.kt
 src/main/kotlin/com/maintenance/api/client/model/SiteLocationGroup.kt
 src/main/kotlin/com/maintenance/api/client/model/StartP1DispatchRequest.kt

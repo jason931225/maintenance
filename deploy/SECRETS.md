@@ -22,6 +22,19 @@ Consumed by `mnt-app` / `mnt-worker` via `envFrom`. Required keys:
 Optional (enable when the integrations go live — operator-blocked on KCC 신고 /
 Kakao / FCM credentials): `MNT_FCM_*`, `MNT_SOLAPI_*`.
 
+| Key | What |
+|---|---|
+| `MNT_EMAIL_SMTP_USERNAME` | OCI Email Delivery SMTP credential — username (open-signup OTP relay) |
+| `MNT_EMAIL_SMTP_PASSWORD` | OCI Email Delivery SMTP credential — password |
+
+Optional, same as above: the outbound OTP email relay. The non-secret
+host/port/sender are on the `mnt-config` ConfigMap (`MNT_EMAIL_SMTP_HOST`,
+`MNT_EMAIL_SMTP_PORT`, `MNT_EMAIL_FROM`, `MNT_EMAIL_FROM_NAME`); only these two
+credentials are secret. They come from **OCI Vault → `mnt-secrets`** (the
+operator creates them once the approved sender is provisioned). Until they are
+set the app logs the OTP via a stub sender instead of relaying it, so the app
+boots without them. Setting any `MNT_EMAIL_*` member requires the full group.
+
 ```sh
 # Generate a fresh ES256 keypair (do NOT reuse ops/.dev-secrets — those are dev-only).
 # The private key MUST be PKCS#8 (-----BEGIN PRIVATE KEY-----): jsonwebtoken's

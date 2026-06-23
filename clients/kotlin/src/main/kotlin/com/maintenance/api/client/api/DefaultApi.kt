@@ -121,6 +121,8 @@ import com.maintenance.api.client.model.ReviewTargetChangeRequest
 import com.maintenance.api.client.model.SalesListingPage
 import com.maintenance.api.client.model.SalesListingView
 import com.maintenance.api.client.model.SendMessengerMessageRequest
+import com.maintenance.api.client.model.SignupRequest
+import com.maintenance.api.client.model.SignupResponse
 import com.maintenance.api.client.model.StartP1DispatchRequest
 import com.maintenance.api.client.model.SubmitInquiryRequest
 import com.maintenance.api.client.model.SubmitReportRequest
@@ -1015,6 +1017,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/auth/signup
+     * Open self-service signup
+     * Public, unauthenticated open signup. Creates a new lowest-privilege MEMBER account in the default organization and emails it a single-use one-time sign-in code; the caller then redeems that code via &#x60;POST /api/v1/auth/otp/redeem&#x60; and enrolls a passkey. The response reveals nothing about whether the email was newly registered (no account-existence oracle) and never mints a token. The new account sees the minimal role-gated surface until an admin elevates it. Rate-limited per client (IP and optional device).
+     * @param signupRequest
+     * @return SignupResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun apiV1AuthSignupPost(signupRequest: SignupRequest) : SignupResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = apiV1AuthSignupPostWithHttpInfo(signupRequest = signupRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SignupResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/signup
+     * Open self-service signup
+     * Public, unauthenticated open signup. Creates a new lowest-privilege MEMBER account in the default organization and emails it a single-use one-time sign-in code; the caller then redeems that code via &#x60;POST /api/v1/auth/otp/redeem&#x60; and enrolls a passkey. The response reveals nothing about whether the email was newly registered (no account-existence oracle) and never mints a token. The new account sees the minimal role-gated surface until an admin elevates it. Rate-limited per client (IP and optional device).
+     * @param signupRequest
+     * @return ApiResponse<SignupResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun apiV1AuthSignupPostWithHttpInfo(signupRequest: SignupRequest) : ApiResponse<SignupResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = apiV1AuthSignupPostRequestConfig(signupRequest = signupRequest)
+
+        return@withContext request<SignupRequest, SignupResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation apiV1AuthSignupPost
+     *
+     * @param signupRequest
+     * @return RequestConfig
+     */
+    fun apiV1AuthSignupPostRequestConfig(signupRequest: SignupRequest) : RequestConfig<SignupRequest> {
+        val localVariableBody = signupRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/signup",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
             body = localVariableBody
         )
     }

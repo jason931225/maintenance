@@ -988,6 +988,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/signup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open self-service signup
+         * @description Public, unauthenticated open signup. Creates a new lowest-privilege MEMBER account in the default organization and emails it a single-use one-time sign-in code; the caller then redeems that code via `POST /api/v1/auth/otp/redeem` and enrolls a passkey. The response reveals nothing about whether the email was newly registered (no account-existence oracle) and never mints a token. The new account sees the minimal role-gated surface until an admin elevates it. Rate-limited per client (IP and optional device).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SignupRequest"];
+                };
+            };
+            responses: {
+                /** @description The signup was accepted and a one-time code was sent. */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SignupResponse"];
+                    };
+                };
+                400: components["responses"]["ValidationError"];
+                429: components["responses"]["TooManyRequests"];
+                502: components["responses"]["BadGateway"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/passkey/login/start": {
         parameters: {
             query?: never;
@@ -2850,6 +2896,17 @@ export interface components {
             user_id: components["schemas"]["Uuid"];
             credential_id: string;
         };
+        SignupRequest: {
+            /**
+             * Format: email
+             * @description The email address to register and deliver the one-time code to.
+             */
+            email: string;
+        };
+        SignupResponse: {
+            /** @description Always true. The signup was accepted and a one-time code was sent; the response intentionally carries no account-existence or token information. */
+            accepted: boolean;
+        };
         OtpRedeemRequest: {
             /** @description The one-time sign-in code (8 characters for admin-issued codes). */
             otp: string;
@@ -3771,6 +3828,15 @@ export interface components {
         };
         /** @description Rate limit exceeded for this client; retry later. */
         TooManyRequests: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorBody"];
+            };
+        };
+        /** @description An upstream dependency (e.g. the email relay) failed. */
+        BadGateway: {
             headers: {
                 [name: string]: unknown;
             };

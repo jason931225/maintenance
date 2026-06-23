@@ -6,6 +6,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use std::str::FromStr;
+use std::sync::Arc;
 
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
@@ -24,6 +25,7 @@ use mnt_platform_authz::{
     Action, Feature, Principal, Role, authorize, resolve_branch_scope_in_org,
 };
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
+use mnt_platform_email::{EmailSender, StubEmailSender};
 use mnt_platform_provisioning::{BootstrapCredentialStore, ProvisioningError};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
@@ -46,6 +48,7 @@ const REFRESH_COOKIE_NAME: &str = "mnt_refresh";
 /// the refresh/logout endpoints that need it.
 const REFRESH_COOKIE_PATH: &str = "/api/v1/auth";
 
+pub const SIGNUP_PATH: &str = "/api/v1/auth/signup";
 pub const PASSKEY_REGISTER_START_PATH: &str = "/api/v1/auth/passkey/register/start";
 pub const PASSKEY_REGISTER_FINISH_PATH: &str = "/api/v1/auth/passkey/register/finish";
 pub const PASSKEY_LOGIN_START_PATH: &str = "/api/v1/auth/passkey/login/start";
@@ -56,6 +59,7 @@ pub const ADMIN_CREDENTIAL_RESET_PATH: &str = "/api/v1/auth/admin/credential-res
 pub const TOKEN_REFRESH_PATH: &str = "/api/v1/auth/token/refresh";
 pub const LOGOUT_PATH: &str = "/api/v1/auth/logout";
 pub const AUTH_ROUTE_PATHS: &[&str] = &[
+    SIGNUP_PATH,
     PASSKEY_REGISTER_START_PATH,
     PASSKEY_REGISTER_FINISH_PATH,
     PASSKEY_LOGIN_START_PATH,
@@ -66,6 +70,11 @@ pub const AUTH_ROUTE_PATHS: &[&str] = &[
     TOKEN_REFRESH_PATH,
     LOGOUT_PATH,
 ];
+
+/// Default lifetime for an open-signup OTP. A self-service code is a bearer
+/// secret delivered by email; 1h comfortably spans an enroll-now session while
+/// keeping the leaked-code window short.
+const DEFAULT_SIGNUP_OTP_TTL: Duration = Duration::hours(1);
 
 /// Default admin-issued OTP lifetime when the issuer omits a TTL. Tightened to
 /// 4h (from 24h): a bootstrap OTP is a bearer secret relayed out-of-band, so a
@@ -140,6 +149,10 @@ struct AuthServices {
     refresh_token_ttl: Duration,
     refresh_family_absolute_ttl: Duration,
     cookie_secure: bool,
+    /// Outbound OTP email sender for open self-service signup (#38). Always
+    /// present: a real SMTP sender when `MNT_EMAIL_*` is configured, otherwise a
+    /// `StubEmailSender` that logs the OTP (so dev/e2e read it from the logs).
+    email_sender: Arc<dyn EmailSender>,
 }
 
 impl AuthRestState {
@@ -187,9 +200,23 @@ impl AuthRestState {
                 refresh_token_ttl: config.refresh_token_ttl,
                 refresh_family_absolute_ttl: config.refresh_family_absolute_ttl,
                 cookie_secure: config.cookie_secure,
+                // Stub by default; the composition root swaps in the live SMTP
+                // sender via `with_email_sender` when `MNT_EMAIL_*` is configured.
+                email_sender: Arc::new(StubEmailSender),
             }),
             trusted_proxy_count: config.trusted_proxy_count.max(1),
         })
+    }
+
+    /// Install the outbound OTP email sender used by the open-signup endpoint.
+    /// The composition root calls this with the app's `Arc<dyn EmailSender>`
+    /// (live SMTP or the logging stub). A no-op when auth services are disabled.
+    #[must_use]
+    pub fn with_email_sender(mut self, email_sender: Arc<dyn EmailSender>) -> Self {
+        if let Some(services) = self.services.as_mut() {
+            services.email_sender = email_sender;
+        }
+        self
     }
 }
 
@@ -204,6 +231,7 @@ pub enum AuthRestConfigError {
 
 pub fn router(state: AuthRestState) -> Router {
     Router::new()
+        .route(SIGNUP_PATH, post(signup))
         .route(PASSKEY_REGISTER_START_PATH, post(start_registration))
         .route(PASSKEY_REGISTER_FINISH_PATH, post(finish_registration))
         .route(PASSKEY_LOGIN_START_PATH, post(start_login))
@@ -267,6 +295,26 @@ struct LoginStartResponse {
 struct LoginFinishRequest {
     ceremony_id: Uuid,
     credential: PasskeyAuthenticationCredential,
+}
+
+/// Open self-service signup (#38). The body carries only the email address; the
+/// server creates a new low-privilege MEMBER account, mints a one-time code, and
+/// emails it. The caller then redeems that code via `/auth/otp/redeem` and
+/// enrolls a passkey — the same flow a pre-provisioned user follows.
+#[derive(Debug, Deserialize)]
+struct SignupRequest {
+    email: String,
+}
+
+/// Signup acknowledgement. Deliberately reveals NOTHING about whether the email
+/// was newly registered — a one-time code is "sent" (logged by the stub in
+/// dev/e2e) and the client always proceeds to the OTP step. No token is minted
+/// here; sign-in happens only after the code is redeemed.
+#[derive(Debug, Serialize)]
+struct SignupResponse {
+    /// Always `true`. Present so the response body is non-empty and the contract
+    /// is stable if richer status is added later.
+    accepted: bool,
 }
 
 /// First sign-in via a one-time admin-issued (or cold-start) OTP. The body
@@ -401,6 +449,14 @@ impl RestError {
         Self {
             status: StatusCode::SERVICE_UNAVAILABLE,
             code: "service_unavailable",
+            message: message.into(),
+        }
+    }
+
+    fn bad_gateway(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_GATEWAY,
+            code: "bad_gateway",
             message: message.into(),
         }
     }
@@ -657,6 +713,85 @@ async fn finish_login(
         &headers,
         services.cookie_secure,
     ))
+}
+
+/// Open self-service signup (#38): create a new low-privilege MEMBER account and
+/// email it a one-time sign-in code.
+///
+/// UNAUTHENTICATED and rate-limited (`Signup` bucket). Creates a fresh user in
+/// the default (KNL) org with the single lowest-privilege `MEMBER` role, mints a
+/// first-sign-in OTP via the same bootstrap machinery the admin path uses, and
+/// delivers it over email (the stub sender logs it in dev/e2e). The response
+/// reveals nothing — it always reports `accepted` and never a token — so it is
+/// not an account-existence oracle. The caller then redeems the emailed code via
+/// `/auth/otp/redeem` and enrolls a passkey, reusing the existing flow unchanged.
+async fn signup(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+    Json(body): Json<SignupRequest>,
+) -> Result<Response, RestError> {
+    let services = state.services()?;
+    let now = OffsetDateTime::now_utc();
+    rate_limit(
+        &state.pool,
+        &headers,
+        state.trusted_proxy_count,
+        RateLimitEndpoint::Signup,
+        now,
+    )
+    .await?;
+
+    let email = body.email.trim();
+    let display_name = signup_display_name(email)?;
+    let ttl = DEFAULT_SIGNUP_OTP_TTL;
+
+    let issue = services
+        .bootstrap_credentials
+        .signup_open_member(&state.pool, &display_name, now, ttl)
+        .await
+        .map_err(RestError::from_provisioning)?;
+
+    // Deliver the code out-of-band. The stub sender logs it (dev/e2e read it from
+    // the backend log); a real SMTP sender relays it. A delivery failure is a 502
+    // — the account + code exist, but we could not hand the code to the user.
+    services
+        .email_sender
+        .send_otp(email, issue.token.as_str(), duration_to_std(ttl))
+        .await
+        .map_err(|err| {
+            RestError::bad_gateway(format!("could not send the verification email: {err}"))
+        })?;
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(SignupResponse { accepted: true }),
+    )
+        .into_response())
+}
+
+/// Derive a human display name from the signup email: validate it has exactly one
+/// `@` with a non-empty local part and a dotted domain, then use the local part
+/// as the label. Keeps the (no-email-column) `users` row readable while the email
+/// itself is only used to deliver the OTP.
+fn signup_display_name(email: &str) -> Result<String, RestError> {
+    let (local, domain) = email
+        .split_once('@')
+        .ok_or_else(|| RestError::bad_request("a valid email address is required"))?;
+    let local_ok = !local.is_empty() && local.len() <= 64;
+    let domain_ok = domain.len() >= 3
+        && domain.contains('.')
+        && !domain.starts_with('.')
+        && !domain.ends_with('.');
+    if !local_ok || !domain_ok || email.len() > 320 {
+        return Err(RestError::bad_request("a valid email address is required"));
+    }
+    Ok(local.to_owned())
+}
+
+/// Convert a `time::Duration` to a `std::time::Duration` for the email port,
+/// clamping any (impossible here) negative value to zero.
+fn duration_to_std(ttl: Duration) -> std::time::Duration {
+    std::time::Duration::from_secs(ttl.whole_seconds().max(0) as u64)
 }
 
 /// Redeem a one-time OTP as a FIRST SIGN-IN.
@@ -1400,6 +1535,7 @@ async fn principal_from_headers(
 
 #[derive(Debug, Clone, Copy)]
 enum RateLimitEndpoint {
+    Signup,
     OtpRedeem,
     LoginStart,
     Refresh,
@@ -1408,6 +1544,7 @@ enum RateLimitEndpoint {
 impl RateLimitEndpoint {
     const fn as_str(self) -> &'static str {
         match self {
+            Self::Signup => "signup",
             Self::OtpRedeem => "otp_redeem",
             Self::LoginStart => "login_start",
             Self::Refresh => "refresh",
