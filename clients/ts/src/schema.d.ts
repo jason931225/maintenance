@@ -1451,6 +1451,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a customer (고객) directly
+         * @description Admin-gated (EquipmentManage, the same feature as the site PATCH). Creates a customer in the caller's org on the caller's branch (an org-wide SUPER_ADMIN/EXECUTIVE lands it on the default HQ branch). The name is required, trimmed, and bounded (≤ 200 characters). A same-name customer on that branch is a 409 conflict — an explicit create is a distinct intent from the importer's idempotent upsert, so it is surfaced, not merged.
+         */
+        post: operations["createCustomer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a site (현장) under an existing customer
+         * @description Admin-gated (EquipmentManage). Creates a site under a customer in the caller's org; the customer must belong to the caller's org or the request is a 404 (RLS hides another tenant's customer). The name is required and bounded; optional address / WGS84 coordinates / contact fields follow the same ranges and length bounds as PATCH /api/v1/sites/{id} (a one-sided coordinate or an over-long value is a 422). A duplicate site name under the same customer is a 409. The created site is returned so it appears in the 고객·현장 list immediately.
+         */
+        post: operations["createSite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sites/{id}": {
         parameters: {
             query?: never;
@@ -3101,6 +3141,7 @@ export interface components {
         SiteLocationGroup: {
             site_id: components["schemas"]["Uuid"];
             site_name: string;
+            customer_id: components["schemas"]["Uuid"];
             customer_name: string;
             branch_id: components["schemas"]["Uuid"];
             address: string | null;
@@ -3134,6 +3175,59 @@ export interface components {
         EquipmentByLocationPage: {
             items: components["schemas"]["SiteLocationGroup"][];
             total: number;
+        };
+        CreateCustomerRequest: {
+            /** @description Customer name (고객명). Required, trimmed, ≤ 200 characters. */
+            name: string;
+        };
+        CreatedCustomer: {
+            id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            name: string;
+        };
+        /** @description Create a site under an existing customer. Optional location/contact fields follow the same WGS84 ranges and length bounds as UpdateSiteRequest; latitude and longitude must be supplied together. */
+        CreateSiteRequest: {
+            customer_id: components["schemas"]["Uuid"];
+            /** @description Site name (현장명). Required, trimmed, ≤ 200 characters. */
+            name: string;
+            address?: string | null;
+            province?: string | null;
+            city?: string | null;
+            postal_code?: string | null;
+            /** Format: double */
+            latitude?: number | null;
+            /** Format: double */
+            longitude?: number | null;
+            /**
+             * Format: double
+             * @description Per-site geofence radius in metres (> 0, ≤ 100000). Null uses the system default (150 m).
+             */
+            geofence_radius_m?: number | null;
+            /** @description On-site representative contact name (담당자명). */
+            contact_name?: string | null;
+            /** @description On-site contact phone (연락처). */
+            contact_phone?: string | null;
+            /** @description Optional contact email (이메일). */
+            contact_email?: string | null;
+        };
+        CreatedSite: {
+            id: components["schemas"]["Uuid"];
+            customer_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            name: string;
+            address: string | null;
+            province: string | null;
+            city: string | null;
+            postal_code: string | null;
+            /** Format: double */
+            latitude: number | null;
+            /** Format: double */
+            longitude: number | null;
+            /** Format: double */
+            geofence_radius_m: number | null;
+            contact_name: string | null;
+            contact_phone: string | null;
+            contact_email: string | null;
         };
         /** @description Partial site update. Absent keys are left unchanged; nullable keys set to null clear the column. Latitude and longitude must be supplied together and within WGS84 ranges. */
         UpdateSiteRequest: {
@@ -5678,6 +5772,77 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    createCustomer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCustomerRequest"];
+            };
+        };
+        responses: {
+            /** @description Customer created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedCustomer"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    createSite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSiteRequest"];
+            };
+        };
+        responses: {
+            /** @description Site created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedSite"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
             /** @description JWT verification is not configured. */
             503: {
                 headers: {

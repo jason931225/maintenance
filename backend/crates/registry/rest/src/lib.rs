@@ -16,9 +16,10 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_kernel_core::{
     ADDRESS_MAX_CHARS, BranchId, BranchScope, CITY_MAX_CHARS, CONTACT_EMAIL_MAX_CHARS,
-    CONTACT_NAME_MAX_CHARS, CONTACT_PHONE_MAX_CHARS, EquipmentId, EquipmentSubstitutionId,
-    ErrorKind, KernelError, OrgId, POSTAL_CODE_MAX_CHARS, PROVINCE_MAX_CHARS, SiteId, TraceContext,
-    UserId, validate_bounded_text, validate_coordinate_pair,
+    CONTACT_NAME_MAX_CHARS, CONTACT_PHONE_MAX_CHARS, CUSTOMER_SITE_NAME_MAX_CHARS, CustomerId,
+    EquipmentId, EquipmentSubstitutionId, ErrorKind, KernelError, OrgId, POSTAL_CODE_MAX_CHARS,
+    PROVINCE_MAX_CHARS, SiteId, TraceContext, UserId, validate_bounded_text,
+    validate_coordinate_pair,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{
@@ -26,8 +27,9 @@ use mnt_platform_authz::{
 };
 use mnt_registry_adapter_postgres::{PgRegistryError, PgRegistryStore};
 use mnt_registry_application::{
-    CreateEquipmentCommand, DeleteEquipmentCommand, EquipmentByLocationQuery, RegistryImportReport,
-    SiteLocationGroup, SubstituteAssignment, SubstituteAssignmentCommand, SubstituteCandidate,
+    CreateCustomerCommand, CreateEquipmentCommand, CreateSiteCommand, CreatedCustomer, CreatedSite,
+    DeleteEquipmentCommand, EquipmentByLocationQuery, RegistryImportReport, SiteLocationGroup,
+    SubstituteAssignment, SubstituteAssignmentCommand, SubstituteCandidate,
     SubstituteReturnCommand, SubstituteSearch, UpdateEquipmentCommand, UpdateEquipmentFields,
     UpdateSiteCommand, UpdateSiteFields,
 };
@@ -44,6 +46,8 @@ pub const EQUIPMENT_SUBSTITUTIONS_PATH: &str = "/api/v1/equipment-substitutions"
 pub const EQUIPMENT_SUBSTITUTION_RETURN_PATH_TEMPLATE: &str =
     "/api/v1/equipment-substitutions/{id}/return";
 pub const EQUIPMENT_BY_LOCATION_PATH: &str = "/api/v1/equipment-by-location";
+pub const CUSTOMERS_PATH: &str = "/api/v1/customers";
+pub const SITES_PATH: &str = "/api/v1/sites";
 pub const SITE_ID_PATH_TEMPLATE: &str = "/api/v1/sites/{id}";
 pub const REGISTRY_ROUTE_PATHS: &[&str] = &[
     EQUIPMENT_PATH,
@@ -53,6 +57,8 @@ pub const REGISTRY_ROUTE_PATHS: &[&str] = &[
     EQUIPMENT_SUBSTITUTIONS_PATH,
     EQUIPMENT_SUBSTITUTION_RETURN_PATH_TEMPLATE,
     EQUIPMENT_BY_LOCATION_PATH,
+    CUSTOMERS_PATH,
+    SITES_PATH,
     SITE_ID_PATH_TEMPLATE,
 ];
 
@@ -107,6 +113,8 @@ pub fn router(state: RegistryRestState) -> Router {
             axum::routing::patch(update_equipment).delete(delete_equipment),
         )
         .route(EQUIPMENT_BY_LOCATION_PATH, get(equipment_by_location))
+        .route(CUSTOMERS_PATH, post(create_customer))
+        .route(SITES_PATH, post(create_site))
         .route(SITE_ID_PATH_TEMPLATE, axum::routing::patch(update_site))
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
@@ -212,6 +220,7 @@ struct EquipmentByLocationPage {
 struct SiteLocationResponse {
     site_id: SiteId,
     site_name: String,
+    customer_id: CustomerId,
     customer_name: String,
     branch_id: BranchId,
     province: Option<String>,
@@ -233,6 +242,7 @@ impl From<SiteLocationGroup> for SiteLocationResponse {
         Self {
             site_id: value.site_id,
             site_name: value.site_name,
+            customer_id: value.customer_id,
             customer_name: value.customer_name,
             branch_id: value.branch_id,
             province: value.province,
@@ -275,6 +285,255 @@ async fn equipment_by_location(
     let total = items.len();
 
     Ok(Json(EquipmentByLocationPage { items, total }))
+}
+
+// ---------------------------------------------------------------------------
+// Customer / site direct creation — audited writes (EquipmentManage)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct CreateCustomerRequest {
+    name: String,
+}
+
+#[derive(Debug, Serialize)]
+struct CreatedCustomerResponse {
+    id: CustomerId,
+    branch_id: BranchId,
+    name: String,
+}
+
+impl From<CreatedCustomer> for CreatedCustomerResponse {
+    fn from(value: CreatedCustomer) -> Self {
+        Self {
+            id: value.id,
+            branch_id: value.branch_id,
+            name: value.name,
+        }
+    }
+}
+
+/// POST /api/v1/customers — create a customer (고객) directly in the caller's org
+/// on the default HQ branch. Admin-gated (EquipmentManage), the same feature as
+/// the site PATCH. The name is trimmed, required, and bounded; a same-name
+/// customer already on the branch is a 409 conflict (an explicit create is a
+/// distinct intent from the importer's idempotent upsert, so it is surfaced, not
+/// silently merged). Returns the created customer so the console can show it.
+async fn create_customer(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateCustomerRequest>,
+) -> Result<(StatusCode, Json<CreatedCustomerResponse>), RestError> {
+    let principal = principal_from_headers_db(&state, &headers).await?;
+    authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
+
+    let name = require_bounded_name(body.name, "name")?;
+    let customer = state
+        .store
+        .create_customer(CreateCustomerCommand {
+            actor: principal.user_id,
+            branch_id: principal_create_branch(&principal),
+            name,
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok((StatusCode::CREATED, Json(customer.into())))
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateSiteRequest {
+    customer_id: CustomerId,
+    name: String,
+    #[serde(default)]
+    address: Option<String>,
+    #[serde(default)]
+    province: Option<String>,
+    #[serde(default)]
+    city: Option<String>,
+    #[serde(default)]
+    postal_code: Option<String>,
+    #[serde(default)]
+    latitude: Option<f64>,
+    #[serde(default)]
+    longitude: Option<f64>,
+    #[serde(default)]
+    geofence_radius_m: Option<f64>,
+    #[serde(default)]
+    contact_name: Option<String>,
+    #[serde(default)]
+    contact_phone: Option<String>,
+    #[serde(default)]
+    contact_email: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct CreatedSiteResponse {
+    id: SiteId,
+    customer_id: CustomerId,
+    branch_id: BranchId,
+    name: String,
+    address: Option<String>,
+    province: Option<String>,
+    city: Option<String>,
+    postal_code: Option<String>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+    geofence_radius_m: Option<f64>,
+    contact_name: Option<String>,
+    contact_phone: Option<String>,
+    contact_email: Option<String>,
+}
+
+impl From<CreatedSite> for CreatedSiteResponse {
+    fn from(value: CreatedSite) -> Self {
+        Self {
+            id: value.id,
+            customer_id: value.customer_id,
+            branch_id: value.branch_id,
+            name: value.name,
+            address: value.address,
+            province: value.province,
+            city: value.city,
+            postal_code: value.postal_code,
+            latitude: value.latitude,
+            longitude: value.longitude,
+            geofence_radius_m: value.geofence_radius_m,
+            contact_name: value.contact_name,
+            contact_phone: value.contact_phone,
+            contact_email: value.contact_email,
+        }
+    }
+}
+
+/// POST /api/v1/sites — create a site (현장) under an existing customer in the
+/// caller's org. Admin-gated (EquipmentManage). The customer must belong to the
+/// caller's org: an unknown or foreign-org `customer_id` is a 404 (RLS hides
+/// another tenant's customer, so it is never revealed). Name is required and
+/// bounded; optional address/coordinate/contact fields are validated to the same
+/// WGS84 ranges and length bounds as the site PATCH (a one-sided coordinate or an
+/// over-long value is a 422 before the write). A duplicate site name under the
+/// same customer is a 409. Returns the created site so it appears in the list/map
+/// immediately.
+async fn create_site(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateSiteRequest>,
+) -> Result<(StatusCode, Json<CreatedSiteResponse>), RestError> {
+    let principal = principal_from_headers_db(&state, &headers).await?;
+    authorize_equipment_feature(&principal, Feature::EquipmentManage)?;
+
+    let name = require_bounded_name(body.name, "name")?;
+    // Coordinates: both or neither, each in WGS84 range (mirrors the PATCH path
+    // and the registry_sites_lat_lon_paired CHECK).
+    validate_coordinate_pair(body.latitude, body.longitude).map_err(RestError::from_kernel)?;
+    validate_create_site_geofence_radius(body.geofence_radius_m)?;
+    // Bound the optional address/region/contact text to the same limits as the
+    // registry_sites CHECKs, so an over-long value is a 422 not a raw DB error.
+    for (value, max, field) in [
+        (body.address.as_deref(), ADDRESS_MAX_CHARS, "address"),
+        (body.province.as_deref(), PROVINCE_MAX_CHARS, "province"),
+        (body.city.as_deref(), CITY_MAX_CHARS, "city"),
+        (
+            body.postal_code.as_deref(),
+            POSTAL_CODE_MAX_CHARS,
+            "postal_code",
+        ),
+        (
+            body.contact_name.as_deref(),
+            CONTACT_NAME_MAX_CHARS,
+            "contact_name",
+        ),
+        (
+            body.contact_phone.as_deref(),
+            CONTACT_PHONE_MAX_CHARS,
+            "contact_phone",
+        ),
+        (
+            body.contact_email.as_deref(),
+            CONTACT_EMAIL_MAX_CHARS,
+            "contact_email",
+        ),
+    ] {
+        if let Some(text) = value {
+            validate_bounded_text(text, max, field).map_err(RestError::from_kernel)?;
+        }
+    }
+
+    let site = state
+        .store
+        .create_site(CreateSiteCommand {
+            actor: principal.user_id,
+            customer_id: body.customer_id,
+            name,
+            address: normalize_optional(body.address),
+            province: normalize_optional(body.province),
+            city: normalize_optional(body.city),
+            postal_code: normalize_optional(body.postal_code),
+            latitude: body.latitude,
+            longitude: body.longitude,
+            geofence_radius_m: body.geofence_radius_m,
+            contact_name: normalize_optional(body.contact_name),
+            contact_phone: normalize_optional(body.contact_phone),
+            contact_email: normalize_optional(body.contact_email),
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok((StatusCode::CREATED, Json(site.into())))
+}
+
+/// The branch a direct create should land on for this principal. A branch-scoped
+/// admin creates on its own (first) branch, so the new row is immediately visible
+/// to that admin's branch-scoped registry reads (the by-location list). An
+/// org-wide principal (SUPER_ADMIN/EXECUTIVE, `BranchScope::All`) has no single
+/// branch and sees every branch anyway, so it returns `None` — the adapter then
+/// lands the row on the org's default HQ branch.
+fn principal_create_branch(principal: &Principal) -> Option<BranchId> {
+    match &principal.branch_scope {
+        BranchScope::All => None,
+        BranchScope::Branches(branches) => branches.iter().next().copied(),
+    }
+}
+
+/// Bound a required customer/site name: trim, reject empty (mirrors the
+/// `name <> ''` CHECK), and cap the length (mirrors the migration-0047 CHECK and
+/// the `CUSTOMER_SITE_NAME_MAX_CHARS` domain bound) so an over-long name is a 422.
+fn require_bounded_name(value: String, field: &str) -> Result<String, RestError> {
+    let trimmed = require_nonempty(value, field)?;
+    validate_bounded_text(&trimmed, CUSTOMER_SITE_NAME_MAX_CHARS, field)
+        .map_err(RestError::from_kernel)?;
+    Ok(trimmed)
+}
+
+/// Trim an optional free-text field, collapsing an empty/whitespace-only string to
+/// `None` so the row stores NULL rather than "" (matching the PATCH path, which
+/// treats a blank field as "no value").
+fn normalize_optional(value: Option<String>) -> Option<String> {
+    value.and_then(|text| {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_owned())
+        }
+    })
+}
+
+/// Bound the optional geofence radius on a site create to the same range as the
+/// `registry_sites_geofence_radius_positive` CHECK (migration 0041): a present
+/// value must be finite, > 0, and ≤ 100 000 m. Absent needs no check.
+fn validate_create_site_geofence_radius(radius: Option<f64>) -> Result<(), RestError> {
+    if let Some(radius) = radius
+        && (!radius.is_finite() || radius <= 0.0 || radius > 100_000.0)
+    {
+        return Err(RestError::from_kernel(KernelError::validation(
+            "geofence_radius_m must be greater than 0 and at most 100000 metres",
+        )));
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

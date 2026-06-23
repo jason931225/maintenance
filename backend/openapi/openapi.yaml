@@ -2049,6 +2049,82 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '503':
           description: JWT verification is not configured.
+  /api/v1/customers:
+    post:
+      operationId: createCustomer
+      summary: Create a customer (고객) directly
+      description: >-
+        Admin-gated (EquipmentManage, the same feature as the site PATCH). Creates
+        a customer in the caller's org on the caller's branch (an org-wide
+        SUPER_ADMIN/EXECUTIVE lands it on the default HQ branch). The name is
+        required, trimmed, and bounded (≤ 200 characters). A same-name customer on
+        that branch is a 409 conflict — an explicit create is a distinct intent
+        from the importer's idempotent upsert, so it is surfaced, not merged.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCustomerRequest'
+      responses:
+        '201':
+          description: Customer created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedCustomer'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+  /api/v1/sites:
+    post:
+      operationId: createSite
+      summary: Create a site (현장) under an existing customer
+      description: >-
+        Admin-gated (EquipmentManage). Creates a site under a customer in the
+        caller's org; the customer must belong to the caller's org or the request
+        is a 404 (RLS hides another tenant's customer). The name is required and
+        bounded; optional address / WGS84 coordinates / contact fields follow the
+        same ranges and length bounds as PATCH /api/v1/sites/{id} (a one-sided
+        coordinate or an over-long value is a 422). A duplicate site name under the
+        same customer is a 409. The created site is returned so it appears in the
+        고객·현장 list immediately.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSiteRequest'
+      responses:
+        '201':
+          description: Site created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedSite'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
   /api/v1/sites/{id}:
     patch:
       operationId: updateSite
@@ -6047,6 +6123,7 @@ components:
       required:
       - site_id
       - site_name
+      - customer_id
       - customer_name
       - branch_id
       - address
@@ -6068,6 +6145,8 @@ components:
           $ref: '#/components/schemas/Uuid'
         site_name:
           type: string
+        customer_id:
+          $ref: '#/components/schemas/Uuid'
         customer_name:
           type: string
         branch_id:
@@ -6146,6 +6225,173 @@ components:
         total:
           type: integer
           minimum: 0
+    CreateCustomerRequest:
+      type: object
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Customer name (고객명). Required, trimmed, ≤ 200 characters.
+    CreatedCustomer:
+      type: object
+      required:
+      - id
+      - branch_id
+      - name
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+    CreateSiteRequest:
+      type: object
+      required:
+      - customer_id
+      - name
+      description: >-
+        Create a site under an existing customer. Optional location/contact fields
+        follow the same WGS84 ranges and length bounds as UpdateSiteRequest;
+        latitude and longitude must be supplied together.
+      properties:
+        customer_id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Site name (현장명). Required, trimmed, ≤ 200 characters.
+        address:
+          type:
+          - string
+          - 'null'
+          maxLength: 500
+        province:
+          type:
+          - string
+          - 'null'
+          maxLength: 100
+        city:
+          type:
+          - string
+          - 'null'
+          maxLength: 100
+        postal_code:
+          type:
+          - string
+          - 'null'
+          maxLength: 20
+        latitude:
+          type:
+          - number
+          - 'null'
+          format: double
+        longitude:
+          type:
+          - number
+          - 'null'
+          format: double
+        geofence_radius_m:
+          type:
+          - number
+          - 'null'
+          format: double
+          minimum: 0
+          maximum: 100000
+          description: >-
+            Per-site geofence radius in metres (> 0, ≤ 100000). Null uses the
+            system default (150 m).
+        contact_name:
+          type:
+          - string
+          - 'null'
+          maxLength: 100
+          description: On-site representative contact name (담당자명).
+        contact_phone:
+          type:
+          - string
+          - 'null'
+          maxLength: 40
+          description: On-site contact phone (연락처).
+        contact_email:
+          type:
+          - string
+          - 'null'
+          maxLength: 320
+          description: Optional contact email (이메일).
+    CreatedSite:
+      type: object
+      required:
+      - id
+      - customer_id
+      - branch_id
+      - name
+      - address
+      - province
+      - city
+      - postal_code
+      - latitude
+      - longitude
+      - geofence_radius_m
+      - contact_name
+      - contact_phone
+      - contact_email
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        customer_id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+        address:
+          type:
+          - string
+          - 'null'
+        province:
+          type:
+          - string
+          - 'null'
+        city:
+          type:
+          - string
+          - 'null'
+        postal_code:
+          type:
+          - string
+          - 'null'
+        latitude:
+          type:
+          - number
+          - 'null'
+          format: double
+        longitude:
+          type:
+          - number
+          - 'null'
+          format: double
+        geofence_radius_m:
+          type:
+          - number
+          - 'null'
+          format: double
+        contact_name:
+          type:
+          - string
+          - 'null'
+        contact_phone:
+          type:
+          - string
+          - 'null'
+        contact_email:
+          type:
+          - string
+          - 'null'
     UpdateSiteRequest:
       type: object
       description: >-

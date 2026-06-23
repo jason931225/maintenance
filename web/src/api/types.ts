@@ -26,6 +26,11 @@ export type SiteLocationGroup = components["schemas"]["SiteLocationGroup"];
 export type EquipmentByLocationPage =
   components["schemas"]["EquipmentByLocationPage"];
 export type UpdateSiteRequest = components["schemas"]["UpdateSiteRequest"];
+export type CreateCustomerRequest =
+  components["schemas"]["CreateCustomerRequest"];
+export type CreatedCustomer = components["schemas"]["CreatedCustomer"];
+export type CreateSiteRequest = components["schemas"]["CreateSiteRequest"];
+export type CreatedSite = components["schemas"]["CreatedSite"];
 export type InspectionScheduleSummary =
   components["schemas"]["InspectionScheduleSummary"];
 export type InspectionCycle = components["schemas"]["InspectionCycle"];
