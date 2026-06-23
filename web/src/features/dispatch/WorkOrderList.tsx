@@ -2,6 +2,8 @@ import type { WorkOrderListItem } from "../../api/types";
 import { Badge } from "../../components/ui/badge";
 import { Card } from "../../components/ui/card";
 import { ko } from "../../i18n/ko";
+import { formatKoreanDateTime } from "../../lib/datetime";
+import { priorityClass, priorityLabel } from "../../lib/utils";
 import { SlaBadge } from "./SlaBadge";
 
 interface WorkOrderListProps {
@@ -69,11 +71,15 @@ export function WorkOrderList({
                 ) : null}
               </div>
               <div className="flex flex-wrap items-center gap-2 md:justify-end">
-                <Badge>{workOrder.priority}</Badge>
+                <Badge className={priorityClass(workOrder.priority)}>
+                  {priorityLabel(workOrder.priority)}
+                </Badge>
                 <SlaBadge workOrder={workOrder} />
                 <span className="text-sm text-steel">
                   {ko.dispatch.targetDueAt}:{" "}
-                  {formatIsoDateTime(workOrder.target_due_at)}
+                  {workOrder.target_due_at
+                    ? formatKoreanDateTime(workOrder.target_due_at)
+                    : ko.common.notSet}
                 </span>
               </div>
             </article>
@@ -82,12 +88,4 @@ export function WorkOrderList({
       )}
     </Card>
   );
-}
-
-function formatIsoDateTime(value: string | null) {
-  if (!value) {
-    return ko.common.notSet;
-  }
-
-  return value.slice(0, 16).replace("T", " ");
 }

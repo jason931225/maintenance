@@ -1,7 +1,11 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
+import type { WorkOrderListItem } from "../api/types";
 import { ko } from "../i18n/ko";
+
+/** Work-order priority codes (`P1`/`P2`/`P3`/`OUTSOURCE`/`UNSET`). */
+type Priority = WorkOrderListItem["priority"];
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -65,4 +69,33 @@ export function identityLabel(
  */
 export function todayInSeoul(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
+}
+
+/**
+ * Korean label for a work-order priority code. `ko.priority` maps every code
+ * (`P1`/`P2`/`P3`/`OUTSOURCE`/`UNSET`) exhaustively, so this never leaks a raw
+ * code into the UI.
+ */
+export function priorityLabel(priority: Priority): string {
+  return ko.priority[priority];
+}
+
+/**
+ * Tailwind classes for a priority badge — tone communicates urgency
+ * (P1 red, P2 amber, P3/OUTSOURCE/UNSET neutral-cool). Centralized here so the
+ * dispatch board, work-order list, and approvals queue stay visually consistent.
+ */
+export function priorityClass(priority: Priority): string {
+  switch (priority) {
+    case "P1":
+      return "border-red-300 bg-red-50 text-red-800";
+    case "P2":
+      return "border-amber-300 bg-amber-50 text-amber-900";
+    case "P3":
+      return "border-brand-teal/30 bg-brand-teal/10 text-brand-teal";
+    case "OUTSOURCE":
+      return "border-sky-300 bg-sky-50 text-sky-800";
+    case "UNSET":
+      return "border-line bg-muted-panel text-steel";
+  }
 }

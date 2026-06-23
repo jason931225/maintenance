@@ -7,6 +7,7 @@ import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { ko } from "../../i18n/ko";
+import { priorityLabel } from "../../lib/utils";
 
 type PriorityLevel = WorkOrderListItem["priority"];
 
@@ -250,7 +251,7 @@ export function WorkOrderDispatchControls({
           >
             {PRIORITY_OPTIONS.map((option) => (
               <option key={option} value={option}>
-                {option}
+                {priorityLabel(option)}
               </option>
             ))}
           </Select>

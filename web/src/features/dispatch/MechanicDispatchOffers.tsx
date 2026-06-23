@@ -6,6 +6,7 @@ import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { ko } from "../../i18n/ko";
+import { formatKoreanDateTime } from "../../lib/datetime";
 
 type P1DispatchSummary = components["schemas"]["P1DispatchSummary"];
 type DispatchResponseKind = components["schemas"]["DispatchResponseKind"];
@@ -130,7 +131,8 @@ export function MechanicDispatchOffers({
           </div>
           <div className="grid gap-1 text-sm text-steel">
             <span>
-              {t.acceptWindow}: {formatIsoDateTime(summary.accept_window_ends_at)}
+              {t.acceptWindow}:{" "}
+              {formatKoreanDateTime(summary.accept_window_ends_at)}
             </span>
             <span>
               {t.accepted}: {summary.accepted_count} · {t.declined}:{" "}
@@ -164,8 +166,4 @@ export function MechanicDispatchOffers({
       ) : null}
     </Card>
   );
-}
-
-function formatIsoDateTime(value: string) {
-  return value.slice(0, 16).replace("T", " ");
 }

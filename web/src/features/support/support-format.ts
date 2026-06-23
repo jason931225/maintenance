@@ -5,6 +5,7 @@ import type {
   SupportTicketStatus,
 } from "../../api/types";
 import { ko } from "../../i18n/ko";
+import { formatKoreanDateTime } from "../../lib/datetime";
 
 export const SUPPORT_STATUSES: SupportTicketStatus[] = [
   "OPEN",
@@ -144,8 +145,8 @@ export function slaState(
   return "ok";
 }
 
-/** Compact local datetime, mirroring the dispatch list's `YYYY-MM-DD HH:mm`. */
+/** Compact KST datetime (`YYYY-MM-DD HH:mm`); the not-set label when unset. */
 export function formatDateTime(value: string | null): string {
   if (!value) return ko.common.notSet;
-  return value.slice(0, 16).replace("T", " ");
+  return formatKoreanDateTime(value);
 }

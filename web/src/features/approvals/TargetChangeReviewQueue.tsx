@@ -10,6 +10,7 @@ import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import { ko } from "../../i18n/ko";
+import { formatKoreanDateTime } from "../../lib/datetime";
 
 export interface TargetChangeReviewQueueProps {
   /**
@@ -149,7 +150,7 @@ export function TargetChangeReviewQueue({
           </div>
           {summary.requested_target_due_at ? (
             <span className="text-sm text-steel">
-              {summary.requested_target_due_at.slice(0, 16).replace("T", " ")}
+              {formatKoreanDateTime(summary.requested_target_due_at)}
             </span>
           ) : null}
         </div>

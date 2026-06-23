@@ -5,7 +5,7 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { ko } from "../../i18n/ko";
-import { safeLabel } from "../../lib/utils";
+import { priorityClass, priorityLabel, safeLabel } from "../../lib/utils";
 import { SlaBadge } from "./SlaBadge";
 
 type WorkOrderStatus = WorkOrderListItem["status"];
@@ -119,7 +119,7 @@ export function DispatchBoard({
                         {workOrder.request_no}
                       </p>
                       <Badge className={priorityClass(workOrder.priority)}>
-                        {workOrder.priority}
+                        {priorityLabel(workOrder.priority)}
                       </Badge>
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -169,19 +169,4 @@ export function DispatchBoard({
       </div>
     </Card>
   );
-}
-
-function priorityClass(priority: WorkOrderListItem["priority"]) {
-  switch (priority) {
-    case "P1":
-      return "border-red-300 bg-red-50 text-red-800";
-    case "P2":
-      return "border-amber-300 bg-amber-50 text-amber-900";
-    case "P3":
-      return "border-brand-teal/30 bg-brand-teal/10 text-brand-teal";
-    case "OUTSOURCE":
-      return "border-sky-300 bg-sky-50 text-sky-800";
-    case "UNSET":
-      return "border-line bg-muted-panel text-steel";
-  }
 }

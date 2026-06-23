@@ -7,6 +7,7 @@ import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Textarea } from "../../components/ui/textarea";
 import { ko } from "../../i18n/ko";
+import { priorityClass, priorityLabel } from "../../lib/utils";
 
 interface ApprovalQueueProps {
   workOrders: WorkOrderListItem[];
@@ -111,7 +112,9 @@ export function ApprovalQueue({
               <p className="font-semibold text-ink">{workOrder.request_no}</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <Badge>{ko.status[workOrder.status]}</Badge>
-                <Badge>{workOrder.priority}</Badge>
+                <Badge className={priorityClass(workOrder.priority)}>
+                  {priorityLabel(workOrder.priority)}
+                </Badge>
                 <Badge>
                   {workOrder.equipment.model ?? ko.common.unknown}
                 </Badge>

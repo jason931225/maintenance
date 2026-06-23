@@ -9,16 +9,17 @@ import { Badge } from "../../components/ui/badge";
 import { Card } from "../../components/ui/card";
 import { useAuth } from "../../context/auth";
 import { ko } from "../../i18n/ko";
+import { formatKoreanDateTime } from "../../lib/datetime";
 import { orgStatusBadgeClass, orgStatusLabel } from "./org-status";
 
 type ReadState = "idle" | "loading" | "error";
 
-/** Format a tenant's last-activity timestamp, or a placeholder when none. */
+/** Format a tenant's last-activity timestamp (KST), or a placeholder when none. */
 function formatActivity(value: string | null): string {
   if (!value) return ko.platform.ops.noActivity;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return ko.platform.ops.noActivity;
-  return date.toLocaleString("ko-KR");
+  return formatKoreanDateTime(value);
 }
 
 /**

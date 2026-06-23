@@ -7,6 +7,7 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { ko } from "../../i18n/ko";
+import { formatKoreanDateTime } from "../../lib/datetime";
 import { COST_LEDGER_READ_ROLES, formatWon } from "./config";
 import { EquipmentSelector } from "./EquipmentSelector";
 import type { SelectedEquipment } from "./EquipmentSelector";
@@ -175,7 +176,7 @@ function LifecycleSummary({
                 <div className="flex items-center gap-2">
                   <Badge>{t.sources[entry.source]}</Badge>
                   <span className="text-sm text-steel">
-                    {entry.entry_at}
+                    {formatKoreanDateTime(entry.entry_at)}
                   </span>
                 </div>
               </li>

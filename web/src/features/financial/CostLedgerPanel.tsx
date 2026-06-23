@@ -12,6 +12,7 @@ import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import { ko } from "../../i18n/ko";
+import { formatKoreanDateTime } from "../../lib/datetime";
 import {
   COST_LEDGER_READ_ROLES,
   COST_LEDGER_WRITE_ROLES,
@@ -263,7 +264,7 @@ export function CostLedgerPanel({ api, roles }: CostLedgerPanelProps) {
                   />
                   <Row
                     label={ko.financial.ledger.entryAt}
-                    value={entry.entry_at}
+                    value={formatKoreanDateTime(entry.entry_at)}
                   />
                 </dl>
               </li>

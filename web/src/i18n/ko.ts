@@ -1369,6 +1369,13 @@ export const ko = {
     ARCHIVED: "보관",
     CANCELLED: "취소",
   },
+  priority: {
+    P1: "긴급",
+    P2: "높음",
+    P3: "보통",
+    OUTSOURCE: "외주",
+    UNSET: "미분류",
+  },
   financial: {
     title: "구매·정산",
     description: "구매요청서·지출결의서·집행, 임대 견적과 장비 원가 원장을 관리합니다.",

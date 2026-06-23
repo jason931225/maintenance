@@ -3,6 +3,7 @@ import { useEffect, useMemo } from "react";
 import type { KpiReport, WorkOrderListItem } from "../../api/types";
 import { Badge } from "../../components/ui/badge";
 import { ko } from "../../i18n/ko";
+import { formatKoreanDateTime } from "../../lib/datetime";
 import { formatBps, formatCount, formatSeconds } from "./kpi-format";
 
 interface WallBoardProps {
@@ -68,7 +69,8 @@ export function WallBoard({
               {ko.wallboard.title}
             </h1>
             <p className="mt-3 text-lg text-white/70">
-              {ko.wallboard.updatedAt}: {formatWallboardTime(now)}
+              {ko.wallboard.updatedAt}:{" "}
+              {formatKoreanDateTime(now.toISOString())}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -186,8 +188,4 @@ function exceptionToneClass(tone: "red" | "amber" | "sky") {
     case "sky":
       return "border-sky-300 bg-sky-950 text-sky-50";
   }
-}
-
-function formatWallboardTime(value: Date) {
-  return value.toISOString().slice(0, 16).replace("T", " ");
 }
