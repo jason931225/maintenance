@@ -18,6 +18,7 @@ members = [
   "crates/support/*",
   "crates/workorder/*",
   "crates/messenger/*",
+  "crates/comms/*",
   "crates/platform/*",
   "ci/gates/*",
 ]
@@ -102,6 +103,18 @@ lettre = { version = "0.11.22", default-features = false, features = [
     "builder",
     "smtp-transport",
 ] }
+# Webmail credential cipher (envelope AEAD for SMTP/IMAP passwords at rest).
+# Versions verified live against the crates.io index 2026-06-23:
+#   chacha20poly1305 0.10.1, secrecy 0.10.3, zeroize 1.9.0, base64 0.22.1.
+# `chacha20poly1305` 0.10.1 builds on `aead` 0.5, whose `OsRng` (the bundled
+# `getrandom` feature, on by default) is the version-matched CSPRNG — we use it
+# for per-row DEK + nonce generation rather than adding the standalone `rand`
+# crate (rand 0.10 would pull a SECOND, incompatible `rand_core` major). No
+# async-imap / tokio-rustls is added in this batch (those land in B-mail-3).
+chacha20poly1305 = "0.10.1"
+secrecy = "0.10.3"
+zeroize = "1.9.0"
+base64 = "0.22.1"
 
 mnt-kernel-core = { path = "crates/kernel/core" }
 mnt-compliance-domain = { path = "crates/compliance/domain" }
@@ -145,6 +158,8 @@ mnt-messenger-domain = { path = "crates/messenger/domain" }
 mnt-messenger-application = { path = "crates/messenger/application" }
 mnt-messenger-adapter-postgres = { path = "crates/messenger/adapter-postgres" }
 mnt-messenger-rest = { path = "crates/messenger/rest" }
+mnt-comms-domain = { path = "crates/comms/domain" }
+mnt-comms-credential-cipher = { path = "crates/comms/credential-cipher" }
 mnt-dispatch-domain = { path = "crates/dispatch/domain" }
 mnt-dispatch-application = { path = "crates/dispatch/application" }
 mnt-dispatch-adapter-postgres = { path = "crates/dispatch/adapter-postgres" }
