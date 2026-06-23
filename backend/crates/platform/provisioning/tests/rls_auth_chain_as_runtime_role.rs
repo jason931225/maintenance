@@ -714,3 +714,81 @@ async fn admin_credential_reset_is_tenant_scoped_as_runtime_role(owner_pool: PgP
         "T2's credential must survive a cross-org reset attempt"
     );
 }
+
+// ===========================================================================
+// (5) Open self-service signup (#38): create a NEW MEMBER user in KNL + mint its
+// OTP, ATOMICALLY, as mnt_rt. The signup INSERTs into `users` (FORCE RLS) and
+// `auth_bootstrap_credentials` (FORCE RLS) stamped KNL, so the GUC must be armed
+// by `with_audits` or the WITH CHECK rejects the row. Then the new user redeems
+// its own code and gets a session — the same first-sign-in path, all as mnt_rt.
+// ===========================================================================
+#[sqlx::test(migrations = "../db/migrations")]
+async fn open_signup_creates_member_and_redeems_as_runtime_role(owner_pool: PgPool) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let knl = OrgId::knl();
+
+    // Self-service signup: create the MEMBER user in KNL + mint its OTP as mnt_rt.
+    let issue = BootstrapCredentialStore
+        .signup_open_member(
+            &rt_pool,
+            "newcomer",
+            OffsetDateTime::now_utc(),
+            Duration::hours(1),
+        )
+        .await
+        .expect("open signup must create the user + OTP under RLS as mnt_rt");
+
+    // The new user exists in KNL with exactly the lowest-privilege MEMBER role —
+    // verified as mnt_rt under KNL's GUC (it would be invisible under any other).
+    let roles = user_roles_as_runtime(&rt_pool, knl, issue.user_id).await;
+    assert_eq!(
+        roles,
+        Some(vec!["MEMBER".to_owned()]),
+        "an open-signup user must hold exactly the MEMBER role"
+    );
+
+    // The credential is stamped KNL (not a foreign tenant), proving the WITH CHECK
+    // accepted it under the armed GUC.
+    let stamped = bootstrap_org_as_runtime(&rt_pool, knl, issue.token.as_str()).await;
+    assert_eq!(stamped, Some(*knl.as_uuid()));
+
+    // First sign-in: the new MEMBER redeems its own emailed code as mnt_rt.
+    let redemption = BootstrapCredentialStore
+        .redeem_otp(&rt_pool, issue.token.as_str(), OffsetDateTime::now_utc())
+        .await
+        .expect("the open-signup OTP must redeem as mnt_rt");
+    assert_eq!(redemption.user_id, issue.user_id);
+    assert_eq!(redemption.org_id, knl);
+    assert!(redemption.requires_passkey_setup);
+
+    // And the redeemed MEMBER can mint a session (refresh-family issue is RLS-gated).
+    RefreshTokenStore
+        .issue_family(
+            &rt_pool,
+            issue.user_id,
+            knl,
+            OffsetDateTime::now_utc(),
+            Duration::days(30),
+        )
+        .await
+        .expect("the new MEMBER's session mint must pass RLS as mnt_rt");
+}
+
+/// Read a user's `roles` array by id, as `mnt_rt` with the GUC armed to `org`
+/// (so the FORCE-RLS read on `users` is allowed). `None` when the row is invisible
+/// under that tenant.
+async fn user_roles_as_runtime(rt_pool: &PgPool, org: OrgId, user_id: Uuid) -> Option<Vec<String>> {
+    let mut tx = rt_pool.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(org.as_uuid().to_string())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let roles: Option<Vec<String>> = sqlx::query_scalar("SELECT roles FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    roles
+}

@@ -2,7 +2,7 @@
 resolver = "3"
 # Member globs are added as their first crate lands (an unmatched glob fails the build):
 #   "crates/<domain>/*"  mnt-<domain>-{domain,application,adapter-postgres,rest,worker}
-#   "crates/platform/*"  mnt-platform-{auth,authz,storage,push,realtime,excel}
+#   "crates/platform/*"  mnt-platform-{auth,authz,storage,push,email,realtime,excel}
 #   "ci/gates/*"         CI gate binaries (layer-boundary, audit-coverage, ...)
 #   "app"                mnt-app composition root
 members = [
@@ -86,6 +86,17 @@ opentelemetry-otlp = "0.32.0"
 # (no built-in HTTP listener / push-gateway, which would pull extra hyper deps).
 metrics = "0.24.6"
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
+# Outbound SMTP for transactional email (OCI Email Delivery relay). Version
+# verified live against crates.io 2026-06-22: lettre 0.11.22 (latest stable).
+# The workspace ships NO TLS backend (reqwest is default-features = false; no
+# rustls/native-tls elsewhere), so lettre MUST bring its own — we select the
+# bundled rustls stack via `tokio1-rustls-tls` and disable defaults so no
+# system-native TLS (openssl) is pulled in.
+lettre = { version = "0.11.22", default-features = false, features = [
+    "tokio1-rustls-tls",
+    "builder",
+    "smtp-transport",
+] }
 
 mnt-kernel-core = { path = "crates/kernel/core" }
 mnt-compliance-domain = { path = "crates/compliance/domain" }
@@ -143,6 +154,7 @@ mnt-platform-excel = { path = "crates/platform/excel" }
 mnt-platform-storage = { path = "crates/platform/storage" }
 mnt-platform-jobs = { path = "crates/platform/jobs" }
 mnt-platform-push = { path = "crates/platform/push" }
+mnt-platform-email = { path = "crates/platform/email" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

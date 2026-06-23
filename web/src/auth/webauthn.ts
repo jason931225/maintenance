@@ -70,6 +70,36 @@ export async function redeemOtp(
   return result.data;
 }
 
+/**
+ * Open self-service signup (#38): register an email for a new lowest-privilege
+ * MEMBER account. The backend emails a single-use one-time code (logged by the
+ * stub sender in dev/e2e); the caller then redeems it via {@link redeemOtp} and
+ * enrolls a passkey, reusing the existing first-sign-in flow. The response
+ * carries no token and reveals nothing about prior registration.
+ */
+export class SignupError extends Error {
+  readonly status: number | undefined;
+  constructor(status: number | undefined) {
+    super(`signup failed with status ${String(status)}`);
+    this.name = "SignupError";
+    this.status = status;
+  }
+}
+
+export async function signupOpen(
+  api: WebAuthnApi,
+  email: string,
+): Promise<void> {
+  const result = await api.POST("/api/v1/auth/signup", {
+    body: { email: email.trim() },
+  });
+  // Signup returns 202 (no token); openapi-fetch only surfaces typed `data` for
+  // the default-2xx body, so gate on the raw HTTP status instead.
+  if (!result.response.ok) {
+    throw new SignupError(result.response.status);
+  }
+}
+
 export async function finishPasskeyLogin(
   api: WebAuthnApi,
   ceremony: LoginCeremony,

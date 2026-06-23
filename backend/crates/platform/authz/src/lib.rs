@@ -1,7 +1,7 @@
 //! Branch-scoped authorization policy engine.
 //!
 //! The policy has two independent gates:
-//! 1. feature permission from the inherited five-role matrix;
+//! 1. feature permission from the inherited role matrix;
 //! 2. resource `branch_id` membership from the kernel [`BranchScope`].
 //!
 //! Both gates default-deny. Repository adapters should use [`repository_filter`]
@@ -29,10 +29,17 @@ pub enum Role {
     Receptionist,
     #[serde(rename = "EXECUTIVE")]
     Executive,
+    /// Lowest-privilege tier. The default role for an open self-service signup
+    /// (#38): a freshly self-registered account can sign in but sees almost
+    /// nothing until an admin elevates it. Deliberately the bottom of the matrix
+    /// (`matrix_index` 0) with `Login` as its only `Allow` cell.
+    #[serde(rename = "MEMBER")]
+    Member,
 }
 
 impl Role {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
+        Self::Member,
         Self::Receptionist,
         Self::Mechanic,
         Self::Admin,
@@ -48,16 +55,18 @@ impl Role {
             Self::Mechanic => "MECHANIC",
             Self::Receptionist => "RECEPTIONIST",
             Self::Executive => "EXECUTIVE",
+            Self::Member => "MEMBER",
         }
     }
 
     const fn matrix_index(self) -> usize {
         match self {
-            Self::Receptionist => 0,
-            Self::Mechanic => 1,
-            Self::Admin => 2,
-            Self::Executive => 3,
-            Self::SuperAdmin => 4,
+            Self::Member => 0,
+            Self::Receptionist => 1,
+            Self::Mechanic => 2,
+            Self::Admin => 3,
+            Self::Executive => 4,
+            Self::SuperAdmin => 5,
         }
     }
 }
@@ -72,6 +81,7 @@ impl FromStr for Role {
             "MECHANIC" => Ok(Self::Mechanic),
             "RECEPTIONIST" => Ok(Self::Receptionist),
             "EXECUTIVE" => Ok(Self::Executive),
+            "MEMBER" => Ok(Self::Member),
             _ => Err(KernelError::validation(format!("unknown role code: {raw}"))),
         }
     }
@@ -172,47 +182,52 @@ impl Feature {
         Self::AiAssist,
     ];
 
-    const fn matrix_row(self) -> [PermissionLevel; 5] {
+    const fn matrix_row(self) -> [PermissionLevel; 6] {
         use PermissionLevel::{Allow as A, Deny as D, Limited as L, RequestOnly as R};
 
+        // Column order matches `Role::matrix_index`:
+        // [MEMBER, RECEPTIONIST, MECHANIC, ADMIN, EXECUTIVE, SUPER_ADMIN].
+        // MEMBER (the open-signup default) is default-DENY everywhere except
+        // `Login`: a self-registered account can authenticate but sees nothing
+        // actionable until an admin grants it a real role.
         match self {
-            Self::Login => [A, A, A, A, A],
-            Self::WorkOrderCreate => [A, L, A, L, A],
-            Self::WorkOrderEditIntake => [A, L, A, L, A],
-            Self::WorkOrderReadAll => [A, A, A, A, A],
-            Self::WorkOrderStart => [L, A, A, L, A],
-            Self::WorkReportSubmit => [L, A, A, L, A],
-            Self::EvidenceAttach => [A, A, A, L, A],
-            Self::PriorityManage => [D, D, A, D, A],
-            Self::AssigneeManage => [D, D, A, D, A],
-            Self::TargetManage => [D, R, A, D, A],
-            Self::CompletionReview => [D, D, A, D, A],
-            Self::DailyPlanRequest => [D, A, A, D, A],
-            Self::DailyPlanReview => [D, D, A, D, A],
-            Self::KpiRead => [D, D, A, A, A],
-            Self::KpiExclusionManage => [D, D, A, A, A],
-            Self::UserManage => [D, D, A, D, A],
-            Self::SubordinateUserCreate => [D, D, L, D, A],
-            Self::ElevatedRoleGrant => [D, D, D, D, A],
-            Self::RegionManage => [D, D, A, A, A],
-            Self::BranchManage => [D, D, A, A, A],
-            Self::EquipmentManage => [D, D, A, A, A],
-            Self::MasterListImport => [D, D, A, D, A],
-            Self::RentalQuoteManage => [A, D, A, A, A],
-            Self::EquipmentCostLedgerRead => [D, D, A, A, A],
-            Self::EquipmentCostLedgerWrite => [D, D, A, D, A],
-            Self::PurchaseRequestCreate => [A, R, A, D, A],
-            Self::PurchaseRequestRead => [A, L, A, A, A],
-            Self::PurchaseRequestApprove => [D, D, A, D, A],
-            Self::PurchaseFinalApprove => [D, D, D, A, A],
-            Self::PurchaseExecute => [A, D, A, D, A],
-            Self::InspectionScheduleManage => [D, D, A, D, A],
-            Self::InspectionRoundComplete => [D, A, A, D, A],
-            Self::AuditLogRead => [D, D, A, D, A],
-            Self::ExcelDownload => [A, A, A, A, A],
-            Self::OpsDashboardRead => [D, D, A, D, A],
-            Self::SalesManage => [D, D, A, A, A],
-            Self::AiAssist => [A, A, A, A, A],
+            Self::Login => [A, A, A, A, A, A],
+            Self::WorkOrderCreate => [D, A, L, A, L, A],
+            Self::WorkOrderEditIntake => [D, A, L, A, L, A],
+            Self::WorkOrderReadAll => [D, A, A, A, A, A],
+            Self::WorkOrderStart => [D, L, A, A, L, A],
+            Self::WorkReportSubmit => [D, L, A, A, L, A],
+            Self::EvidenceAttach => [D, A, A, A, L, A],
+            Self::PriorityManage => [D, D, D, A, D, A],
+            Self::AssigneeManage => [D, D, D, A, D, A],
+            Self::TargetManage => [D, D, R, A, D, A],
+            Self::CompletionReview => [D, D, D, A, D, A],
+            Self::DailyPlanRequest => [D, D, A, A, D, A],
+            Self::DailyPlanReview => [D, D, D, A, D, A],
+            Self::KpiRead => [D, D, D, A, A, A],
+            Self::KpiExclusionManage => [D, D, D, A, A, A],
+            Self::UserManage => [D, D, D, A, D, A],
+            Self::SubordinateUserCreate => [D, D, D, L, D, A],
+            Self::ElevatedRoleGrant => [D, D, D, D, D, A],
+            Self::RegionManage => [D, D, D, A, A, A],
+            Self::BranchManage => [D, D, D, A, A, A],
+            Self::EquipmentManage => [D, D, D, A, A, A],
+            Self::MasterListImport => [D, D, D, A, D, A],
+            Self::RentalQuoteManage => [D, A, D, A, A, A],
+            Self::EquipmentCostLedgerRead => [D, D, D, A, A, A],
+            Self::EquipmentCostLedgerWrite => [D, D, D, A, D, A],
+            Self::PurchaseRequestCreate => [D, A, R, A, D, A],
+            Self::PurchaseRequestRead => [D, A, L, A, A, A],
+            Self::PurchaseRequestApprove => [D, D, D, A, D, A],
+            Self::PurchaseFinalApprove => [D, D, D, D, A, A],
+            Self::PurchaseExecute => [D, A, D, A, D, A],
+            Self::InspectionScheduleManage => [D, D, D, A, D, A],
+            Self::InspectionRoundComplete => [D, D, A, A, D, A],
+            Self::AuditLogRead => [D, D, D, A, D, A],
+            Self::ExcelDownload => [D, A, A, A, A, A],
+            Self::OpsDashboardRead => [D, D, D, A, D, A],
+            Self::SalesManage => [D, D, D, A, A, A],
+            Self::AiAssist => [D, A, A, A, A, A],
         }
     }
 }
@@ -316,10 +331,10 @@ impl Principal {
 // Platform tier — the SaaS-vendor identity ABOVE all tenants.
 // ---------------------------------------------------------------------------
 //
-// The platform tier is a DISTINCT concept from the five per-tenant [`Role`]s. It
-// is deliberately NOT a sixth `Role`: adding one would ripple through the
-// 35-feature × 5-role matrix and, worse, would let a platform actor be treated
-// as a tenant member. Instead a platform principal is its own type with its own
+// The platform tier is a DISTINCT concept from the per-tenant [`Role`]s. It is
+// deliberately NOT just another `Role`: a platform actor must never be treated
+// as a tenant member, regardless of how many tenant roles exist. Instead a
+// platform principal is its own type with its own
 // small capability set, and it can NEVER hold a tenant `Role` or be authorized
 // for a tenant [`Feature`] (there is no bridge from [`PlatformFeature`] to
 // [`Feature`], and [`PlatformPrincipal`] carries no `BranchScope`).

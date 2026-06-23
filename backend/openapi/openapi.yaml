@@ -1625,6 +1625,35 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '409':
           $ref: '#/components/responses/Conflict'
+  /api/v1/auth/signup:
+    post:
+      summary: Open self-service signup
+      description: Public, unauthenticated open signup. Creates a new lowest-privilege
+        MEMBER account in the default organization and emails it a single-use one-time
+        sign-in code; the caller then redeems that code via `POST /api/v1/auth/otp/redeem`
+        and enrolls a passkey. The response reveals nothing about whether the email was
+        newly registered (no account-existence oracle) and never mints a token. The new
+        account sees the minimal role-gated surface until an admin elevates it.
+        Rate-limited per client (IP and optional device).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+      responses:
+        '202':
+          description: The signup was accepted and a one-time code was sent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignupResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '502':
+          $ref: '#/components/responses/BadGateway'
   /api/v1/auth/passkey/login/start:
     post:
       summary: Start usernameless passkey login
@@ -3609,6 +3638,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorBody'
+    BadGateway:
+      description: An upstream dependency (e.g. the email relay) failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
   schemas:
     Uuid:
       type: string
@@ -5442,6 +5477,24 @@ components:
           $ref: '#/components/schemas/Uuid'
         credential_id:
           type: string
+    SignupRequest:
+      type: object
+      required:
+      - email
+      properties:
+        email:
+          type: string
+          format: email
+          description: The email address to register and deliver the one-time code to.
+    SignupResponse:
+      type: object
+      required:
+      - accepted
+      properties:
+        accepted:
+          type: boolean
+          description: Always true. The signup was accepted and a one-time code was sent;
+            the response intentionally carries no account-existence or token information.
     OtpRedeemRequest:
       type: object
       required:

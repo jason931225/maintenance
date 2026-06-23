@@ -47,6 +47,7 @@ use mnt_platform_auth::{
 use mnt_platform_auth_rest::{AuthRestConfig, AuthRestState};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
 use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_email::{EmailSender, LettreSmtpSender, SmtpEmailConfig, StubEmailSender};
 use mnt_platform_jobs::{ApalisPostgresJobQueue, JobQueue, run_apalis_worker_until_shutdown};
 use mnt_platform_provisioning::{BootstrapCredentialStore, PlatformProvisioner};
 use mnt_platform_push::{
@@ -175,6 +176,10 @@ pub struct AppConfig {
     pub fcm: Option<FcmConfig>,
     pub solapi: Option<SolapiConfig>,
     pub solapi_disabled_reason: Option<String>,
+    /// Outbound SMTP relay for transactional email (open-signup OTP). `None`
+    /// when no `MNT_EMAIL_*` vars are set; the app then uses the stub sender that
+    /// logs the OTP instead of relaying it (so it boots without an email relay).
+    pub email: Option<SmtpEmailConfig>,
     pub shutdown_timeout: Duration,
     /// Per-request timeout applied to every non-streaming route
     /// (`MNT_REQUEST_TIMEOUT_SECS`, default 30s). Deliberately NOT applied to
@@ -303,6 +308,7 @@ impl AppConfig {
         };
         let fcm = fcm_config_from_vars(&vars)?;
         let (solapi, solapi_disabled_reason) = solapi_config_from_vars(&vars)?;
+        let email = email_config_from_vars(&vars)?;
         let shutdown_timeout = match vars.get("MNT_SHUTDOWN_TIMEOUT_SECS") {
             Some(raw) => raw.parse::<u64>().map(Duration::from_secs).map_err(|err| {
                 AppError::Config(format!("invalid MNT_SHUTDOWN_TIMEOUT_SECS: {err}"))
@@ -338,6 +344,7 @@ impl AppConfig {
             fcm,
             solapi,
             solapi_disabled_reason,
+            email,
             shutdown_timeout,
             request_timeout,
             coldstart_otp,
@@ -582,6 +589,58 @@ fn solapi_config_from_vars(
     Ok((Some(config), None))
 }
 
+/// Parse the outbound SMTP email relay config from the environment.
+///
+/// Returns `Ok(None)` when the whole `MNT_EMAIL_*` group is unset, so the app
+/// boots without an email relay (falling back to the stub OTP sender). When any
+/// member is set the group is treated as configured and every member is required
+/// (mirrors `solapi_config_from_vars`), then validated.
+fn email_config_from_vars(
+    vars: &HashMap<String, String>,
+) -> Result<Option<SmtpEmailConfig>, AppError> {
+    let host = non_empty(vars.get("MNT_EMAIL_SMTP_HOST"));
+    let port_raw = non_empty(vars.get("MNT_EMAIL_SMTP_PORT"));
+    let username = non_empty(vars.get("MNT_EMAIL_SMTP_USERNAME"));
+    let password = non_empty(vars.get("MNT_EMAIL_SMTP_PASSWORD"));
+    let from_address = non_empty(vars.get("MNT_EMAIL_FROM"));
+    let from_name = non_empty(vars.get("MNT_EMAIL_FROM_NAME"));
+    let configured = host.is_some()
+        || port_raw.is_some()
+        || username.is_some()
+        || password.is_some()
+        || from_address.is_some()
+        || from_name.is_some();
+    if !configured {
+        return Ok(None);
+    }
+    let required = |value: Option<String>, name: &'static str| {
+        value
+            .ok_or_else(|| AppError::Config(format!("{name} is required when email is configured")))
+    };
+    let port = match port_raw {
+        Some(raw) => raw
+            .parse::<u16>()
+            .map_err(|err| AppError::Config(format!("invalid MNT_EMAIL_SMTP_PORT: {err}")))?,
+        None => {
+            return Err(AppError::Config(
+                "MNT_EMAIL_SMTP_PORT is required when email is configured".to_owned(),
+            ));
+        }
+    };
+    let config = SmtpEmailConfig {
+        host: required(host, "MNT_EMAIL_SMTP_HOST")?,
+        port,
+        username: required(username, "MNT_EMAIL_SMTP_USERNAME")?,
+        password: required(password, "MNT_EMAIL_SMTP_PASSWORD")?,
+        from_address: required(from_address, "MNT_EMAIL_FROM")?,
+        from_name: required(from_name, "MNT_EMAIL_FROM_NAME")?,
+    };
+    config
+        .validate()
+        .map_err(|err| AppError::Config(err.to_string()))?;
+    Ok(Some(config))
+}
+
 fn parse_time_duration_secs(
     raw: Option<&String>,
     default_secs: u64,
@@ -623,6 +682,10 @@ pub struct AppState {
     evidence_storage: Option<EvidenceService<SeaweedS3Storage>>,
     dispatch_job_queue: Option<Arc<dyn JobQueue>>,
     push_notifier: Option<Arc<dyn PushNotifier>>,
+    /// Outbound email sender for the open-signup OTP (#38). Always present: a
+    /// `LettreSmtpSender` when `MNT_EMAIL_*` is configured, otherwise a
+    /// `StubEmailSender` that logs the OTP instead of relaying it.
+    email_sender: Arc<dyn EmailSender>,
     realtime_hub: Option<Arc<PgRealtimeHub>>,
     realtime_bridge: Option<PostgresBridgeHandle>,
 }
@@ -654,6 +717,7 @@ impl AppState {
             evidence_storage: None,
             dispatch_job_queue: None,
             push_notifier: None,
+            email_sender: Arc::new(StubEmailSender),
             realtime_hub,
             realtime_bridge: None,
         })
@@ -729,6 +793,22 @@ impl AppState {
         if fcm.is_some() || solapi.is_some() {
             state.push_notifier = Some(Arc::new(ProviderPushNotifier::new(fcm, solapi)));
         }
+        if let Some(email_config) = config.email.clone() {
+            let sender = LettreSmtpSender::new(email_config)
+                .map_err(|err| AppError::Config(format!("invalid email config: {err}")))?;
+            state.email_sender = Arc::new(sender);
+        } else {
+            tracing::info!(
+                "MNT_EMAIL_* unset: outbound OTP email uses the stub sender (logs only)"
+            );
+        }
+        // Hand the resolved OTP email sender to the auth REST layer so its
+        // open-signup endpoint (#38) can deliver the code. Done here (not in
+        // `AppState::new`) because the live SMTP sender is only known once
+        // `config.email` is resolved above.
+        if let Some(auth_rest) = state.auth_rest.take() {
+            state.auth_rest = Some(auth_rest.with_email_sender(state.email_sender.clone()));
+        }
         if let Some(hub) = state.realtime_hub.clone() {
             state.realtime_bridge = Some(
                 hub.start_postgres_listener()
@@ -741,6 +821,13 @@ impl AppState {
 
     pub fn config(&self) -> &AppConfig {
         &self.config
+    }
+
+    /// Outbound OTP email sender. Always present (stub when `MNT_EMAIL_*` is
+    /// unset). Exposed for the open-signup endpoint landing in #38.
+    #[must_use]
+    pub fn email_sender(&self) -> Arc<dyn EmailSender> {
+        self.email_sender.clone()
     }
 
     pub async fn shutdown_realtime(&self) {

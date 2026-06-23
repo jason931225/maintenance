@@ -9,7 +9,8 @@ use mnt_platform_authz::{
 };
 use sqlx::PgPool;
 
-const ROLES: [Role; 5] = [
+const ROLES: [Role; 6] = [
+    Role::Member,
     Role::Receptionist,
     Role::Mechanic,
     Role::Admin,
@@ -17,7 +18,7 @@ const ROLES: [Role; 5] = [
     Role::SuperAdmin,
 ];
 
-fn expected_matrix() -> [(Feature, [PermissionLevel; 5]); 37] {
+fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 37] {
     use Feature::{
         AiAssist, AssigneeManage, AuditLogRead, BranchManage, CompletionReview, DailyPlanRequest,
         DailyPlanReview, ElevatedRoleGrant, EquipmentCostLedgerRead, EquipmentCostLedgerWrite,
@@ -30,48 +31,50 @@ fn expected_matrix() -> [(Feature, [PermissionLevel; 5]); 37] {
     };
     use PermissionLevel::{Allow as A, Deny as D, Limited as L, RequestOnly as R};
 
+    // Column order: [MEMBER, RECEPTIONIST, MECHANIC, ADMIN, EXECUTIVE, SUPER_ADMIN].
+    // MEMBER (open-signup default) is default-DENY everywhere but `Login`.
     [
-        (Login, [A, A, A, A, A]),
-        (WorkOrderCreate, [A, L, A, L, A]),
-        (WorkOrderEditIntake, [A, L, A, L, A]),
-        (WorkOrderReadAll, [A, A, A, A, A]),
-        (WorkOrderStart, [L, A, A, L, A]),
-        (WorkReportSubmit, [L, A, A, L, A]),
-        (EvidenceAttach, [A, A, A, L, A]),
-        (PriorityManage, [D, D, A, D, A]),
-        (AssigneeManage, [D, D, A, D, A]),
-        (TargetManage, [D, R, A, D, A]),
-        (CompletionReview, [D, D, A, D, A]),
-        (DailyPlanRequest, [D, A, A, D, A]),
-        (DailyPlanReview, [D, D, A, D, A]),
-        (KpiRead, [D, D, A, A, A]),
-        (KpiExclusionManage, [D, D, A, A, A]),
-        (UserManage, [D, D, A, D, A]),
-        (SubordinateUserCreate, [D, D, L, D, A]),
-        (ElevatedRoleGrant, [D, D, D, D, A]),
-        (RegionManage, [D, D, A, A, A]),
-        (BranchManage, [D, D, A, A, A]),
-        (EquipmentManage, [D, D, A, A, A]),
-        (MasterListImport, [D, D, A, D, A]),
-        (RentalQuoteManage, [A, D, A, A, A]),
-        (EquipmentCostLedgerRead, [D, D, A, A, A]),
-        (EquipmentCostLedgerWrite, [D, D, A, D, A]),
-        (PurchaseRequestCreate, [A, R, A, D, A]),
-        (PurchaseRequestRead, [A, L, A, A, A]),
-        (PurchaseRequestApprove, [D, D, A, D, A]),
-        (PurchaseFinalApprove, [D, D, D, A, A]),
-        (PurchaseExecute, [A, D, A, D, A]),
-        (InspectionScheduleManage, [D, D, A, D, A]),
-        (InspectionRoundComplete, [D, A, A, D, A]),
-        (AuditLogRead, [D, D, A, D, A]),
-        (ExcelDownload, [A, A, A, A, A]),
-        (OpsDashboardRead, [D, D, A, D, A]),
-        (SalesManage, [D, D, A, A, A]),
+        (Login, [A, A, A, A, A, A]),
+        (WorkOrderCreate, [D, A, L, A, L, A]),
+        (WorkOrderEditIntake, [D, A, L, A, L, A]),
+        (WorkOrderReadAll, [D, A, A, A, A, A]),
+        (WorkOrderStart, [D, L, A, A, L, A]),
+        (WorkReportSubmit, [D, L, A, A, L, A]),
+        (EvidenceAttach, [D, A, A, A, L, A]),
+        (PriorityManage, [D, D, D, A, D, A]),
+        (AssigneeManage, [D, D, D, A, D, A]),
+        (TargetManage, [D, D, R, A, D, A]),
+        (CompletionReview, [D, D, D, A, D, A]),
+        (DailyPlanRequest, [D, D, A, A, D, A]),
+        (DailyPlanReview, [D, D, D, A, D, A]),
+        (KpiRead, [D, D, D, A, A, A]),
+        (KpiExclusionManage, [D, D, D, A, A, A]),
+        (UserManage, [D, D, D, A, D, A]),
+        (SubordinateUserCreate, [D, D, D, L, D, A]),
+        (ElevatedRoleGrant, [D, D, D, D, D, A]),
+        (RegionManage, [D, D, D, A, A, A]),
+        (BranchManage, [D, D, D, A, A, A]),
+        (EquipmentManage, [D, D, D, A, A, A]),
+        (MasterListImport, [D, D, D, A, D, A]),
+        (RentalQuoteManage, [D, A, D, A, A, A]),
+        (EquipmentCostLedgerRead, [D, D, D, A, A, A]),
+        (EquipmentCostLedgerWrite, [D, D, D, A, D, A]),
+        (PurchaseRequestCreate, [D, A, R, A, D, A]),
+        (PurchaseRequestRead, [D, A, L, A, A, A]),
+        (PurchaseRequestApprove, [D, D, D, A, D, A]),
+        (PurchaseFinalApprove, [D, D, D, D, A, A]),
+        (PurchaseExecute, [D, A, D, A, D, A]),
+        (InspectionScheduleManage, [D, D, D, A, D, A]),
+        (InspectionRoundComplete, [D, D, A, A, D, A]),
+        (AuditLogRead, [D, D, D, A, D, A]),
+        (ExcelDownload, [D, A, A, A, A, A]),
+        (OpsDashboardRead, [D, D, D, A, D, A]),
+        (SalesManage, [D, D, D, A, A, A]),
         // The inherited PERMISSIONS.md has 21 explicit table rows; its branch
         // strategy also names AI 조회 as a branch-filtered server API surface.
         // T0.6's brief requires 22 features, so the AI assistant seam is
         // represented here as permission metadata only, not an adapter.
-        (AiAssist, [A, A, A, A, A]),
+        (AiAssist, [D, A, A, A, A, A]),
     ]
 }
 
@@ -86,9 +89,39 @@ fn role_enum_uses_canonical_database_codes() {
     assert_eq!(Role::Mechanic.as_str(), "MECHANIC");
     assert_eq!(Role::Receptionist.as_str(), "RECEPTIONIST");
     assert_eq!(Role::Executive.as_str(), "EXECUTIVE");
+    assert_eq!(Role::Member.as_str(), "MEMBER");
 
     assert_eq!("SUPER_ADMIN".parse::<Role>().unwrap(), Role::SuperAdmin);
+    assert_eq!("MEMBER".parse::<Role>().unwrap(), Role::Member);
     assert!("OWNER".parse::<Role>().is_err());
+}
+
+#[test]
+fn member_role_is_default_deny_except_login() {
+    // The open-signup default tier: it can authenticate but nothing else until an
+    // admin elevates it. `Login` is its only `Allow` cell across all 37 features.
+    for feature in Feature::ALL {
+        let level = permission_for(Role::Member, feature);
+        if feature == Feature::Login {
+            assert_eq!(
+                level,
+                PermissionLevel::Allow,
+                "MEMBER must be able to log in"
+            );
+        } else {
+            assert_eq!(
+                level,
+                PermissionLevel::Deny,
+                "MEMBER must be denied {feature:?} until elevated"
+            );
+        }
+    }
+
+    // And it cannot pass an authorize() gate for any real feature.
+    let branch = BranchId::new();
+    let member = principal(Role::Member, BranchScope::single(branch));
+    let err = authorize(&member, Action::new(Feature::WorkOrderReadAll), branch).unwrap_err();
+    assert_eq!(err.kind, ErrorKind::Forbidden);
 }
 
 #[test]
