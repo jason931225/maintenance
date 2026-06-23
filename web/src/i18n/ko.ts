@@ -834,6 +834,20 @@ export const ko = {
     actionFailed: "처리하지 못했습니다. 다시 시도하세요.",
     requiredRejectMemo: "반려 메모를 입력하세요.",
     empty: "승인 대기 건이 없습니다.",
+    // Per-row report reveal. The approver must read the diagnosis / action /
+    // result / evidence before deciding, so each queue item lazily fetches its
+    // full work-order detail (GET /api/v1/work-orders/{id}) on demand.
+    viewReport: "보고 보기",
+    hideReport: "보고 접기",
+    reportLoadFailed: "보고를 불러오지 못했습니다.",
+    // Per-order reject dialog (destructive). Scoped to a single order with its
+    // own required memo, so a memo can never be applied to the wrong order.
+    rejectTitle: "작업지시 반려",
+    rejectMessage: "이 작업지시를 반려합니다. 반려 사유는 정비사에게 전달됩니다.",
+    rejectMemoLabel: "반려 메모",
+    rejectMemoPlaceholder: "반려 사유를 입력하세요.",
+    rejectConfirm: "반려",
+    reviewBeforeDeciding: "승인·반려 전에 진단·조치·결과와 증빙을 확인하세요.",
     targetChange: {
       title: "일정 변경 요청 검토",
       description:

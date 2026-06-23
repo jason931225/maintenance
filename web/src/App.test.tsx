@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse, ws } from "msw";
 import { setupServer } from "msw/node";
@@ -348,15 +348,22 @@ describe("ApprovalsPage", () => {
     });
   });
 
-  it("posts reject memo through the reject route", async () => {
+  it("posts reject memo through the per-order reject dialog", async () => {
     const user = userEvent.setup();
     renderAt("/approvals", adminSession);
 
     expect((await screen.findAllByText("20260612-002"))[0]).toBeVisible();
-    await user.type(screen.getByLabelText("검토 메모"), "증빙 보완 필요");
+    // The row's 반려 opens a dialog scoped to THAT order; the memo lives in the
+    // dialog so it can never be applied to a different order.
     await user.click(
       screen.getByRole("button", { name: "20260612-002 반려" }),
     );
+    const dialog = screen.getByRole("dialog");
+    await user.type(
+      within(dialog).getByLabelText("반려 메모"),
+      "증빙 보완 필요",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "반려" }));
 
     await waitFor(() => {
       expect(rejectRequest?.url.pathname).toBe(
