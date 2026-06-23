@@ -2001,6 +2001,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/regions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Soft-delete (deactivate) a region
+         * @description Soft-deletes a region. Refused with 409 while the region still has active branches, so live tenant data is never orphaned. Returns the deactivated region.
+         */
+        delete: operations["deactivateRegion"];
+        options?: never;
+        head?: never;
+        /** Rename a region */
+        patch: operations["updateRegion"];
+        trace?: never;
+    };
     "/api/v1/branches": {
         parameters: {
             query?: never;
@@ -2029,7 +2050,11 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Soft-delete (deactivate) a branch
+         * @description Soft-deletes a branch. Refused with 409 while the branch still has active users or non-terminal equipment, so live operational data is never orphaned. Returns the deactivated branch.
+         */
+        delete: operations["deactivateBranch"];
         options?: never;
         head?: never;
         /** Rename a branch or move it to another region */
@@ -3555,6 +3580,11 @@ export interface components {
         };
         /** @enum {string} */
         Team: "MAINTENANCE" | "PREVENTION" | "MANAGEMENT" | "RECEPTION";
+        /**
+         * @description Derived account-setup state for the console roster. ACTIVE only once the user has enrolled a passkey (can sign in); PENDING_SETUP when created / OTP-issued but not yet enrolled; DEACTIVATED when soft-disabled.
+         * @enum {string}
+         */
+        AccountStatus: "ACTIVE" | "PENDING_SETUP" | "DEACTIVATED";
         UserSummary: {
             id: components["schemas"]["Uuid"];
             display_name: string;
@@ -3563,17 +3593,30 @@ export interface components {
             roles: string[];
             branch_ids: components["schemas"]["Uuid"][];
             is_active: boolean;
+            /** @description Whether the user has at least one enrolled passkey. A user can only sign in once this is true; until then the account is pending setup. */
+            has_passkey: boolean;
+            account_status: components["schemas"]["AccountStatus"];
             created_at: components["schemas"]["Timestamp"];
         };
         RegionSummary: {
             id: components["schemas"]["Uuid"];
             name: string;
+            /**
+             * Format: date-time
+             * @description Set when the region has been soft-deleted (deactivated); null for an active region. Active-only listings omit deactivated rows.
+             */
+            deactivated_at: string | null;
             created_at: components["schemas"]["Timestamp"];
         };
         BranchSummary: {
             id: components["schemas"]["Uuid"];
             region_id: components["schemas"]["Uuid"];
             name: string;
+            /**
+             * Format: date-time
+             * @description Set when the branch has been soft-deleted (deactivated); null for an active branch. Active-only listings omit deactivated rows.
+             */
+            deactivated_at: string | null;
             created_at: components["schemas"]["Timestamp"];
         };
         /** @description A passkey credential summary for the self-service management surface. It deliberately carries no secret material (no passkey blob, public key, or raw credential id) — only the opaque row id and the registration / last-use timestamps. */
@@ -3603,6 +3646,9 @@ export interface components {
         };
         CreateRegionRequest: {
             name: string;
+        };
+        UpdateRegionRequest: {
+            name?: string;
         };
         CreateBranchRequest: {
             region_id: components["schemas"]["Uuid"];
@@ -6786,6 +6832,80 @@ export interface operations {
             };
         };
     };
+    deactivateRegion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deactivated region. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegionSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    updateRegion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRegionRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated region. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegionSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     listBranches: {
         parameters: {
             query?: never;
@@ -6842,6 +6962,41 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    deactivateBranch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deactivated branch. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             /** @description JWT verification is not configured. */
             503: {
                 headers: {

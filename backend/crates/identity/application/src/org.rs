@@ -91,6 +91,26 @@ pub struct CreateBranchCommand {
     pub occurred_at: Timestamp,
 }
 
+/// Rename a region.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateRegionCommand {
+    pub actor: UserId,
+    pub region_id: RegionId,
+    pub name: Option<String>,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+/// Soft-delete (deactivate) a region. Refused while the region still has active
+/// branches (referential guard) — the adapter returns a `Conflict`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeactivateRegionCommand {
+    pub actor: UserId,
+    pub region_id: RegionId,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
 /// Rename a branch and/or move it to a different region.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdateBranchCommand {
@@ -98,6 +118,17 @@ pub struct UpdateBranchCommand {
     pub branch_id: BranchId,
     pub region_id: Option<RegionId>,
     pub name: Option<String>,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+/// Soft-delete (deactivate) a branch. Refused while the branch still has active
+/// users or non-terminal equipment (referential guard) — the adapter returns a
+/// `Conflict`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeactivateBranchCommand {
+    pub actor: UserId,
+    pub branch_id: BranchId,
     pub trace: TraceContext,
     pub occurred_at: Timestamp,
 }
@@ -120,6 +151,34 @@ pub struct UserListQuery {
 // Read models
 // ---------------------------------------------------------------------------
 
+/// Derived account-setup state for the console roster.
+///
+/// `is_active` alone is insufficient: a freshly-created user (admin issued an OTP
+/// but the user has not yet enrolled a passkey) is `is_active = true` yet cannot
+/// actually sign in. The console must show "활성" ONLY once the account is set up
+/// with a credential, so this enum distinguishes the pending-setup state from the
+/// fully-active one. It is derived (never stored): see `account_status_for`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AccountStatus {
+    /// Active AND has at least one enrolled passkey — can sign in.
+    Active,
+    /// Active but has NO passkey yet — created / OTP-issued, awaiting enrollment.
+    PendingSetup,
+    /// Soft-deactivated — sign-in is blocked regardless of credentials.
+    Deactivated,
+}
+
+/// Derive the console account status from the row flag + credential presence.
+#[must_use]
+pub fn account_status_for(is_active: bool, has_passkey: bool) -> AccountStatus {
+    match (is_active, has_passkey) {
+        (false, _) => AccountStatus::Deactivated,
+        (true, true) => AccountStatus::Active,
+        (true, false) => AccountStatus::PendingSetup,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserSummary {
     pub id: UserId,
@@ -129,6 +188,11 @@ pub struct UserSummary {
     pub roles: Vec<String>,
     pub branch_ids: Vec<BranchId>,
     pub is_active: bool,
+    /// Whether the user has at least one enrolled passkey credential. A user can
+    /// only actually sign in once this is true; until then they are pending setup.
+    pub has_passkey: bool,
+    /// Derived setup state (`is_active` + `has_passkey`) for the console badge.
+    pub account_status: AccountStatus,
     pub created_at: Timestamp,
 }
 
@@ -136,6 +200,9 @@ pub struct UserSummary {
 pub struct RegionSummary {
     pub id: RegionId,
     pub name: String,
+    /// `Some` when the region has been soft-deleted (deactivated); `None` for an
+    /// active region. Active-only listings filter these out.
+    pub deactivated_at: Option<Timestamp>,
     pub created_at: Timestamp,
 }
 
@@ -144,6 +211,9 @@ pub struct BranchSummary {
     pub id: BranchId,
     pub region_id: RegionId,
     pub name: String,
+    /// `Some` when the branch has been soft-deleted (deactivated); `None` for an
+    /// active branch. Active-only listings filter these out.
+    pub deactivated_at: Option<Timestamp>,
     pub created_at: Timestamp,
 }
 
