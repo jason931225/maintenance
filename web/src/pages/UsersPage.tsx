@@ -33,6 +33,7 @@ import {
 } from "../features/org/org-format";
 import { issueAdminOtp, resetUserCredentials } from "../auth/webauthn";
 import { ko } from "../i18n/ko";
+import { safeLabel } from "../lib/utils";
 
 type ReadState = "idle" | "loading" | "error";
 
@@ -93,7 +94,10 @@ export function UsersPage() {
   }, [loadBranches]);
 
   const branchName = useCallback(
-    (id: string) => branches.find((b) => b.id === id)?.name ?? id,
+    // Never surface the raw branch UUID when the branch list is missing the row
+    // (e.g. a separate branch-fetch failure, or a branch outside the caller's
+    // scope); fall back to a human label instead.
+    (id: string) => safeLabel(branches.find((b) => b.id === id)?.name),
     [branches],
   );
 

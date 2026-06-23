@@ -1382,6 +1382,8 @@ async fn issue_token_pair(
             // A normal login/refresh token is never an impersonation token.
             view_as: false,
             read_only: false,
+            // DISPLAY-ONLY identity for the topbar; never used for authz.
+            display_name: Some(user.display_name.clone()),
             issued_at: now,
         })
         .map_err(|err| RestError::internal(err.to_string()))?;
@@ -1425,6 +1427,9 @@ fn issue_access_token(
             // The ordinary refresh path never mints an impersonation token.
             view_as: false,
             read_only: false,
+            // DISPLAY-ONLY identity for the topbar; re-loaded from the user on
+            // every refresh so a renamed user's token reflects it. Never authz.
+            display_name: Some(user.display_name.clone()),
             issued_at: OffsetDateTime::now_utc(),
         })
         .map_err(|err| RestError::internal(err.to_string()))

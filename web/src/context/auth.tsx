@@ -22,6 +22,15 @@ export interface AuthSession {
   access_token: string;
   user_id?: string;
   /**
+   * JWT `name` claim — the signed-in user's display name. Present on tenant and
+   * platform login/refresh tokens (absent on legacy and read-only view-as
+   * tokens). Display only: render this (falling back to `email`, then a generic
+   * label) instead of the raw `user_id` UUID. Never used for authorization.
+   */
+  display_name?: string;
+  /** JWT `email` claim, when present. Display-only fallback for the identity label. */
+  email?: string;
+  /**
    * JWT `roles` claim, e.g. `["ADMIN"]` / `["SUPER_ADMIN"]`. Canonical role
    * codes match the backend `Role` enum and drive client-side nav gating; the
    * backend re-verifies authorization on every call.
@@ -138,6 +147,8 @@ export function useActiveBranchId(): string | undefined {
  */
 function decodeAccessClaims(accessToken: string): {
   user_id?: string;
+  display_name?: string;
+  email?: string;
   roles?: string[];
   branches?: string[];
   isPlatform?: boolean;
@@ -150,14 +161,30 @@ function decodeAccessClaims(accessToken: string): {
       normalized.length + ((4 - (normalized.length % 4)) % 4),
       "=",
     );
-    const claims = JSON.parse(atob(padded)) as {
+    // The `name` claim can be a non-ASCII (e.g. Korean) display name, so decode
+    // the base64 payload as UTF-8 rather than passing the raw `atob` binary
+    // string to JSON.parse (which would mangle multi-byte characters).
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    const json = new TextDecoder().decode(bytes);
+    const claims = JSON.parse(json) as {
       sub?: string;
+      name?: unknown;
+      email?: unknown;
       roles?: unknown;
       branches?: unknown;
       platform?: unknown;
     };
     return {
       user_id: typeof claims.sub === "string" ? claims.sub : undefined,
+      display_name:
+        typeof claims.name === "string" && claims.name.trim()
+          ? claims.name
+          : undefined,
+      email:
+        typeof claims.email === "string" && claims.email.trim()
+          ? claims.email
+          : undefined,
       roles: Array.isArray(claims.roles)
         ? claims.roles.filter((r): r is string => typeof r === "string")
         : undefined,

@@ -123,7 +123,57 @@ describe("AuthProvider boot silent refresh", () => {
     });
     expect(sessionStorage.length).toBe(0);
   });
+
+  it("decodes the display-name and email claims into the session", async () => {
+    const header = btoa(JSON.stringify({ alg: "ES256", typ: "JWT" }));
+    // The `name` claim is non-ASCII, so encode the payload as UTF-8 -> base64
+    // exactly as the backend JWT serializer does (a bare btoa would throw).
+    const utf8ToBase64 = (value: string) =>
+      btoa(String.fromCharCode(...new TextEncoder().encode(value)));
+    const payload = utf8ToBase64(
+      JSON.stringify({
+        sub: "00000000-0000-4000-8000-000000000001",
+        roles: ["ADMIN"],
+        name: "김관리",
+        email: "admin@example.com",
+      }),
+    );
+    const access = `${header}.${payload}.sig`;
+    server.use(
+      http.post("*/api/v1/auth/token/refresh", () =>
+        HttpResponse.json({
+          access_token: access,
+          refresh_token: null,
+          token_type: "Bearer",
+          refresh_expires_at: "2026-06-19T00:00:00Z",
+        }),
+      ),
+    );
+
+    render(
+      <AuthProvider>
+        <IdentityProbe />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("identity")).toHaveTextContent(
+        "김관리|admin@example.com",
+      );
+    });
+  });
 });
+
+/** Surfaces the decoded display-name + email claims for assertion. */
+function IdentityProbe() {
+  const { session, restoring } = useAuth();
+  if (restoring) return <div data-testid="identity">restoring</div>;
+  return (
+    <div data-testid="identity">
+      {`${session?.display_name ?? "-"}|${session?.email ?? "-"}`}
+    </div>
+  );
+}
 
 /**
  * A probe that surfaces the active session's platform flag + token plus buttons

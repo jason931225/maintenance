@@ -198,7 +198,7 @@ describe("financial purchase request workflow", () => {
     await user.type(screen.getByLabelText("거래처명"), "한빛부품");
     await user.type(screen.getByLabelText("금액 (원)"), "500000");
     await user.type(
-      screen.getByLabelText("거래명세표 증빙 ID (UUID)"),
+      screen.getByLabelText("거래명세표 증빙 번호"),
       evidenceId,
     );
     await user.click(screen.getByRole("button", { name: "작성" }));

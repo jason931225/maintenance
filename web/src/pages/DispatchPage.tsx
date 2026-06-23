@@ -374,6 +374,7 @@ export function DispatchPage() {
         <DispatchBoard
           workOrders={workOrders}
           selectedMechanicId={session?.user_id ?? ""}
+          selectedMechanicName={session?.display_name}
           isLoading={readState === "loading"}
           onAssignWorkOrder={assignWorkOrder}
           onSelectWorkOrder={isManager ? setSelectedWorkOrderId : undefined}

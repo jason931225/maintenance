@@ -1,12 +1,14 @@
 import { CalendarPlus, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type {
+  BranchSummary,
   CompleteInspectionRoundRequest,
   CreateInspectionScheduleRequest,
   InspectionCycle,
   InspectionRoundOutcome,
   InspectionScheduleSummary,
+  UserSummary,
 } from "../api/types";
 import { useAuth } from "../context/auth";
 import { PageError } from "../components/states/PageError";
@@ -14,11 +16,16 @@ import { PageHeader } from "../components/shell/PageHeader";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import {
+  AsyncCombobox,
+  Combobox,
+  type ComboboxOption,
+} from "../components/ui/combobox";
 import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { Textarea } from "../components/ui/textarea";
 import { ko } from "../i18n/ko";
-import { todayInSeoul } from "../lib/utils";
+import { safeLabel, todayInSeoul } from "../lib/utils";
 
 const ROUND_OUTCOMES: InspectionRoundOutcome[] = [
   "COMPLETED",
@@ -78,6 +85,13 @@ export function InspectionPage() {
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState<string>();
   const [createError, setCreateError] = useState<string>();
+  // Picker option sources for the create form: branches + mechanics are small
+  // and preloaded for client-side filtering; equipment is searched on demand.
+  const [branches, setBranches] = useState<BranchSummary[]>([]);
+  const [mechanics, setMechanics] = useState<UserSummary[]>([]);
+  // The equipment option the admin picked, kept so the human label renders for
+  // the already-selected id (the search endpoint is a per-query typeahead).
+  const [equipmentOption, setEquipmentOption] = useState<ComboboxOption>();
   // The schedule whose "complete round" form is open, plus the last-completed
   // notice. There is one open round form at a time so the list stays compact.
   const [completingId, setCompletingId] = useState<string>();
@@ -103,6 +117,59 @@ export function InspectionPage() {
     void Promise.resolve().then(load);
   }, [load]);
 
+  // Load the branch + mechanic option sources once for the create-form pickers.
+  const loadOptions = useCallback(async () => {
+    const [branchRes, userRes] = await Promise.all([
+      api.GET("/api/v1/branches").catch(() => undefined),
+      api
+        .GET("/api/v1/users", {
+          params: { query: { include_inactive: false } },
+        })
+        .catch(() => undefined),
+    ]);
+    if (branchRes?.data) setBranches(branchRes.data);
+    if (userRes?.data) {
+      setMechanics(
+        userRes.data.filter((user) => user.roles.includes("MECHANIC")),
+      );
+    }
+  }, [api]);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadOptions);
+  }, [loadOptions]);
+
+  const branchOptions = useMemo<ComboboxOption[]>(
+    () => branches.map((branch) => ({ id: branch.id, label: branch.name })),
+    [branches],
+  );
+
+  const mechanicOptions = useMemo<ComboboxOption[]>(
+    () =>
+      mechanics.map((user) => ({
+        id: user.id,
+        label: user.display_name,
+        sublabel: user.phone ?? undefined,
+      })),
+    [mechanics],
+  );
+
+  const searchEquipment = useCallback(
+    async (query: string): Promise<ComboboxOption[]> => {
+      const response = await api
+        .GET("/api/v1/equipment", { params: { query: { q: query, limit: 8 } } })
+        .catch(() => undefined);
+      return (response?.data?.items ?? []).map((item) => ({
+        id: item.id,
+        label: safeLabel(item.management_no, item.equipment_no),
+        sublabel: [item.model, item.customer.name, item.site.name]
+          .filter(Boolean)
+          .join(" · "),
+      }));
+    },
+    [api],
+  );
+
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
@@ -125,6 +192,7 @@ export function InspectionPage() {
       if (response.data) {
         setNotice(ko.inspection.createSuccess);
         setForm(emptyForm());
+        setEquipmentOption(undefined);
         await load();
       } else {
         setCreateError(ko.inspection.createFailed);
@@ -248,8 +316,14 @@ export function InspectionPage() {
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="grid gap-1">
                         <span className="font-medium text-ink">
-                          {schedule.management_no ?? schedule.equipment_id}
-                          {schedule.model ? ` · ${schedule.model}` : ""}
+                          {safeLabel(
+                            schedule.management_no,
+                            schedule.model,
+                            ko.common.noNumber,
+                          )}
+                          {schedule.model && schedule.management_no
+                            ? ` · ${schedule.model}`
+                            : ""}
                         </span>
                         <span className="text-sm text-steel">
                           {schedule.site_name} ·{" "}
@@ -273,7 +347,7 @@ export function InspectionPage() {
                             type="button"
                             size="sm"
                             variant="secondary"
-                            aria-label={`${schedule.management_no ?? schedule.equipment_id} ${ko.inspection.round.complete}`}
+                            aria-label={`${safeLabel(schedule.management_no, schedule.model, ko.common.noNumber)} ${ko.inspection.round.complete}`}
                             onClick={() => {
                               setRoundNotice(undefined);
                               setCompletingId((current) =>
@@ -323,30 +397,60 @@ export function InspectionPage() {
               void handleCreate();
             }}
           >
-            <Field
-              id="ins-branch"
-              label={ko.inspection.fields.branchId}
-              value={form.branch_id}
-              onChange={(v) => {
-                setField("branch_id", v);
-              }}
-            />
-            <Field
-              id="ins-equipment"
-              label={ko.inspection.fields.equipmentId}
-              value={form.equipment_id}
-              onChange={(v) => {
-                setField("equipment_id", v);
-              }}
-            />
-            <Field
-              id="ins-mechanic"
-              label={ko.inspection.fields.mechanicId}
-              value={form.mechanic_id}
-              onChange={(v) => {
-                setField("mechanic_id", v);
-              }}
-            />
+            <div className="grid gap-2">
+              <label
+                className="text-sm font-medium text-steel"
+                htmlFor="ins-branch"
+              >
+                {ko.inspection.fields.branch}
+              </label>
+              <Combobox
+                id="ins-branch"
+                options={branchOptions}
+                value={form.branch_id}
+                onChange={(v) => {
+                  setField("branch_id", v);
+                }}
+                placeholder={ko.inspection.fields.branchPlaceholder}
+              />
+            </div>
+            <div className="grid gap-2">
+              <label
+                className="text-sm font-medium text-steel"
+                htmlFor="ins-equipment"
+              >
+                {ko.inspection.fields.equipment}
+              </label>
+              <AsyncCombobox
+                id="ins-equipment"
+                search={searchEquipment}
+                value={form.equipment_id}
+                selectedOption={equipmentOption}
+                onChange={(v) => {
+                  setField("equipment_id", v);
+                  if (!v) setEquipmentOption(undefined);
+                }}
+                onSelectOption={setEquipmentOption}
+                placeholder={ko.inspection.fields.equipmentPlaceholder}
+              />
+            </div>
+            <div className="grid gap-2">
+              <label
+                className="text-sm font-medium text-steel"
+                htmlFor="ins-mechanic"
+              >
+                {ko.inspection.fields.mechanic}
+              </label>
+              <Combobox
+                id="ins-mechanic"
+                options={mechanicOptions}
+                value={form.mechanic_id}
+                onChange={(v) => {
+                  setField("mechanic_id", v);
+                }}
+                placeholder={ko.inspection.fields.mechanicPlaceholder}
+              />
+            </div>
             <div className="grid gap-2">
               <label
                 className="text-sm font-medium text-steel"

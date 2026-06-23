@@ -22,10 +22,14 @@ import { PageEmpty } from "../components/states/PageEmpty";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import {
+  AsyncCombobox,
+  type ComboboxOption,
+} from "../components/ui/combobox";
 import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { Textarea } from "../components/ui/textarea";
-import { cn } from "../lib/utils";
+import { cn, safeLabel } from "../lib/utils";
 import { ko } from "../i18n/ko";
 
 type Tab = "listings" | "inquiries";
@@ -884,9 +888,31 @@ function ListingFormDialog({
   onCancel: () => void;
   onSubmit: () => void;
 }) {
+  const { api } = useAuth();
+  // The equipment option chosen in this session, so the human label persists
+  // for the selected id (the search endpoint is a per-query typeahead). When
+  // editing an existing listing we only know the id, not its label.
+  const [equipmentOption, setEquipmentOption] = useState<ComboboxOption>();
+
   function set<K extends keyof ListingForm>(key: K, value: ListingForm[K]) {
     onChange({ ...form, [key]: value });
   }
+
+  const searchEquipment = useCallback(
+    async (query: string): Promise<ComboboxOption[]> => {
+      const response = await api
+        .GET("/api/v1/equipment", { params: { query: { q: query, limit: 8 } } })
+        .catch(() => undefined);
+      return (response?.data?.items ?? []).map((item) => ({
+        id: item.id,
+        label: safeLabel(item.management_no, item.equipment_no),
+        sublabel: [item.model, item.customer.name, item.site.name]
+          .filter(Boolean)
+          .join(" · "),
+      }));
+    },
+    [api],
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/40 p-4 sm:p-8">
@@ -1078,14 +1104,34 @@ function ListingFormDialog({
             />
           </Field>
 
-          <Field label={ko.catalog.form.equipmentIdLabel}>
-            <Input
+          <div className="flex flex-col gap-1.5">
+            <label
+              className="text-sm font-medium text-ink"
+              htmlFor="catalog-equipment-link"
+            >
+              {ko.catalog.form.equipmentLabel}
+            </label>
+            <AsyncCombobox
+              id="catalog-equipment-link"
+              search={searchEquipment}
               value={form.equipment_id}
-              onChange={(event) => {
-                set("equipment_id", event.target.value);
+              selectedOption={
+                equipmentOption ??
+                (form.equipment_id
+                  ? {
+                      id: form.equipment_id,
+                      label: ko.catalog.form.equipmentLinked,
+                    }
+                  : undefined)
+              }
+              onChange={(v) => {
+                set("equipment_id", v);
+                if (!v) setEquipmentOption(undefined);
               }}
+              onSelectOption={setEquipmentOption}
+              placeholder={ko.catalog.form.equipmentPlaceholder}
             />
-          </Field>
+          </div>
 
           <Field label={ko.catalog.form.descriptionLabel} className="sm:col-span-2">
             <Textarea

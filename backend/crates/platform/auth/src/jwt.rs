@@ -46,6 +46,11 @@ pub struct AccessTokenInput {
     /// explicit in the token and a future non-read-only impersonation mode would
     /// be an additive change, never a silent reinterpretation.
     pub read_only: bool,
+    /// The authenticated user's display name, stamped into the optional `name`
+    /// claim for DISPLAY ONLY (topbar identity, etc.). Never consulted for
+    /// authorization. `None` omits the claim entirely, which keeps view-as and
+    /// any future operator-less mint backward compatible.
+    pub display_name: Option<String>,
     pub issued_at: time::OffsetDateTime,
 }
 
@@ -81,6 +86,11 @@ pub struct AccessClaims {
     /// explicit claim so the read-only contract is self-describing.
     #[serde(default)]
     pub read_only: bool,
+    /// The user's display name, for DISPLAY ONLY (e.g. the topbar identity).
+    /// Optional and never used for authorization. Absent in legacy tokens and
+    /// omitted from the wire when `None`, so old tokens remain valid verbatim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub alg: String,
 }
 
@@ -152,6 +162,7 @@ impl JwtIssuer {
             platform: input.platform,
             view_as: input.view_as,
             read_only: input.read_only,
+            name: input.display_name,
             alg: "ES256".to_owned(),
         };
 

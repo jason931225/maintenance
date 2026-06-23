@@ -200,7 +200,13 @@ export function RentalQuotePanel({ api, roles }: RentalQuotePanelProps) {
                 setSelectedId(quote.id);
               }}
             >
-              <span className="text-sm text-steel">{quote.id}</span>
+              <span className="text-sm text-steel">
+                {ko.financial.quote.createdAt}{" "}
+                {new Date(quote.created_at).toLocaleString("ko-KR", {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                })}
+              </span>
               <span className="font-semibold text-ink">
                 {formatWon(quote.monthly_total)} {ko.financial.wonUnit}
               </span>

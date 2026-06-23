@@ -237,6 +237,7 @@ fn issue_token(
         platform: false,
         view_as: false,
         read_only: false,
+        display_name: None,
         issued_at: OffsetDateTime::now_utc(),
     })?)
 }

@@ -76,6 +76,7 @@ fn issue_token(private_key_pem: &[u8], public_key_pem: &[u8]) -> String {
             platform: false,
             view_as: false,
             read_only: false,
+            display_name: None,
             issued_at: OffsetDateTime::now_utc(),
         })
         .unwrap()

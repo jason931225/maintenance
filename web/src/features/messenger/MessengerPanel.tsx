@@ -39,6 +39,17 @@ interface MessengerPanelProps {
   currentUserId?: string;
 }
 
+/**
+ * The human label for a thread: its title when set, otherwise a generic
+ * kind-based label. NEVER the raw thread/work-order UUID. (A real work-order
+ * NUMBER would require a backend schema addition — `work_order_id` is a UUID.)
+ */
+function threadTitle(thread: MessengerThreadSummary): string {
+  const title = thread.title?.trim();
+  if (title) return title;
+  return ko.messenger.untitled[thread.kind];
+}
+
 type LoadState = "idle" | "loading" | "error";
 
 export function MessengerPanel({
@@ -435,7 +446,7 @@ export function MessengerPanel({
             >
               <span className="flex items-center justify-between gap-2">
                 <span className="font-semibold text-ink">
-                  {thread.title?.trim() || `WO ${thread.work_order_id ?? thread.id}`}
+                  {threadTitle(thread)}
                 </span>
                 <Badge>{ko.messenger.kinds[thread.kind]}</Badge>
               </span>
@@ -458,8 +469,7 @@ export function MessengerPanel({
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-base font-semibold text-ink">
                     <MessageSquare aria-hidden="true" className="mr-2 inline" size={18} />
-                    {selectedThread.title?.trim() ||
-                      `WO ${selectedThread.work_order_id ?? selectedThread.id}`}
+                    {threadTitle(selectedThread)}
                   </h3>
                   {state.nextCursorByThread[selectedThread.id] ? (
                     <Button

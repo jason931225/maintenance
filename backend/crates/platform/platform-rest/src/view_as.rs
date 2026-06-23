@@ -199,6 +199,10 @@ async fn start_view_as(
                 platform: false,
                 view_as: true,
                 read_only: true,
+                // No display name on an impersonation token: the persistent
+                // view-as banner already names the acting tenant/role, and the
+                // operator's own identity is audited separately at start/exit.
+                display_name: None,
                 issued_at: now,
             },
             VIEW_AS_TOKEN_TTL,

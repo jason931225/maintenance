@@ -5,13 +5,21 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { ko } from "../../i18n/ko";
+import { safeLabel } from "../../lib/utils";
 import { SlaBadge } from "./SlaBadge";
 
 type WorkOrderStatus = WorkOrderListItem["status"];
 
 interface DispatchBoardProps {
   workOrders: WorkOrderListItem[];
+  /** The id submitted on assign — never rendered to the user. */
   selectedMechanicId: string;
+  /**
+   * The acting mechanic's human display name, shown in the board header. Falls
+   * back to a generic label via `safeLabel`; the raw `selectedMechanicId` UUID
+   * is never surfaced.
+   */
+  selectedMechanicName?: string;
   isLoading?: boolean;
   onAssignWorkOrder: (
     workOrderId: string,
@@ -62,6 +70,7 @@ const groups: {
 export function DispatchBoard({
   workOrders,
   selectedMechanicId,
+  selectedMechanicName,
   isLoading = false,
   onAssignWorkOrder,
   onSelectWorkOrder,
@@ -72,7 +81,7 @@ export function DispatchBoard({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-ink">{ko.dispatch.title}</h2>
         <p className="text-sm text-steel">
-          {ko.dispatch.selectedMechanic}: {selectedMechanicId}
+          {ko.dispatch.selectedMechanic}: {safeLabel(selectedMechanicName)}
         </p>
       </div>
       {workOrders.length === 0 ? (

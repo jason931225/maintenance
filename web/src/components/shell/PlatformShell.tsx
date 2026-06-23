@@ -5,7 +5,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/auth";
 import { TitleProvider } from "../../context/title";
 import { ko } from "../../i18n/ko";
-import { cn } from "../../lib/utils";
+import { cn, identityLabel } from "../../lib/utils";
 import { RouteErrorBoundary } from "../RouteErrorBoundary";
 import { PageSpinner } from "../states/PageSpinner";
 
@@ -114,7 +114,7 @@ function PlatformTopbar() {
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-steel">
-          {session?.user_id ?? ko.shell.user}
+          {identityLabel(session, ko.platform.shell.operator)}
         </p>
       </div>
       <button

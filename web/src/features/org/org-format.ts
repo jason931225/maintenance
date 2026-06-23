@@ -24,5 +24,10 @@ export function teamLabel(team: Team): string {
 }
 
 export function roleLabel(role: string): string {
-  return (ko.users.roles as Record<string, string>)[role] ?? role;
+  // Map known role codes to their Korean labels. An unrecognized code (e.g. a
+  // backend enum the client predates) falls back to a human label rather than
+  // surfacing the raw internal code to the user.
+  return (
+    (ko.users.roles as Record<string, string>)[role] ?? ko.common.unknownLabel
+  );
 }

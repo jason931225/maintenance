@@ -202,7 +202,7 @@ describe("DispatchPage manager controls", () => {
 
     // Look up the active dispatch via the offers panel so the manager controls
     // expose the force-assign action for that dispatch id.
-    await user.type(await screen.findByLabelText("배차 ID"), DISPATCH_ID);
+    await user.type(await screen.findByLabelText("배차 코드"), DISPATCH_ID);
     await user.click(screen.getByRole("button", { name: "조회" }));
     await screen.findByText("수락 대기");
 
@@ -247,7 +247,7 @@ describe("DispatchPage mechanic accept/decline", () => {
 
     renderApp(makeAuthContext(mechanicSession));
 
-    await user.type(await screen.findByLabelText("배차 ID"), DISPATCH_ID);
+    await user.type(await screen.findByLabelText("배차 코드"), DISPATCH_ID);
     await user.click(screen.getByRole("button", { name: "조회" }));
 
     await user.click(await screen.findByRole("button", { name: "수락" }));
