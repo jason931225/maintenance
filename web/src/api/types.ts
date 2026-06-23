@@ -118,6 +118,9 @@ export type CreateRentalQuoteRequest =
 export type CostLedgerEntrySummary =
   components["schemas"]["CostLedgerEntrySummary"];
 export type CostLedgerSource = components["schemas"]["CostLedgerSource"];
+export type AssetLifecycleCostSummary =
+  components["schemas"]["AssetLifecycleCostSummary"];
+export type AcquisitionBasis = components["schemas"]["AcquisitionBasis"];
 export type QuoteLine = components["schemas"]["QuoteLine"];
 
 // Storefront / sales catalog (#6 KNL forklift storefront).

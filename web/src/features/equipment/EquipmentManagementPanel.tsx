@@ -45,6 +45,8 @@ interface FormState {
   management_no: string;
   model: string;
   maker: string;
+  acquisition_cost_won: string;
+  acquisition_date: string;
   note: string;
 }
 
@@ -59,6 +61,8 @@ function emptyForm(): FormState {
     management_no: "",
     model: "",
     maker: "",
+    acquisition_cost_won: "",
+    acquisition_date: "",
     note: "",
   };
 }
@@ -85,6 +89,18 @@ function normalizeStatus(raw: string): EquipmentStatus {
 function nullableTrim(value: string): string | null {
   const trimmed = value.trim();
   return trimmed.length === 0 ? null : trimmed;
+}
+
+/**
+ * Parse an acquisition-cost input. Empty -> `undefined` (omit the key, leaving
+ * the column unchanged); a non-negative integer string -> that number. Any other
+ * input is treated as empty so we never send a malformed body.
+ */
+function parseAcquisitionCost(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  const parsed = Number(trimmed);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 export function EquipmentManagementPanel({
@@ -159,6 +175,18 @@ export function EquipmentManagementPanel({
           maker: nullableTrim(form.maker),
           note: nullableTrim(form.note),
         };
+        // Acquisition is a master-level accounting fact. A non-empty value sets
+        // it; left empty, the key is omitted so the existing value is untouched
+        // (the search summary does not carry the current acquisition figure, so
+        // we never blindly clear it).
+        const acquisitionCost = parseAcquisitionCost(form.acquisition_cost_won);
+        if (acquisitionCost !== undefined) {
+          body.acquisition_cost_won = acquisitionCost;
+        }
+        const acquisitionDate = form.acquisition_date.trim();
+        if (acquisitionDate.length > 0) {
+          body.acquisition_date = acquisitionDate;
+        }
         const response = await api.PATCH("/api/v1/equipment/{id}", {
           params: { path: { id: editingId } },
           body,
@@ -328,6 +356,26 @@ export function EquipmentManagementPanel({
                 setField("maker", v);
               }}
             />
+            {mode === "edit" ? (
+              <>
+                <Field
+                  id="eq-acquisition-cost"
+                  label={ko.equipment.fields.acquisitionCost}
+                  value={form.acquisition_cost_won}
+                  onChange={(v) => {
+                    setField("acquisition_cost_won", v);
+                  }}
+                />
+                <Field
+                  id="eq-acquisition-date"
+                  label={ko.equipment.fields.acquisitionDate}
+                  value={form.acquisition_date}
+                  onChange={(v) => {
+                    setField("acquisition_date", v);
+                  }}
+                />
+              </>
+            ) : null}
           </div>
           <div className="grid gap-2">
             <label

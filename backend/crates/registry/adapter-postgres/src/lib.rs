@@ -1529,6 +1529,15 @@ fn update_after_snapshot(
             json!(value.map(MoneyWon::amount)),
         );
     }
+    if let Some(value) = fields.acquisition_cost_won {
+        map.insert(
+            "acquisition_cost_won".to_owned(),
+            json!(value.map(MoneyWon::amount)),
+        );
+    }
+    if let Some(date) = fields.acquisition_date {
+        map.insert("acquisition_date".to_owned(), json!(date));
+    }
     after
 }
 
@@ -1623,6 +1632,14 @@ async fn apply_scalar_equipment_update(
     if let Some(value) = fields.residual_value {
         builder.push(", residual_value = ");
         builder.push_bind(value.map(MoneyWon::amount));
+    }
+    if let Some(value) = fields.acquisition_cost_won {
+        builder.push(", acquisition_cost_won = ");
+        builder.push_bind(value.map(MoneyWon::amount));
+    }
+    if let Some(date) = fields.acquisition_date {
+        builder.push(", acquisition_date = ");
+        builder.push_bind(date);
     }
     builder.push(" WHERE id = ");
     builder.push_bind(*equipment_id.as_uuid());

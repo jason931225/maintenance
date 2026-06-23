@@ -132,6 +132,61 @@ async fn equipment_crud_create_update_soft_delete_is_audited(pool: PgPool) {
         assert_eq!(updated.status, "예비");
         assert_eq!(updated.model, None);
         assert_eq!(updated.residual_value, Some(7_500_000));
+        // Acquisition cost is untouched by an unrelated update (distinct field).
+        assert_eq!(updated.acquisition_cost_won, None);
+        assert_eq!(updated.acquisition_date, None);
+
+        // Set acquisition cost + date; vehicle_value must stay distinct/unchanged.
+        let acq_body = json!({
+            "acquisition_cost_won": 42_000_000,
+            "acquisition_date": "2024-06-01"
+        });
+        let (status, _) = harness
+            .send(
+                "PATCH",
+                &format!("/api/v1/equipment/{id}"),
+                Some(json_body(&acq_body)),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let with_acq = fetch_equipment_view(&pool, &id).await;
+        assert_eq!(with_acq.acquisition_cost_won, Some(42_000_000));
+        assert_eq!(with_acq.acquisition_date.as_deref(), Some("2024-06-01"));
+        assert_eq!(
+            with_acq.vehicle_value,
+            Some(50_000_000),
+            "acquisition is a distinct fact; it must not touch vehicle_value"
+        );
+
+        // A negative acquisition cost is rejected by the DB CHECK (>= 0).
+        let bad_body = json!({ "acquisition_cost_won": -1 });
+        let (status, _) = harness
+            .send(
+                "PATCH",
+                &format!("/api/v1/equipment/{id}"),
+                Some(json_body(&bad_body)),
+            )
+            .await;
+        assert_ne!(
+            status,
+            StatusCode::NO_CONTENT,
+            "negative acquisition cost must be rejected"
+        );
+
+        // Clearing acquisition cost (explicit null) sets it back to NULL.
+        let clear_body = json!({ "acquisition_cost_won": null });
+        let (status, _) = harness
+            .send(
+                "PATCH",
+                &format!("/api/v1/equipment/{id}"),
+                Some(json_body(&clear_body)),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(
+            fetch_equipment_view(&pool, &id).await.acquisition_cost_won,
+            None
+        );
 
         // Soft delete: marks 폐기, never removes the row.
         let (status, _) = harness
@@ -146,39 +201,43 @@ async fn equipment_crud_create_update_soft_delete_is_audited(pool: PgPool) {
             .await;
         assert_eq!(status, StatusCode::CONFLICT);
 
-        // Every mutation produced exactly one audit row.
-        for action in ["equipment.create", "equipment.update", "equipment.delete"] {
-            assert_eq!(
-                audit_count(&pool, action).await,
-                1,
-                "audit row for {action}"
-            );
-        }
+        // create/delete produced exactly one audit row each; the three
+        // successful updates (status, acquisition set, acquisition clear) each
+        // produced one — the rejected negative update produced none.
+        assert_eq!(audit_count(&pool, "equipment.create").await, 1);
+        assert_eq!(audit_count(&pool, "equipment.delete").await, 1);
+        assert_eq!(
+            audit_count(&pool, "equipment.update").await,
+            3,
+            "one audit row per successful update; the rejected negative update is not audited"
+        );
     })
     .await;
 }
 
+#[derive(sqlx::FromRow)]
 struct EquipmentView {
     status: String,
     model: Option<String>,
     vehicle_value: Option<i64>,
     residual_value: Option<i64>,
+    acquisition_cost_won: Option<i64>,
+    acquisition_date: Option<String>,
 }
 
 async fn fetch_equipment_view(pool: &PgPool, id: &str) -> EquipmentView {
-    let row: (String, Option<String>, Option<i64>, Option<i64>) = sqlx::query_as(
-        "SELECT status, model, vehicle_value, residual_value FROM registry_equipment WHERE id = $1",
+    // acquisition_date is formatted to an ISO string in SQL so the row tuple
+    // stays simple (no nested `time::Date`).
+    let row: EquipmentView = sqlx::query_as(
+        "SELECT status, model, vehicle_value, residual_value, acquisition_cost_won, \
+                to_char(acquisition_date, 'YYYY-MM-DD') AS acquisition_date \
+         FROM registry_equipment WHERE id = $1",
     )
     .bind(uuid::Uuid::parse_str(id).unwrap())
     .fetch_one(pool)
     .await
     .unwrap();
-    EquipmentView {
-        status: row.0,
-        model: row.1,
-        vehicle_value: row.2,
-        residual_value: row.3,
-    }
+    row
 }
 
 async fn audit_count(pool: &PgPool, action: &str) -> i64 {
