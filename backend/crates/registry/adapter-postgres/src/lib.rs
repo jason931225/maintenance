@@ -11,8 +11,8 @@ use std::path::Path;
 
 use calamine::{Data, DataType, Range, Reader, open_workbook_auto};
 use mnt_kernel_core::{
-    BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId, KernelError, OrgId, SiteId,
-    TraceContext, UserId,
+    BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId, KernelError, SiteId, TraceContext,
+    UserId,
 };
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_platform_request_context::current_org;
@@ -406,7 +406,12 @@ impl PgRegistryStore {
         let org_uuid = *org.as_uuid();
         let parsed = parse_master_list(path)?;
         let branch_id = self.ensure_default_hq_branch().await?;
-        let event = equipment_import_event(actor, branch_id, source_name, &parsed)?;
+        // Tag the audit event with the calling tenant so `with_audit` arms the
+        // transaction-local `app.current_org` GUC before the upsert loop runs.
+        // Without this, the customer/site/equipment INSERTs hit FORCE RLS with an
+        // unset GUC and are rejected as `mnt_rt` (the production 500); the
+        // BYPASSRLS superuser tests never exercise that path.
+        let event = equipment_import_event(actor, branch_id, source_name, &parsed)?.with_org(org);
         let branch_uuid = *branch_id.as_uuid();
         let input_rows = parsed.input_rows;
         let equipment_count = parsed.equipment.len();
@@ -664,35 +669,50 @@ impl PgRegistryStore {
         .await
     }
 
+    /// Resolve (creating on first use) the calling tenant's default `HQ`
+    /// region/branch, the single branch every master-list row is assigned to.
+    ///
+    /// RLS-armed: the region/branch upserts run inside `with_org_conn`, which
+    /// binds the transaction-local `app.current_org` GUC to `current_org()`, so
+    /// the `org_id = current_org` WITH CHECK on `regions`/`branches` passes under
+    /// FORCE RLS as the runtime role `mnt_rt`. Both rows carry the caller's org,
+    /// so a non-KNL tenant gets its own HQ rather than KNL's — equipment import
+    /// lands in the CALLER's org. A bare-pool transaction (no armed GUC) would
+    /// fail closed in production while passing the BYPASSRLS superuser tests.
     async fn ensure_default_hq_branch(&self) -> Result<BranchId, PgRegistryError> {
-        let mut tx = self.pool.begin().await?;
-        let region_id: uuid::Uuid = sqlx::query_scalar(
-            r#"
-            INSERT INTO regions (name, org_id)
-            VALUES ('HQ', $1)
-            ON CONFLICT (org_id, name) DO UPDATE SET name = EXCLUDED.name
-            RETURNING id
-            "#,
-        )
-        .bind(*OrgId::knl().as_uuid())
-        .fetch_one(tx.as_mut())
-        .await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        with_org_conn::<_, BranchId, PgRegistryError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let region_id: uuid::Uuid = sqlx::query_scalar(
+                    r#"
+                    INSERT INTO regions (name, org_id)
+                    VALUES ('HQ', $1)
+                    ON CONFLICT (org_id, name) DO UPDATE SET name = EXCLUDED.name
+                    RETURNING id
+                    "#,
+                )
+                .bind(org_uuid)
+                .fetch_one(tx.as_mut())
+                .await?;
 
-        let branch_id: uuid::Uuid = sqlx::query_scalar(
-            r#"
-            INSERT INTO branches (region_id, name, org_id)
-            VALUES ($1, 'HQ', $2)
-            ON CONFLICT (region_id, name) DO UPDATE SET name = EXCLUDED.name
-            RETURNING id
-            "#,
-        )
-        .bind(region_id)
-        .bind(*OrgId::knl().as_uuid())
-        .fetch_one(tx.as_mut())
-        .await?;
+                let branch_id: uuid::Uuid = sqlx::query_scalar(
+                    r#"
+                    INSERT INTO branches (region_id, name, org_id)
+                    VALUES ($1, 'HQ', $2)
+                    ON CONFLICT (region_id, name) DO UPDATE SET name = EXCLUDED.name
+                    RETURNING id
+                    "#,
+                )
+                .bind(region_id)
+                .bind(org_uuid)
+                .fetch_one(tx.as_mut())
+                .await?;
 
-        tx.commit().await?;
-        Ok(BranchId::from_uuid(branch_id))
+                Ok(BranchId::from_uuid(branch_id))
+            })
+        })
+        .await
     }
 }
 

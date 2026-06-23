@@ -2720,6 +2720,7 @@ dependencies = [
  "time",
  "tokio",
  "tower",
+ "tracing",
  "uuid",
 ]
 
