@@ -26,7 +26,10 @@ echo "db: applying migrations (MNT_APP_ROLE=migrate)" >&2
 if [[ -x "${MNT_APP_BIN}" ]]; then
   MNT_APP_ROLE=migrate DATABASE_URL="${DATABASE_URL}" "${MNT_APP_BIN}"
 else
-  ( cd "${BACKEND_DIR}" && MNT_APP_ROLE=migrate DATABASE_URL="${DATABASE_URL}" cargo run -q -p mnt-app )
+  # Build/run from source: force sqlx offline so the apalis-postgres dep (and
+  # our own queries) compile against the committed `.sqlx` cache, not the empty
+  # mnt_e2e DB (which lacks `apalis.jobs` until migrations run).
+  ( cd "${BACKEND_DIR}" && SQLX_OFFLINE=true MNT_APP_ROLE=migrate DATABASE_URL="${DATABASE_URL}" cargo run -q -p mnt-app )
 fi
 
 echo "db: seeding tenant fixtures" >&2

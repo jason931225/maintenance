@@ -66,7 +66,10 @@ echo "boot-backend: starting mnt-app api on ${MNT_HTTP_ADDR}" >&2
 if [[ -x "${MNT_APP_BIN}" ]]; then
   "${MNT_APP_BIN}" >"${LOG_FILE}" 2>&1 &
 else
-  ( cd "${BACKEND_DIR}" && cargo run -q -p mnt-app >"${LOG_FILE}" 2>&1 ) &
+  # Build/run from source: force sqlx offline so the apalis-postgres dep (and
+  # our own queries) compile against the committed `.sqlx` cache, not the empty
+  # mnt_e2e DB (which lacks `apalis.jobs` until migrations run).
+  ( cd "${BACKEND_DIR}" && SQLX_OFFLINE=true cargo run -q -p mnt-app >"${LOG_FILE}" 2>&1 ) &
 fi
 BACKEND_PID=$!
 echo "${BACKEND_PID}" >"${PID_FILE}"

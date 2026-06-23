@@ -60,7 +60,7 @@ export function statusBadgeClass(status: SupportTicketStatus): string {
     case "RESOLVED":
       return "border-emerald-300 bg-emerald-50 text-emerald-900";
     case "CLOSED":
-      return "border-slate-300 bg-slate-100 text-slate-700";
+      return "border-line bg-muted-panel text-steel";
   }
 }
 
@@ -72,9 +72,9 @@ export function priorityBadgeClass(priority: SupportTicketPriority): string {
     case "HIGH":
       return "border-orange-300 bg-orange-50 text-orange-900";
     case "MEDIUM":
-      return "border-slate-300 bg-slate-50 text-slate-800";
+      return "border-line bg-muted-panel text-steel";
     case "LOW":
-      return "border-slate-200 bg-slate-50 text-slate-600";
+      return "border-line bg-muted-panel text-steel";
   }
 }
 
