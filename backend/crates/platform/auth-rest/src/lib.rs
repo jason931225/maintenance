@@ -5,6 +5,7 @@
 //! those remain in the platform auth/provisioning crates.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+use std::collections::BTreeSet;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -885,12 +886,47 @@ async fn redeem_otp(
 /// `SubordinateUserCreate` feature. The issuance is audited inside
 /// `issue_for_zero_credential_user`. The returned OTP is shown once.
 ///
+/// The branch set a privileged admin credential action (issue-OTP /
+/// credential-reset) must authorize the caller against, given the TARGET user's
+/// resolved branch scope.
+///
+/// * `Branches(non-empty)` → `Some(branches)`: a branch-scoped target. The caller
+///   must be authorized for `SubordinateUserCreate` against EVERY one of them
+///   (the per-branch IDOR check, done by the caller).
+/// * `All` → `None`: an org-wide target (a `SUPER_ADMIN` / `EXECUTIVE`, for whom
+///   [`resolve_branch_scope_in_org`] returns `All`). There is no concrete branch
+///   to check. Such a target is always privileged, so by the privileged-target
+///   guard only a `SUPER_ADMIN` — who is authorized org-wide for this feature —
+///   can ever reach here; `caller_is_super_admin` is re-asserted as defense in
+///   depth so a future refactor of that guard cannot open a hole.
+/// * an empty branch set / any other scope → 403 (nothing issuable).
+///
+/// Shared by `issue_admin_otp` and `admin_credential_reset` so the two cannot
+/// drift: both previously matched only `Branches(non-empty)` and so 403'd on an
+/// `All`-scope (privileged) target — the "코드를 발급하지 못했습니다" OTP-issuance
+/// failure from issue #18. An org-wide target now resolves to `None` (authorized,
+/// no per-branch basis) instead of a hard 403.
+fn authorizable_target_branches(
+    target_scope: BranchScope,
+    caller_is_super_admin: bool,
+) -> Result<Option<BTreeSet<BranchId>>, RestError> {
+    match target_scope {
+        BranchScope::Branches(branches) if !branches.is_empty() => Ok(Some(branches)),
+        BranchScope::All if caller_is_super_admin => Ok(None),
+        _ => Err(RestError::forbidden(
+            "target user has no issuable branch scope",
+        )),
+    }
+}
+
 /// IDOR hardening: authorization is bound to the TARGET user's real branch/role
 /// resolved from the database, NOT to the client-supplied `body.branch_id`. The
 /// caller must be authorized for `SubordinateUserCreate` against EVERY branch the
 /// target belongs to, and a non-SUPER_ADMIN caller can never mint a code for an
 /// EXECUTIVE or SUPER_ADMIN target. This stops a branch-A admin from minting a
-/// sign-in OTP for a privileged user or for a user who lives in branch B.
+/// sign-in OTP for a privileged user or for a user who lives in branch B. An
+/// org-wide (privileged) target is issuable only by a SUPER_ADMIN — see
+/// [`authorizable_target_branches`].
 async fn issue_admin_otp(
     State(state): State<AuthRestState>,
     headers: HeaderMap,
@@ -928,31 +964,28 @@ async fn issue_admin_otp(
         resolve_branch_scope_in_org(&state.pool, principal.org_id, target.user_id, &target_roles)
             .await
             .map_err(|err| RestError::internal(err.to_string()))?;
-    let target_branches = match target_scope {
-        BranchScope::Branches(branches) if !branches.is_empty() => branches,
-        _ => {
+    let target_branches = authorizable_target_branches(target_scope, caller_is_super_admin)?;
+
+    // A branch-scoped target authorizes per-branch: `body.branch_id` is still
+    // accepted for API stability but no longer grants access (it must be one of the
+    // target's real branches), and the caller must be authorized for
+    // `SubordinateUserCreate` against EVERY one of them. An org-wide target
+    // (`None`) is authorized above (SUPER_ADMIN, org-wide) — no per-branch basis.
+    if let Some(branches) = &target_branches {
+        let requested_branch = BranchId::from_uuid(body.branch_id);
+        if !branches.contains(&requested_branch) {
             return Err(RestError::forbidden(
-                "target user has no issuable branch scope",
+                "branch_id does not belong to the target user",
             ));
         }
-    };
-
-    // `body.branch_id` is still accepted for API stability but no longer grants
-    // access: it must be one of the target's real branches, never the authz basis.
-    let requested_branch = BranchId::from_uuid(body.branch_id);
-    if !target_branches.contains(&requested_branch) {
-        return Err(RestError::forbidden(
-            "branch_id does not belong to the target user",
-        ));
-    }
-
-    for branch_id in &target_branches {
-        authorize(
-            &principal,
-            Action::limited(Feature::SubordinateUserCreate),
-            *branch_id,
-        )
-        .map_err(|_| RestError::forbidden("not allowed to issue sign-in codes"))?;
+        for branch_id in branches {
+            authorize(
+                &principal,
+                Action::limited(Feature::SubordinateUserCreate),
+                *branch_id,
+            )
+            .map_err(|_| RestError::forbidden("not allowed to issue sign-in codes"))?;
+        }
     }
 
     let ttl = resolve_otp_ttl(body.ttl_seconds)?;
@@ -1023,22 +1056,19 @@ async fn admin_credential_reset(
         resolve_branch_scope_in_org(&state.pool, principal.org_id, target.user_id, &target_roles)
             .await
             .map_err(|err| RestError::internal(err.to_string()))?;
-    let target_branches = match target_scope {
-        BranchScope::Branches(branches) if !branches.is_empty() => branches,
-        _ => {
-            return Err(RestError::forbidden(
-                "target user has no resettable branch scope",
-            ));
-        }
-    };
+    let target_branches = authorizable_target_branches(target_scope, caller_is_super_admin)?;
 
-    for branch_id in &target_branches {
-        authorize(
-            &principal,
-            Action::limited(Feature::SubordinateUserCreate),
-            *branch_id,
-        )
-        .map_err(|_| RestError::forbidden("not allowed to reset credentials"))?;
+    // Branch-scoped target → authorize the caller against EVERY one of the target's
+    // real branches. Org-wide target (`None`) is authorized above (SUPER_ADMIN).
+    if let Some(branches) = &target_branches {
+        for branch_id in branches {
+            authorize(
+                &principal,
+                Action::limited(Feature::SubordinateUserCreate),
+                *branch_id,
+            )
+            .map_err(|_| RestError::forbidden("not allowed to reset credentials"))?;
+        }
     }
 
     let now = OffsetDateTime::now_utc();
@@ -1765,8 +1795,41 @@ fn with_refresh_cookie(mut response: Response, cookie: Option<HeaderValue>) -> R
 
 #[cfg(test)]
 mod tests {
-    use super::client_ip;
+    use super::{authorizable_target_branches, client_ip};
     use axum::http::HeaderMap;
+    use mnt_kernel_core::{BranchId, BranchScope};
+    use std::collections::BTreeSet;
+    use uuid::Uuid;
+
+    #[test]
+    fn authorizable_branches_all_scope_issuable_only_by_super_admin() {
+        // The issue-#18 fix: an org-wide (SUPER_ADMIN / EXECUTIVE) target resolves
+        // to `All`. A SUPER_ADMIN caller may issue/reset for it with no per-branch
+        // basis (`None`); a non-SUPER_ADMIN caller can never reach a valid action
+        // (the privileged-target guard already blocks them earlier, and this is the
+        // defense-in-depth re-assertion).
+        assert!(matches!(
+            authorizable_target_branches(BranchScope::All, true),
+            Ok(None)
+        ));
+        assert!(authorizable_target_branches(BranchScope::All, false).is_err());
+    }
+
+    #[test]
+    fn authorizable_branches_branch_scoped_target() {
+        // A branch-scoped target returns its concrete branches for the per-branch
+        // authz loop (regardless of caller role — the loop enforces caller scope).
+        let branch = BranchId::from_uuid(Uuid::nil());
+        assert!(matches!(
+            authorizable_target_branches(BranchScope::single(branch), false),
+            Ok(Some(branches)) if branches == BTreeSet::from([branch])
+        ));
+        // An empty branch set is not issuable (matches the pre-fix behaviour for a
+        // genuinely unscoped target).
+        assert!(
+            authorizable_target_branches(BranchScope::Branches(BTreeSet::new()), true).is_err()
+        );
+    }
 
     fn headers_with_xff(value: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
