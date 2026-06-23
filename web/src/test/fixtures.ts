@@ -76,7 +76,7 @@ export const workOrderListItems: components["schemas"]["WorkOrderListItem"][] = 
     },
     customer: {
       id: "99999999-9999-4999-8999-999999999999",
-      name: "한빛물류",
+      name: "Acme Corporation",
     },
     site: {
       id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",

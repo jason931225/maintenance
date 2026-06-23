@@ -25,15 +25,15 @@ afterAll(() => {
 const orgs = [
   {
     id: "11111111-1111-4111-8111-111111111111",
-    slug: "hanbit-logistics",
-    name: "한빛물류",
+    slug: "acme-corp",
+    name: "Acme Corporation",
     status: "ACTIVE",
     created_at: "2026-01-01T00:00:00Z",
   },
   {
     id: "22222222-2222-4222-8222-222222222222",
-    slug: "daeyang-corp",
-    name: "대양기업",
+    slug: "globex-corp",
+    name: "Globex Corporation",
     status: "SUSPENDED",
     created_at: "2026-02-01T00:00:00Z",
   },
@@ -85,8 +85,8 @@ describe("Platform console routing", () => {
     expect(
       await screen.findByRole("heading", { name: "테넌트 관리" }),
     ).toBeVisible();
-    expect(await screen.findByText("한빛물류")).toBeVisible();
-    expect(screen.getByText("대양기업")).toBeVisible();
+    expect(await screen.findByText("Acme Corporation")).toBeVisible();
+    expect(screen.getByText("Globex Corporation")).toBeVisible();
   });
 
   it("redirects a tenant session away from /platform", async () => {
@@ -121,10 +121,10 @@ describe("Platform tenant list", () => {
 
     renderApp("/platform/tenants", makeAuthContext(platformSession));
 
-    const row = (await screen.findByText("한빛물류")).closest("tr");
+    const row = (await screen.findByText("Acme Corporation")).closest("tr");
     expect(row).not.toBeNull();
     const cells = within(row as HTMLElement);
-    expect(cells.getByText("hanbit-logistics")).toBeVisible();
+    expect(cells.getByText("acme-corp")).toBeVisible();
     expect(cells.getByText("활성")).toBeVisible();
   });
 
@@ -159,8 +159,8 @@ const opsTenants = {
   tenants: [
     {
       id: "11111111-1111-4111-8111-111111111111",
-      slug: "hanbit-logistics",
-      name: "한빛물류",
+      slug: "acme-corp",
+      name: "Acme Corporation",
       status: "ACTIVE",
       user_count: 12,
       active_user_count: 9,
@@ -170,8 +170,8 @@ const opsTenants = {
     },
     {
       id: "22222222-2222-4222-8222-222222222222",
-      slug: "daeyang-corp",
-      name: "대양기업",
+      slug: "globex-corp",
+      name: "Globex Corporation",
       status: "SUSPENDED",
       user_count: 3,
       active_user_count: 0,
@@ -191,15 +191,15 @@ describe("Platform ops dashboard", () => {
     expect(
       await screen.findByRole("heading", { name: "플랫폼 운영 현황" }),
     ).toBeVisible();
-    const row = (await screen.findByText("한빛물류")).closest("tr");
+    const row = (await screen.findByText("Acme Corporation")).closest("tr");
     expect(row).not.toBeNull();
     const cells = within(row as HTMLElement);
-    expect(cells.getByText("hanbit-logistics")).toBeVisible();
+    expect(cells.getByText("acme-corp")).toBeVisible();
     expect(cells.getByText("활성")).toBeVisible();
     expect(cells.getByText("12")).toBeVisible();
     expect(cells.getByText("4")).toBeVisible();
     // The no-activity placeholder renders for the suspended tenant.
-    const suspendedRow = (await screen.findByText("대양기업")).closest("tr");
+    const suspendedRow = (await screen.findByText("Globex Corporation")).closest("tr");
     expect(
       within(suspendedRow as HTMLElement).getByText("활동 없음"),
     ).toBeVisible();

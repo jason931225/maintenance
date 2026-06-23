@@ -369,7 +369,7 @@ export const ko = {
       description: "새 조직을 온보딩하고 최초 로그인용 일회용 코드를 발급합니다.",
       form: {
         name: "이름",
-        namePlaceholder: "예: 한빛물류",
+        namePlaceholder: "예: Acme Corporation",
         slug: "슬러그",
         slugPlaceholder: "예: hanbit-logistics",
         slugHint: "영문 소문자, 숫자, 하이픈만 사용할 수 있습니다.",

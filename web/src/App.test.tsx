@@ -312,7 +312,7 @@ describe("DispatchPage", () => {
     expect(
       screen.getByRole("heading", { name: "작업지시 목록" }),
     ).toBeVisible();
-    expect(screen.getAllByText(/한빛물류/)[0]).toBeVisible();
+    expect(screen.getAllByText(/Acme Corporation/)[0]).toBeVisible();
 
     await waitFor(() => {
       expect(
