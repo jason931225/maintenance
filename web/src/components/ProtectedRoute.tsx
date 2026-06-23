@@ -1,7 +1,15 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 
 import { PageSpinner } from "./states/PageSpinner";
+import { isPendingMember } from "./shell/nav";
 import { useAuth } from "../context/auth";
+
+/**
+ * Paths a no-grant MEMBER may still reach: the pending landing itself and their
+ * own profile (the one surface the backend allows). Any other tenant path is
+ * redirected to /pending so they never land on a 403 screen.
+ */
+const MEMBER_ALLOWED_PATHS = ["/pending", "/settings/profile"];
 
 /**
  * Used as a layout route element: renders <Outlet /> when authenticated,
@@ -47,6 +55,17 @@ export function ProtectedRoute({ children }: { children?: React.ReactNode }) {
   // handled by RequirePlatformRoute. The backend re-checks on every call.
   if (session.isPlatform && !location.pathname.startsWith("/platform")) {
     return <Navigate to="/platform" replace />;
+  }
+
+  // A just-signed-up tenant user with no role grant yet (empty roles or
+  // `["MEMBER"]`) is default-denied every Feature but Login by the backend, so
+  // every gated destination 403s. Route them to /pending instead of onto a
+  // generic error screen; allow only /pending and their own profile.
+  if (
+    isPendingMember(session.roles) &&
+    !MEMBER_ALLOWED_PATHS.includes(location.pathname)
+  ) {
+    return <Navigate to="/pending" replace />;
   }
 
   return children ? <>{children}</> : <Outlet />;

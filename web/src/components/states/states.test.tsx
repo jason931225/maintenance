@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { FeedbackBanner } from "./FeedbackBanner";
+import { PageError } from "./PageError";
 import { SkeletonCards, SkeletonTable } from "./Skeleton";
 
 describe("FeedbackBanner", () => {
@@ -28,6 +29,40 @@ describe("FeedbackBanner", () => {
       <FeedbackBanner kind="success" message={undefined} />,
     );
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe("PageError 403-awareness", () => {
+  it("shows a permission message and hides retry on a 403", () => {
+    const onRetry = vi.fn();
+    render(<PageError status={403} onRetry={onRetry} />);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "이 페이지에 접근할 권한이 없습니다.",
+    );
+    expect(screen.getByText("필요한 경우 관리자에게 문의하세요.")).toBeVisible();
+    // Retry is futile on a permission denial, so it must NOT be offered.
+    expect(
+      screen.queryByRole("button", { name: "다시 시도" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the retry button on a transient (500) failure", () => {
+    const onRetry = vi.fn();
+    render(<PageError status={500} onRetry={onRetry} />);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "데이터를 불러오지 못했습니다.",
+    );
+    expect(
+      screen.getByRole("button", { name: "다시 시도" }),
+    ).toBeVisible();
+  });
+
+  it("keeps the retry button when the status is unknown (network error)", () => {
+    const onRetry = vi.fn();
+    render(<PageError onRetry={onRetry} />);
+    expect(
+      screen.getByRole("button", { name: "다시 시도" }),
+    ).toBeVisible();
   });
 });
 

@@ -4,7 +4,10 @@ import { useNavigate } from "react-router-dom";
 
 import { useActiveBranchId, useAuth } from "../../context/auth";
 import { useCurrentTitle } from "../../context/title";
+import { roleLabel } from "../../features/org/org-format";
 import { ko } from "../../i18n/ko";
+import { cn, identityLabel } from "../../lib/utils";
+import { isPendingMember } from "./nav";
 
 interface TopbarProps {
   onOpenMobileSidebar: () => void;
@@ -56,6 +59,19 @@ function UserMenu() {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // Identity for the menu chrome: the display name (JWT `name` claim), then
+  // email, then a generic label — never the raw user_id UUID (identityLabel
+  // enforces this). The role chip shows the granted role, or a pending-approval
+  // badge for a just-signed-up user with no role yet.
+  const name = identityLabel(session, ko.shell.user);
+  const pending = isPendingMember(session?.roles);
+  const primaryRole = session?.roles?.find((role) => role !== "MEMBER");
+  const roleChip = pending
+    ? ko.shell.pendingApproval
+    : primaryRole
+      ? roleLabel(primaryRole)
+      : undefined;
+
   // Close on outside click and on Escape — the interactions users expect from a
   // menu (the previous <details> element offered neither).
   useEffect(() => {
@@ -93,7 +109,19 @@ function UserMenu() {
         className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-steel hover:bg-muted-panel focus-visible:outline-2 focus-visible:outline-ink"
       >
         <User size={18} aria-hidden="true" />
-        <span className="hidden sm:inline">{session?.user_id ?? ko.shell.user}</span>
+        <span className="hidden sm:inline">{name}</span>
+        {roleChip ? (
+          <span
+            className={cn(
+              "hidden items-center rounded-md px-1.5 py-0.5 text-xs font-medium sm:inline-flex",
+              pending
+                ? "border border-amber-300 bg-amber-50 text-amber-900"
+                : "border border-line bg-muted-panel text-steel",
+            )}
+          >
+            {roleChip}
+          </span>
+        ) : null}
       </button>
       {open ? (
         <div
@@ -102,9 +130,10 @@ function UserMenu() {
         >
           <div className="border-b border-line px-4 py-2">
             <p className="text-xs text-steel">{ko.shell.user}</p>
-            <p className="text-sm font-semibold text-ink truncate">
-              {session?.user_id ?? "—"}
-            </p>
+            <p className="text-sm font-semibold text-ink truncate">{name}</p>
+            {roleChip ? (
+              <p className="mt-0.5 text-xs text-steel">{roleChip}</p>
+            ) : null}
           </div>
           <button
             type="button"

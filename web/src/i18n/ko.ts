@@ -81,6 +81,8 @@ export const ko = {
     user: "사용자",
     branch: "지점",
     mainNav: "메인 내비게이션",
+    /** Role chip shown for a user with no role grant yet (MEMBER / empty roles). */
+    pendingApproval: "승인 대기",
   },
   page: {
     refresh: "새로고침",
@@ -89,6 +91,10 @@ export const ko = {
     loadFailed: "데이터를 불러오지 못했습니다.",
     empty: "표시할 내용이 없습니다.",
     dismiss: "알림 닫기",
+    // Shown when a request is denied (HTTP 403). Retry is futile, so PageError
+    // shows this permission message and hides the retry button.
+    permissionDenied: "이 페이지에 접근할 권한이 없습니다.",
+    permissionDeniedHint: "필요한 경우 관리자에게 문의하세요.",
   },
   app: {
     title: "정비 콘솔",
@@ -152,6 +158,17 @@ export const ko = {
           "QR 코드를 휴대폰 카메라로 스캔하여 휴대폰에 패스키를 등록합니다.",
       },
     },
+  },
+  // Landing page for a just-signed-up user with no role grant yet (MEMBER /
+  // empty roles). The backend denies every feature but login until an admin
+  // grants a role, so we route here instead of bouncing them onto a 403 screen.
+  pending: {
+    title: "계정이 생성되었습니다",
+    message:
+      "관리자가 권한을 부여할 때까지 기다려 주세요. 권한이 부여되면 콘솔의 기능을 사용할 수 있습니다.",
+    contactGuidance:
+      "권한 부여가 지연되면 담당 관리자에게 문의하세요.",
+    profileLink: "내 프로필 보기",
   },
   enrollHandoff: {
     instruction: "휴대폰 카메라로 스캔하여 등록",
@@ -289,6 +306,7 @@ export const ko = {
       EXECUTIVE: "임원",
       MECHANIC: "정비사",
       RECEPTIONIST: "접수담당",
+      MEMBER: "일반 멤버",
     },
   },
   org: {
@@ -509,6 +527,9 @@ export const ko = {
     saved: "프로필을 저장했습니다.",
     loadFailed: "프로필을 불러오지 못했습니다.",
     saveFailed: "프로필을 저장하지 못했습니다. 다시 시도하세요.",
+    // Helper shown under the role badge for a user awaiting a role grant (MEMBER).
+    memberHelp:
+      "권한이 부여되기 전까지 일부 기능은 사용할 수 없습니다. 관리자에게 문의하세요.",
   },
   security: {
     title: "보안 (패스키)",
@@ -560,6 +581,12 @@ export const ko = {
     requiredRequestedOn: "요청일자를 선택하세요.",
     requiredContactPhone: "정비문의 연락처를 입력하세요.",
     created: "접수가 저장되었습니다.",
+    // Shown to a user without WorkOrderCreate (a just-signed-up MEMBER): the form
+    // is hidden and this notice is rendered instead of a fillable form that 403s
+    // only on submit.
+    permissionDenied: "권한이 없습니다 — 관리자에게 문의하세요.",
+    permissionDeniedHint:
+      "접수를 작성하려면 접수 권한이 필요합니다. 관리자에게 권한을 요청하세요.",
     // Success banner reads the returned request_no back so the receptionist can
     // tell the caller their order number, with a deep-link to the detail view.
     createdWithNo: "접수가 저장되었습니다. 접수번호 {requestNo}",

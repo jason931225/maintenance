@@ -131,9 +131,14 @@ function makeAuthContext(session: AuthSession | undefined): AuthContextValue {
   };
 }
 
+// A generic authenticated console user. Carries an operational role
+// (MECHANIC): the app now default-denies a roleless / MEMBER-only session and
+// routes it to /pending, so a "real" signed-in user must hold a granted role to
+// reach the shared shell pages (dispatch / intake / messenger).
 const authenticatedSession: AuthSession = {
   access_token: tokenPair.access_token,
   user_id: "00000000-0000-4000-8000-000000000002",
+  roles: ["MECHANIC"],
   branches: ["00000000-0000-4000-8000-000000000001"],
 };
 

@@ -33,6 +33,9 @@ import PlatformFsmPage from "./pages/PlatformFsmPage";
 const OnboardingPage = lazy(() =>
   import("./pages/OnboardingPage").then((m) => ({ default: m.OnboardingPage })),
 );
+const PendingPage = lazy(() =>
+  import("./pages/PendingPage").then((m) => ({ default: m.PendingPage })),
+);
 const DispatchPage = lazy(() =>
   import("./pages/DispatchPage").then((m) => ({ default: m.DispatchPage })),
 );
@@ -179,6 +182,22 @@ export function AppRouter() {
             <RouteErrorBoundary>
               <Suspense fallback={<PageSpinner />}>
                 <OnboardingPage />
+              </Suspense>
+            </RouteErrorBoundary>
+          }
+        />
+
+        {/* Shell-less landing for a just-signed-up user with no role grant yet
+            (empty roles or `["MEMBER"]`). ProtectedRoute redirects such a session
+            here instead of onto /dispatch (which the backend 403s). Rendered
+            outside the shell — the MEMBER has no nav surface beyond Profile, which
+            the page links to. */}
+        <Route
+          path="/pending"
+          element={
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageSpinner />}>
+                <PendingPage />
               </Suspense>
             </RouteErrorBoundary>
           }

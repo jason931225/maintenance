@@ -11,6 +11,7 @@ import { FeedbackBanner } from "../components/states/FeedbackBanner";
 import { PageHeader } from "../components/shell/PageHeader";
 import { SecurityPanel } from "../features/auth/SecurityPanel";
 import { useAuth } from "../context/auth";
+import { isPendingMember } from "../components/shell/nav";
 import { roleLabel, teamLabel } from "../features/org/org-format";
 import { ko } from "../i18n/ko";
 import { useFeedback } from "../lib/useAutoDismiss";
@@ -141,6 +142,12 @@ export function ProfilePage() {
                     <span className="text-steel">{ko.users.noRoles}</span>
                   )}
                 </div>
+                {/* Awaiting a role grant (no role yet, or the placeholder
+                    MEMBER): explain why some features are unavailable rather than
+                    leaving the user to discover it via a 403. */}
+                {isPendingMember(profile.roles) ? (
+                  <p className="text-sm text-steel">{ko.profile.memberHelp}</p>
+                ) : null}
               </div>
             ) : null}
 

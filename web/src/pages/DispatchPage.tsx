@@ -46,6 +46,11 @@ export function DispatchPage() {
   );
   const [mechanics, setMechanics] = useState<UserSummary[]>([]);
   const [readState, setReadState] = useState<ReadState>("loading");
+  // The HTTP status of a failed read, when known, so PageError can distinguish a
+  // permission denial (403 — retry is futile) from a transient failure.
+  const [readErrorStatus, setReadErrorStatus] = useState<number | undefined>(
+    undefined,
+  );
   const [loadingMore, setLoadingMore] = useState(false);
   const [writeState, setWriteState] = useState<WriteState>("idle");
   const [selectedWorkOrderId, setSelectedWorkOrderId] = useState<
@@ -85,9 +90,14 @@ export function DispatchPage() {
       })
       .catch(() => undefined);
     if (!response?.data) {
+      // Capture the HTTP status (when the request reached the server) so the
+      // error surface can distinguish a 403 permission denial from a transient
+      // failure; a network error leaves it undefined (treated as transient).
+      setReadErrorStatus(response?.response.status);
       setReadState("error");
       return;
     }
+    setReadErrorStatus(undefined);
     setWorkOrders(response.data.items);
     setWorkOrderTotal(response.data.total);
     setReadState("idle");
@@ -438,7 +448,10 @@ export function DispatchPage() {
       />
       <div className="grid gap-5">
         {readState === "error" ? (
-          <PageError onRetry={() => { void loadData(); }} />
+          <PageError
+            status={readErrorStatus}
+            onRetry={() => { void loadData(); }}
+          />
         ) : null}
         {writeState === "error" ? (
           <PageError message={ko.common.writeFailed} />

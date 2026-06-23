@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { NAV_GROUPS, ROLES, hasAnyRole, isNavItemVisible } from "./nav";
+import {
+  NAV_GROUPS,
+  ROLES,
+  hasAnyRole,
+  isNavItemVisible,
+  isPendingMember,
+} from "./nav";
 
 /** Every nav item key declared in NAV_GROUPS. */
 const ALL_ITEM_KEYS = NAV_GROUPS.flatMap((group) =>
@@ -108,6 +114,10 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "profile",
     "location",
   ],
+  // Member (just signed up, no role grant): default-deny. The backend denies
+  // every Feature but Login, so the nav shows ONLY Profile — never a destination
+  // that would 403.
+  [ROLES.MEMBER]: ["profile"],
 };
 
 describe("nav role gating", () => {
@@ -171,12 +181,51 @@ describe("nav role gating", () => {
     expect(isNavItemVisible("daily-plan", [ROLES.RECEPTIONIST])).toBe(false);
   });
 
-  it("shows shared pages to all roles", () => {
-    for (const role of Object.values(ROLES)) {
+  it("shows shared pages to every granted (non-MEMBER) role", () => {
+    // The five operational roles all see the shared pages. A bare MEMBER is
+    // default-denied every one of them (asserted separately below).
+    const grantedRoles = Object.values(ROLES).filter(
+      (role) => role !== ROLES.MEMBER,
+    );
+    for (const role of grantedRoles) {
       for (const key of ["dispatch", "dispatch-map", "intake", "messenger", "support", "reporting", "equipment", "financial", "location", "profile"]) {
         expect(isNavItemVisible(key, [role])).toBe(true);
       }
     }
+  });
+
+  it("default-denies a no-grant MEMBER everything but Profile", () => {
+    // The dead-role fix: a just-signed-up MEMBER (or an empty roles claim) must
+    // see ONLY Profile — every other destination 403s on the backend.
+    for (const roles of [["MEMBER"], [] as string[], undefined]) {
+      expect(visibleItems(roles ?? [])).toEqual(["profile"]);
+      expect(isNavItemVisible("profile", roles)).toBe(true);
+      for (const key of [
+        "dispatch",
+        "dispatch-map",
+        "intake",
+        "messenger",
+        "support",
+        "reporting",
+        "equipment",
+        "financial",
+        "location",
+        "approvals",
+        "kpi",
+        "users",
+        "security",
+      ]) {
+        expect(isNavItemVisible(key, roles)).toBe(false);
+      }
+    }
+  });
+
+  it("isPendingMember flags an empty or MEMBER-only roles claim", () => {
+    expect(isPendingMember(undefined)).toBe(true);
+    expect(isPendingMember([])).toBe(true);
+    expect(isPendingMember(["MEMBER"])).toBe(true);
+    expect(isPendingMember(["MECHANIC"])).toBe(false);
+    expect(isPendingMember(["MEMBER", "ADMIN"])).toBe(false);
   });
 
   it("respects multiple roles by unioning their entitlements", () => {
@@ -186,14 +235,18 @@ describe("nav role gating", () => {
     );
   });
 
-  it("hides nothing-gated pages and all gated pages when roles are missing", () => {
-    // The bug this fixes: an undefined/empty role must not surface admin pages,
-    // but must also not hide shared pages behind a phantom gate.
-    expect(isNavItemVisible("dispatch", undefined)).toBe(true);
-    expect(isNavItemVisible("dispatch", [])).toBe(true);
+  it("default-denies every gated page (incl. shared pages) when roles are missing", () => {
+    // Default-deny: an undefined/empty roles claim is a no-grant session that the
+    // backend 403s on every Feature but Login, so the nav surfaces only Profile.
+    // Shared pages are now gated too (a phantom-ungated dispatch link would 403).
+    expect(isNavItemVisible("dispatch", undefined)).toBe(false);
+    expect(isNavItemVisible("dispatch", [])).toBe(false);
     expect(isNavItemVisible("approvals", undefined)).toBe(false);
     expect(isNavItemVisible("kpi", [])).toBe(false);
     expect(isNavItemVisible("security", undefined)).toBe(false);
+    // Profile stays visible — it is the one surface a no-grant session can use.
+    expect(isNavItemVisible("profile", undefined)).toBe(true);
+    expect(isNavItemVisible("profile", [])).toBe(true);
   });
 
   it("hasAnyRole matches against the supplied allowlist", () => {

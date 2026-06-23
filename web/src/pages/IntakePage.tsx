@@ -9,14 +9,31 @@ import type {
 import { useActiveBranchId, useAuth } from "../context/auth";
 import { PageHeader } from "../components/shell/PageHeader";
 import { PageEmpty } from "../components/states/PageEmpty";
+import { ROLES, hasAnyRole, type Role } from "../components/shell/nav";
 import { IntakeForm } from "../features/intake/IntakeForm";
 import { ko } from "../i18n/ko";
 
 const equipmentDebounceMs = 300;
 
+/**
+ * Roles that hold WorkOrderCreate/EditIntake (the five operational roles). A
+ * just-signed-up MEMBER is default-denied by the backend, so the form is hidden
+ * for them and a permission notice is shown instead of a fillable form that only
+ * 403s on submit. (ProtectedRoute already routes a bare MEMBER to /pending; this
+ * is the in-page defense for any session that still reaches /intake.)
+ */
+const WORK_ORDER_CREATE_ROLES: readonly Role[] = [
+  ROLES.SUPER_ADMIN,
+  ROLES.ADMIN,
+  ROLES.EXECUTIVE,
+  ROLES.MECHANIC,
+  ROLES.RECEPTIONIST,
+];
+
 export function IntakePage() {
-  const { api } = useAuth();
+  const { api, session } = useAuth();
   const branchId = useActiveBranchId();
+  const canCreateWorkOrder = hasAnyRole(session?.roles, WORK_ORDER_CREATE_ROLES);
   const [managementNo, setManagementNo] = useState("");
   const [equipmentSuggestions, setEquipmentSuggestions] = useState<EquipmentLookupResponse[]>([]);
   const [equipmentLookupState, setEquipmentLookupState] = useState<EquipmentLookupState>({ status: "idle" });
@@ -98,7 +115,19 @@ export function IntakePage() {
     <>
       <PageHeader title={ko.intake.title} description={ko.intake.description} />
       <div className="max-w-2xl">
-        {branchId ? (
+        {!canCreateWorkOrder ? (
+          <div
+            role="alert"
+            className="rounded-lg border border-line bg-muted-panel p-6"
+          >
+            <p className="text-sm font-semibold text-ink">
+              {ko.intake.permissionDenied}
+            </p>
+            <p className="mt-1 text-sm text-steel">
+              {ko.intake.permissionDeniedHint}
+            </p>
+          </div>
+        ) : branchId ? (
           <IntakeForm
             branchId={branchId}
             equipmentLookupState={equipmentLookupState}
