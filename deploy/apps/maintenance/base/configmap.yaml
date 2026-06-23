@@ -42,20 +42,18 @@ data:
   # financial operations proceed (data resiliency + tamper-evidence).
   MNT_S3_REPLICA_BUCKET: "mnt-evidence-replica"
   MNT_S3_FORCE_PATH_STYLE: "true"
-  # Outbound transactional email (open-signup OTP) — OCI Email Delivery SMTP
-  # relay. Non-secret host/port/sender live here; the SMTP credentials
-  # (MNT_EMAIL_SMTP_USERNAME / MNT_EMAIL_SMTP_PASSWORD) are on the mnt-secrets
-  # Secret (see deploy/SECRETS.md). Leave the whole group unset until the
-  # approved sender is provisioned — the app then logs the OTP via a stub sender
-  # instead of relaying it, so it still boots. Setting any member requires all of
-  # them. Point the host at the regional OCI Email Delivery endpoint.
-  # ACTIVATION (#43): uncomment these AND create the mnt-secrets SMTP creds
-  # together, then run the deliverability test. Until then the group stays fully
-  # unset so the app uses the stub sender (logs the OTP) and boots cleanly.
-  # MNT_EMAIL_SMTP_HOST: "smtp.email.ap-chuncheon-1.oci.oraclecloud.com"
-  # MNT_EMAIL_SMTP_PORT: "587"
-  # MNT_EMAIL_FROM: "noreply@knllogistic.com"
-  # MNT_EMAIL_FROM_NAME: "MNT 정비 콘솔"
+  # Outbound transactional email (open-signup OTP + admin one-time codes) — OCI
+  # Email Delivery SMTP. Non-secret host/port/sender live here; the SMTP
+  # credentials (MNT_EMAIL_SMTP_USERNAME / MNT_EMAIL_SMTP_PASSWORD) are on the
+  # mnt-secrets Secret, provisioned from OCI Vault. ACTIVE: the OCI email domain
+  # knllogistic.com (DKIM knl1 + SPF + DMARC in Cloudflare) and the approved
+  # sender are live, so the group is enabled and the app relays OTPs over SMTP
+  # (and still logs them as a fallback). Setting any member requires all of them.
+  # MNT_EMAIL_FROM must equal an OCI-approved sender — note the hyphen in no-reply.
+  MNT_EMAIL_SMTP_HOST: "smtp.email.ap-chuncheon-1.oci.oraclecloud.com"
+  MNT_EMAIL_SMTP_PORT: "587"
+  MNT_EMAIL_FROM: "no-reply@knllogistic.com"
+  MNT_EMAIL_FROM_NAME: "MNT 정비 콘솔"
   # OTLP trace export (opt-in). Leave unset to keep tracing as JSON-to-stdout
   # only. Uncommenting enables gRPC OTLP export to an in-cluster collector — the
   # OTel collector MUST be deployed first, otherwise every request will attempt
