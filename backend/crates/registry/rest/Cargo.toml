@@ -20,6 +20,7 @@ mnt-registry-application = { workspace = true }
 mnt-registry-domain = { workspace = true }
 serde = { workspace = true }
 time = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 mnt-platform-db = { workspace = true }

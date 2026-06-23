@@ -1058,7 +1058,19 @@ impl RestError {
     fn from_store(error: PgRegistryError) -> Self {
         match error {
             PgRegistryError::Domain(error) => Self::from_kernel(error),
-            PgRegistryError::Db(_) | PgRegistryError::Workbook(_) => {
+            // A DB or workbook failure becomes an opaque 500 for the client, but
+            // the cause MUST be in the logs: in production the import 500 carried
+            // no root cause (only tower_http's generic "response failed"), which
+            // hid an RLS WITH CHECK rejection for ~two uploads. Log the error
+            // Display server-side (the cause, e.g. the Postgres error code/table)
+            // before mapping. The message is the DB/IO error text, never raw PII
+            // (the pii-no-logs gate also scans this), so no secret/PII leaks.
+            PgRegistryError::Db(err) => {
+                tracing::error!(error = %err, "registry database operation failed");
+                Self::internal("registry request failed")
+            }
+            PgRegistryError::Workbook(err) => {
+                tracing::error!(error = %err, "registry workbook import failed");
                 Self::internal("registry request failed")
             }
         }
