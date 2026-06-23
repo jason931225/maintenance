@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { UserSummary, WorkOrderListItem } from "../../api/types";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import { ConfirmDialog } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
@@ -492,50 +493,25 @@ export function WorkOrderDispatchControls({
         </Button>
       </div>
 
-      {confirmingForce ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={t.forceAssignTitle}
-          className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
-        >
-          <Card className="grid w-full max-w-md gap-4">
-            <h2 className="text-lg font-semibold text-ink">
-              {t.forceAssignTitle}
-            </h2>
-            <p className="text-sm text-steel">
-              {t.forceAssignConfirm
-                .replace("{mechanic}", forceMechanicName)
-                .replace("{requestNo}", workOrder.request_no)}
-            </p>
-            <p className="text-sm font-medium text-amber-800">
-              {t.forceAssignWarning}
-            </p>
-            <div className="flex items-center justify-end gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={forcePending}
-                onClick={() => {
-                  setConfirmingForce(false);
-                }}
-              >
-                {t.cancel}
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                disabled={forcePending}
-                onClick={() => {
-                  void handleForceAssign();
-                }}
-              >
-                {forcePending ? t.forceAssigning : t.forceAssignApply}
-              </Button>
-            </div>
-          </Card>
-        </div>
-      ) : null}
+      <ConfirmDialog
+        open={confirmingForce}
+        title={t.forceAssignTitle}
+        message={t.forceAssignConfirm
+          .replace("{mechanic}", forceMechanicName)
+          .replace("{requestNo}", workOrder.request_no)}
+        warning={t.forceAssignWarning}
+        confirmLabel={t.forceAssignApply}
+        busyLabel={t.forceAssigning}
+        cancelLabel={t.cancel}
+        destructive
+        busy={forcePending}
+        onConfirm={() => {
+          void handleForceAssign();
+        }}
+        onCancel={() => {
+          setConfirmingForce(false);
+        }}
+      />
     </Card>
   );
 }

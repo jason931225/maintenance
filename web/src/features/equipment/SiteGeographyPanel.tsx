@@ -10,6 +10,7 @@ import type {
 import type { ConsoleApiClient } from "../../api/client";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import { Dialog } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { ko } from "../../i18n/ko";
@@ -519,24 +520,21 @@ function RegisterDialog({
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
-      onKeyDown={(event) => {
-        if (event.key === "Escape") onClose();
-      }}
+    <Dialog
+      open
+      onClose={onClose}
+      titleId={titleId}
+      closeOnScrimClick={state !== "saving"}
+      className="max-w-lg"
     >
-      <Card className="grid w-full max-w-lg gap-4">
-        <div>
-          <h3 id={titleId} className="text-lg font-semibold text-ink">
-            {r.title}
-          </h3>
-          <p className="text-sm text-steel">{r.description}</p>
-        </div>
+      <div>
+        <h3 id={titleId} className="text-lg font-semibold text-ink">
+          {r.title}
+        </h3>
+        <p className="text-sm text-steel">{r.description}</p>
+      </div>
 
-        <form
+      <form
           className="grid gap-4"
           onSubmit={(event) => {
             event.preventDefault();
@@ -691,7 +689,6 @@ function RegisterDialog({
             </Button>
           </div>
         </form>
-      </Card>
-    </div>
+    </Dialog>
   );
 }

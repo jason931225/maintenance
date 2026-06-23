@@ -11,6 +11,7 @@ import type {
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import { ConfirmDialog } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
@@ -468,51 +469,30 @@ export function EquipmentManagementPanel({
         )}
       </div>
 
-      {deleteTarget ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={ko.equipment.deleteTitle}
-          className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
-        >
-          <Card className="grid w-full max-w-md gap-4">
-            <h2 className="text-lg font-semibold text-ink">
-              {ko.equipment.deleteTitle}
-            </h2>
-            <p className="text-sm text-steel">
-              {ko.equipment.deleteConfirm.replace(
+      <ConfirmDialog
+        open={deleteTarget !== undefined}
+        title={ko.equipment.deleteTitle}
+        message={
+          deleteTarget
+            ? ko.equipment.deleteConfirm.replace(
                 "{equipmentNo}",
                 deleteTarget.equipment_no,
-              )}
-            </p>
-            <p className="text-sm font-medium text-amber-800">
-              {ko.equipment.deleteWarning}
-            </p>
-            <div className="flex items-center justify-end gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={deleting}
-                onClick={() => {
-                  setDeleteTarget(undefined);
-                }}
-              >
-                {ko.equipment.cancel}
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                disabled={deleting}
-                onClick={() => {
-                  void handleDelete();
-                }}
-              >
-                {deleting ? ko.equipment.deleting : ko.equipment.delete}
-              </Button>
-            </div>
-          </Card>
-        </div>
-      ) : null}
+              )
+            : ""
+        }
+        warning={ko.equipment.deleteWarning}
+        confirmLabel={ko.equipment.delete}
+        busyLabel={ko.equipment.deleting}
+        cancelLabel={ko.equipment.cancel}
+        destructive
+        busy={deleting}
+        onConfirm={() => {
+          void handleDelete();
+        }}
+        onCancel={() => {
+          setDeleteTarget(undefined);
+        }}
+      />
     </Card>
   );
 }

@@ -2,8 +2,7 @@ import { useState } from "react";
 
 import { PlatformApiError } from "../../api/platform";
 import type { PlatformOrg } from "../../api/platform";
-import { Button } from "../../components/ui/button";
-import { Card } from "../../components/ui/card";
+import { ConfirmDialog } from "../../components/ui/dialog";
 import { ko } from "../../i18n/ko";
 
 /**
@@ -45,54 +44,21 @@ export function RemoveTenantDialog({
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={ko.platform.tenants.remove.title}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
-    >
-      <Card className="grid w-full max-w-md gap-4">
-        <div className="grid gap-1">
-          <h2 className="text-lg font-semibold text-ink">
-            {ko.platform.tenants.remove.title}
-          </h2>
-          <p className="text-sm text-steel">
-            {ko.platform.tenants.remove.confirm.replace("{name}", org.name)}
-          </p>
-          <p className="text-sm font-medium text-red-700">
-            {ko.platform.tenants.remove.warning}
-          </p>
-        </div>
-
-        {error ? (
-          <p role="alert" className="text-sm font-medium text-red-700">
-            {error}
-          </p>
-        ) : null}
-
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={pending}
-            onClick={onClose}
-          >
-            {ko.platform.tenants.remove.cancel}
-          </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            disabled={pending}
-            onClick={() => {
-              void handleConfirm();
-            }}
-          >
-            {pending
-              ? ko.platform.tenants.remove.applying
-              : ko.platform.tenants.remove.apply}
-          </Button>
-        </div>
-      </Card>
-    </div>
+    <ConfirmDialog
+      open
+      title={ko.platform.tenants.remove.title}
+      message={ko.platform.tenants.remove.confirm.replace("{name}", org.name)}
+      warning={ko.platform.tenants.remove.warning}
+      confirmLabel={ko.platform.tenants.remove.apply}
+      busyLabel={ko.platform.tenants.remove.applying}
+      cancelLabel={ko.platform.tenants.remove.cancel}
+      destructive
+      busy={pending}
+      error={error}
+      onConfirm={() => {
+        void handleConfirm();
+      }}
+      onCancel={onClose}
+    />
   );
 }

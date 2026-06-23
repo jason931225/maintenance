@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { PasskeySummary } from "../../api/types";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import { ConfirmDialog } from "../../components/ui/dialog";
 import { PageError } from "../../components/states/PageError";
 import { SkeletonCards } from "../../components/states/Skeleton";
 import { useAuth } from "../../context/auth";
@@ -224,49 +225,22 @@ export function SecurityPanel() {
         </p>
       ) : null}
 
-      {confirmId ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={ko.security.confirmTitle}
-          className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
-        >
-          <Card className="grid w-full max-w-md gap-4">
-            <div className="grid gap-1">
-              <h2 className="text-lg font-semibold text-ink">
-                {ko.security.confirmTitle}
-              </h2>
-              <p className="text-sm text-steel">
-                {ko.security.confirmBody}
-              </p>
-            </div>
-            <div className="flex items-center justify-end gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={revokingId !== undefined}
-                onClick={() => {
-                  setConfirmId(undefined);
-                }}
-              >
-                {ko.security.cancel}
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                disabled={revokingId !== undefined}
-                onClick={() => {
-                  void handleRevoke(confirmId);
-                }}
-              >
-                {revokingId !== undefined
-                  ? ko.security.revoking
-                  : ko.security.confirmDelete}
-              </Button>
-            </div>
-          </Card>
-        </div>
-      ) : null}
+      <ConfirmDialog
+        open={confirmId !== undefined}
+        title={ko.security.confirmTitle}
+        message={ko.security.confirmBody}
+        confirmLabel={ko.security.confirmDelete}
+        busyLabel={ko.security.revoking}
+        cancelLabel={ko.security.cancel}
+        destructive
+        busy={revokingId !== undefined}
+        onConfirm={() => {
+          if (confirmId) void handleRevoke(confirmId);
+        }}
+        onCancel={() => {
+          setConfirmId(undefined);
+        }}
+      />
     </Card>
   );
 }

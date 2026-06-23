@@ -205,7 +205,8 @@ export const ko = {
     closeEditor: "닫기",
     deactivate: "비활성화",
     deactivating: "처리 중",
-    deactivateConfirm: "이 사용자를 비활성화할까요? 로그인할 수 없게 됩니다.",
+    deactivateTitle: "사용자 비활성화",
+    deactivateConfirm: "‘{name}’ 사용자를 비활성화할까요? 로그인할 수 없게 됩니다.",
     deactivated: "사용자를 비활성화했습니다.",
     deactivateFailed: "사용자를 비활성화하지 못했습니다.",
     form: {
@@ -1205,6 +1206,8 @@ export const ko = {
     loadFailed: "데이터를 불러오지 못했습니다.",
     writeFailed: "요청을 처리하지 못했습니다. 다시 시도하세요.",
     actions: "작업",
+    cancel: "취소",
+    close: "닫기",
     notSet: "미지정",
     noBranch: "계정에 배정된 지점이 없습니다. 관리자에게 문의하세요.",
     unknown: "미상",
@@ -2193,7 +2196,9 @@ export const ko = {
       actions: {
         edit: "수정",
         delete: "삭제",
-        deleteConfirm: "이 매물을 삭제하시겠습니까?",
+        deleting: "삭제 중",
+        deleteTitle: "매물 삭제",
+        deleteConfirm: "‘{model}’ 매물을 삭제하시겠습니까?",
       },
     },
     form: {

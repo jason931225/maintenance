@@ -274,10 +274,6 @@ describe("UsersPage OTP issue", () => {
 describe("UsersPage credential reset", () => {
   it("revokes the user's passkeys, reissues a sign-in code, and shows it", async () => {
     const user = userEvent.setup();
-    // The reset confirms via window.confirm; auto-accept it.
-    const confirmSpy = vi
-      .spyOn(window, "confirm")
-      .mockReturnValue(true);
     const resetBody = vi.fn();
     server.use(
       http.get("*/api/v1/users", () => HttpResponse.json(users)),
@@ -326,8 +322,5 @@ describe("UsersPage credential reset", () => {
     await waitFor(() => {
       expect(resetBody).toHaveBeenCalledWith({ user_id: users[0].id });
     });
-    expect(confirmSpy).toHaveBeenCalled();
-
-    confirmSpy.mockRestore();
   });
 });

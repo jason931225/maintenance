@@ -12,6 +12,7 @@ import { hasAnyRole } from "../../components/shell/nav";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import { Dialog } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import { ko } from "../../i18n/ko";
@@ -919,6 +920,8 @@ function ConfirmDialog({
 
 function DialogShell({
   title,
+  busy,
+  onCancel,
   children,
 }: {
   title: string;
@@ -927,17 +930,19 @@ function DialogShell({
   children: ReactNode;
 }) {
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
+    <Dialog
+      open
+      onClose={() => {
+        // A scrim click / Escape cancels the dialog, but never while a mutation
+        // is in flight (busy) so the in-progress request is not abandoned.
+        if (!busy) onCancel();
+      }}
+      label={title}
+      closeOnScrimClick={!busy}
     >
-      <Card className="grid w-full max-w-md gap-4">
-        <h2 className="text-lg font-semibold text-ink">{title}</h2>
-        {children}
-      </Card>
-    </div>
+      <h2 className="text-lg font-semibold text-ink">{title}</h2>
+      {children}
+    </Dialog>
   );
 }
 

@@ -6,7 +6,14 @@ import {
   Search,
   Send,
 } from "lucide-react";
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 
 import type { ConsoleApiClient } from "../../api/client";
 import type {
@@ -18,6 +25,7 @@ import type {
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import { Dialog } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import { SkeletonCards } from "../../components/states/Skeleton";
@@ -79,6 +87,7 @@ export function MessengerPanel({
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [isCreatingThread, setIsCreatingThread] = useState(false);
   const [createError, setCreateError] = useState<string>();
+  const newThreadTitleId = useId();
   const cursorRef = useRef<string | undefined>(undefined);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const selectedThread = state.threads.find(
@@ -550,89 +559,88 @@ export function MessengerPanel({
         </section>
       </div>
 
-      {isComposingThread ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={ko.messenger.newThreadTitle}
-          className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
+      <Dialog
+        open={isComposingThread}
+        onClose={() => {
+          if (!isCreatingThread) setIsComposingThread(false);
+        }}
+        titleId={newThreadTitleId}
+        closeOnScrimClick={!isCreatingThread}
+      >
+        <h2
+          id={newThreadTitleId}
+          className="text-lg font-semibold text-ink"
         >
-          <Card className="grid w-full max-w-md gap-4">
-            <h2 className="text-lg font-semibold text-ink">
-              {ko.messenger.newThreadTitle}
-            </h2>
-            <div className="grid gap-2">
-              <label
-                className="text-sm font-medium text-steel"
-                htmlFor="new-thread-subject"
-              >
-                {ko.messenger.subject}
-              </label>
-              <Input
-                id="new-thread-subject"
-                value={newSubject}
-                placeholder={ko.messenger.subjectPlaceholder}
-                onChange={(event) => {
-                  setNewSubject(event.currentTarget.value);
-                }}
-              />
-            </div>
-            <div className="grid gap-2">
-              <span className="text-sm font-medium text-steel">
-                {ko.messenger.participants}
-              </span>
-              <p className="text-xs text-steel">
-                {ko.messenger.participantsHint}
-              </p>
-              <div className="grid max-h-56 gap-1 overflow-y-auto">
-                {members.map((member) => (
-                  <label
-                    key={member.id}
-                    className="flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedMemberIds.includes(member.id)}
-                      onChange={() => {
-                        toggleMember(member.id);
-                      }}
-                    />
-                    <span className="font-medium text-ink">
-                      {member.display_name}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </div>
-            {createError ? (
-              <p role="alert" className="text-sm font-semibold text-red-700">
-                {createError}
-              </p>
-            ) : null}
-            <div className="flex items-center justify-end gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={isCreatingThread}
-                onClick={() => {
-                  setIsComposingThread(false);
-                }}
-              >
-                {ko.messenger.createCancel}
-              </Button>
-              <Button
-                type="button"
-                disabled={isCreatingThread || selectedMemberIds.length === 0}
-                onClick={() => void handleCreateThread()}
-              >
-                {isCreatingThread
-                  ? ko.messenger.creating
-                  : ko.messenger.create}
-              </Button>
-            </div>
-          </Card>
+          {ko.messenger.newThreadTitle}
+        </h2>
+        <div className="grid gap-2">
+          <label
+            className="text-sm font-medium text-steel"
+            htmlFor="new-thread-subject"
+          >
+            {ko.messenger.subject}
+          </label>
+          <Input
+            id="new-thread-subject"
+            value={newSubject}
+            placeholder={ko.messenger.subjectPlaceholder}
+            onChange={(event) => {
+              setNewSubject(event.currentTarget.value);
+            }}
+          />
         </div>
-      ) : null}
+        <div className="grid gap-2">
+          <span className="text-sm font-medium text-steel">
+            {ko.messenger.participants}
+          </span>
+          <p className="text-xs text-steel">
+            {ko.messenger.participantsHint}
+          </p>
+          <div className="grid max-h-56 gap-1 overflow-y-auto">
+            {members.map((member) => (
+              <label
+                key={member.id}
+                className="flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedMemberIds.includes(member.id)}
+                  onChange={() => {
+                    toggleMember(member.id);
+                  }}
+                />
+                <span className="font-medium text-ink">
+                  {member.display_name}
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+        {createError ? (
+          <p role="alert" className="text-sm font-semibold text-red-700">
+            {createError}
+          </p>
+        ) : null}
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={isCreatingThread}
+            onClick={() => {
+              setIsComposingThread(false);
+            }}
+          >
+            {ko.messenger.createCancel}
+          </Button>
+          <Button
+            type="button"
+            disabled={isCreatingThread || selectedMemberIds.length === 0}
+            onClick={() => void handleCreateThread()}
+          >
+            {isCreatingThread ? ko.messenger.creating : ko.messenger.create}
+          </Button>
+        </div>
+      </Dialog>
     </Card>
   );
 }

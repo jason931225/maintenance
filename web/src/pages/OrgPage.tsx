@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { BranchSummary, RegionSummary } from "../api/types";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import { ConfirmDialog } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { PageEmpty } from "../components/states/PageEmpty";
@@ -785,36 +786,17 @@ function ConfirmDeleteDialog({
   onConfirm: () => void;
 }) {
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
-    >
-      <Card className="grid w-full max-w-md gap-4">
-        <div className="grid gap-1">
-          <h2 className="text-lg font-semibold text-ink">{title}</h2>
-          <p className="text-sm text-steel">{body}</p>
-        </div>
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={pending}
-            onClick={onCancel}
-          >
-            {ko.org.branches.cancel}
-          </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            disabled={pending}
-            onClick={onConfirm}
-          >
-            {pending ? pendingLabel : confirmLabel}
-          </Button>
-        </div>
-      </Card>
-    </div>
+    <ConfirmDialog
+      open
+      title={title}
+      message={body}
+      confirmLabel={confirmLabel}
+      busyLabel={pendingLabel}
+      cancelLabel={ko.org.branches.cancel}
+      destructive
+      busy={pending}
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+    />
   );
 }

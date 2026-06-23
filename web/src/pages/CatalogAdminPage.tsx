@@ -22,6 +22,7 @@ import { SkeletonTable } from "../components/states/Skeleton";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import { ConfirmDialog } from "../components/ui/dialog";
 import {
   AsyncCombobox,
   type ComboboxOption,
@@ -446,9 +447,7 @@ export function CatalogAdminPage() {
           onRetry={() => void loadListings()}
           onCreate={openCreate}
           onEdit={openEdit}
-          onDelete={(id) => {
-            void deleteListing(id);
-          }}
+          onDelete={deleteListing}
           onSetStatus={(listing, status) => {
             void setListingStatus(listing, status);
           }}
@@ -535,9 +534,14 @@ function ListingsTab({
   onRetry: () => void;
   onCreate: () => void;
   onEdit: (listing: SalesListingView) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => Promise<void>;
   onSetStatus: (listing: SalesListingView, status: ListingStatus) => void;
 }) {
+  // The listing pending a delete confirmation (the bespoke window.confirm is
+  // replaced by an in-app ConfirmDialog with a busy state during the mutation).
+  const [deleteTarget, setDeleteTarget] = useState<SalesListingView | null>(
+    null,
+  );
   return (
     <Card className="p-0">
       <header className="flex items-center justify-between gap-4 border-b border-line px-4 py-3">
@@ -682,13 +686,7 @@ function ListingsTab({
                           className="text-red-700 hover:bg-red-50"
                           disabled={deletingId === listing.id}
                           onClick={() => {
-                            if (
-                              window.confirm(
-                                ko.catalog.listings.actions.deleteConfirm,
-                              )
-                            ) {
-                              onDelete(listing.id);
-                            }
+                            setDeleteTarget(listing);
                           }}
                         >
                           <Trash2 size={14} aria-hidden="true" />
@@ -703,6 +701,35 @@ function ListingsTab({
           </table>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={ko.catalog.listings.actions.deleteTitle}
+        message={
+          deleteTarget
+            ? ko.catalog.listings.actions.deleteConfirm.replace(
+                "{model}",
+                deleteTarget.model_name,
+              )
+            : ""
+        }
+        confirmLabel={ko.catalog.listings.actions.delete}
+        busyLabel={ko.catalog.listings.actions.deleting}
+        destructive
+        busy={deleteTarget !== null && deletingId === deleteTarget.id}
+        onConfirm={() => {
+          if (!deleteTarget) return;
+          const id = deleteTarget.id;
+          // Await the mutation so the dialog stays open (busy) until it resolves,
+          // then dismiss it.
+          void onDelete(id).finally(() => {
+            setDeleteTarget(null);
+          });
+        }}
+        onCancel={() => {
+          setDeleteTarget(null);
+        }}
+      />
     </Card>
   );
 }

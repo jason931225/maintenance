@@ -18,6 +18,7 @@ import type {
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import { ConfirmDialog } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { PageEmpty } from "../components/states/PageEmpty";
@@ -67,6 +68,12 @@ export function UsersPage() {
   const [resetUser, setResetUser] = useState<UserSummary | undefined>(
     undefined,
   );
+  // The deactivation target user, when the confirm dialog is open, plus the
+  // in-flight flag that drives the dialog's busy state.
+  const [deactivateTarget, setDeactivateTarget] = useState<
+    UserSummary | undefined
+  >(undefined);
+  const [deactivating, setDeactivating] = useState(false);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
   const clearFeedback = useCallback(() => {
     setFeedback(undefined);
@@ -140,12 +147,14 @@ export function UsersPage() {
   }
 
   async function deactivateUser(user: UserSummary): Promise<void> {
-    if (!window.confirm(ko.users.deactivateConfirm)) return;
+    setDeactivating(true);
     const response = await api
       .POST("/api/v1/users/{id}/deactivate", {
         params: { path: { id: user.id } },
       })
       .catch(() => undefined);
+    setDeactivating(false);
+    setDeactivateTarget(undefined);
     if (!response?.data) {
       setFeedback(ko.users.deactivateFailed);
       return;
@@ -236,7 +245,7 @@ export function UsersPage() {
             onDeactivate={(user) => {
               setFeedback(undefined);
               setNewUserId(undefined);
-              void deactivateUser(user);
+              setDeactivateTarget(user);
             }}
             onIssueOtp={(user) => {
               setFeedback(undefined);
@@ -286,6 +295,29 @@ export function UsersPage() {
           }}
         />
       ) : null}
+
+      <ConfirmDialog
+        open={deactivateTarget !== undefined}
+        title={ko.users.deactivateTitle}
+        message={
+          deactivateTarget
+            ? ko.users.deactivateConfirm.replace(
+                "{name}",
+                deactivateTarget.display_name,
+              )
+            : ""
+        }
+        confirmLabel={ko.users.deactivate}
+        busyLabel={ko.users.deactivating}
+        destructive
+        busy={deactivating}
+        onConfirm={() => {
+          if (deactivateTarget) void deactivateUser(deactivateTarget);
+        }}
+        onCancel={() => {
+          setDeactivateTarget(undefined);
+        }}
+      />
     </>
   );
 }
@@ -960,7 +992,9 @@ function ResetCredentialsDialog({
   useAutoDismiss(copied ? "copied" : undefined, clearCopied, SUCCESS_DISMISS_MS);
 
   async function handleReset() {
-    if (!window.confirm(ko.users.reset.confirm)) return;
+    // The reset dialog itself is the destructive-action confirmation surface:
+    // it shows the red "existing passkeys will be removed" warning and gates the
+    // mutation behind this explicit button. No redundant native window.confirm.
     setError(undefined);
     setCopied(false);
     setPending(true);
