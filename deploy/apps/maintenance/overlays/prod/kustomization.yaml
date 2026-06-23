@@ -17,7 +17,7 @@ images:
     digest: sha256:a0ab7939a2dbaca20535c3d1c93c46b769e4aced2595173d7ada850ee6e99589
   - name: mnt-web
     newName: ghcr.io/jason931225/mnt-web
-    digest: sha256:b278e1499373119b12c01b4bfbacdae7424b53ef8de2b46814a6bf5b44cd8b94
+    digest: sha256:a098ed9ca077fdda6a44e9541d6e5277547cdf98de4be539c35d04ae4324e2be
 
 patches:
   # Public host (WebAuthn rp id/origin must equal the served origin) + the OCI
