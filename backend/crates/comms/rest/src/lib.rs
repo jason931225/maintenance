@@ -214,12 +214,15 @@ async fn put_account(
         imap_port: body.imap_port,
         imap_security: body.imap_security,
         imap_username: body.imap_username,
-        imap_password: body.imap_password.map(SecretString::from),
+        // A present-but-empty/whitespace password means "keep the existing
+        // secret", NOT "seal an empty password": `{"smtp_password":""}` must not
+        // re-seal a blank credential. Only an explicit non-empty value re-seals.
+        imap_password: keep_existing_if_blank(body.imap_password),
         smtp_host: body.smtp_host,
         smtp_port: body.smtp_port,
         smtp_security: body.smtp_security,
         smtp_username: body.smtp_username,
-        smtp_password: body.smtp_password.map(SecretString::from),
+        smtp_password: keep_existing_if_blank(body.smtp_password),
         trace: TraceContext::generate(),
         occurred_at: OffsetDateTime::now_utc(),
     };
@@ -239,7 +242,7 @@ async fn test_account(
     let cipher = state.cipher_ref()?;
     let service = AccountService::new(state.store.clone(), state.sender.clone(), cipher);
     let result: TestConnectionResult = service
-        .test_connection()
+        .test_connection(principal.user_id, OffsetDateTime::now_utc())
         .await
         .map_err(RestError::from_service)?;
     Ok(Json(result).into_response())
@@ -326,6 +329,16 @@ async fn send_impl(
         .await
         .map_err(RestError::from_service)?;
     Ok((StatusCode::CREATED, Json(result)).into_response())
+}
+
+/// Collapse a present-but-blank password to `None` so the write-only contract
+/// treats `""`/whitespace as "keep the existing secret" rather than re-sealing an
+/// empty credential. A non-empty value is passed through verbatim (NOT trimmed —
+/// a password may legitimately contain leading/trailing spaces).
+fn keep_existing_if_blank(value: Option<String>) -> Option<SecretString> {
+    value
+        .filter(|password| !password.trim().is_empty())
+        .map(SecretString::from)
 }
 
 fn decode_attachment(
@@ -490,6 +503,16 @@ impl RestError {
         )
     }
 
+    /// The outbound rate limit was hit (per-org + per-user). A 429 with a fixed,
+    /// non-secret message; the bucket code rides in the message.
+    fn too_many_requests(code: &'static str) -> Self {
+        Self::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "too_many_requests",
+            format!("outbound mail rate limit exceeded ({code}); retry later"),
+        )
+    }
+
     fn internal(message: impl Into<String>) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", message)
     }
@@ -528,6 +551,9 @@ impl RestError {
             MailServiceError::Transport { code } => {
                 Self::new(StatusCode::UNPROCESSABLE_ENTITY, "mail_transport", code)
             }
+            // The per-org + per-user outbound rate limit tripped before any SMTP
+            // call. A 429 so clients back off.
+            MailServiceError::RateLimited { code } => Self::too_many_requests(code),
             // Store/cipher errors are server-internal: log nothing secret, return
             // a generic 500.
             other => {
@@ -550,5 +576,33 @@ impl IntoResponse for RestError {
             }),
         )
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::keep_existing_if_blank;
+    use secrecy::ExposeSecret;
+
+    #[test]
+    fn blank_password_keeps_existing_secret() {
+        // L1: a present-but-empty/whitespace password must collapse to None so the
+        // write-only contract treats `{"smtp_password":""}` as "keep the existing
+        // secret", NOT "re-seal an empty credential".
+        assert!(keep_existing_if_blank(None).is_none());
+        assert!(keep_existing_if_blank(Some(String::new())).is_none());
+        assert!(keep_existing_if_blank(Some("   ".to_owned())).is_none());
+        assert!(keep_existing_if_blank(Some("\t\n ".to_owned())).is_none());
+    }
+
+    #[test]
+    fn non_empty_password_is_passed_through_verbatim() {
+        // A real password re-seals — and is NOT trimmed (a password may carry
+        // significant leading/trailing whitespace).
+        let sealed = keep_existing_if_blank(Some(" s3cret ".to_owned()))
+            .expect("a non-blank password must seal");
+        assert_eq!(sealed.expose_secret(), " s3cret ");
+        let plain = keep_existing_if_blank(Some("hunter2".to_owned())).unwrap();
+        assert_eq!(plain.expose_secret(), "hunter2");
     }
 }

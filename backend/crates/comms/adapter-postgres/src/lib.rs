@@ -21,7 +21,7 @@ use mnt_comms_application::{
 };
 use mnt_comms_credential_cipher::SealedCredential;
 use mnt_comms_domain::{MailSecurity, normalize_subject};
-use mnt_kernel_core::{AuditEvent, ErrorKind, KernelError, OrgId};
+use mnt_kernel_core::{AuditEvent, ErrorKind, KernelError, OrgId, Timestamp, UserId};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -145,6 +145,45 @@ impl PgMailStore {
         .await
     }
 
+    /// UPSERT the org-scoped, per-user fixed-window rate counter for one bucket
+    /// and return the new attempt count. RLS-armed via `with_org_conn` (the GUC
+    /// is bound from the request-context org); the UPSERT runs on `tx.as_mut()`,
+    /// never a bare pool, so one org's counter can never touch another's. The
+    /// `WITH CHECK` org_isolation policy stamps the row's org_id implicitly — we
+    /// bind it explicitly too so the INSERT column is non-null.
+    async fn increment_send_rate_inner(
+        &self,
+        actor: UserId,
+        endpoint: &'static str,
+        window_start: Timestamp,
+    ) -> Result<i64, PgMailError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let actor_uuid = *actor.as_uuid();
+        let attempts = with_org_conn::<_, i32, PgMailError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let attempts: i32 = sqlx::query_scalar(
+                    r#"
+                    INSERT INTO comms_send_rate (org_id, actor_user_id, endpoint, window_start, attempts)
+                    VALUES ($1, $2, $3, $4, 1)
+                    ON CONFLICT (org_id, actor_user_id, endpoint, window_start)
+                    DO UPDATE SET attempts = comms_send_rate.attempts + 1, updated_at = now()
+                    RETURNING attempts
+                    "#,
+                )
+                .bind(org_uuid)
+                .bind(actor_uuid)
+                .bind(endpoint)
+                .bind(window_start)
+                .fetch_one(tx.as_mut())
+                .await?;
+                Ok(attempts)
+            })
+        })
+        .await?;
+        Ok(i64::from(attempts))
+    }
+
     async fn persist_outbound_inner(
         &self,
         record: OutboundRecord,
@@ -217,6 +256,19 @@ impl MailStore for PgMailStore {
     ) -> mnt_comms_application::MailFuture<'_, Result<(), MailServiceError>> {
         Box::pin(async move {
             self.persist_outbound_inner(record, audit)
+                .await
+                .map_err(Into::into)
+        })
+    }
+
+    fn increment_send_rate(
+        &self,
+        actor: UserId,
+        endpoint: &'static str,
+        window_start: Timestamp,
+    ) -> mnt_comms_application::MailFuture<'_, Result<i64, MailServiceError>> {
+        Box::pin(async move {
+            self.increment_send_rate_inner(actor, endpoint, window_start)
                 .await
                 .map_err(Into::into)
         })

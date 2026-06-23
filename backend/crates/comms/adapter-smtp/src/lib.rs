@@ -5,8 +5,9 @@
 //! * **SSRF guard** ([`ssrf`]): before any connect, the host is resolved once
 //!   via `hickory-resolver`, every resolved IP is denylist-checked, and the
 //!   first allowed IP is PINNED for the dial (DNS-rebinding safe). Only the mail
-//!   port allowlist (587 / 465 / 25) is accepted (the application layer already
-//!   validates this; we re-check defensively).
+//!   submission port allowlist (587 / 465) is accepted (the application layer
+//!   already validates this; we re-check defensively). Port 25 is NOT allowed —
+//!   webmail performs only authenticated submission.
 //! * **TLS enforced**: `SslTls` uses implicit TLS (`relay`, SMTPS/465);
 //!   `StartTls` uses STARTTLS (`starttls_relay`, 587). There is no plaintext
 //!   path — `MailSecurity` has no plaintext variant. Certificate verification is

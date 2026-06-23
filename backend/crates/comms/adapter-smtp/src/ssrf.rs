@@ -8,9 +8,10 @@
 //! re-resolving the hostname — closing the DNS-rebinding (TOCTOU) window where a
 //! second lookup could return a private address after the check passed.
 //!
-//! IPv4-mapped IPv6 addresses (`::ffff:a.b.c.d`) are un-mapped to their IPv4 form
-//! BEFORE the denylist check, so an attacker cannot smuggle a private v4 address
-//! through a v6 mapping.
+//! IPv4-mapped IPv6 addresses (`::ffff:a.b.c.d`) AND the deprecated
+//! IPv4-compatible form (`::a.b.c.d`, e.g. `::7f00:1` = `::127.0.0.1`) are
+//! un-mapped to their IPv4 form BEFORE the denylist check, so an attacker cannot
+//! smuggle a private v4 address through either v6 wrapper.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -94,12 +95,17 @@ fn denied_v6() -> &'static [Ipv6Net] {
     })
 }
 
-/// Normalize an address before the denylist check: un-map IPv4-mapped IPv6
-/// (`::ffff:a.b.c.d`) to its IPv4 form so a private v4 can't hide in a v6 wrapper.
+/// Normalize an address before the denylist check: un-map BOTH the IPv4-mapped
+/// (`::ffff:a.b.c.d`) and the deprecated IPv4-compatible (`::a.b.c.d`) IPv6 forms
+/// to their IPv4 form so a private v4 can't hide in either v6 wrapper.
+///
+/// `Ipv6Addr::to_ipv4()` covers both forms (it un-maps anything in `::/96` or
+/// `::ffff:0:0/96`); it also turns `::1`/`::` into `0.0.0.1`/`0.0.0.0`, but those
+/// fall inside the v4 `0.0.0.0/8` denylist, so loopback/unspecified stay denied.
 #[must_use]
 fn normalize(ip: IpAddr) -> IpAddr {
     match ip {
-        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+        IpAddr::V6(v6) => match v6.to_ipv4() {
             Some(v4) => IpAddr::V4(v4),
             None => IpAddr::V6(v6),
         },
@@ -186,6 +192,19 @@ mod tests {
         assert!(is_denied(ip("::ffff:169.254.169.254")));
         assert!(is_denied(ip("::ffff:10.0.0.1")));
         assert!(is_denied(ip("::ffff:127.0.0.1")));
+    }
+
+    #[test]
+    fn denies_ipv4_compatible_ipv6() {
+        // The DEPRECATED IPv4-compatible form ::a.b.c.d (e.g. ::127.0.0.1, which
+        // can also be written ::7f00:1) must be un-mapped via to_ipv4() and then
+        // subjected to the v4 denylist — both wrappers of 127.0.0.1 are denied.
+        assert!(is_denied(ip("::ffff:127.0.0.1")));
+        assert!(is_denied(ip("::127.0.0.1")));
+        assert!(is_denied(ip("::7f00:1"))); // == ::127.0.0.1
+        assert!(is_denied(ip("::ffff:169.254.169.254")));
+        assert!(is_denied(ip("::169.254.169.254"))); // compat-form metadata
+        assert!(is_denied(ip("::10.0.0.1"))); // compat-form RFC1918
     }
 
     #[test]

@@ -393,3 +393,88 @@ async fn persist_outbound_writes_direction_out_and_audits(owner_pool: PgPool) {
         1
     );
 }
+
+// ===========================================================================
+// L3: the smtp_port DB CHECK rejects 25 (legacy MTA relay) and accepts 587/465.
+// ===========================================================================
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn smtp_port_check_rejects_25_accepts_submission_ports(owner_pool: PgPool) {
+    let org = OrgId::knl();
+    let org_uuid = *org.as_uuid();
+    seed_org(&owner_pool, org_uuid, "A").await;
+    let actor = seed_active_user(&owner_pool, org_uuid).await;
+
+    // A minimal raw insert helper (owner, row_security off) parameterized on the
+    // smtp_port, so we exercise the CHECK constraint directly — independent of the
+    // application-layer ALLOWED_SMTP_PORTS validation.
+    async fn try_insert_with_port(
+        owner_pool: &PgPool,
+        org: Uuid,
+        actor: Uuid,
+        smtp_port: i32,
+    ) -> Result<(), sqlx::Error> {
+        let mut tx = owner_pool.begin().await.unwrap();
+        sqlx::query("SET LOCAL row_security = off")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let dummy: &[u8] = b"ct";
+        let result = sqlx::query(
+            r#"
+            INSERT INTO email_accounts (
+                org_id, display_name, email_address,
+                imap_host, imap_port, imap_security, imap_username,
+                smtp_host, smtp_port, smtp_security, smtp_username,
+                smtp_password_ct, smtp_password_nonce, dek_wrapped, dek_nonce,
+                imap_password_ct, imap_password_nonce, imap_dek_wrapped, imap_dek_nonce,
+                key_version, created_by
+            ) VALUES (
+                $1, 'KNL', $2,
+                'imap.knl.example', 993, 'TLS', 'ops',
+                'smtp.knl.example', $3, 'STARTTLS', 'ops',
+                $4, $4, $4, $4,
+                $4, $4, $4, $4,
+                1, $5
+            )
+            "#,
+        )
+        .bind(org)
+        .bind(format!("ops-{}@knl.example", smtp_port))
+        .bind(smtp_port)
+        .bind(dummy)
+        .bind(actor)
+        .execute(&mut *tx)
+        .await
+        .map(|_| ());
+        // Roll back regardless so each probe is independent.
+        let _ = tx.rollback().await;
+        result
+    }
+
+    // Port 25 is now rejected by the CHECK.
+    let port_25 = try_insert_with_port(&owner_pool, org_uuid, *actor.as_uuid(), 25).await;
+    assert!(
+        port_25.is_err(),
+        "the smtp_port CHECK must reject 25 (the unauthenticated MTA relay port)"
+    );
+    if let Err(sqlx::Error::Database(db)) = &port_25 {
+        // 23514 = check_violation.
+        assert_eq!(db.code().as_deref(), Some("23514"));
+    } else {
+        panic!("expected a check-constraint violation, got {port_25:?}");
+    }
+
+    // The authenticated submission ports still pass.
+    assert!(
+        try_insert_with_port(&owner_pool, org_uuid, *actor.as_uuid(), 587)
+            .await
+            .is_ok(),
+        "587 (STARTTLS submission) must still be accepted"
+    );
+    assert!(
+        try_insert_with_port(&owner_pool, org_uuid, *actor.as_uuid(), 465)
+            .await
+            .is_ok(),
+        "465 (implicit TLS submission) must still be accepted"
+    );
+}

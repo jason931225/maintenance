@@ -117,6 +117,11 @@ pub enum MailServiceError {
     /// The `code` is a stable, non-secret token (e.g. `host_not_allowed`).
     #[error("mail transport error: {code}")]
     Transport { code: &'static str },
+    /// The per-org + per-user outbound rate limit was exceeded BEFORE any SMTP
+    /// call was made. Maps to HTTP 429. The `code` is a stable, non-secret token
+    /// naming the bucket that tripped (e.g. `send_per_minute`).
+    #[error("rate limit exceeded: {code}")]
+    RateLimited { code: &'static str },
 }
 
 impl MailServiceError {
@@ -127,7 +132,10 @@ impl MailServiceError {
             Self::Domain(err) => err.kind,
             Self::NotConfigured => ErrorKind::Validation,
             Self::Cipher | Self::Store => ErrorKind::Internal,
-            Self::Transport { .. } => ErrorKind::Validation,
+            // RateLimited has no kernel ErrorKind (there is no 429 kind); the REST
+            // layer maps the variant to 429 directly, so this is only the coarse
+            // bucket used for tracing. Treat it as a client/validation-class fault.
+            Self::Transport { .. } | Self::RateLimited { .. } => ErrorKind::Validation,
         }
     }
 }
@@ -284,6 +292,71 @@ pub const MAX_RECIPIENTS: usize = 50;
 /// Maximum total attachment bytes per send.
 pub const MAX_ATTACHMENT_TOTAL_BYTES: usize = 25 * 1024 * 1024;
 
+// ---------------------------------------------------------------------------
+// Outbound rate-limit caps (M1)
+//
+// A persisted, per-org + per-user fixed-window limiter. Each send/reply/forward
+// is checked against BOTH a per-minute and a per-hour bucket BEFORE the SMTP
+// call; test-connection is checked against a per-minute bucket. The counter is
+// org-scoped + RLS-armed in the adapter (one org's usage never bleeds into
+// another's). The caps are deliberately generous for a human operator but bound
+// any automated/abusive loop and cap the test-connection probe (an SSRF/scan
+// amplifier). Exceeding a bucket → `MailServiceError::RateLimited` → HTTP 429.
+// ---------------------------------------------------------------------------
+
+/// Max send/reply/forward operations per user, per ROLLING MINUTE.
+pub const SEND_RATE_PER_MINUTE: i64 = 30;
+/// Max send/reply/forward operations per user, per ROLLING HOUR.
+pub const SEND_RATE_PER_HOUR: i64 = 300;
+/// Max SMTP test-connection probes per user, per ROLLING MINUTE.
+pub const TEST_RATE_PER_MINUTE: i64 = 5;
+
+/// One window of the fixed-window limiter: a stable bucket key (with the window
+/// size encoded, e.g. `mail_send:1m`), the window length in seconds, and the cap.
+/// The `code` is the non-secret token surfaced on a 429.
+#[derive(Debug, Clone, Copy)]
+pub struct RateBucket {
+    pub endpoint: &'static str,
+    pub window_secs: i64,
+    pub cap: i64,
+    pub code: &'static str,
+}
+
+/// The two send/reply/forward windows (per-minute + per-hour).
+pub const SEND_RATE_BUCKETS: [RateBucket; 2] = [
+    RateBucket {
+        endpoint: "mail_send:1m",
+        window_secs: 60,
+        cap: SEND_RATE_PER_MINUTE,
+        code: "send_per_minute",
+    },
+    RateBucket {
+        endpoint: "mail_send:1h",
+        window_secs: 3600,
+        cap: SEND_RATE_PER_HOUR,
+        code: "send_per_hour",
+    },
+];
+
+/// The single test-connection window (per-minute).
+pub const TEST_RATE_BUCKETS: [RateBucket; 1] = [RateBucket {
+    endpoint: "mail_test:1m",
+    window_secs: 60,
+    cap: TEST_RATE_PER_MINUTE,
+    code: "test_per_minute",
+}];
+
+/// Floor a timestamp to the start of its fixed window. Mirrors the auth/sales
+/// limiters' `floor_to_window`: align to the window grid so every caller in the
+/// same window shares a row.
+#[must_use]
+pub fn floor_to_window(now: Timestamp, window_secs: i64) -> Timestamp {
+    let window = window_secs.max(1);
+    let unix = now.unix_timestamp();
+    let floored = unix - unix.rem_euclid(window);
+    Timestamp::from_unix_timestamp(floored).unwrap_or(now)
+}
+
 /// The result of a successful send: the persisted OUT message id + the
 /// generated `Message-ID` header value.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -425,6 +498,18 @@ pub trait MailStore: Send + Sync {
         record: OutboundRecord,
         audit: AuditEvent,
     ) -> MailFuture<'_, Result<(), MailServiceError>>;
+
+    /// Atomically increment (or create) the org-scoped, per-user fixed-window
+    /// rate-limit counter for one bucket `(actor, endpoint, window_start)` under
+    /// the armed tenant and return the NEW attempt count. The adapter arms
+    /// `app.current_org` (RLS) for the UPSERT, so the counter is isolated by org.
+    /// This is a coarse counter, NOT an audited mutation.
+    fn increment_send_rate(
+        &self,
+        actor: UserId,
+        endpoint: &'static str,
+        window_start: Timestamp,
+    ) -> MailFuture<'_, Result<i64, MailServiceError>>;
 }
 
 /// Outbound SMTP port. The adapter validates the host against the SSRF guard,
@@ -603,12 +688,21 @@ where
     }
 
     /// Probe the configured SMTP server with the stored credentials.
-    pub async fn test_connection(&self) -> Result<TestConnectionResult, MailServiceError> {
+    ///
+    /// The test-connection probe makes an outbound network call, so it is
+    /// rate-limited per-org + per-user (BEFORE the probe) exactly like a send —
+    /// otherwise it could be abused as an SSRF/port-scan amplifier.
+    pub async fn test_connection(
+        &self,
+        actor: UserId,
+        now: Timestamp,
+    ) -> Result<TestConnectionResult, MailServiceError> {
         let account = self
             .store
             .get_account()
             .await?
             .ok_or(MailServiceError::NotConfigured)?;
+        enforce_rate_limit(&self.store, actor, now, &TEST_RATE_BUCKETS).await?;
         let config = self.decrypt_smtp(&account)?;
         self.sender.test_connection(&config).await
     }
@@ -699,6 +793,16 @@ where
             .await?
             .ok_or(MailServiceError::NotConfigured)?;
 
+        // Enforce the per-org + per-user outbound rate limit BEFORE the SMTP call,
+        // so an abusive loop is bounded before it ever reaches the relay.
+        enforce_rate_limit(
+            &self.store,
+            command.actor,
+            command.occurred_at,
+            &SEND_RATE_BUCKETS,
+        )
+        .await?;
+
         let config = decrypt_smtp_for(&self.cipher, &account)?;
         let from_address = account.email_address.clone();
 
@@ -744,6 +848,32 @@ where
             rfc_message_id,
         })
     }
+}
+
+/// Check every supplied fixed-window bucket for `actor` BEFORE an outbound call.
+///
+/// Each bucket's counter is incremented for its live window; the FIRST bucket to
+/// exceed its cap short-circuits with `RateLimited`. The increment is recorded
+/// even on the request that trips the limit (so a burst is fully counted), which
+/// is the same fail-shut behaviour the auth/sales limiters use. Because the
+/// counter increments inside the consuming request, the cap holds across all app
+/// instances (the deployment is multi-instance).
+async fn enforce_rate_limit<S: MailStore>(
+    store: &S,
+    actor: UserId,
+    now: Timestamp,
+    buckets: &[RateBucket],
+) -> Result<(), MailServiceError> {
+    for bucket in buckets {
+        let window_start = floor_to_window(now, bucket.window_secs);
+        let attempts = store
+            .increment_send_rate(actor, bucket.endpoint, window_start)
+            .await?;
+        if attempts > bucket.cap {
+            return Err(MailServiceError::RateLimited { code: bucket.code });
+        }
+    }
+    Ok(())
 }
 
 fn decrypt_smtp_for<C: CredentialCipher>(
@@ -841,9 +971,12 @@ fn validate_host(value: &str, name: &str) -> Result<(), KernelError> {
     Ok(())
 }
 
-/// SMTP submission ports: 587 (STARTTLS submission), 465 (implicit TLS), 25
-/// (legacy). No other port is acceptable — narrows the SSRF surface.
-pub const ALLOWED_SMTP_PORTS: [u16; 3] = [587, 465, 25];
+/// SMTP submission ports: 587 (STARTTLS submission) and 465 (implicit TLS). Port
+/// 25 (the unauthenticated MTA-relay port) is deliberately NOT allowed — webmail
+/// only ever performs authenticated message submission, and dropping 25 narrows
+/// the SSRF surface (it is the classic port for relay/open-relay abuse). The DB
+/// CHECK on `email_accounts.smtp_port` mirrors this exact set.
+pub const ALLOWED_SMTP_PORTS: [u16; 2] = [587, 465];
 /// IMAP ports: 993 (implicit TLS), 143 (STARTTLS).
 pub const ALLOWED_IMAP_PORTS: [u16; 2] = [993, 143];
 
@@ -851,9 +984,7 @@ fn validate_smtp_port(port: u16) -> Result<(), KernelError> {
     if ALLOWED_SMTP_PORTS.contains(&port) {
         Ok(())
     } else {
-        Err(KernelError::validation(
-            "SMTP port must be one of 587, 465, or 25",
-        ))
+        Err(KernelError::validation("SMTP port must be 587 or 465"))
     }
 }
 
@@ -893,12 +1024,52 @@ mod tests {
     fn port_allowlists_reject_non_mail_ports() {
         assert!(validate_smtp_port(587).is_ok());
         assert!(validate_smtp_port(465).is_ok());
-        assert!(validate_smtp_port(25).is_ok());
+        // Port 25 (unauthenticated MTA relay) is no longer accepted: webmail only
+        // performs authenticated submission on 587/465.
+        assert!(validate_smtp_port(25).is_err());
         assert!(validate_smtp_port(8025).is_err());
         assert!(validate_smtp_port(80).is_err());
         assert!(validate_imap_port(993).is_ok());
         assert!(validate_imap_port(143).is_ok());
         assert!(validate_imap_port(110).is_err());
+    }
+
+    #[test]
+    fn floor_to_window_aligns_to_grid() {
+        // 1_700_000_040 is a multiple of 60 (and of 3600 → 1_699_999_200 is the
+        // hour grid start), so an instant 5s into that minute floors back to it.
+        let t = Timestamp::from_unix_timestamp(1_700_000_045).unwrap(); // grid + 5s
+        assert_eq!(
+            floor_to_window(t, 60).unix_timestamp(),
+            1_700_000_040,
+            "an instant 5s into a minute floors to the minute grid start"
+        );
+        assert_eq!(
+            floor_to_window(t, 3600).unix_timestamp(),
+            1_699_999_200,
+            "the same instant floors to the hour grid start"
+        );
+        // Two instants in the SAME minute window [1_700_000_040, 1_700_000_100)
+        // share a bucket; an instant in the NEXT minute does not.
+        let a = Timestamp::from_unix_timestamp(1_700_000_041).unwrap();
+        let b = Timestamp::from_unix_timestamp(1_700_000_099).unwrap();
+        let next = Timestamp::from_unix_timestamp(1_700_000_100).unwrap();
+        assert_eq!(floor_to_window(a, 60), floor_to_window(b, 60));
+        assert_ne!(floor_to_window(b, 60), floor_to_window(next, 60));
+    }
+
+    #[test]
+    fn rate_bucket_caps_are_sane() {
+        // Sanity-bind the documented caps so an accidental edit is caught.
+        assert_eq!(SEND_RATE_BUCKETS[0].cap, SEND_RATE_PER_MINUTE);
+        assert_eq!(SEND_RATE_BUCKETS[0].window_secs, 60);
+        assert_eq!(SEND_RATE_BUCKETS[1].cap, SEND_RATE_PER_HOUR);
+        assert_eq!(SEND_RATE_BUCKETS[1].window_secs, 3600);
+        assert_eq!(TEST_RATE_BUCKETS[0].cap, TEST_RATE_PER_MINUTE);
+        assert_eq!(TEST_RATE_BUCKETS[0].window_secs, 60);
+        // Per-hour cap must be at least the per-minute cap (else the minute bucket
+        // is unreachable) — a compile-time invariant on the consts.
+        const _: () = assert!(SEND_RATE_PER_HOUR >= SEND_RATE_PER_MINUTE);
     }
 
     #[test]

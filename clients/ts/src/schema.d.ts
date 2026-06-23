@@ -8344,6 +8344,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            429: components["responses"]["TooManyRequests"];
             503: components["responses"]["MailUnavailable"];
         };
     };
@@ -8372,6 +8373,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            429: components["responses"]["TooManyRequests"];
             503: components["responses"]["MailUnavailable"];
         };
     };
@@ -8400,6 +8402,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            429: components["responses"]["TooManyRequests"];
             503: components["responses"]["MailUnavailable"];
         };
     };
@@ -8428,6 +8431,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            429: components["responses"]["TooManyRequests"];
             503: components["responses"]["MailUnavailable"];
         };
     };
