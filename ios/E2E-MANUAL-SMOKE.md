@@ -32,7 +32,7 @@ Face ID**, a **real iCloud Keychain passkey**, and the **real backend**.
   Apple Developer portal under Team ID **98Q89GFZWP**, with the **Associated
   Domains** entitlement `webcredentials:knllogistic.com` (the RP id — apex per
   `deploy/apps/maintenance/base/configmap.yaml` `MNT_WEBAUTHN_RP_ID`).
-- The backend reachable at the RP origin **https://fsm.knllogistic.com** (staging
+- The backend reachable at the RP origin **https://console.knllogistic.com** (staging
   or prod) serving the Apple App Site Association document at
   `https://knllogistic.com/.well-known/apple-app-site-association` with this
   build's app id present in `MNT_IOS_APP_IDS`
@@ -43,7 +43,8 @@ Face ID**, a **real iCloud Keychain passkey**, and the **real backend**.
   passkey.
 
 > If the app is launched with `MAINTENANCE_API_BASE_URL` unset it targets
-> production (`https://fsm.knllogistic.com`) — see
+> production (`https://fsm.knllogistic.com`, which now 301-redirects to
+> `https://console.knllogistic.com`) — see
 > `ios/Sources/MaintenanceFieldApp/AppContainer.swift` `resolveServerURL()`.
 > To smoke against staging, set that environment override on the build.
 
@@ -55,9 +56,10 @@ performs *login* assertions — `PasskeyAuthRepository.login` calls
 created passkey must be a **platform** (iCloud Keychain) credential so it syncs to
 the iPhone.
 
-- [ ] On the iPhone, open Safari → `https://fsm.knllogistic.com`, sign in, and
+- [ ] On the iPhone, open Safari → `https://console.knllogistic.com`, sign in, and
       enroll a passkey for the test mechanic. Confirm Face ID prompts and the
-      "Save a passkey for fsm.knllogistic.com?" system sheet appears.
+      "Save a passkey for knllogistic.com?" system sheet appears (the prompt names
+      the RP id — the apex — not the served host).
 - [ ] Approve with Face ID. Verify the passkey is saved (Settings → Passwords →
       search `knllogistic.com` shows the credential).
 
@@ -111,7 +113,7 @@ cold launch — the exact path the XCUITest pre-launch seeding emulates.
 | Device / iOS version | |
 | App build (bundle id + version) | |
 | Backend env (staging/prod) | |
-| RP origin | https://fsm.knllogistic.com |
+| RP origin | https://console.knllogistic.com |
 | Part A (create) | ☐ pass ☐ fail |
 | Part B (assert) | ☐ pass ☐ fail |
 | Part C (persistence) | ☐ pass ☐ fail |

@@ -29,24 +29,41 @@ patches:
         value: knllogistic.com
       - op: replace
         path: /data/MNT_WEBAUTHN_RP_ORIGIN
-        value: https://fsm.knllogistic.com
+        value: https://console.knllogistic.com
       - op: replace
         path: /data/MNT_S3_ENDPOINT_URL
         value: https://axdotp9iv3ua.compat.objectstorage.ap-chuncheon-1.oraclecloud.com
   - target: { kind: Ingress, name: mnt }
     patch: |-
+      # Attach the fsm→console 301 redirect Middleware ingress-wide. Its
+      # redirectRegex is anchored to the fsm host, so it is a no-op for the
+      # apex/www storefront routers (their URLs don't match the regex).
+      - op: add
+        path: /metadata/annotations/traefik.ingress.kubernetes.io~1router.middlewares
+        value: maintenance-fsm-console-redirect@kubernetescrd
       - op: replace
         path: /spec/tls/0/hosts
-        value: [fsm.knllogistic.com, knllogistic.com, www.knllogistic.com]
+        value: [console.knllogistic.com, fsm.knllogistic.com, knllogistic.com, www.knllogistic.com]
       - op: replace
         path: /spec/rules/0/host
-        value: fsm.knllogistic.com
+        value: console.knllogistic.com
       - op: replace
         path: /spec/rules/1/host
         value: knllogistic.com
       - op: replace
         path: /spec/rules/2/host
         value: www.knllogistic.com
+      - op: replace
+        path: /spec/rules/3/host
+        value: fsm.knllogistic.com
+  - target: { kind: Middleware, name: fsm-console-redirect }
+    patch: |-
+      - op: replace
+        path: /spec/redirectRegex/regex
+        value: ^https?://fsm\.knllogistic\.com/(.*)
+      - op: replace
+        path: /spec/redirectRegex/replacement
+        value: https://console.knllogistic.com/${1}
   - target: { kind: ObjectStore, name: mnt-backups }
     patch: |-
       - op: replace

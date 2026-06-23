@@ -10,5 +10,6 @@ resources:
   - worker.yaml
   - analysis.yaml
   - ingress.yaml
+  - middleware.yaml
   - networkpolicy.yaml
   - database.yaml

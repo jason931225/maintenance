@@ -7,17 +7,17 @@ describe("consoleHref", () => {
     vi.unstubAllEnvs();
   });
 
-  it("crosses the apex/www to the fsm console host in production", () => {
+  it("crosses the apex/www to the console host in production", () => {
     expect(consoleHref("/login", "knllogistic.com")).toBe(
-      "https://fsm.knllogistic.com/login",
+      "https://console.knllogistic.com/login",
     );
     expect(consoleHref("/login", "www.knllogistic.com")).toBe(
-      "https://fsm.knllogistic.com/login",
+      "https://console.knllogistic.com/login",
     );
   });
 
   it("stays same-origin on the console host and in dev/preview", () => {
-    expect(consoleHref("/login", "fsm.knllogistic.com")).toBe("/login");
+    expect(consoleHref("/login", "console.knllogistic.com")).toBe("/login");
     expect(consoleHref("/login", "localhost:5173")).toBe("/login");
     expect(consoleHref("/login", "deploy-preview-12.example.com")).toBe("/login");
   });
@@ -30,6 +30,6 @@ describe("consoleHref", () => {
   });
 
   it("defaults the path to /login", () => {
-    expect(consoleHref(undefined, "fsm.knllogistic.com")).toBe("/login");
+    expect(consoleHref(undefined, "console.knllogistic.com")).toBe("/login");
   });
 });

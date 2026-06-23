@@ -18,7 +18,7 @@ filler, online-centric** (phone is a last resort). Korean-first, multi-tenant (R
 - **Sales** — sales_listings + public storefront + inquiries.
 - **Platform** — multi-tenant org isolation + RLS, passkey/WebAuthn auth (cold-start OTP →
   enroll → usernameless login), org-scoped roles (RECEPTIONIST/MECHANIC/ADMIN/EXECUTIVE/SUPER_ADMIN).
-- **Live** — knllogistic.com (storefront) + fsm.knllogistic.com (console) on the OCI/Talos cluster.
+- **Live** — knllogistic.com (storefront) + console.knllogistic.com (console; legacy fsm.knllogistic.com 301-redirects here) on the OCI/Talos cluster.
 
 ## In progress
 - **Web front door redesign** — unified one-stop site (corporate + FSM/CX-SaaS), online-centric.

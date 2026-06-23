@@ -40,7 +40,7 @@ export function PublicLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
   const { pathname } = useLocation();
 
-  // Operator-console (staff) link target: crosses to fsm.knllogistic.com in
+  // Operator-console (staff) link target: crosses to console.knllogistic.com in
   // production, stays same-origin (/login) on the console host, dev, and previews.
   const consoleLink = consoleHref();
 

@@ -23,7 +23,8 @@ smoke**, run by a human against staging. Everything *after* login is automated (
 - The debug APK built against staging:
   - `API_BASE_URL` must point at staging. The debug default is `http://10.0.2.2:8080`
     (emulator loopback). For a physical device, build a variant whose `API_BASE_URL` resolves
-    to the staging ingress, or port-forward. Production/release points at `https://fsm.knllogistic.com`.
+    to the staging ingress, or port-forward. Production/release points at `https://fsm.knllogistic.com`
+    (which now 301-redirects to the console host `https://console.knllogistic.com`).
 - Staging Relying Party (RP) is `knllogistic.com`; the device's Digital Asset Links must
   authorize the app's signing cert for that origin.
 - A test technician user provisioned on staging with permission to register a passkey.

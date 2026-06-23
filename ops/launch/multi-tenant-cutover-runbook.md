@@ -122,8 +122,9 @@ window is the safe, simple way to guarantee that.
 
 ## 2. Verify live (still in the window)
 
-- `https://fsm.knllogistic.com` returns 200, valid TLS, app loads (no blank
-  ErrorBoundary).
+- `https://console.knllogistic.com` returns 200, valid TLS, app loads (no blank
+  ErrorBoundary). Legacy `https://fsm.knllogistic.com` returns a 301 to the
+  console host (and still serves the app if the redirect is ever detached).
 - Log in as an existing KNL admin (passkey). Confirm work orders, equipment,
   messages, support tickets, dispatch, KPIs are **visible** (RLS-scoped to KNL,
   not empty). Empty here = the GUC isn't being set / role misconfigured → roll

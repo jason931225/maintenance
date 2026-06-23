@@ -13,13 +13,13 @@ data:
   MNT_JWT_ISSUER: "mnt-platform-auth"
   MNT_JWT_AUDIENCE: "mnt-api"
   MNT_WEBAUTHN_RP_NAME: "MNT 정비 콘솔"
-  # RP id is the APEX domain so a passkey enrolled today on fsm.knllogistic.com
+  # RP id is the APEX domain so a passkey enrolled today on console.knllogistic.com
   # stays valid across every current/future subdomain of the org. The RP ORIGIN
-  # stays the exact served origin (https://fsm.knllogistic.com): WebAuthn requires
+  # stays the exact served origin (https://console.knllogistic.com): WebAuthn requires
   # the origin's host to equal the rp id OR be a subdomain of it, which the apex
   # satisfies. Prod has no enrolled passkeys yet, so this is a clean switch.
   MNT_WEBAUTHN_RP_ID: "knllogistic.com" # apex; overridden in overlays/prod
-  MNT_WEBAUTHN_RP_ORIGIN: "https://fsm.knllogistic.com" # overridden in overlays/prod
+  MNT_WEBAUTHN_RP_ORIGIN: "https://console.knllogistic.com" # overridden in overlays/prod
   # Absolute refresh-family lifetime cap (NIST 800-63B AAL2). Past this ceiling a
   # rotation is rejected and the family revoked, forcing a fresh sign-in. 24h.
   MNT_REFRESH_FAMILY_ABSOLUTE_TTL_SECS: "86400"
