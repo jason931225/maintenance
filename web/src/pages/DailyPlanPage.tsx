@@ -351,6 +351,8 @@ export function DailyPlanPage() {
                 <Textarea
                   aria-label={ko.dailyPlan.reviewMemo}
                   placeholder={ko.dailyPlan.reviewMemoPlaceholder}
+                  rows={2}
+                  className="min-h-9"
                   value={reviewMemo}
                   onChange={(event) => {
                     setReviewMemo(event.currentTarget.value);

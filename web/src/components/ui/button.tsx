@@ -5,7 +5,9 @@ import type * as React from "react";
 import { cn } from "../../lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex min-h-12 items-center justify-center gap-2 rounded text-sm font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 disabled:pointer-events-none disabled:opacity-50",
+  // No height in the root: each `size` owns its own min-height so a compact
+  // size is never forced back up to 48px. Keep shared shape/typography/focus.
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
@@ -19,8 +21,12 @@ const buttonVariants = cva(
           "bg-red-700 text-white hover:bg-red-800 focus-visible:outline-red-700",
       },
       size: {
-        default: "px-4 py-2",
-        sm: "px-3 py-2",
+        // Primary form/page actions: full 48px tap target.
+        default: "min-h-12 px-4 py-2 text-sm",
+        // Dense table/action rows: compact 36px but still a comfortable target.
+        sm: "min-h-9 px-3 py-1.5 text-sm",
+        // Tightest action chips (overflow menus, inline rows): 32px AA minimum.
+        xs: "min-h-8 px-2 py-1 text-xs",
         icon: "h-12 w-12 p-0",
       },
     },

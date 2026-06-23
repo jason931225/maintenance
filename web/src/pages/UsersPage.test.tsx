@@ -149,20 +149,24 @@ describe("UsersPage create", () => {
 
     await screen.findByText("등록된 사용자가 없습니다.");
 
-    // Submitting empty surfaces the name validation error.
+    // Open the create slide-over from the page header.
     await user.click(screen.getByRole("button", { name: "사용자 등록" }));
+    const drawer = within(await screen.findByRole("dialog"));
+
+    // Submitting empty surfaces the name validation error.
+    await user.click(drawer.getByRole("button", { name: "사용자 등록" }));
     expect(await screen.findByText("이름을 입력하세요.")).toBeVisible();
 
-    await user.type(screen.getByLabelText("이름"), "정민규");
+    await user.type(drawer.getByLabelText("이름"), "정민규");
     // Still missing a role.
-    await user.click(screen.getByRole("button", { name: "사용자 등록" }));
+    await user.click(drawer.getByRole("button", { name: "사용자 등록" }));
     expect(
       await screen.findByText("역할을 하나 이상 선택하세요."),
     ).toBeVisible();
 
-    await user.click(screen.getByLabelText("정비사"));
-    await user.click(screen.getByLabelText("강남지점"));
-    await user.click(screen.getByRole("button", { name: "사용자 등록" }));
+    await user.click(drawer.getByLabelText("정비사"));
+    await user.click(drawer.getByLabelText("강남지점"));
+    await user.click(drawer.getByRole("button", { name: "사용자 등록" }));
 
     await waitFor(() => {
       expect(created).toHaveBeenCalledWith({
@@ -207,11 +211,13 @@ describe("UsersPage no-credential UX", () => {
       http.get("*/api/v1/users", () => HttpResponse.json([newUser])),
     );
 
-    // Fill in the create form and submit.
-    await user.type(screen.getByLabelText("이름"), "정민규");
-    await user.click(screen.getByLabelText("정비사"));
-    await user.click(screen.getByLabelText("강남지점"));
+    // Open the create slide-over, fill it in, and submit.
     await user.click(screen.getByRole("button", { name: "사용자 등록" }));
+    const drawer = within(await screen.findByRole("dialog"));
+    await user.type(drawer.getByLabelText("이름"), "정민규");
+    await user.click(drawer.getByLabelText("정비사"));
+    await user.click(drawer.getByLabelText("강남지점"));
+    await user.click(drawer.getByRole("button", { name: "사용자 등록" }));
 
     // The no-credential prompt banner should appear.
     expect(
@@ -246,8 +252,12 @@ describe("UsersPage OTP issue", () => {
 
     const row = (await screen.findByText("제갈태수")).closest("tr");
     expect(row).not.toBeNull();
+    // The OTP action lives behind the row overflow ("더보기") menu.
     await user.click(
-      within(row as HTMLElement).getByRole("button", {
+      within(row as HTMLElement).getByRole("button", { name: /추가 작업/ }),
+    );
+    await user.click(
+      within(row as HTMLElement).getByRole("menuitem", {
         name: "일회용 코드 발급",
       }),
     );
@@ -289,9 +299,12 @@ describe("UsersPage credential reset", () => {
 
     const row = (await screen.findByText("제갈태수")).closest("tr");
     expect(row).not.toBeNull();
-    // Open the reset dialog from the user's row.
+    // Open the reset dialog from the user's row overflow ("더보기") menu.
     await user.click(
-      within(row as HTMLElement).getByRole("button", {
+      within(row as HTMLElement).getByRole("button", { name: /추가 작업/ }),
+    );
+    await user.click(
+      within(row as HTMLElement).getByRole("menuitem", {
         name: "패스키 재설정 / 로그인 코드 재발급",
       }),
     );

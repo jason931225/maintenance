@@ -268,6 +268,8 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
             </label>
             <Textarea
               id="pr-memo"
+              rows={2}
+              className="min-h-9"
               value={form.memo}
               placeholder={ko.financial.purchase.fields.memoPlaceholder}
               onChange={(event) => {
@@ -844,6 +846,8 @@ function RestartDialog({
           </label>
           <Textarea
             id="restart-memo"
+            rows={2}
+            className="min-h-9"
             value={memo}
             onChange={(event) => {
               setMemo(event.currentTarget.value);

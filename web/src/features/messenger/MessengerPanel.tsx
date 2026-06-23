@@ -68,6 +68,7 @@ export function MessengerPanel({
   const [isCreatingThread, setIsCreatingThread] = useState(false);
   const [createError, setCreateError] = useState<string>();
   const cursorRef = useRef<string | undefined>(undefined);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const selectedThread = state.threads.find(
     (thread) => thread.id === state.selectedThreadId,
   );
@@ -78,6 +79,16 @@ export function MessengerPanel({
   useEffect(() => {
     cursorRef.current = resumeCursor(state);
   }, [state]);
+
+  // Auto-grow the chat composer from one line up to its CSS max-height, so a
+  // short message stays compact but a longer draft expands instead of forcing
+  // an inner scrollbar from the first character.
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${String(el.scrollHeight)}px`;
+  }, [composer]);
 
   const markRead = useCallback(
     async (threadId: string, messageId: string) => {
@@ -496,7 +507,10 @@ export function MessengerPanel({
                   </label>
                 ) : null}
                 <Textarea
+                  ref={composerRef}
                   aria-label={ko.messenger.composer}
+                  rows={1}
+                  className="min-h-9 max-h-32 resize-none"
                   value={composer}
                   onChange={(event) => {
                     setComposer(event.currentTarget.value);

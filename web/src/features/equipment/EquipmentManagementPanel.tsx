@@ -386,6 +386,8 @@ export function EquipmentManagementPanel({
             </label>
             <Textarea
               id="eq-note"
+              rows={2}
+              className="min-h-9"
               value={form.note}
               onChange={(event) => {
                 setField("note", event.currentTarget.value);

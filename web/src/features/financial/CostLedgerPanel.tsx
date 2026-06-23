@@ -199,6 +199,8 @@ export function CostLedgerPanel({ api, roles }: CostLedgerPanelProps) {
             <Textarea
               id="cost-ledger-manual-memo"
               placeholder={ko.financial.ledger.manual.memoPlaceholder}
+              rows={2}
+              className="min-h-9"
               value={manualMemo}
               onChange={(event) => {
                 setManualMemo(event.currentTarget.value);

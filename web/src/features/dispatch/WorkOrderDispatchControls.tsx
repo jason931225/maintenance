@@ -302,6 +302,8 @@ export function WorkOrderDispatchControls({
         <Textarea
           aria-label={t.scheduleReason}
           placeholder={t.scheduleReasonPlaceholder}
+          rows={2}
+          className="min-h-9"
           value={scheduleReason}
           onChange={(event) => {
             setScheduleReason(event.target.value);

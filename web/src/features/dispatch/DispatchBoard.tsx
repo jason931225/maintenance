@@ -127,6 +127,7 @@ export function DispatchBoard({
                       <Button
                         className="mt-3 w-full"
                         variant="secondary"
+                        size="sm"
                         onClick={() => {
                           void onAssignWorkOrder(
                             workOrder.id,
