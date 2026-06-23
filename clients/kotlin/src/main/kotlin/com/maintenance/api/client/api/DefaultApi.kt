@@ -78,6 +78,7 @@ import com.maintenance.api.client.model.InquiryStatus
 import com.maintenance.api.client.model.InspectionRoundSummary
 import com.maintenance.api.client.model.InspectionScheduleSummary
 import com.maintenance.api.client.model.KpiReport
+import com.maintenance.api.client.model.ListingCondition
 import com.maintenance.api.client.model.ListingKind
 import com.maintenance.api.client.model.ListingType
 import com.maintenance.api.client.model.LocationConsentLedgerPage
@@ -265,6 +266,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * List all sales listings for the admin console (#6)
      * Admin catalog read (SalesManage). Unlike the public storefront, returns listings in every status (including DRAFT/SOLD/WITHDRAWN). Optional filters narrow by fuel/drive kind and sale/rental type; results are paged.
      * @param kind  (optional)
+     * @param condition  (optional)
      * @param listingType  (optional)
      * @param limit  (optional, default to 24L)
      * @param offset  (optional, default to 0L)
@@ -277,8 +279,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun adminListListings(kind: ListingKind? = null, listingType: ListingType? = null, limit: kotlin.Long? = 24L, offset: kotlin.Long? = 0L) : SalesListingPage = withContext(Dispatchers.IO) {
-        val localVarResponse = adminListListingsWithHttpInfo(kind = kind, listingType = listingType, limit = limit, offset = offset)
+    suspend fun adminListListings(kind: ListingKind? = null, condition: ListingCondition? = null, listingType: ListingType? = null, limit: kotlin.Long? = 24L, offset: kotlin.Long? = 0L) : SalesListingPage = withContext(Dispatchers.IO) {
+        val localVarResponse = adminListListingsWithHttpInfo(kind = kind, condition = condition, listingType = listingType, limit = limit, offset = offset)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as SalesListingPage
@@ -300,6 +302,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * List all sales listings for the admin console (#6)
      * Admin catalog read (SalesManage). Unlike the public storefront, returns listings in every status (including DRAFT/SOLD/WITHDRAWN). Optional filters narrow by fuel/drive kind and sale/rental type; results are paged.
      * @param kind  (optional)
+     * @param condition  (optional)
      * @param listingType  (optional)
      * @param limit  (optional, default to 24L)
      * @param offset  (optional, default to 0L)
@@ -309,8 +312,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun adminListListingsWithHttpInfo(kind: ListingKind?, listingType: ListingType?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<SalesListingPage?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = adminListListingsRequestConfig(kind = kind, listingType = listingType, limit = limit, offset = offset)
+    suspend fun adminListListingsWithHttpInfo(kind: ListingKind?, condition: ListingCondition?, listingType: ListingType?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<SalesListingPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = adminListListingsRequestConfig(kind = kind, condition = condition, listingType = listingType, limit = limit, offset = offset)
 
         return@withContext request<Unit, SalesListingPage>(
             localVariableConfig
@@ -321,17 +324,21 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * To obtain the request config of the operation adminListListings
      *
      * @param kind  (optional)
+     * @param condition  (optional)
      * @param listingType  (optional)
      * @param limit  (optional, default to 24L)
      * @param offset  (optional, default to 0L)
      * @return RequestConfig
      */
-    fun adminListListingsRequestConfig(kind: ListingKind?, listingType: ListingType?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+    fun adminListListingsRequestConfig(kind: ListingKind?, condition: ListingCondition?, listingType: ListingType?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
                 if (kind != null) {
                     put("kind", listOf(kind.toString()))
+                }
+                if (condition != null) {
+                    put("condition", listOf(condition.toString()))
                 }
                 if (listingType != null) {
                     put("listing_type", listOf(listingType.toString()))
@@ -8144,10 +8151,87 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/storefront/listings/{id}/media/{media_id}
+     * Serve one public sales-listing photo (#6)
+     * Public, unauthenticated serve of one listing photo&#39;s bytes, streamed from the object store. The media must belong to the listing and the listing must be storefront-visible (published/reserved); otherwise 404. The response body is the raw image with its stored content type.
+     * @param id
+     * @param mediaId
+     * @return java.io.File
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun storefrontGetListingMedia(id: java.util.UUID, mediaId: java.util.UUID) : java.io.File = withContext(Dispatchers.IO) {
+        val localVarResponse = storefrontGetListingMediaWithHttpInfo(id = id, mediaId = mediaId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as java.io.File
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/storefront/listings/{id}/media/{media_id}
+     * Serve one public sales-listing photo (#6)
+     * Public, unauthenticated serve of one listing photo&#39;s bytes, streamed from the object store. The media must belong to the listing and the listing must be storefront-visible (published/reserved); otherwise 404. The response body is the raw image with its stored content type.
+     * @param id
+     * @param mediaId
+     * @return ApiResponse<java.io.File?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun storefrontGetListingMediaWithHttpInfo(id: java.util.UUID, mediaId: java.util.UUID) : ApiResponse<java.io.File?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = storefrontGetListingMediaRequestConfig(id = id, mediaId = mediaId)
+
+        return@withContext request<Unit, java.io.File>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation storefrontGetListingMedia
+     *
+     * @param id
+     * @param mediaId
+     * @return RequestConfig
+     */
+    fun storefrontGetListingMediaRequestConfig(id: java.util.UUID, mediaId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/storefront/listings/{id}/media/{media_id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())).replace("{"+"media_id"+"}", encodeURIComponent(mediaId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/storefront/listings
      * List published sales listings for the public storefront (#6)
      * Public, unauthenticated catalog read. Returns only published/reserved listings (the storefront-visible set). Carries no bearer token; the store is scoped to the KNL org. Optional filters narrow by fuel/drive kind and sale/rental type; results are paged.
      * @param kind  (optional)
+     * @param condition  (optional)
      * @param listingType  (optional)
      * @param limit  (optional, default to 24L)
      * @param offset  (optional, default to 0L)
@@ -8160,8 +8244,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun storefrontListListings(kind: ListingKind? = null, listingType: ListingType? = null, limit: kotlin.Long? = 24L, offset: kotlin.Long? = 0L) : SalesListingPage = withContext(Dispatchers.IO) {
-        val localVarResponse = storefrontListListingsWithHttpInfo(kind = kind, listingType = listingType, limit = limit, offset = offset)
+    suspend fun storefrontListListings(kind: ListingKind? = null, condition: ListingCondition? = null, listingType: ListingType? = null, limit: kotlin.Long? = 24L, offset: kotlin.Long? = 0L) : SalesListingPage = withContext(Dispatchers.IO) {
+        val localVarResponse = storefrontListListingsWithHttpInfo(kind = kind, condition = condition, listingType = listingType, limit = limit, offset = offset)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as SalesListingPage
@@ -8183,6 +8267,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * List published sales listings for the public storefront (#6)
      * Public, unauthenticated catalog read. Returns only published/reserved listings (the storefront-visible set). Carries no bearer token; the store is scoped to the KNL org. Optional filters narrow by fuel/drive kind and sale/rental type; results are paged.
      * @param kind  (optional)
+     * @param condition  (optional)
      * @param listingType  (optional)
      * @param limit  (optional, default to 24L)
      * @param offset  (optional, default to 0L)
@@ -8192,8 +8277,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun storefrontListListingsWithHttpInfo(kind: ListingKind?, listingType: ListingType?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<SalesListingPage?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = storefrontListListingsRequestConfig(kind = kind, listingType = listingType, limit = limit, offset = offset)
+    suspend fun storefrontListListingsWithHttpInfo(kind: ListingKind?, condition: ListingCondition?, listingType: ListingType?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<SalesListingPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = storefrontListListingsRequestConfig(kind = kind, condition = condition, listingType = listingType, limit = limit, offset = offset)
 
         return@withContext request<Unit, SalesListingPage>(
             localVariableConfig
@@ -8204,17 +8289,21 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * To obtain the request config of the operation storefrontListListings
      *
      * @param kind  (optional)
+     * @param condition  (optional)
      * @param listingType  (optional)
      * @param limit  (optional, default to 24L)
      * @param offset  (optional, default to 0L)
      * @return RequestConfig
      */
-    fun storefrontListListingsRequestConfig(kind: ListingKind?, listingType: ListingType?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+    fun storefrontListListingsRequestConfig(kind: ListingKind?, condition: ListingCondition?, listingType: ListingType?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
                 if (kind != null) {
                     put("kind", listOf(kind.toString()))
+                }
+                if (condition != null) {
+                    put("condition", listOf(condition.toString()))
                 }
                 if (listingType != null) {
                     put("listing_type", listOf(listingType.toString()))

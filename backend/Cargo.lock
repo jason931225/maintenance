@@ -2775,11 +2775,13 @@ dependencies = [
  "mnt-platform-authz",
  "mnt-platform-db",
  "mnt-platform-request-context",
+ "mnt-platform-storage",
  "mnt-sales-adapter-postgres",
  "mnt-sales-application",
  "mnt-sales-domain",
  "serde",
  "time",
+ "uuid",
 ]
 
 [[package]]

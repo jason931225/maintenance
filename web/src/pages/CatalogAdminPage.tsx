@@ -6,6 +6,7 @@ import type {
   CreateListingRequest,
   CustomerInquiryView,
   InquiryStatus,
+  ListingCondition,
   ListingKind,
   ListingStatus,
   ListingType,
@@ -31,6 +32,7 @@ type Tab = "listings" | "inquiries";
 type ReadState = "idle" | "loading" | "error";
 
 const KIND_OPTIONS: ListingKind[] = ["ELECTRIC", "DIESEL", "LPG", "REACH"];
+const CONDITION_OPTIONS: ListingCondition[] = ["USED", "NEW"];
 const LISTING_TYPE_OPTIONS: ListingType[] = ["SALE", "RENTAL", "BOTH"];
 const STATUS_OPTIONS: ListingStatus[] = [
   "DRAFT",
@@ -51,6 +53,7 @@ const INQUIRY_BADGE: Record<InquiryStatus, string> = {
  * input strings so an empty box round-trips to `null` rather than `0`. */
 interface ListingForm {
   kind: ListingKind;
+  condition: ListingCondition;
   model_name: string;
   capacity_milli: string;
   model_year: string;
@@ -70,6 +73,7 @@ interface ListingForm {
 
 const EMPTY_FORM: ListingForm = {
   kind: "ELECTRIC",
+  condition: "USED",
   model_name: "",
   capacity_milli: "",
   model_year: "",
@@ -91,6 +95,7 @@ function toForm(listing: SalesListingView): ListingForm {
   const str = (value: number | null) => (value === null ? "" : String(value));
   return {
     kind: listing.kind,
+    condition: listing.condition,
     model_name: listing.model_name,
     capacity_milli: str(listing.capacity_milli),
     model_year: str(listing.model_year),
@@ -126,6 +131,7 @@ function nullableInt(value: string): number | null {
 function toCreateRequest(form: ListingForm): CreateListingRequest {
   return {
     kind: form.kind,
+    condition: form.condition,
     model_name: form.model_name.trim(),
     capacity_milli: nullableInt(form.capacity_milli),
     model_year: nullableInt(form.model_year),
@@ -164,6 +170,7 @@ function toUpdateRequest(
 
   // Non-nullable enums / number.
   if (next.kind !== original.kind) body.kind = next.kind;
+  if (next.condition !== original.condition) body.condition = next.condition;
   if (next.listing_type !== original.listing_type)
     body.listing_type = next.listing_type;
   if (next.status !== original.status) body.status = next.status;
@@ -563,6 +570,9 @@ function ListingsTab({
                   {ko.catalog.listings.columns.kind}
                 </th>
                 <th className="px-4 py-3 font-semibold">
+                  {ko.catalog.listings.columns.condition}
+                </th>
+                <th className="px-4 py-3 font-semibold">
                   {ko.catalog.listings.columns.listingType}
                 </th>
                 <th className="px-4 py-3 font-semibold">
@@ -603,6 +613,9 @@ function ListingsTab({
                     </td>
                     <td className="px-4 py-3 text-steel">
                       {ko.catalog.kindLabels[listing.kind]}
+                    </td>
+                    <td className="px-4 py-3 text-steel">
+                      {ko.catalog.conditionLabels[listing.condition]}
                     </td>
                     <td className="px-4 py-3 text-steel">
                       {ko.catalog.listingTypeLabels[listing.listing_type]}
@@ -920,6 +933,21 @@ function ListingFormDialog({
               {KIND_OPTIONS.map((kind) => (
                 <option key={kind} value={kind}>
                   {ko.catalog.kindLabels[kind]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <Field label={ko.catalog.form.conditionLabel}>
+            <Select
+              value={form.condition}
+              onChange={(event) => {
+                set("condition", event.target.value as ListingCondition);
+              }}
+            >
+              {CONDITION_OPTIONS.map((condition) => (
+                <option key={condition} value={condition}>
+                  {ko.catalog.conditionLabels[condition]}
                 </option>
               ))}
             </Select>

@@ -124,6 +124,7 @@ export type QuoteLine = components["schemas"]["QuoteLine"];
 
 // Storefront / sales catalog (#6 KNL forklift storefront).
 export type ListingKind = components["schemas"]["ListingKind"];
+export type ListingCondition = components["schemas"]["ListingCondition"];
 export type ListingType = components["schemas"]["ListingType"];
 export type ListingStatus = components["schemas"]["ListingStatus"];
 export type InquiryTopic = components["schemas"]["InquiryTopic"];

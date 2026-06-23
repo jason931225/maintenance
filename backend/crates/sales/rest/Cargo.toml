@@ -14,11 +14,13 @@ mnt-platform-auth = { workspace = true }
 mnt-platform-authz = { workspace = true }
 mnt-platform-db = { workspace = true }
 mnt-platform-request-context = { workspace = true }
+mnt-platform-storage = { workspace = true }
 mnt-sales-adapter-postgres = { workspace = true }
 mnt-sales-application = { workspace = true }
 mnt-sales-domain = { workspace = true }
 serde = { workspace = true }
 time = { workspace = true }
+uuid = { workspace = true }
 
 [lints]
 workspace = true

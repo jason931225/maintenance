@@ -23,6 +23,7 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.ListingCondition
 import com.maintenance.api.client.model.ListingKind
 import com.maintenance.api.client.model.ListingStatus
 import com.maintenance.api.client.model.ListingType
@@ -35,6 +36,7 @@ import kotlinx.serialization.Contextual
  * Full editable field set for creating a sales listing.
  *
  * @param kind
+ * @param condition
  * @param modelName
  * @param listingType
  * @param status
@@ -57,6 +59,9 @@ data class CreateListingRequest (
 
     @Contextual @SerialName(value = "kind")
     val kind: ListingKind,
+
+    @Contextual @SerialName(value = "condition")
+    val condition: ListingCondition,
 
     @SerialName(value = "model_name")
     val modelName: kotlin.String,

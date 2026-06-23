@@ -621,6 +621,8 @@ pub struct AppState {
     jwt_verifier: Option<JwtVerifier>,
     auth_rest: Option<AuthRestState>,
     evidence_storage: Option<EvidenceService<SeaweedS3Storage>>,
+    /// Object store + bucket backing the public storefront media-serve route.
+    sales_media_storage: Option<(SeaweedS3Storage, String)>,
     dispatch_job_queue: Option<Arc<dyn JobQueue>>,
     push_notifier: Option<Arc<dyn PushNotifier>>,
     realtime_hub: Option<Arc<PgRealtimeHub>>,
@@ -652,6 +654,7 @@ impl AppState {
             jwt_verifier,
             auth_rest,
             evidence_storage: None,
+            sales_media_storage: None,
             dispatch_job_queue: None,
             push_notifier: None,
             realtime_hub,
@@ -695,6 +698,8 @@ impl AppState {
             let object_store = SeaweedS3Storage::from_config(storage_config)
                 .await
                 .map_err(AppError::Storage)?;
+            state.sales_media_storage =
+                Some((object_store.clone(), storage_config.primary_bucket.clone()));
             state.evidence_storage = Some(EvidenceService::new(
                 pool.clone(),
                 object_store,
@@ -1064,10 +1069,15 @@ pub fn build_router(state: AppState) -> Router {
                     registry_store,
                     state.jwt_verifier.clone(),
                 )))
-                .merge(mnt_sales_rest::router(
-                    SalesRestState::new(sales_store, state.jwt_verifier.clone())
-                        .with_trusted_proxy_count(state.config.trusted_proxy_count),
-                ))
+                .merge(mnt_sales_rest::router({
+                    let mut sales_state =
+                        SalesRestState::new(sales_store, state.jwt_verifier.clone())
+                            .with_trusted_proxy_count(state.config.trusted_proxy_count);
+                    if let Some((object_store, bucket)) = state.sales_media_storage.clone() {
+                        sales_state = sales_state.with_media_storage(object_store, bucket);
+                    }
+                    sales_state
+                }))
                 .merge(mnt_reporting_rest::router(KpiRestState::new(
                     kpi_repository,
                     state.jwt_verifier.clone(),

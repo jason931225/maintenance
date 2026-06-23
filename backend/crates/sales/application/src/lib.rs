@@ -6,17 +6,21 @@ use mnt_kernel_core::{
     AuditAction, AuditEvent, CustomerInquiryId, EquipmentId, KernelError, SalesListingId,
     Timestamp, TraceContext, UserId,
 };
-use mnt_sales_domain::{InquiryStatus, InquiryTopic, ListingKind, ListingStatus, ListingType};
+use mnt_sales_domain::{
+    InquiryStatus, InquiryTopic, ListingCondition, ListingKind, ListingStatus, ListingType,
+};
 use serde::{Deserialize, Serialize};
 
 // ─── Read models ─────────────────────────────────────────────────────────────
 
-/// One photo attached to a listing. The displayable URL is built by the REST
-/// layer from the media `id` (a stable storefront serve path); the object bytes
+/// One photo attached to a listing. `url` is a stable, public storefront
+/// serve path built by the REST layer from the listing + media `id`
+/// (`/api/v1/storefront/listings/{listing_id}/media/{id}`); the object bytes
 /// live in the object store keyed by an internal s3_key never exposed here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ListingMediaView {
     pub id: String,
+    pub url: String,
     pub content_type: String,
     pub alt_text: Option<String>,
     pub sort_order: i32,
@@ -28,6 +32,7 @@ pub struct SalesListingView {
     pub id: SalesListingId,
     pub equipment_id: Option<EquipmentId>,
     pub kind: ListingKind,
+    pub condition: ListingCondition,
     pub model_name: String,
     pub capacity_milli: Option<i64>,
     pub model_year: Option<i32>,
@@ -61,6 +66,7 @@ pub struct SalesListingPage {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CatalogQuery {
     pub kind: Option<ListingKind>,
+    pub condition: Option<ListingCondition>,
     pub listing_type: Option<ListingType>,
     pub include_non_public: bool,
     pub limit: i64,
@@ -102,6 +108,7 @@ pub struct InquiryInboxQuery {
 #[derive(Debug, Clone)]
 pub struct ListingInput {
     pub kind: ListingKind,
+    pub condition: ListingCondition,
     pub model_name: String,
     pub capacity_milli: Option<i64>,
     pub model_year: Option<i32>,
@@ -133,6 +140,7 @@ pub struct CreateListingCommand {
 #[derive(Debug, Clone, Default)]
 pub struct UpdateListingFields {
     pub kind: Option<ListingKind>,
+    pub condition: Option<ListingCondition>,
     pub model_name: Option<String>,
     pub capacity_milli: Option<Option<i64>>,
     pub model_year: Option<Option<i32>>,
@@ -154,6 +162,7 @@ impl UpdateListingFields {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.kind.is_none()
+            && self.condition.is_none()
             && self.model_name.is_none()
             && self.capacity_milli.is_none()
             && self.model_year.is_none()

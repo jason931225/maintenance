@@ -6,7 +6,9 @@ use mnt_sales_application::{
     CatalogQuery, CreateListingCommand, InquiryInboxQuery, ListingInput, SubmitInquiryCommand,
     UpdateInquiryStatusCommand, UpdateListingCommand, UpdateListingFields,
 };
-use mnt_sales_domain::{InquiryStatus, InquiryTopic, ListingKind, ListingStatus, ListingType};
+use mnt_sales_domain::{
+    InquiryStatus, InquiryTopic, ListingCondition, ListingKind, ListingStatus, ListingType,
+};
 use sqlx::PgPool;
 use time::macros::datetime;
 
@@ -24,6 +26,7 @@ async fn listing_and_inquiry_lifecycle_is_tenant_scoped_and_audited(pool: PgPool
                 listing_id,
                 input: ListingInput {
                     kind: ListingKind::Electric,
+                    condition: ListingCondition::Used,
                     model_name: "전동 지게차 2.5톤".into(),
                     capacity_milli: Some(2500),
                     model_year: Some(2021),
@@ -74,6 +77,59 @@ async fn listing_and_inquiry_lifecycle_is_tenant_scoped_and_audited(pool: PgPool
         assert_eq!(public.total, 1, "published listing is public");
         assert_eq!(public.items[0].price_won, Some(11_500_000));
         assert_eq!(public.items[0].kind, ListingKind::Electric);
+        assert_eq!(public.items[0].condition, ListingCondition::Used);
+
+        // A second, brand-new (신차) listing — published straight away so the
+        // storefront's 중고/신차 sub-category filter is exercised end-to-end
+        // through the RLS-armed store.
+        let new_listing_id = SalesListingId::new();
+        store
+            .create_listing(CreateListingCommand {
+                actor,
+                listing_id: new_listing_id,
+                input: ListingInput {
+                    kind: ListingKind::Diesel,
+                    condition: ListingCondition::New,
+                    model_name: "신차 디젤 지게차 3.0톤".into(),
+                    capacity_milli: Some(3000),
+                    model_year: Some(2026),
+                    usage_hours: Some(0),
+                    price_won: Some(38_000_000),
+                    badge: None,
+                    usage_label: None,
+                    condition_label: None,
+                    availability: None,
+                    location: None,
+                    description: None,
+                    listing_type: ListingType::Sale,
+                    status: ListingStatus::Published,
+                    sort_weight: 5,
+                    equipment_id: None,
+                },
+                trace: TraceContext::generate(),
+                occurred_at: datetime!(2026-06-21 10:30:00 UTC),
+            })
+            .await
+            .unwrap();
+
+        // The public catalog now holds one 중고 and one 신차 listing; each
+        // condition filter returns exactly its own.
+        assert_eq!(store.list_listings(catalog(false)).await.unwrap().total, 2);
+        let used = store
+            .list_listings(catalog_with_condition(ListingCondition::Used))
+            .await
+            .unwrap();
+        assert_eq!(used.total, 1, "USED filter returns only the used listing");
+        assert_eq!(used.items[0].condition, ListingCondition::Used);
+        assert_eq!(used.items[0].id, listing_id);
+        let new = store
+            .list_listings(catalog_with_condition(ListingCondition::New))
+            .await
+            .unwrap();
+        assert_eq!(new.total, 1, "NEW filter returns only the 신차 listing");
+        assert_eq!(new.items[0].condition, ListingCondition::New);
+        assert_eq!(new.items[0].id, new_listing_id);
+        assert_eq!(new.items[0].usage_hours, Some(0));
 
         // A public inquiry against the listing.
         let inquiry_id = CustomerInquiryId::new();
@@ -142,8 +198,20 @@ async fn listing_and_inquiry_lifecycle_is_tenant_scoped_and_audited(pool: PgPool
 fn catalog(include_non_public: bool) -> CatalogQuery {
     CatalogQuery {
         kind: None,
+        condition: None,
         listing_type: None,
         include_non_public,
+        limit: 50,
+        offset: 0,
+    }
+}
+
+fn catalog_with_condition(condition: ListingCondition) -> CatalogQuery {
+    CatalogQuery {
+        kind: None,
+        condition: Some(condition),
+        listing_type: None,
+        include_non_public: false,
         limit: 50,
         offset: 0,
     }

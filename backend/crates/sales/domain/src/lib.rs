@@ -46,6 +46,39 @@ impl ListingKind {
     }
 }
 
+/// Whether a listed unit is used (중고) or brand-new (신차). Mirrors the
+/// `sales_listings.condition` CHECK and drives the public storefront's
+/// 중고/신차 sub-category filter. Orthogonal to the free-text `condition_label`
+/// display copy ("검수 완료", "A급"), which describes a used unit's grade.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ListingCondition {
+    Used,
+    New,
+}
+
+impl ListingCondition {
+    /// # Errors
+    /// Returns `KernelError::validation` for an unknown value.
+    pub fn parse(value: &str) -> Result<Self, KernelError> {
+        match value.trim() {
+            "USED" => Ok(Self::Used),
+            "NEW" => Ok(Self::New),
+            other => Err(KernelError::validation(format!(
+                "unknown listing condition {other:?}"
+            ))),
+        }
+    }
+
+    #[must_use]
+    pub const fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Used => "USED",
+            Self::New => "NEW",
+        }
+    }
+}
+
 /// Whether a listing is offered for sale, rental, or both. Mirrors the
 /// `sales_listings.listing_type` CHECK.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -221,6 +254,9 @@ mod tests {
         ] {
             assert_eq!(ListingKind::parse(s.as_db_str()).unwrap(), s);
         }
+        for s in [ListingCondition::Used, ListingCondition::New] {
+            assert_eq!(ListingCondition::parse(s.as_db_str()).unwrap(), s);
+        }
         for s in [ListingType::Sale, ListingType::Rental, ListingType::Both] {
             assert_eq!(ListingType::parse(s.as_db_str()).unwrap(), s);
         }
@@ -270,6 +306,7 @@ mod tests {
     #[test]
     fn parse_rejects_unknown() {
         assert!(ListingKind::parse("HYDROGEN").is_err());
+        assert!(ListingCondition::parse("REFURBISHED").is_err());
         assert!(InquiryTopic::parse("spam").is_err());
     }
 
