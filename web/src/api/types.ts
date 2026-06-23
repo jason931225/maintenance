@@ -164,6 +164,7 @@ export type UpdateInquiryStatusRequest =
   components["schemas"]["UpdateInquiryStatusRequest"];
 
 export type Team = components["schemas"]["Team"];
+export type AccountStatus = components["schemas"]["AccountStatus"];
 export type UserSummary = components["schemas"]["UserSummary"];
 export type CreateUserRequest = components["schemas"]["CreateUserRequest"];
 export type UpdateUserRequest = components["schemas"]["UpdateUserRequest"];
@@ -171,6 +172,7 @@ export type UpdateSelfProfileRequest =
   components["schemas"]["UpdateSelfProfileRequest"];
 export type RegionSummary = components["schemas"]["RegionSummary"];
 export type CreateRegionRequest = components["schemas"]["CreateRegionRequest"];
+export type UpdateRegionRequest = components["schemas"]["UpdateRegionRequest"];
 export type BranchSummary = components["schemas"]["BranchSummary"];
 export type CreateBranchRequest = components["schemas"]["CreateBranchRequest"];
 export type UpdateBranchRequest = components["schemas"]["UpdateBranchRequest"];

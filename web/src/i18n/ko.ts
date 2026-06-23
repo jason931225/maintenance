@@ -158,6 +158,8 @@ export const ko = {
     },
     active: "활성",
     inactive: "비활성",
+    pendingSetup: "설정 대기",
+    pendingSetupHint: "로그인 자격증명(패스키)을 아직 등록하지 않았습니다.",
     noRoles: "역할 없음",
     noBranches: "지점 없음",
     edit: "수정",
@@ -255,6 +257,21 @@ export const ko = {
       created: "지역을 등록했습니다.",
       createFailed: "지역을 등록하지 못했습니다. 다시 시도하세요.",
       branchCount: "지점 수",
+      edit: "수정",
+      save: "저장",
+      saving: "저장 중",
+      cancel: "취소",
+      saved: "지역을 수정했습니다.",
+      saveFailed: "지역을 수정하지 못했습니다. 다시 시도하세요.",
+      delete: "삭제",
+      deleting: "삭제 중",
+      deleted: "지역을 삭제했습니다.",
+      deleteFailed: "지역을 삭제하지 못했습니다. 다시 시도하세요.",
+      deleteConfirmTitle: "지역 삭제",
+      deleteConfirmBody:
+        "이 지역을 삭제할까요? 삭제하면 목록과 선택 항목에서 숨겨집니다.",
+      deleteBlocked:
+        "활성 지점이 남아 있어 지역을 삭제할 수 없습니다. 먼저 지점을 삭제하거나 이동하세요.",
     },
     branches: {
       title: "지점",
@@ -277,6 +294,15 @@ export const ko = {
       saved: "지점을 수정했습니다.",
       saveFailed: "지점을 수정하지 못했습니다. 다시 시도하세요.",
       unknownRegion: "미지정 지역",
+      delete: "삭제",
+      deleting: "삭제 중",
+      deleted: "지점을 삭제했습니다.",
+      deleteFailed: "지점을 삭제하지 못했습니다. 다시 시도하세요.",
+      deleteConfirmTitle: "지점 삭제",
+      deleteConfirmBody:
+        "이 지점을 삭제할까요? 삭제하면 목록과 선택 항목에서 숨겨집니다.",
+      deleteBlocked:
+        "이 지점에 배정된 활성 사용자 또는 등록된 장비가 있어 삭제할 수 없습니다. 먼저 사용자·장비를 재배정하세요.",
     },
   },
   platform: {

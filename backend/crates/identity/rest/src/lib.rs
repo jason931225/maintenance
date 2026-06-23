@@ -3,9 +3,14 @@
 //! Authenticated, authz-gated endpoints for the org-setup flow:
 //!   * Users  — `/api/v1/users` (create/list/get/update/deactivate) and the
 //!     self-profile pair `/api/v1/users/me`.
-//!   * Regions — `/api/v1/regions` (list/create).
-//!   * Branches — `/api/v1/branches` (list/create/update); the list also backs
-//!     support-ticket triage.
+//!   * Regions — `/api/v1/regions` (list/create) and `/api/v1/regions/{id}`
+//!     (update/deactivate).
+//!   * Branches — `/api/v1/branches` (list/create) and `/api/v1/branches/{id}`
+//!     (update/deactivate); the list also backs support-ticket triage.
+//!
+//! Region/branch deactivation is a SOFT delete guarded against orphaning live
+//! tenant data: deactivating a region with active branches, or a branch with
+//! active users / non-terminal equipment, is refused with a 409.
 //!
 //! Authorization mirrors the IDOR-hardening in `issue_admin_otp`: creating or
 //! promoting a user into EXECUTIVE/SUPER_ADMIN is restricted to SUPER_ADMIN
@@ -23,8 +28,9 @@ use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use mnt_identity_adapter_postgres::{PgOrgError, PgOrgStore};
 use mnt_identity_application::{
-    CreateBranchCommand, CreateRegionCommand, CreateUserCommand, DeactivateUserCommand,
-    UpdateBranchCommand, UpdateSelfProfileCommand, UpdateUserCommand, UserListQuery,
+    CreateBranchCommand, CreateRegionCommand, CreateUserCommand, DeactivateBranchCommand,
+    DeactivateRegionCommand, DeactivateUserCommand, UpdateBranchCommand, UpdateRegionCommand,
+    UpdateSelfProfileCommand, UpdateUserCommand, UserListQuery,
 };
 use mnt_identity_domain::Team;
 use mnt_kernel_core::{
@@ -51,6 +57,7 @@ pub const USERS_ME_PATH: &str = "/api/v1/users/me";
 pub const USER_PATH_TEMPLATE: &str = "/api/v1/users/{id}";
 pub const USER_DEACTIVATE_PATH_TEMPLATE: &str = "/api/v1/users/{id}/deactivate";
 pub const REGIONS_PATH: &str = "/api/v1/regions";
+pub const REGION_PATH_TEMPLATE: &str = "/api/v1/regions/{id}";
 pub const BRANCHES_PATH: &str = "/api/v1/branches";
 pub const BRANCH_PATH_TEMPLATE: &str = "/api/v1/branches/{id}";
 pub const PASSKEYS_PATH: &str = "/api/v1/passkeys";
@@ -61,6 +68,7 @@ pub const IDENTITY_ROUTE_PATHS: &[&str] = &[
     USER_PATH_TEMPLATE,
     USER_DEACTIVATE_PATH_TEMPLATE,
     REGIONS_PATH,
+    REGION_PATH_TEMPLATE,
     BRANCHES_PATH,
     BRANCH_PATH_TEMPLATE,
     PASSKEYS_PATH,
@@ -98,8 +106,15 @@ pub fn router(state: IdentityRestState) -> Router {
         .route(USER_PATH_TEMPLATE, get(get_user).patch(update_user))
         .route(USER_DEACTIVATE_PATH_TEMPLATE, post(deactivate_user))
         .route(REGIONS_PATH, get(list_regions).post(create_region))
+        .route(
+            REGION_PATH_TEMPLATE,
+            patch(update_region).delete(deactivate_region),
+        )
         .route(BRANCHES_PATH, get(list_branches).post(create_branch))
-        .route(BRANCH_PATH_TEMPLATE, patch(update_branch))
+        .route(
+            BRANCH_PATH_TEMPLATE,
+            patch(update_branch).delete(deactivate_branch),
+        )
         .route(PASSKEYS_PATH, get(list_passkeys))
         .route(PASSKEY_PATH_TEMPLATE, delete(delete_passkey))
         .with_state(state);
@@ -165,6 +180,12 @@ struct CreateRegionRequest {
 struct CreateBranchRequest {
     region_id: RegionId,
     name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateRegionRequest {
+    #[serde(default)]
+    name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -435,6 +456,53 @@ async fn create_region(
     Ok((StatusCode::CREATED, Json(summary)))
 }
 
+/// Rename a region. Mirrors `update_branch`: same `RegionManage` authority as
+/// `create_region`, org-armed + audited in the adapter, 404 on an unknown id.
+async fn update_region(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Path(id): Path<uuid::Uuid>,
+    Json(body): Json<UpdateRegionRequest>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::RegionManage)?;
+    let summary = state
+        .store
+        .update_region(UpdateRegionCommand {
+            actor: principal.user_id,
+            region_id: RegionId::from_uuid(id),
+            name: body.name,
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(summary))
+}
+
+/// Soft-delete (deactivate) a region. The adapter refuses with a 409 while the
+/// region still owns active branches (referential guard), so live tenant data is
+/// never orphaned. 404 on an unknown id; audited.
+async fn deactivate_region(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::RegionManage)?;
+    let summary = state
+        .store
+        .deactivate_region(DeactivateRegionCommand {
+            actor: principal.user_id,
+            region_id: RegionId::from_uuid(id),
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(summary))
+}
+
 // ---------------------------------------------------------------------------
 // Branch handlers
 // ---------------------------------------------------------------------------
@@ -491,6 +559,29 @@ async fn update_branch(
             branch_id: BranchId::from_uuid(id),
             region_id: body.region_id,
             name: body.name,
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(summary))
+}
+
+/// Soft-delete (deactivate) a branch. The adapter refuses with a 409 while the
+/// branch still has active users or non-terminal equipment (referential guard),
+/// so live operational data is never orphaned. 404 on an unknown id; audited.
+async fn deactivate_branch(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::BranchManage)?;
+    let summary = state
+        .store
+        .deactivate_branch(DeactivateBranchCommand {
+            actor: principal.user_id,
+            branch_id: BranchId::from_uuid(id),
             trace: TraceContext::generate(),
             occurred_at: OffsetDateTime::now_utc(),
         })

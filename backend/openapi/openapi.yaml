@@ -3048,6 +3048,81 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /api/v1/regions/{id}:
+    patch:
+      operationId: updateRegion
+      summary: Rename a region
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRegionRequest'
+      responses:
+        '200':
+          description: Updated region.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegionSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+    delete:
+      operationId: deactivateRegion
+      summary: Soft-delete (deactivate) a region
+      description: >-
+        Soft-deletes a region. Refused with 409 while the region still has active
+        branches, so live tenant data is never orphaned. Returns the deactivated
+        region.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Deactivated region.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegionSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
   /api/v1/branches:
     get:
       operationId: listBranches
@@ -3136,6 +3211,42 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+    delete:
+      operationId: deactivateBranch
+      summary: Soft-delete (deactivate) a branch
+      description: >-
+        Soft-deletes a branch. Refused with 409 while the branch still has active
+        users or non-terminal equipment, so live operational data is never
+        orphaned. Returns the deactivated branch.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Deactivated branch.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '503':
           description: JWT verification is not configured.
           content:
@@ -7240,6 +7351,16 @@ components:
       - PREVENTION
       - MANAGEMENT
       - RECEPTION
+    AccountStatus:
+      type: string
+      description: >-
+        Derived account-setup state for the console roster. ACTIVE only once the
+        user has enrolled a passkey (can sign in); PENDING_SETUP when created /
+        OTP-issued but not yet enrolled; DEACTIVATED when soft-disabled.
+      enum:
+      - ACTIVE
+      - PENDING_SETUP
+      - DEACTIVATED
     UserSummary:
       type: object
       required:
@@ -7250,6 +7371,8 @@ components:
       - roles
       - branch_ids
       - is_active
+      - has_passkey
+      - account_status
       - created_at
       properties:
         id:
@@ -7272,6 +7395,13 @@ components:
             $ref: '#/components/schemas/Uuid'
         is_active:
           type: boolean
+        has_passkey:
+          type: boolean
+          description: >-
+            Whether the user has at least one enrolled passkey. A user can only
+            sign in once this is true; until then the account is pending setup.
+        account_status:
+          $ref: '#/components/schemas/AccountStatus'
         created_at:
           $ref: '#/components/schemas/Timestamp'
     RegionSummary:
@@ -7279,12 +7409,21 @@ components:
       required:
       - id
       - name
+      - deactivated_at
       - created_at
       properties:
         id:
           $ref: '#/components/schemas/Uuid'
         name:
           type: string
+        deactivated_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: >-
+            Set when the region has been soft-deleted (deactivated); null for an
+            active region. Active-only listings omit deactivated rows.
         created_at:
           $ref: '#/components/schemas/Timestamp'
     BranchSummary:
@@ -7293,6 +7432,7 @@ components:
       - id
       - region_id
       - name
+      - deactivated_at
       - created_at
       properties:
         id:
@@ -7301,6 +7441,14 @@ components:
           $ref: '#/components/schemas/Uuid'
         name:
           type: string
+        deactivated_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: >-
+            Set when the branch has been soft-deleted (deactivated); null for an
+            active branch. Active-only listings omit deactivated rows.
         created_at:
           $ref: '#/components/schemas/Timestamp'
     PasskeySummary:
@@ -7377,6 +7525,11 @@ components:
       type: object
       required:
       - name
+      properties:
+        name:
+          type: string
+    UpdateRegionRequest:
+      type: object
       properties:
         name:
           type: string

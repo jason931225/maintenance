@@ -336,9 +336,16 @@ function UserTable({
                 )}
               </td>
               <td className="px-4 py-3">
-                {user.is_active ? (
+                {user.account_status === "ACTIVE" ? (
                   <Badge className="border-brand-teal/30 text-brand-teal">
                     {ko.users.active}
+                  </Badge>
+                ) : user.account_status === "PENDING_SETUP" ? (
+                  <Badge
+                    className="border-amber-300 bg-amber-50 text-amber-800"
+                    title={ko.users.pendingSetupHint}
+                  >
+                    {ko.users.pendingSetup}
                   </Badge>
                 ) : (
                   <Badge className="border-line text-steel">

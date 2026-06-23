@@ -1,4 +1,4 @@
-import { Building2, MapPin, Pencil, Plus } from "lucide-react";
+import { Building2, MapPin, Pencil, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import type { BranchSummary, RegionSummary } from "../api/types";
@@ -14,6 +14,13 @@ import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
 
 type ReadState = "idle" | "loading" | "error";
+
+/**
+ * A referential-guard conflict (HTTP 409) raised by a deactivate call. Carries a
+ * caller-facing Korean message so the panel can surface the precise reason the
+ * delete was refused rather than a generic failure.
+ */
+class GuardConflictError extends Error {}
 
 export function OrgPage() {
   const { api } = useAuth();
@@ -55,10 +62,31 @@ export function OrgPage() {
     await load();
   }
 
-  async function createBranch(
-    name: string,
-    regionId: string,
-  ): Promise<void> {
+  async function updateRegion(id: string, name: string): Promise<void> {
+    const response = await api.PATCH("/api/v1/regions/{id}", {
+      params: { path: { id } },
+      body: { name },
+    });
+    if (!response.data) throw new Error("updateRegion failed");
+    setFeedback(ko.org.regions.saved);
+    await load();
+  }
+
+  async function deleteRegion(id: string): Promise<void> {
+    const response = await api.DELETE("/api/v1/regions/{id}", {
+      params: { path: { id } },
+    });
+    if (response.response.status === 409) {
+      throw new GuardConflictError(ko.org.regions.deleteBlocked);
+    }
+    if (response.error || !response.response.ok) {
+      throw new Error("deleteRegion failed");
+    }
+    setFeedback(ko.org.regions.deleted);
+    await load();
+  }
+
+  async function createBranch(name: string, regionId: string): Promise<void> {
     const response = await api.POST("/api/v1/branches", {
       body: { name, region_id: regionId },
     });
@@ -78,6 +106,20 @@ export function OrgPage() {
     });
     if (!response.data) throw new Error("updateBranch failed");
     setFeedback(ko.org.branches.saved);
+    await load();
+  }
+
+  async function deleteBranch(id: string): Promise<void> {
+    const response = await api.DELETE("/api/v1/branches/{id}", {
+      params: { path: { id } },
+    });
+    if (response.response.status === 409) {
+      throw new GuardConflictError(ko.org.branches.deleteBlocked);
+    }
+    if (response.error || !response.response.ok) {
+      throw new Error("deleteBranch failed");
+    }
+    setFeedback(ko.org.branches.deleted);
     await load();
   }
 
@@ -120,6 +162,8 @@ export function OrgPage() {
             branches={branches}
             isLoading={state === "loading"}
             onCreate={createRegion}
+            onUpdate={updateRegion}
+            onDelete={deleteRegion}
             onChanged={() => {
               setFeedback(undefined);
             }}
@@ -131,6 +175,7 @@ export function OrgPage() {
             regionName={regionName}
             onCreate={createBranch}
             onUpdate={updateBranch}
+            onDelete={deleteBranch}
             onChanged={() => {
               setFeedback(undefined);
             }}
@@ -146,17 +191,24 @@ function RegionsPanel({
   branches,
   isLoading,
   onCreate,
+  onUpdate,
+  onDelete,
   onChanged,
 }: {
   regions: RegionSummary[];
   branches: BranchSummary[];
   isLoading: boolean;
   onCreate: (name: string) => Promise<void>;
+  onUpdate: (id: string, name: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
   onChanged: () => void;
 }) {
   const [name, setName] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
+  const [editingId, setEditingId] = useState<string | undefined>(undefined);
+  const [confirmId, setConfirmId] = useState<string | undefined>(undefined);
+  const [deletingId, setDeletingId] = useState<string | undefined>(undefined);
 
   function branchCount(regionId: string): number {
     return branches.filter((b) => b.region_id === regionId).length;
@@ -177,6 +229,24 @@ function RegionsPanel({
       setError(ko.org.regions.createFailed);
     } finally {
       setPending(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    setError(undefined);
+    onChanged();
+    setDeletingId(id);
+    try {
+      await onDelete(id);
+      setConfirmId(undefined);
+    } catch (cause) {
+      setError(
+        cause instanceof GuardConflictError
+          ? cause.message
+          : ko.org.regions.deleteFailed,
+      );
+    } finally {
+      setDeletingId(undefined);
     }
   }
 
@@ -229,20 +299,149 @@ function RegionsPanel({
         <PageEmpty message={ko.org.regions.empty} />
       ) : (
         <ul className="grid gap-2">
-          {regions.map((region) => (
-            <li
-              key={region.id}
-              className="flex items-center justify-between rounded-md border border-line px-3 py-2 text-sm"
-            >
-              <span className="font-medium text-ink">{region.name}</span>
-              <span className="text-steel">
-                {ko.org.regions.branchCount}: {branchCount(region.id)}
-              </span>
-            </li>
-          ))}
+          {regions.map((region) =>
+            editingId === region.id ? (
+              <li key={region.id}>
+                <RegionEditRow
+                  region={region}
+                  onCancel={() => {
+                    setEditingId(undefined);
+                  }}
+                  onSave={async (nextName) => {
+                    onChanged();
+                    await onUpdate(region.id, nextName);
+                    setEditingId(undefined);
+                  }}
+                />
+              </li>
+            ) : (
+              <li
+                key={region.id}
+                className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2 text-sm"
+              >
+                <span className="min-w-0 font-medium text-ink">
+                  {region.name}
+                </span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="text-steel">
+                    {ko.org.regions.branchCount}: {branchCount(region.id)}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      onChanged();
+                      setError(undefined);
+                      setEditingId(region.id);
+                    }}
+                  >
+                    <Pencil aria-hidden="true" size={14} />
+                    {ko.org.regions.edit}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => {
+                      onChanged();
+                      setError(undefined);
+                      setConfirmId(region.id);
+                    }}
+                  >
+                    <Trash2 aria-hidden="true" size={14} />
+                    {ko.org.regions.delete}
+                  </Button>
+                </div>
+              </li>
+            ),
+          )}
         </ul>
       )}
+
+      {confirmId ? (
+        <ConfirmDeleteDialog
+          title={ko.org.regions.deleteConfirmTitle}
+          body={ko.org.regions.deleteConfirmBody}
+          confirmLabel={ko.org.regions.delete}
+          pendingLabel={ko.org.regions.deleting}
+          pending={deletingId !== undefined}
+          onCancel={() => {
+            setConfirmId(undefined);
+          }}
+          onConfirm={() => {
+            void handleDelete(confirmId);
+          }}
+        />
+      ) : null}
     </Card>
+  );
+}
+
+function RegionEditRow({
+  region,
+  onCancel,
+  onSave,
+}: {
+  region: RegionSummary;
+  onCancel: () => void;
+  onSave: (name: string) => Promise<void>;
+}) {
+  const [name, setName] = useState(region.name);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | undefined>(undefined);
+
+  async function handleSave() {
+    setError(undefined);
+    if (!name.trim()) {
+      setError(ko.org.regions.requiredName);
+      return;
+    }
+    setPending(true);
+    try {
+      await onSave(name.trim());
+    } catch {
+      setError(ko.org.regions.saveFailed);
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-2 rounded-md border border-line bg-muted-panel p-3">
+      <Input
+        aria-label={ko.org.regions.nameLabel}
+        value={name}
+        onChange={(event) => {
+          setName(event.currentTarget.value);
+        }}
+      />
+      {error ? (
+        <p role="alert" className="text-sm font-medium text-red-700">
+          {error}
+        </p>
+      ) : null}
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          disabled={pending}
+          onClick={() => {
+            void handleSave();
+          }}
+        >
+          {pending ? ko.org.regions.saving : ko.org.regions.save}
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          disabled={pending}
+          onClick={onCancel}
+        >
+          {ko.org.regions.cancel}
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -253,6 +452,7 @@ function BranchesPanel({
   regionName,
   onCreate,
   onUpdate,
+  onDelete,
   onChanged,
 }: {
   regions: RegionSummary[];
@@ -261,6 +461,7 @@ function BranchesPanel({
   regionName: (id: string) => string;
   onCreate: (name: string, regionId: string) => Promise<void>;
   onUpdate: (id: string, name: string, regionId: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
   onChanged: () => void;
 }) {
   const [name, setName] = useState("");
@@ -268,6 +469,8 @@ function BranchesPanel({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [editingId, setEditingId] = useState<string | undefined>(undefined);
+  const [confirmId, setConfirmId] = useState<string | undefined>(undefined);
+  const [deletingId, setDeletingId] = useState<string | undefined>(undefined);
 
   async function handleCreate() {
     setError(undefined);
@@ -289,6 +492,24 @@ function BranchesPanel({
       setError(ko.org.branches.createFailed);
     } finally {
       setPending(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    setError(undefined);
+    onChanged();
+    setDeletingId(id);
+    try {
+      await onDelete(id);
+      setConfirmId(undefined);
+    } catch (cause) {
+      setError(
+        cause instanceof GuardConflictError
+          ? cause.message
+          : ko.org.branches.deleteFailed,
+      );
+    } finally {
+      setDeletingId(undefined);
     }
   }
 
@@ -388,23 +609,55 @@ function BranchesPanel({
                   <p className="font-medium text-ink">{branch.name}</p>
                   <p className="text-steel">{regionName(branch.region_id)}</p>
                 </div>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    onChanged();
-                    setEditingId(branch.id);
-                  }}
-                >
-                  <Pencil aria-hidden="true" size={14} />
-                  {ko.org.branches.edit}
-                </Button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      onChanged();
+                      setError(undefined);
+                      setEditingId(branch.id);
+                    }}
+                  >
+                    <Pencil aria-hidden="true" size={14} />
+                    {ko.org.branches.edit}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => {
+                      onChanged();
+                      setError(undefined);
+                      setConfirmId(branch.id);
+                    }}
+                  >
+                    <Trash2 aria-hidden="true" size={14} />
+                    {ko.org.branches.delete}
+                  </Button>
+                </div>
               </li>
             ),
           )}
         </ul>
       )}
+
+      {confirmId ? (
+        <ConfirmDeleteDialog
+          title={ko.org.branches.deleteConfirmTitle}
+          body={ko.org.branches.deleteConfirmBody}
+          confirmLabel={ko.org.branches.delete}
+          pendingLabel={ko.org.branches.deleting}
+          pending={deletingId !== undefined}
+          onCancel={() => {
+            setConfirmId(undefined);
+          }}
+          onConfirm={() => {
+            void handleDelete(confirmId);
+          }}
+        />
+      ) : null}
     </Card>
   );
 }
@@ -488,6 +741,58 @@ function BranchEditRow({
           {ko.org.branches.cancel}
         </Button>
       </div>
+    </div>
+  );
+}
+
+function ConfirmDeleteDialog({
+  title,
+  body,
+  confirmLabel,
+  pendingLabel,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  body: string;
+  confirmLabel: string;
+  pendingLabel: string;
+  pending: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
+    >
+      <Card className="grid w-full max-w-md gap-4">
+        <div className="grid gap-1">
+          <h2 className="text-lg font-semibold text-ink">{title}</h2>
+          <p className="text-sm text-steel">{body}</p>
+        </div>
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={pending}
+            onClick={onCancel}
+          >
+            {ko.org.branches.cancel}
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={pending}
+            onClick={onConfirm}
+          >
+            {pending ? pendingLabel : confirmLabel}
+          </Button>
+        </div>
+      </Card>
     </div>
   );
 }
