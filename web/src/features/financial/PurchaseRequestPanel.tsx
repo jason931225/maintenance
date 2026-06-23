@@ -185,10 +185,10 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
     <Card className="grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-slate-950">
+          <h2 className="text-lg font-semibold text-ink">
             {ko.financial.purchase.listTitle}
           </h2>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-steel">
             {ko.financial.purchase.listDescription}
           </p>
         </div>
@@ -207,20 +207,20 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
       </div>
 
       {notice ? (
-        <p role="status" className="text-sm font-medium text-emerald-700">
+        <p role="status" className="text-sm font-medium text-brand-teal">
           {notice}
         </p>
       ) : null}
 
       {creating && canCreate ? (
         <form
-          className="grid gap-3 rounded-md border border-slate-200 p-4"
+          className="grid gap-3 rounded-md border border-line p-4"
           onSubmit={(event) => {
             event.preventDefault();
             void handleCreate();
           }}
         >
-          <h3 className="text-base font-semibold text-slate-950">
+          <h3 className="text-base font-semibold text-ink">
             {ko.financial.purchase.createTitle}
           </h3>
           <EquipmentSelector
@@ -261,7 +261,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
           </div>
           <div className="grid gap-2">
             <label
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-medium text-steel"
               htmlFor="pr-memo"
             >
               {ko.financial.purchase.fields.memo}
@@ -298,9 +298,9 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
         </form>
       ) : null}
 
-      <div className="grid gap-2 rounded-md border border-slate-200 p-3">
+      <div className="grid gap-2 rounded-md border border-line p-3">
         <label
-          className="text-sm font-medium text-slate-700"
+          className="text-sm font-medium text-steel"
           htmlFor="pr-lookup"
         >
           {ko.financial.purchase.lookupLabel}
@@ -334,7 +334,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
 
       <div className="grid gap-2">
         {requests.length === 0 ? (
-          <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+          <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
             {ko.financial.purchase.empty}
           </p>
         ) : (
@@ -345,8 +345,8 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
               aria-pressed={request.id === selectedId}
               className={`flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-left ${
                 request.id === selectedId
-                  ? "border-slate-950 bg-slate-50"
-                  : "border-slate-200 hover:bg-slate-50"
+                  ? "border-ink bg-muted-panel"
+                  : "border-line hover:bg-muted-panel"
               }`}
               onClick={() => {
                 setSelectedId(request.id);
@@ -354,10 +354,10 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
               }}
             >
               <div className="grid gap-1">
-                <span className="font-semibold text-slate-950">
+                <span className="font-semibold text-ink">
                   {request.vendor_name}
                 </span>
-                <span className="text-sm text-slate-600">
+                <span className="text-sm text-steel">
                   {formatWon(request.amount_won)} {ko.financial.wonUnit}
                 </span>
               </div>
@@ -602,9 +602,9 @@ function PurchaseDetail({
   const hasAction = Object.values(actions).some(Boolean);
 
   return (
-    <div className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-4">
+    <div className="grid gap-3 rounded-md border border-line bg-muted-panel p-4">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-base font-semibold text-slate-950">
+        <h3 className="text-base font-semibold text-ink">
           {ko.financial.purchase.detailTitle}
         </h3>
         <Badge>{ko.financial.statuses[request.status]}</Badge>
@@ -698,7 +698,7 @@ function PurchaseDetail({
           </Button>
         ) : null}
         {!hasAction ? (
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-steel">
             {ko.financial.purchase.actions.none}
           </p>
         ) : null}
@@ -710,8 +710,8 @@ function PurchaseDetail({
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="font-semibold text-slate-600">{label}</dt>
-      <dd className="text-slate-950">{value}</dd>
+      <dt className="font-semibold text-steel">{label}</dt>
+      <dd className="text-ink">{value}</dd>
     </div>
   );
 }
@@ -750,7 +750,7 @@ function ActionDialog({
     <DialogShell title={title} onCancel={onCancel} busy={busy}>
       <div className="grid gap-2">
         <label
-          className="text-sm font-medium text-slate-700"
+          className="text-sm font-medium text-steel"
           htmlFor="financial-action-input"
         >
           {label}
@@ -837,7 +837,7 @@ function RestartDialog({
         />
         <div className="grid gap-2">
           <label
-            className="text-sm font-medium text-slate-700"
+            className="text-sm font-medium text-steel"
             htmlFor="restart-memo"
           >
             {ko.financial.purchase.fields.memo}
@@ -922,10 +922,10 @@ function DialogShell({
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-4"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
     >
       <Card className="grid w-full max-w-md gap-4">
-        <h2 className="text-lg font-semibold text-slate-950">{title}</h2>
+        <h2 className="text-lg font-semibold text-ink">{title}</h2>
         {children}
       </Card>
     </div>
@@ -988,7 +988,7 @@ function Field({
 }: FieldProps) {
   return (
     <div className="grid gap-2">
-      <label className="text-sm font-medium text-slate-700" htmlFor={id}>
+      <label className="text-sm font-medium text-steel" htmlFor={id}>
         {label}
       </label>
       <Input

@@ -90,10 +90,10 @@ export function RentalQuotePanel({ api, roles }: RentalQuotePanelProps) {
   if (!canManage) {
     return (
       <Card className="grid gap-2">
-        <h2 className="text-lg font-semibold text-slate-950">
+        <h2 className="text-lg font-semibold text-ink">
           {ko.financial.quote.listTitle}
         </h2>
-        <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+        <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
           {ko.financial.quote.empty}
         </p>
       </Card>
@@ -103,22 +103,22 @@ export function RentalQuotePanel({ api, roles }: RentalQuotePanelProps) {
   return (
     <Card className="grid gap-4">
       <div>
-        <h2 className="text-lg font-semibold text-slate-950">
+        <h2 className="text-lg font-semibold text-ink">
           {ko.financial.quote.listTitle}
         </h2>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-steel">
           {ko.financial.quote.listDescription}
         </p>
       </div>
 
       {notice ? (
-        <p role="status" className="text-sm font-medium text-emerald-700">
+        <p role="status" className="text-sm font-medium text-brand-teal">
           {notice}
         </p>
       ) : null}
 
       <form
-        className="grid gap-3 rounded-md border border-slate-200 p-4"
+        className="grid gap-3 rounded-md border border-line p-4"
         onSubmit={(event) => {
           event.preventDefault();
           void handleCreate();
@@ -146,9 +146,9 @@ export function RentalQuotePanel({ api, roles }: RentalQuotePanelProps) {
         </div>
       </form>
 
-      <div className="grid gap-2 rounded-md border border-slate-200 p-3">
+      <div className="grid gap-2 rounded-md border border-line p-3">
         <label
-          className="text-sm font-medium text-slate-700"
+          className="text-sm font-medium text-steel"
           htmlFor="quote-lookup"
         >
           {ko.financial.quote.lookupLabel}
@@ -182,7 +182,7 @@ export function RentalQuotePanel({ api, roles }: RentalQuotePanelProps) {
 
       <div className="grid gap-2">
         {quotes.length === 0 ? (
-          <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+          <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
             {ko.financial.quote.empty}
           </p>
         ) : (
@@ -193,15 +193,15 @@ export function RentalQuotePanel({ api, roles }: RentalQuotePanelProps) {
               aria-pressed={quote.id === selectedId}
               className={`flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-left ${
                 quote.id === selectedId
-                  ? "border-slate-950 bg-slate-50"
-                  : "border-slate-200 hover:bg-slate-50"
+                  ? "border-ink bg-muted-panel"
+                  : "border-line hover:bg-muted-panel"
               }`}
               onClick={() => {
                 setSelectedId(quote.id);
               }}
             >
-              <span className="text-sm text-slate-600">{quote.id}</span>
-              <span className="font-semibold text-slate-950">
+              <span className="text-sm text-steel">{quote.id}</span>
+              <span className="font-semibold text-ink">
                 {formatWon(quote.monthly_total)} {ko.financial.wonUnit}
               </span>
             </button>
@@ -210,12 +210,12 @@ export function RentalQuotePanel({ api, roles }: RentalQuotePanelProps) {
       </div>
 
       {selected ? (
-        <div className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-4">
+        <div className="grid gap-3 rounded-md border border-line bg-muted-panel p-4">
           <div className="flex items-center justify-between gap-3">
-            <h3 className="text-base font-semibold text-slate-950">
+            <h3 className="text-base font-semibold text-ink">
               {ko.financial.quote.monthlyTotal}
             </h3>
-            <span className="text-lg font-semibold text-slate-950">
+            <span className="text-lg font-semibold text-ink">
               {formatWon(selected.monthly_total)} {ko.financial.wonUnit}
             </span>
           </div>
@@ -238,17 +238,17 @@ export function RentalQuotePanel({ api, roles }: RentalQuotePanelProps) {
             />
           </dl>
           <div className="grid gap-1">
-            <h4 className="text-sm font-semibold text-slate-700">
+            <h4 className="text-sm font-semibold text-steel">
               {ko.financial.quote.lines}
             </h4>
             <ul className="grid gap-1">
               {selected.lines.map((line) => (
                 <li
                   key={line.code}
-                  className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                  className="flex items-center justify-between rounded-md border border-line bg-white px-3 py-2 text-sm"
                 >
-                  <span className="text-slate-700">{line.label}</span>
-                  <span className="font-semibold text-slate-950">
+                  <span className="text-steel">{line.label}</span>
+                  <span className="font-semibold text-ink">
                     {formatWon(line.amount)} {ko.financial.wonUnit}
                   </span>
                 </li>
@@ -264,8 +264,8 @@ export function RentalQuotePanel({ api, roles }: RentalQuotePanelProps) {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="font-semibold text-slate-600">{label}</dt>
-      <dd className="text-slate-950">{value}</dd>
+      <dt className="font-semibold text-steel">{label}</dt>
+      <dd className="text-ink">{value}</dd>
     </div>
   );
 }

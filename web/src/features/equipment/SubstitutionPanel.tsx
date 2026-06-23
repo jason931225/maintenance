@@ -113,12 +113,12 @@ export function SubstitutionPanel({
   return (
     <Card className="grid gap-4">
       <div>
-        <h2 className="text-lg font-semibold text-slate-950">{t.title}</h2>
-        <p className="text-sm text-slate-600">{t.description}</p>
+        <h2 className="text-lg font-semibold text-ink">{t.title}</h2>
+        <p className="text-sm text-steel">{t.description}</p>
       </div>
 
       {notice ? (
-        <p role="status" className="text-sm font-medium text-emerald-700">
+        <p role="status" className="text-sm font-medium text-brand-teal">
           {notice}
         </p>
       ) : null}
@@ -126,7 +126,7 @@ export function SubstitutionPanel({
       <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
         <div className="grid gap-2">
           <label
-            className="text-sm font-medium text-slate-700"
+            className="text-sm font-medium text-steel"
             htmlFor="substitution-source"
           >
             {t.sourceLabel}
@@ -161,7 +161,7 @@ export function SubstitutionPanel({
       </div>
 
       {candidates && candidates.length === 0 ? (
-        <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-700">
+        <p className="rounded-md border border-dashed border-line bg-muted-panel p-3 text-sm text-steel">
           {t.noCandidates}
         </p>
       ) : null}
@@ -171,7 +171,7 @@ export function SubstitutionPanel({
           {canManage ? (
             <div className="grid gap-2">
               <label
-                className="text-sm font-medium text-slate-700"
+                className="text-sm font-medium text-steel"
                 htmlFor="substitution-location"
               >
                 {t.assignmentLocation}
@@ -186,21 +186,21 @@ export function SubstitutionPanel({
               />
             </div>
           ) : null}
-          <h3 className="text-base font-semibold text-slate-950">
+          <h3 className="text-base font-semibold text-ink">
             {t.candidatesTitle}
           </h3>
           <ul className="grid gap-2">
             {candidates.map((candidate) => (
               <li
                 key={candidate.equipment_id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-slate-200 p-3"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-line p-3"
               >
                 <div className="grid gap-1">
-                  <span className="font-medium text-slate-950">
+                  <span className="font-medium text-ink">
                     {candidate.management_no ?? candidate.equipment_no}
                     {candidate.model ? ` · ${candidate.model}` : ""}
                   </span>
-                  <span className="text-sm text-slate-600">
+                  <span className="text-sm text-steel">
                     {candidate.ton_text} · {candidate.customer_name} /{" "}
                     {candidate.site_name}
                   </span>
@@ -226,15 +226,15 @@ export function SubstitutionPanel({
       ) : null}
 
       {assignment ? (
-        <div className="grid gap-3 rounded-md border border-emerald-200 bg-emerald-50 p-4">
-          <h3 className="text-base font-semibold text-slate-950">
+        <div className="grid gap-3 rounded-md border border-brand-teal/30 bg-brand-teal/10 p-4">
+          <h3 className="text-base font-semibold text-ink">
             {t.activeTitle}
           </h3>
-          <p className="text-sm text-slate-700">{assignment.assignment_location}</p>
+          <p className="text-sm text-steel">{assignment.assignment_location}</p>
           <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
             <div className="grid gap-2">
               <label
-                className="text-sm font-medium text-slate-700"
+                className="text-sm font-medium text-steel"
                 htmlFor="substitution-return-note"
               >
                 {t.returnNote}

@@ -64,7 +64,7 @@ export function EquipmentSelector({
   return (
     <div className="grid gap-2">
       <label
-        className="text-sm font-medium text-slate-700"
+        className="text-sm font-medium text-steel"
         htmlFor="financial-equipment-lookup"
       >
         {ko.financial.equipmentLookup.label}
@@ -111,22 +111,22 @@ export function EquipmentSelector({
         </p>
       ) : null}
       {selected ? (
-        <dl className="grid gap-1 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm sm:grid-cols-3">
+        <dl className="grid gap-1 rounded-md border border-line bg-muted-panel p-3 text-sm sm:grid-cols-3">
           <div>
-            <dt className="font-semibold text-slate-600">
+            <dt className="font-semibold text-steel">
               {ko.financial.equipmentLookup.selected}
             </dt>
-            <dd className="text-slate-950">{selected.managementNo}</dd>
+            <dd className="text-ink">{selected.managementNo}</dd>
           </div>
           <div>
-            <dt className="font-semibold text-slate-600">{ko.intake.model}</dt>
-            <dd className="text-slate-950">{selected.model}</dd>
+            <dt className="font-semibold text-steel">{ko.intake.model}</dt>
+            <dd className="text-ink">{selected.model}</dd>
           </div>
           <div>
-            <dt className="font-semibold text-slate-600">
+            <dt className="font-semibold text-steel">
               {ko.intake.customer}
             </dt>
-            <dd className="text-slate-950">{selected.customerName}</dd>
+            <dd className="text-ink">{selected.customerName}</dd>
           </div>
         </dl>
       ) : null}

@@ -103,10 +103,10 @@ export function SecurityPanel() {
   return (
     <Card className="grid gap-4">
       <div className="grid gap-1">
-        <h2 className="text-lg font-semibold text-slate-950">
+        <h2 className="text-lg font-semibold text-ink">
           {ko.security.title}
         </h2>
-        <p className="text-sm text-slate-600">{ko.security.description}</p>
+        <p className="text-sm text-steel">{ko.security.description}</p>
       </div>
 
       {state === "error" ? (
@@ -117,29 +117,29 @@ export function SecurityPanel() {
           }}
         />
       ) : state === "loading" ? (
-        <p role="status" className="text-sm font-medium text-slate-700">
+        <p role="status" className="text-sm font-medium text-steel">
           {ko.security.loading}
         </p>
       ) : (
         <div className="grid gap-3">
-          <h3 className="text-sm font-medium text-slate-700">
+          <h3 className="text-sm font-medium text-steel">
             {ko.security.listTitle}
           </h3>
           {passkeys.length === 0 ? (
-            <p className="text-sm text-slate-400">{ko.security.empty}</p>
+            <p className="text-sm text-steel">{ko.security.empty}</p>
           ) : (
             <ul className="grid gap-2">
               {passkeys.map((passkey) => (
                 <li
                   key={passkey.id}
-                  className="flex items-center justify-between gap-4 rounded-md border border-slate-200 px-4 py-3"
+                  className="flex items-center justify-between gap-4 rounded-md border border-line px-4 py-3"
                 >
                   <div className="grid gap-0.5 text-sm">
-                    <span className="text-slate-700">
+                    <span className="text-steel">
                       {ko.security.registered}:{" "}
                       {formatTimestamp(passkey.created_at)}
                     </span>
-                    <span className="text-slate-500">
+                    <span className="text-steel">
                       {ko.security.lastUsed}:{" "}
                       {passkey.last_used_at
                         ? formatTimestamp(passkey.last_used_at)
@@ -209,7 +209,7 @@ export function SecurityPanel() {
         <p
           role="status"
           aria-live="polite"
-          className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900"
+          className="rounded-md border border-brand-teal/30 bg-brand-teal/10 px-4 py-2 text-sm font-medium text-brand-teal"
         >
           {feedback}
         </p>
@@ -220,14 +220,14 @@ export function SecurityPanel() {
           role="dialog"
           aria-modal="true"
           aria-label={ko.security.confirmTitle}
-          className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-4"
+          className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
         >
           <Card className="grid w-full max-w-md gap-4">
             <div className="grid gap-1">
-              <h2 className="text-lg font-semibold text-slate-950">
+              <h2 className="text-lg font-semibold text-ink">
                 {ko.security.confirmTitle}
               </h2>
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-steel">
                 {ko.security.confirmBody}
               </p>
             </div>

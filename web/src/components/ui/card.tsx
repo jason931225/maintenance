@@ -8,7 +8,7 @@ export function Card({
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <section
-      className={cn("rounded-lg border border-slate-200 bg-white p-4", className)}
+      className={cn("rounded-xl border border-line bg-white p-4", className)}
       {...props}
     />
   );

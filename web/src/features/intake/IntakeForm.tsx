@@ -148,14 +148,14 @@ export function IntakeForm({
         }}
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-slate-950">{ko.intake.title}</h2>
+          <h2 className="text-lg font-semibold text-ink">{ko.intake.title}</h2>
           <span className="rounded-md bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-900">
             {priorityHint}
           </span>
         </div>
 
         <div className="grid gap-2">
-          <label className="text-sm font-medium text-slate-700" htmlFor="management-no">
+          <label className="text-sm font-medium text-steel" htmlFor="management-no">
             {ko.intake.managementNo}
             <RequiredMark />
           </label>
@@ -199,7 +199,7 @@ export function IntakeForm({
         <EquipmentLookupPanel state={equipmentLookupState} />
 
         <div className="grid gap-2">
-          <label className="text-sm font-medium text-slate-700" htmlFor="requested-on">
+          <label className="text-sm font-medium text-steel" htmlFor="requested-on">
             {ko.intake.requestedOn}
             <RequiredMark />
           </label>
@@ -227,7 +227,7 @@ export function IntakeForm({
         </div>
 
         <div className="grid gap-2">
-          <label className="text-sm font-medium text-slate-700" htmlFor="symptom">
+          <label className="text-sm font-medium text-steel" htmlFor="symptom">
             {ko.intake.symptom}
             <RequiredMark />
           </label>
@@ -250,7 +250,7 @@ export function IntakeForm({
         </div>
 
         <div className="grid gap-2">
-          <label className="text-sm font-medium text-slate-700" htmlFor="contact-phone">
+          <label className="text-sm font-medium text-steel" htmlFor="contact-phone">
             {ko.intake.contactPhone}
             <RequiredMark />
           </label>
@@ -280,7 +280,7 @@ export function IntakeForm({
         </div>
 
         <div className="grid gap-2">
-          <label className="text-sm font-medium text-slate-700" htmlFor="service-category">
+          <label className="text-sm font-medium text-steel" htmlFor="service-category">
             {ko.intake.serviceCategory}
           </label>
           <Select
@@ -302,7 +302,7 @@ export function IntakeForm({
         </div>
 
         <div className="grid gap-2">
-          <label className="text-sm font-medium text-slate-700" htmlFor="customer-request">
+          <label className="text-sm font-medium text-steel" htmlFor="customer-request">
             {ko.intake.customerRequest}
           </label>
           <Input
@@ -315,7 +315,7 @@ export function IntakeForm({
         </div>
 
         <div className="grid gap-2">
-          <label className="text-sm font-medium text-slate-700" htmlFor="target-due-at">
+          <label className="text-sm font-medium text-steel" htmlFor="target-due-at">
             {ko.intake.targetDueAt}
           </label>
           <Input
@@ -333,7 +333,7 @@ export function IntakeForm({
           {status === "saving" ? ko.intake.saving : ko.intake.save}
         </Button>
         {status === "created" ? (
-          <p role="status" className="text-sm font-semibold text-emerald-800">
+          <p role="status" className="text-sm font-semibold text-brand-teal">
             {ko.intake.created}
           </p>
         ) : null}
@@ -350,7 +350,7 @@ export function IntakeForm({
 function EquipmentLookupPanel({ state }: { state: EquipmentLookupState }) {
   if (state.status === "idle") {
     return (
-      <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-700">
+      <div className="rounded-md border border-dashed border-line bg-muted-panel p-3 text-sm text-steel">
         {ko.intake.lookupPrompt}
       </div>
     );
@@ -359,7 +359,7 @@ function EquipmentLookupPanel({ state }: { state: EquipmentLookupState }) {
   if (state.status === "loading") {
     return (
       <div
-        className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-700"
+        className="rounded-md border border-dashed border-line bg-muted-panel p-3 text-sm text-steel"
         role="status"
       >
         {ko.intake.lookupLoading}
@@ -379,36 +379,36 @@ function EquipmentLookupPanel({ state }: { state: EquipmentLookupState }) {
 
   const { equipment } = state;
   return (
-    <dl className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm sm:grid-cols-3">
+    <dl className="grid gap-2 rounded-md border border-line bg-muted-panel p-3 text-sm sm:grid-cols-3">
       <div>
-        <dt className="font-semibold text-slate-600">{ko.intake.model}</dt>
-        <dd className="text-slate-950">{equipment.model}</dd>
+        <dt className="font-semibold text-steel">{ko.intake.model}</dt>
+        <dd className="text-ink">{equipment.model}</dd>
       </div>
       <div>
-        <dt className="font-semibold text-slate-600">{ko.intake.customer}</dt>
-        <dd className="text-slate-950">{equipment.customerName}</dd>
+        <dt className="font-semibold text-steel">{ko.intake.customer}</dt>
+        <dd className="text-ink">{equipment.customerName}</dd>
       </div>
       <div>
-        <dt className="font-semibold text-slate-600">{ko.intake.site}</dt>
-        <dd className="text-slate-950">{equipment.siteName}</dd>
+        <dt className="font-semibold text-steel">{ko.intake.site}</dt>
+        <dd className="text-ink">{equipment.siteName}</dd>
       </div>
       <div>
-        <dt className="font-semibold text-slate-600">{ko.intake.maker}</dt>
-        <dd className="text-slate-950">
+        <dt className="font-semibold text-steel">{ko.intake.maker}</dt>
+        <dd className="text-ink">
           {equipment.maker ?? ko.intake.vehicleUnknown}
         </dd>
       </div>
       <div>
-        <dt className="font-semibold text-slate-600">{ko.intake.vin}</dt>
-        <dd className="text-slate-950">
+        <dt className="font-semibold text-steel">{ko.intake.vin}</dt>
+        <dd className="text-ink">
           {equipment.vin ?? ko.intake.vehicleUnknown}
         </dd>
       </div>
       <div>
-        <dt className="font-semibold text-slate-600">
+        <dt className="font-semibold text-steel">
           {ko.intake.vehicleRegistrationNo}
         </dt>
-        <dd className="text-slate-950">
+        <dd className="text-ink">
           {equipment.vehicleRegistrationNo ?? ko.intake.vehicleUnknown}
         </dd>
       </div>

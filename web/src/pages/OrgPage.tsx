@@ -100,7 +100,7 @@ export function OrgPage() {
         <p
           role="status"
           aria-live="polite"
-          className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900"
+          className="mb-4 rounded-md border border-brand-teal/30 bg-brand-teal/10 px-4 py-2 text-sm font-medium text-brand-teal"
         >
           {feedback}
         </p>
@@ -182,14 +182,14 @@ function RegionsPanel({
 
   return (
     <Card className="grid gap-4">
-      <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-950">
+      <h2 className="flex items-center gap-2 text-lg font-semibold text-ink">
         <MapPin aria-hidden="true" size={18} />
         {ko.org.regions.title}
       </h2>
 
       <div className="grid gap-2">
         <label
-          className="text-sm font-medium text-slate-700"
+          className="text-sm font-medium text-steel"
           htmlFor="region-name"
         >
           {ko.org.regions.nameLabel}
@@ -222,7 +222,7 @@ function RegionsPanel({
       </div>
 
       {isLoading ? (
-        <p role="status" className="text-sm font-medium text-slate-700">
+        <p role="status" className="text-sm font-medium text-steel">
           {ko.common.loading}
         </p>
       ) : regions.length === 0 ? (
@@ -232,10 +232,10 @@ function RegionsPanel({
           {regions.map((region) => (
             <li
               key={region.id}
-              className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2 text-sm"
+              className="flex items-center justify-between rounded-md border border-line px-3 py-2 text-sm"
             >
-              <span className="font-medium text-slate-950">{region.name}</span>
-              <span className="text-slate-500">
+              <span className="font-medium text-ink">{region.name}</span>
+              <span className="text-steel">
                 {ko.org.regions.branchCount}: {branchCount(region.id)}
               </span>
             </li>
@@ -294,14 +294,14 @@ function BranchesPanel({
 
   return (
     <Card className="grid gap-4">
-      <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-950">
+      <h2 className="flex items-center gap-2 text-lg font-semibold text-ink">
         <Building2 aria-hidden="true" size={18} />
         {ko.org.branches.title}
       </h2>
 
       <div className="grid gap-2">
         <label
-          className="text-sm font-medium text-slate-700"
+          className="text-sm font-medium text-steel"
           htmlFor="branch-name"
         >
           {ko.org.branches.nameLabel}
@@ -315,13 +315,13 @@ function BranchesPanel({
           }}
         />
         <label
-          className="text-sm font-medium text-slate-700"
+          className="text-sm font-medium text-steel"
           htmlFor="branch-region"
         >
           {ko.org.branches.regionLabel}
         </label>
         {regions.length === 0 ? (
-          <p className="text-sm text-slate-500">{ko.org.branches.noRegions}</p>
+          <p className="text-sm text-steel">{ko.org.branches.noRegions}</p>
         ) : (
           <Select
             id="branch-region"
@@ -356,7 +356,7 @@ function BranchesPanel({
       </div>
 
       {isLoading ? (
-        <p role="status" className="text-sm font-medium text-slate-700">
+        <p role="status" className="text-sm font-medium text-steel">
           {ko.common.loading}
         </p>
       ) : branches.length === 0 ? (
@@ -382,11 +382,11 @@ function BranchesPanel({
             ) : (
               <li
                 key={branch.id}
-                className="flex items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm"
+                className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2 text-sm"
               >
                 <div className="min-w-0">
-                  <p className="font-medium text-slate-950">{branch.name}</p>
-                  <p className="text-slate-500">{regionName(branch.region_id)}</p>
+                  <p className="font-medium text-ink">{branch.name}</p>
+                  <p className="text-steel">{regionName(branch.region_id)}</p>
                 </div>
                 <Button
                   type="button"
@@ -441,7 +441,7 @@ function BranchEditRow({
   }
 
   return (
-    <div className="grid gap-2 rounded-md border border-slate-300 bg-slate-50 p-3">
+    <div className="grid gap-2 rounded-md border border-line bg-muted-panel p-3">
       <Input
         aria-label={ko.org.branches.nameLabel}
         value={name}

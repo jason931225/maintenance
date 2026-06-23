@@ -74,7 +74,7 @@ export function PlatformOpsPage() {
         {tenants.length > 0 ? (
           <TenantHealthTable tenants={tenants} />
         ) : readState === "loading" ? null : (
-          <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+          <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
             {ko.platform.ops.empty}
           </p>
         )}
@@ -93,7 +93,7 @@ function TenantHealthTable({
     <Card className="overflow-x-auto p-0">
       <table className="w-full min-w-[48rem] text-sm">
         <thead>
-          <tr className="border-b border-slate-200 text-left text-xs font-semibold text-slate-500">
+          <tr className="border-b border-line text-left text-xs font-semibold text-steel">
             <th className="px-4 py-3">{cols.tenant}</th>
             <th className="px-4 py-3">{cols.status}</th>
             <th className="px-4 py-3 text-right">{cols.users}</th>
@@ -107,13 +107,13 @@ function TenantHealthTable({
           {tenants.map((tenant) => (
             <tr
               key={tenant.id}
-              className="border-b border-slate-100 last:border-0"
+              className="border-b border-line last:border-0"
             >
               <td className="px-4 py-3">
-                <span className="font-medium text-slate-900">
+                <span className="font-medium text-ink">
                   {tenant.name}
                 </span>
-                <span className="ml-2 text-xs text-slate-500">
+                <span className="ml-2 text-xs text-steel">
                   {tenant.slug}
                 </span>
               </td>
@@ -122,19 +122,19 @@ function TenantHealthTable({
                   {orgStatusLabel(tenant.status)}
                 </Badge>
               </td>
-              <td className="px-4 py-3 text-right tabular-nums text-slate-800">
+              <td className="px-4 py-3 text-right tabular-nums text-steel">
                 {tenant.user_count}
               </td>
-              <td className="px-4 py-3 text-right tabular-nums text-slate-800">
+              <td className="px-4 py-3 text-right tabular-nums text-steel">
                 {tenant.active_user_count}
               </td>
-              <td className="px-4 py-3 text-right tabular-nums text-slate-800">
+              <td className="px-4 py-3 text-right tabular-nums text-steel">
                 {tenant.active_work_orders}
               </td>
-              <td className="px-4 py-3 text-right tabular-nums text-slate-800">
+              <td className="px-4 py-3 text-right tabular-nums text-steel">
                 {tenant.open_work_orders}
               </td>
-              <td className="px-4 py-3 text-slate-600">
+              <td className="px-4 py-3 text-steel">
                 {formatActivity(tenant.last_activity_at)}
               </td>
             </tr>

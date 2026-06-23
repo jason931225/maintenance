@@ -166,18 +166,18 @@ export function SiteGeographyPanel({ api }: SiteGeographyPanelProps) {
   return (
     <Card className="grid gap-4">
       <div>
-        <h2 className="text-lg font-semibold text-slate-950">{t.title}</h2>
-        <p className="text-sm text-slate-600">{t.description}</p>
+        <h2 className="text-lg font-semibold text-ink">{t.title}</h2>
+        <p className="text-sm text-steel">{t.description}</p>
       </div>
 
       {notice ? (
-        <p role="status" className="text-sm font-medium text-emerald-700">
+        <p role="status" className="text-sm font-medium text-brand-teal">
           {notice}
         </p>
       ) : null}
 
       <div className="grid gap-2">
-        <label className="text-sm font-medium text-slate-700" htmlFor="site-geo-select">
+        <label className="text-sm font-medium text-steel" htmlFor="site-geo-select">
           {t.selectSite}
         </label>
         <Select
@@ -270,7 +270,7 @@ export function SiteGeographyPanel({ api }: SiteGeographyPanelProps) {
             />
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <p className="text-sm font-semibold text-slate-700 sm:col-span-2">
+            <p className="text-sm font-semibold text-steel sm:col-span-2">
               {t.contactSection}
             </p>
             <Field
@@ -333,7 +333,7 @@ interface FieldProps {
 function Field({ id, label, value, onChange, placeholder, inputMode }: FieldProps) {
   return (
     <div className="grid gap-2">
-      <label className="text-sm font-medium text-slate-700" htmlFor={id}>
+      <label className="text-sm font-medium text-steel" htmlFor={id}>
         {label}
       </label>
       <Input

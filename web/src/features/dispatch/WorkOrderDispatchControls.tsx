@@ -164,16 +164,16 @@ export function WorkOrderDispatchControls({
   return (
     <Card className="grid gap-4">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-base font-semibold text-slate-950">
+        <h3 className="text-base font-semibold text-ink">
           {t.title} · {workOrder.request_no}
         </h3>
-        <span className="text-xs font-medium text-slate-500">
+        <span className="text-xs font-medium text-steel">
           {t.managerOnly}
         </span>
       </div>
 
       {feedback ? (
-        <p role="status" className="text-sm font-medium text-emerald-700">
+        <p role="status" className="text-sm font-medium text-brand-teal">
           {feedback}
         </p>
       ) : null}
@@ -186,7 +186,7 @@ export function WorkOrderDispatchControls({
       {/* priority */}
       <div className="grid gap-2">
         <label
-          className="text-sm font-medium text-slate-700"
+          className="text-sm font-medium text-steel"
           htmlFor={`priority-${workOrder.id}`}
         >
           {t.priorityLabel}
@@ -221,7 +221,7 @@ export function WorkOrderDispatchControls({
       {/* schedule (target-due change request) */}
       <div className="grid gap-2">
         <label
-          className="text-sm font-medium text-slate-700"
+          className="text-sm font-medium text-steel"
           htmlFor={`schedule-${workOrder.id}`}
         >
           {t.scheduleLabel}
@@ -256,10 +256,10 @@ export function WorkOrderDispatchControls({
 
       {/* assign one or many mechanics */}
       <div className="grid gap-2">
-        <p className="text-sm font-medium text-slate-700">{t.assignMultiLabel}</p>
-        <p className="text-xs text-slate-500">{t.assignMultiHint}</p>
+        <p className="text-sm font-medium text-steel">{t.assignMultiLabel}</p>
+        <p className="text-xs text-steel">{t.assignMultiHint}</p>
         {mechanics.length === 0 ? (
-          <p className="rounded-md border border-dashed border-slate-300 p-3 text-sm text-slate-600">
+          <p className="rounded-md border border-dashed border-line p-3 text-sm text-steel">
             {t.noMechanics}
           </p>
         ) : (
@@ -267,9 +267,9 @@ export function WorkOrderDispatchControls({
             {mechanics.map((mechanic) => (
               <li
                 key={mechanic.id}
-                className="flex items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2"
+                className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2"
               >
-                <span className="text-sm text-slate-800">
+                <span className="text-sm text-steel">
                   {mechanic.display_name}
                 </span>
                 <span className="flex gap-1">
@@ -323,15 +323,15 @@ export function WorkOrderDispatchControls({
 
       {/* Current assignments */}
       <div className="grid gap-1">
-        <p className="text-sm font-medium text-slate-700">
+        <p className="text-sm font-medium text-steel">
           {t.currentAssignments}
         </p>
         {workOrder.assignments.length === 0 ? (
-          <p className="text-sm text-slate-500">{t.noAssignments}</p>
+          <p className="text-sm text-steel">{t.noAssignments}</p>
         ) : (
           <ul className="grid gap-1">
             {workOrder.assignments.map((assignment) => (
-              <li key={assignment.id} className="text-sm text-slate-700">
+              <li key={assignment.id} className="text-sm text-steel">
                 {assignment.mechanic_name} ·{" "}
                 {assignment.role === "PRIMARY"
                   ? t.rolePrimary
@@ -343,9 +343,9 @@ export function WorkOrderDispatchControls({
       </div>
 
       {/* force-assign an escalated P1 dispatch */}
-      <div className="grid gap-2 border-t border-slate-200 pt-3">
+      <div className="grid gap-2 border-t border-line pt-3">
         <label
-          className="text-sm font-medium text-slate-700"
+          className="text-sm font-medium text-steel"
           htmlFor={`force-${workOrder.id}`}
         >
           {t.forceAssign}
@@ -381,7 +381,7 @@ export function WorkOrderDispatchControls({
             </div>
           </>
         ) : (
-          <p className="text-sm text-slate-500">{t.forceAssignNeedsDispatch}</p>
+          <p className="text-sm text-steel">{t.forceAssignNeedsDispatch}</p>
         )}
       </div>
 
@@ -390,13 +390,13 @@ export function WorkOrderDispatchControls({
           role="dialog"
           aria-modal="true"
           aria-label={t.forceAssignTitle}
-          className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-4"
+          className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
         >
           <Card className="grid w-full max-w-md gap-4">
-            <h2 className="text-lg font-semibold text-slate-950">
+            <h2 className="text-lg font-semibold text-ink">
               {t.forceAssignTitle}
             </h2>
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-steel">
               {t.forceAssignConfirm
                 .replace("{mechanic}", forceMechanicName)
                 .replace("{requestNo}", workOrder.request_no)}

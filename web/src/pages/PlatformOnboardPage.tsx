@@ -80,7 +80,7 @@ export function PlatformOnboardPage() {
         <Card className="grid max-w-lg gap-4">
           <div className="grid gap-2">
             <label
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-medium text-steel"
               htmlFor="org-name"
             >
               {ko.platform.onboard.form.name}
@@ -97,7 +97,7 @@ export function PlatformOnboardPage() {
 
           <div className="grid gap-2">
             <label
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-medium text-steel"
               htmlFor="org-slug"
             >
               {ko.platform.onboard.form.slug}
@@ -110,7 +110,7 @@ export function PlatformOnboardPage() {
                 setSlug(event.currentTarget.value);
               }}
             />
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-steel">
               {ko.platform.onboard.form.slugHint}
             </p>
           </div>
@@ -162,10 +162,10 @@ function OnboardResult({
   return (
     <Card className="grid max-w-lg gap-4">
       <div className="grid gap-1">
-        <h2 className="text-lg font-semibold text-slate-950">
+        <h2 className="text-lg font-semibold text-ink">
           {ko.platform.onboard.success.title}
         </h2>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-steel">
           {ko.platform.onboard.success.subtitle
             .replace("{name}", result.org.name)
             .replace("{slug}", result.org.slug)}
@@ -181,7 +181,7 @@ function OnboardResult({
           {ko.platform.onboard.success.otpWarning}
         </p>
         <div className="flex items-center gap-2">
-          <code className="rounded bg-white px-3 py-2 text-lg font-semibold tracking-widest text-slate-950">
+          <code className="rounded bg-white px-3 py-2 text-lg font-semibold tracking-widest text-ink">
             {result.otp}
           </code>
           <Button

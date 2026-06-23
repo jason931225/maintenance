@@ -154,8 +154,8 @@ export function DispatchMapPage() {
               <SiteAssetPanel api={api} site={selectedSite} canManage={canManage} />
             ) : (
               <Card>
-                <p className="text-sm text-slate-600">{t.sitePanelTitle}</p>
-                <p className="mt-2 text-sm text-slate-500">
+                <p className="text-sm text-steel">{t.sitePanelTitle}</p>
+                <p className="mt-2 text-sm text-steel">
                   {/* Prompt the operator to pick a pin before the asset panel
                       and substitution action appear. */}
                   {ko.dispatch.empty}
@@ -176,8 +176,8 @@ export function DispatchMapPage() {
 function EmptyState() {
   return (
     <Card className="grid place-items-center gap-3 py-12 text-center">
-      <MapPinned aria-hidden="true" className="text-slate-400" size={40} />
-      <p className="max-w-md text-sm text-slate-700">{t.empty}</p>
+      <MapPinned aria-hidden="true" className="text-steel" size={40} />
+      <p className="max-w-md text-sm text-steel">{t.empty}</p>
       <Button asChild variant="secondary">
         <Link to="/equipment">{t.emptyLink}</Link>
       </Button>
@@ -235,8 +235,8 @@ function SiteAssetPanel({ api, site, canManage }: SiteAssetPanelProps) {
     <div className="grid gap-5">
       <Card className="grid gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-slate-950">{site.site_name}</h2>
-          <p className="text-sm text-slate-600">
+          <h2 className="text-lg font-semibold text-ink">{site.site_name}</h2>
+          <p className="text-sm text-steel">
             {site.customer_name}
             {site.province ? ` · ${site.province}` : ""}
             {site.city ? ` ${site.city}` : ""}
@@ -267,7 +267,7 @@ function SiteAssetPanel({ api, site, canManage }: SiteAssetPanelProps) {
         <Card className="grid gap-3">
           <div className="grid gap-2">
             <label
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-medium text-steel"
               htmlFor="dispatch-map-source-search"
             >
               {ko.intake.managementNo}
@@ -290,9 +290,9 @@ function SiteAssetPanel({ api, site, canManage }: SiteAssetPanelProps) {
 
 function Count({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
-      <dt className="text-xs font-medium text-slate-600">{label}</dt>
-      <dd className="text-xl font-semibold text-slate-950">{value}</dd>
+    <div className="rounded-md border border-line bg-muted-panel p-3 text-center">
+      <dt className="text-xs font-medium text-steel">{label}</dt>
+      <dd className="text-xl font-semibold text-ink">{value}</dd>
     </div>
   );
 }
@@ -301,22 +301,22 @@ function UngeocodedList({ sites }: { sites: SiteLocationGroup[] }) {
   return (
     <Card className="mt-5 grid gap-3">
       <div>
-        <h2 className="text-lg font-semibold text-slate-950">
+        <h2 className="text-lg font-semibold text-ink">
           {t.ungeocodedTitle}
         </h2>
-        <p className="text-sm text-slate-600">{t.ungeocodedHint}</p>
+        <p className="text-sm text-steel">{t.ungeocodedHint}</p>
       </div>
       <ul className="grid gap-2">
         {sites.map((site) => (
           <li
             key={site.site_id}
-            className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed border-slate-300 p-3"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed border-line p-3"
           >
             <div className="grid gap-1">
-              <span className="font-medium text-slate-950">{site.site_name}</span>
-              <span className="text-sm text-slate-600">{site.customer_name}</span>
+              <span className="font-medium text-ink">{site.site_name}</span>
+              <span className="text-sm text-steel">{site.customer_name}</span>
             </div>
-            <span className="text-sm text-slate-500">
+            <span className="text-sm text-steel">
               {t.counts.equipment}: {site.equipment_count}
             </span>
           </li>

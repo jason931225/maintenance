@@ -51,8 +51,8 @@ export function AssetLifecycleCostPanel({
   if (!canRead) {
     return (
       <Card className="grid gap-2">
-        <h2 className="text-lg font-semibold text-slate-950">{t.title}</h2>
-        <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+        <h2 className="text-lg font-semibold text-ink">{t.title}</h2>
+        <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
           {t.empty}
         </p>
       </Card>
@@ -62,11 +62,11 @@ export function AssetLifecycleCostPanel({
   return (
     <Card className="grid gap-4">
       <div>
-        <h2 className="text-lg font-semibold text-slate-950">{t.title}</h2>
-        <p className="text-sm text-slate-600">{t.description}</p>
+        <h2 className="text-lg font-semibold text-ink">{t.title}</h2>
+        <p className="text-sm text-steel">{t.description}</p>
       </div>
 
-      <div className="grid gap-3 rounded-md border border-slate-200 p-4">
+      <div className="grid gap-3 rounded-md border border-line p-4">
         <EquipmentSelector
           api={api}
           selected={equipment}
@@ -114,7 +114,7 @@ function LifecycleSummary({
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="font-semibold text-slate-950">
+        <span className="font-semibold text-ink">
           {summary.equipment_no}
         </span>
         <Badge>{summary.status}</Badge>
@@ -160,21 +160,21 @@ function LifecycleSummary({
 
       {summary.timeline.length > 0 ? (
         <div className="grid gap-2">
-          <h3 className="text-base font-semibold text-slate-950">
+          <h3 className="text-base font-semibold text-ink">
             {t.timelineTitle}
           </h3>
           <ul className="grid gap-2">
             {summary.timeline.map((entry) => (
               <li
                 key={entry.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 p-3"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-line p-3"
               >
-                <span className="font-semibold text-slate-950">
+                <span className="font-semibold text-ink">
                   {formatWon(entry.amount_won)} {ko.financial.wonUnit}
                 </span>
                 <div className="flex items-center gap-2">
                   <Badge>{t.sources[entry.source]}</Badge>
-                  <span className="text-sm text-slate-600">
+                  <span className="text-sm text-steel">
                     {entry.entry_at}
                   </span>
                 </div>
@@ -200,19 +200,19 @@ function Money({
 }) {
   return (
     <div>
-      <dt className="text-sm font-semibold text-slate-600">{label}</dt>
+      <dt className="text-sm font-semibold text-steel">{label}</dt>
       <dd
         className={
           emphasize
-            ? "text-lg font-bold text-slate-950"
-            : "text-slate-950"
+            ? "text-lg font-bold text-ink"
+            : "text-ink"
         }
       >
         {amount == null
           ? t.notAvailable
           : `${formatWon(amount)} ${ko.financial.wonUnit}`}
       </dd>
-      {note ? <dd className="text-sm text-slate-500">{note}</dd> : null}
+      {note ? <dd className="text-sm text-steel">{note}</dd> : null}
     </div>
   );
 }

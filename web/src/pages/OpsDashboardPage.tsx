@@ -57,7 +57,7 @@ export function OpsDashboardPage() {
         {summary ? (
           <OpsContent summary={summary} />
         ) : readState === "loading" ? null : (
-          <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+          <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
             {ko.ops.empty}
           </p>
         )}
@@ -92,7 +92,7 @@ function ArrivalEventsCard() {
 
   return (
     <Card>
-      <h2 className="mb-3 text-sm font-semibold text-slate-700">
+      <h2 className="mb-3 text-sm font-semibold text-steel">
         {ko.ops.arrivals.title}
       </h2>
       {state === "loading" ? null : state === "error" ? (
@@ -100,7 +100,7 @@ function ArrivalEventsCard() {
           {ko.ops.arrivals.error}
         </p>
       ) : events.length === 0 ? (
-        <p className="rounded-md border border-dashed border-slate-300 p-3 text-sm text-slate-600">
+        <p className="rounded-md border border-dashed border-line p-3 text-sm text-steel">
           {ko.ops.arrivals.empty}
         </p>
       ) : (
@@ -108,14 +108,14 @@ function ArrivalEventsCard() {
           {events.map((event) => (
             <li
               key={event.id}
-              className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+              className="flex items-center justify-between gap-2 rounded-md border border-line bg-muted-panel px-3 py-2"
             >
-              <span className="truncate text-sm text-slate-800">
+              <span className="truncate text-sm text-steel">
                 <span
                   className={
                     event.kind === "ARRIVAL"
-                      ? "font-semibold text-emerald-700"
-                      : "font-semibold text-slate-600"
+                      ? "font-semibold text-brand-teal"
+                      : "font-semibold text-steel"
                   }
                 >
                   {event.kind === "ARRIVAL"
@@ -125,7 +125,7 @@ function ArrivalEventsCard() {
                 {" · "}
                 {event.site_name} · {event.work_order_no}
               </span>
-              <span className="ml-2 shrink-0 text-xs text-slate-500">
+              <span className="ml-2 shrink-0 text-xs text-steel">
                 {new Date(event.occurred_at).toLocaleString("ko-KR", {
                   dateStyle: "short",
                   timeStyle: "short",
@@ -165,21 +165,21 @@ function FunnelCard({ summary }: { summary: OpsSummary }) {
   ];
   return (
     <Card>
-      <h2 className="mb-3 text-sm font-semibold text-slate-700">
+      <h2 className="mb-3 text-sm font-semibold text-steel">
         {ko.ops.funnel.title}
       </h2>
       <div className="grid gap-3 sm:grid-cols-4">
         {stages.map((stage) => (
           <div
             key={stage.labelKey}
-            className="rounded-md border border-slate-200 bg-slate-50 p-3"
+            className="rounded-md border border-line bg-muted-panel p-3"
           >
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-steel">
               {ko.ops.funnel[stage.labelKey]}
             </p>
-            <p className="text-2xl font-bold text-slate-950">
+            <p className="text-2xl font-bold text-ink">
               {stage.value}
-              <span className="ml-1 text-sm font-normal text-slate-500">
+              <span className="ml-1 text-sm font-normal text-steel">
                 {ko.common.countUnit}
               </span>
             </p>
@@ -230,7 +230,7 @@ function AlertsCard({
     ];
   return (
     <Card>
-      <h2 className="mb-3 text-sm font-semibold text-slate-700">
+      <h2 className="mb-3 text-sm font-semibold text-steel">
         {ko.ops.alerts.title}
       </h2>
       <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
@@ -240,21 +240,21 @@ function AlertsCard({
             className={
               alert.danger
                 ? "rounded-md border border-red-200 bg-red-50 p-3"
-                : "rounded-md border border-slate-200 bg-slate-50 p-3"
+                : "rounded-md border border-line bg-muted-panel p-3"
             }
           >
-            <p className="text-sm text-slate-600">{alert.label}</p>
+            <p className="text-sm text-steel">{alert.label}</p>
             <p
               className={
                 alert.danger
                   ? "text-2xl font-bold text-red-700"
-                  : "text-2xl font-bold text-slate-950"
+                  : "text-2xl font-bold text-ink"
               }
             >
               {alert.value}
             </p>
             {alert.hint ? (
-              <p className="mt-0.5 text-xs text-slate-500">{alert.hint}</p>
+              <p className="mt-0.5 text-xs text-steel">{alert.hint}</p>
             ) : null}
           </div>
         ))}
@@ -273,19 +273,19 @@ function EquipmentCard({ summary }: { summary: OpsSummary }) {
   ];
   return (
     <Card>
-      <h2 className="mb-3 text-sm font-semibold text-slate-700">
+      <h2 className="mb-3 text-sm font-semibold text-steel">
         {ko.ops.equipment.title}
       </h2>
       <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {rows.map((row) => (
           <div
             key={row.labelKey}
-            className="rounded-md border border-slate-200 bg-slate-50 p-3"
+            className="rounded-md border border-line bg-muted-panel p-3"
           >
-            <dt className="text-sm text-slate-600">
+            <dt className="text-sm text-steel">
               {ko.ops.equipment[row.labelKey]}
             </dt>
-            <dd className="text-xl font-bold text-slate-950">{row.value}</dd>
+            <dd className="text-xl font-bold text-ink">{row.value}</dd>
           </div>
         ))}
       </dl>
@@ -296,11 +296,11 @@ function EquipmentCard({ summary }: { summary: OpsSummary }) {
 function MechanicsCard({ summary }: { summary: OpsSummary }) {
   return (
     <Card>
-      <h2 className="mb-3 text-sm font-semibold text-slate-700">
+      <h2 className="mb-3 text-sm font-semibold text-steel">
         {ko.ops.mechanics.title}
       </h2>
       {summary.mechanic_load.length === 0 ? (
-        <p className="rounded-md border border-dashed border-slate-300 p-3 text-sm text-slate-600">
+        <p className="rounded-md border border-dashed border-line p-3 text-sm text-steel">
           {ko.ops.mechanics.empty}
         </p>
       ) : (
@@ -308,14 +308,14 @@ function MechanicsCard({ summary }: { summary: OpsSummary }) {
           {summary.mechanic_load.map((mechanic) => (
             <li
               key={mechanic.mechanic_id}
-              className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+              className="flex items-center justify-between rounded-md border border-line bg-muted-panel px-3 py-2"
             >
-              <span className="truncate text-sm font-medium text-slate-800">
+              <span className="truncate text-sm font-medium text-steel">
                 {mechanic.display_name}
               </span>
-              <span className="ml-2 shrink-0 text-sm text-slate-600">
+              <span className="ml-2 shrink-0 text-sm text-steel">
                 {mechanic.active_assignments}
-                <span className="ml-1 text-xs text-slate-500">
+                <span className="ml-1 text-xs text-steel">
                   {ko.ops.mechanics.activeAssignments}
                 </span>
               </span>

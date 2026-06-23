@@ -75,13 +75,13 @@ export function MechanicDispatchOffers({
   return (
     <Card className="grid gap-4">
       <div>
-        <h2 className="text-lg font-semibold text-slate-950">{t.title}</h2>
-        <p className="text-sm text-slate-600">{t.description}</p>
+        <h2 className="text-lg font-semibold text-ink">{t.title}</h2>
+        <p className="text-sm text-steel">{t.description}</p>
       </div>
 
       <div className="grid gap-2">
         <label
-          className="text-sm font-medium text-slate-700"
+          className="text-sm font-medium text-steel"
           htmlFor="dispatch-lookup"
         >
           {t.lookupLabel}
@@ -110,7 +110,7 @@ export function MechanicDispatchOffers({
       </div>
 
       {feedback ? (
-        <p role="status" className="text-sm font-medium text-emerald-700">
+        <p role="status" className="text-sm font-medium text-brand-teal">
           {feedback}
         </p>
       ) : null}
@@ -121,14 +121,14 @@ export function MechanicDispatchOffers({
       ) : null}
 
       {summary ? (
-        <div className="grid gap-3 rounded-md border border-slate-200 p-4">
+        <div className="grid gap-3 rounded-md border border-line p-4">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-sm font-medium text-slate-700">
+            <span className="text-sm font-medium text-steel">
               {t.status}
             </span>
             <Badge>{t.statusLabels[summary.status]}</Badge>
           </div>
-          <div className="grid gap-1 text-sm text-slate-700">
+          <div className="grid gap-1 text-sm text-steel">
             <span>
               {t.acceptWindow}: {formatIsoDateTime(summary.accept_window_ends_at)}
             </span>

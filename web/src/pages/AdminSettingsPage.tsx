@@ -65,17 +65,17 @@ export function AdminSettingsPage() {
       <div className="max-w-xl">
         <Card className="grid gap-4">
           <div className="grid gap-1">
-            <h2 className="text-lg font-semibold text-slate-950">
+            <h2 className="text-lg font-semibold text-ink">
               {ko.admin.issueOtpTitle}
             </h2>
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-steel">
               {ko.admin.issueOtpDescription}
             </p>
           </div>
 
           <div className="grid gap-2">
             <label
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-medium text-steel"
               htmlFor="admin-otp-user-id"
             >
               {ko.admin.userIdLabel}
@@ -92,7 +92,7 @@ export function AdminSettingsPage() {
 
           <div className="grid gap-2">
             <label
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-medium text-steel"
               htmlFor="admin-otp-branch-id"
             >
               {ko.admin.branchIdLabel}
@@ -119,12 +119,12 @@ export function AdminSettingsPage() {
           </Button>
 
           {issued ? (
-            <div className="grid gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-4">
-              <span className="text-sm font-medium text-emerald-900">
+            <div className="grid gap-2 rounded-md border border-brand-teal/30 bg-brand-teal/10 p-4">
+              <span className="text-sm font-medium text-brand-teal">
                 {ko.admin.issuedCode}
               </span>
               <div className="flex items-center gap-2">
-                <code className="rounded bg-white px-3 py-2 text-lg font-semibold tracking-widest text-slate-950">
+                <code className="rounded bg-white px-3 py-2 text-lg font-semibold tracking-widest text-ink">
                   {issued.otp}
                 </code>
                 <Button
@@ -142,7 +142,7 @@ export function AdminSettingsPage() {
               <span role="status" aria-live="polite" className="sr-only">
                 {copied ? ko.admin.copied : ""}
               </span>
-              <span className="text-sm text-emerald-900">
+              <span className="text-sm text-brand-teal">
                 {ko.admin.expiresAt}:{" "}
                 {new Date(issued.expiresAt).toLocaleString("ko-KR", {
                   dateStyle: "medium",

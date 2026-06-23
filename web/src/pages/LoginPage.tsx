@@ -84,17 +84,17 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 px-4 py-12">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-muted-panel px-4 py-12">
       <div className="grid w-full max-w-sm gap-6">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-slate-950">{ko.app.title}</h1>
+          <h1 className="text-2xl font-bold text-ink">{ko.app.title}</h1>
         </div>
         <Card className="grid gap-5">
           <div className="grid gap-1">
-            <h2 className="text-lg font-semibold text-slate-950">
+            <h2 className="text-lg font-semibold text-ink">
               {ko.auth.title}
             </h2>
-            <p className="text-sm text-slate-600">{ko.auth.subtitle}</p>
+            <p className="text-sm text-steel">{ko.auth.subtitle}</p>
           </div>
 
           <Button
@@ -109,9 +109,9 @@ export function LoginPage() {
           </Button>
 
           {otpOpen ? (
-            <div className="grid gap-2 border-t border-slate-200 pt-4">
+            <div className="grid gap-2 border-t border-line pt-4">
               <label
-                className="text-sm font-medium text-slate-700"
+                className="text-sm font-medium text-steel"
                 htmlFor="otp-code"
               >
                 {ko.auth.otpLabel}

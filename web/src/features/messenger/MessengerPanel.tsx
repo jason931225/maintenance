@@ -334,10 +334,10 @@ export function MessengerPanel({
     <Card className="grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-slate-950">
+          <h2 className="text-lg font-semibold text-ink">
             {ko.messenger.title}
           </h2>
-          <p className="text-sm text-slate-600">{ko.messenger.messages}</p>
+          <p className="text-sm text-steel">{ko.messenger.messages}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button type="button" onClick={() => void openThreadComposer()}>
@@ -378,17 +378,17 @@ export function MessengerPanel({
             </Button>
           </div>
           {isSearching ? (
-            <p role="status" className="text-sm text-slate-600">
+            <p role="status" className="text-sm text-steel">
               {ko.messenger.searching}
             </p>
           ) : null}
           {!isSearching && hasSearched ? (
             <div className="grid gap-2">
-              <h3 className="text-sm font-semibold text-slate-800">
+              <h3 className="text-sm font-semibold text-steel">
                 {ko.messenger.searchResults}
               </h3>
               {state.searchResults.length === 0 ? (
-                <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+                <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
                   {ko.messenger.searchEmpty}
                 </p>
               ) : (
@@ -398,11 +398,11 @@ export function MessengerPanel({
               )}
             </div>
           ) : null}
-          <h3 className="text-sm font-semibold text-slate-800">
+          <h3 className="text-sm font-semibold text-steel">
             {ko.messenger.threads}
           </h3>
           {state.threads.length === 0 ? (
-            <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+            <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
               {ko.messenger.emptyThreads}
             </p>
           ) : null}
@@ -411,10 +411,10 @@ export function MessengerPanel({
               key={thread.id}
               type="button"
               className={cn(
-                "rounded-md border p-3 text-left transition hover:border-slate-400",
+                "rounded-md border p-3 text-left transition hover:border-steel",
                 state.selectedThreadId === thread.id
-                  ? "border-slate-900 bg-slate-100 ring-1 ring-slate-300"
-                  : "border-slate-200 bg-white",
+                  ? "border-ink bg-muted-panel ring-1 ring-signal"
+                  : "border-line bg-white",
               )}
               aria-pressed={state.selectedThreadId === thread.id}
               onClick={() => {
@@ -423,12 +423,12 @@ export function MessengerPanel({
               }}
             >
               <span className="flex items-center justify-between gap-2">
-                <span className="font-semibold text-slate-950">
+                <span className="font-semibold text-ink">
                   {thread.title?.trim() || `WO ${thread.work_order_id ?? thread.id}`}
                 </span>
                 <Badge>{ko.messenger.kinds[thread.kind]}</Badge>
               </span>
-              <span className="mt-2 block text-sm text-slate-600">
+              <span className="mt-2 block text-sm text-steel">
                 {thread.member_count}
                 {ko.messenger.memberCount}
               </span>
@@ -436,16 +436,16 @@ export function MessengerPanel({
           ))}
         </section>
 
-        <section className="grid min-h-[32rem] content-between gap-3 rounded-md border border-slate-200 p-3">
+        <section className="grid min-h-[32rem] content-between gap-3 rounded-md border border-line p-3">
           {!selectedThread ? (
-            <p className="self-center text-center text-sm text-slate-600">
+            <p className="self-center text-center text-sm text-steel">
               {ko.messenger.selectThread}
             </p>
           ) : (
             <>
               <div className="grid gap-2">
                 <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-base font-semibold text-slate-950">
+                  <h3 className="text-base font-semibold text-ink">
                     <MessageSquare aria-hidden="true" className="mr-2 inline" size={18} />
                     {selectedThread.title?.trim() ||
                       `WO ${selectedThread.work_order_id ?? selectedThread.id}`}
@@ -467,7 +467,7 @@ export function MessengerPanel({
                 </div>
                 <div className="grid max-h-[26rem] gap-2 overflow-y-auto pr-1">
                   {selectedMessages.length === 0 ? (
-                    <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+                    <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
                       {ko.messenger.emptyMessages}
                     </p>
                   ) : null}
@@ -478,12 +478,12 @@ export function MessengerPanel({
               </div>
               <div className="grid gap-2">
                 {attachment ? (
-                  <p className="text-sm text-slate-600">
+                  <p className="text-sm text-steel">
                     {ko.messenger.attachmentReady}: {attachment.name}
                   </p>
                 ) : null}
                 {selectedThread.work_order_id ? (
-                  <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700">
+                  <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-md border border-line px-3 py-2 text-sm font-medium text-steel">
                     <Paperclip aria-hidden="true" size={16} />
                     {ko.messenger.attachment}
                     <input
@@ -526,15 +526,15 @@ export function MessengerPanel({
           role="dialog"
           aria-modal="true"
           aria-label={ko.messenger.newThreadTitle}
-          className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-4"
+          className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
         >
           <Card className="grid w-full max-w-md gap-4">
-            <h2 className="text-lg font-semibold text-slate-950">
+            <h2 className="text-lg font-semibold text-ink">
               {ko.messenger.newThreadTitle}
             </h2>
             <div className="grid gap-2">
               <label
-                className="text-sm font-medium text-slate-700"
+                className="text-sm font-medium text-steel"
                 htmlFor="new-thread-subject"
               >
                 {ko.messenger.subject}
@@ -549,17 +549,17 @@ export function MessengerPanel({
               />
             </div>
             <div className="grid gap-2">
-              <span className="text-sm font-medium text-slate-700">
+              <span className="text-sm font-medium text-steel">
                 {ko.messenger.participants}
               </span>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-steel">
                 {ko.messenger.participantsHint}
               </p>
               <div className="grid max-h-56 gap-1 overflow-y-auto">
                 {members.map((member) => (
                   <label
                     key={member.id}
-                    className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm"
+                    className="flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm"
                   >
                     <input
                       type="checkbox"
@@ -568,7 +568,7 @@ export function MessengerPanel({
                         toggleMember(member.id);
                       }}
                     />
-                    <span className="font-medium text-slate-950">
+                    <span className="font-medium text-ink">
                       {member.display_name}
                     </span>
                   </label>
@@ -610,9 +610,9 @@ export function MessengerPanel({
 
 function MessageRow({ message }: { message: MessengerMessageSummary }) {
   return (
-    <article className="rounded-md border border-slate-200 bg-white p-3">
-      <p className="whitespace-pre-wrap text-sm text-slate-950">{message.body}</p>
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+    <article className="rounded-md border border-line bg-white p-3">
+      <p className="whitespace-pre-wrap text-sm text-ink">{message.body}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-steel">
         <time dateTime={message.sent_at}>
           {new Date(message.sent_at).toLocaleTimeString("ko-KR", {
             hour: "2-digit",

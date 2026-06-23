@@ -25,7 +25,7 @@ export function TenantTable({
   if (isLoading) {
     return (
       <Card>
-        <p role="status" className="text-sm font-medium text-slate-700">
+        <p role="status" className="text-sm font-medium text-steel">
           {ko.common.loading}
         </p>
       </Card>
@@ -40,7 +40,7 @@ export function TenantTable({
     <Card className="overflow-x-auto p-0">
       <table className="w-full text-left text-sm">
         <thead>
-          <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <tr className="border-b border-line text-xs font-semibold uppercase tracking-wider text-steel">
             <th className="px-4 py-3">{ko.platform.tenants.columns.slug}</th>
             <th className="px-4 py-3">{ko.platform.tenants.columns.name}</th>
             <th className="px-4 py-3">{ko.platform.tenants.columns.status}</th>
@@ -52,10 +52,10 @@ export function TenantTable({
           {orgs.map((org) => (
             <tr
               key={org.id}
-              className="border-b border-slate-100 align-top last:border-0"
+              className="border-b border-line align-top last:border-0"
             >
-              <td className="px-4 py-3 font-mono text-slate-700">{org.slug}</td>
-              <td className="px-4 py-3 font-medium text-slate-950">
+              <td className="px-4 py-3 font-mono text-steel">{org.slug}</td>
+              <td className="px-4 py-3 font-medium text-ink">
                 {org.name}
               </td>
               <td className="px-4 py-3">
@@ -63,7 +63,7 @@ export function TenantTable({
                   {orgStatusLabel(org.status)}
                 </Badge>
               </td>
-              <td className="px-4 py-3 text-slate-600">
+              <td className="px-4 py-3 text-steel">
                 {new Date(org.created_at).toLocaleDateString("ko-KR", {
                   dateStyle: "medium",
                 })}

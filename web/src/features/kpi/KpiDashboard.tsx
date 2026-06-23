@@ -101,27 +101,27 @@ export function KpiDashboard({
   }, [report, selectedRollup]);
 
   return (
-    <section className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4">
+    <section className="grid gap-4 rounded-lg border border-line bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-slate-950">
+          <h2 className="text-lg font-semibold text-ink">
             {ko.kpi.title}
           </h2>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-steel">
             {selectedRollup
               ? `${ko.kpi.approvedReports} ${formatCount(selectedRollup.approved_report_count)} · ${ko.kpi.weightedPoints} ${formatPoints(selectedRollup.weighted_completed_points)}`
               : ko.kpi.noReport}
           </p>
         </div>
         {isLoading ? (
-          <Badge role="status" className="bg-slate-50">
+          <Badge role="status" className="bg-muted-panel">
             {ko.common.loading}
           </Badge>
         ) : null}
       </div>
 
       <div className="grid gap-3 lg:grid-cols-[minmax(16rem,20rem)_1fr]">
-        <label className="grid gap-2 text-sm font-medium text-slate-700">
+        <label className="grid gap-2 text-sm font-medium text-steel">
           {ko.kpi.period}
           <Input
             aria-label={ko.kpi.period}
@@ -136,7 +136,7 @@ export function KpiDashboard({
             }}
           />
           {periodValid ? (
-            <span id="kpi-period-hint" className="text-xs font-normal text-slate-500">
+            <span id="kpi-period-hint" className="text-xs font-normal text-steel">
               {ko.kpi.periodHint}
             </span>
           ) : (
@@ -151,7 +151,7 @@ export function KpiDashboard({
         </label>
         {report ? (
           <div className="grid gap-2">
-            <p className="text-sm font-medium text-slate-700">{ko.kpi.rollup}</p>
+            <p className="text-sm font-medium text-steel">{ko.kpi.rollup}</p>
             <div
               role="group"
               aria-label={ko.kpi.rollupGroup}
@@ -181,7 +181,7 @@ export function KpiDashboard({
       </div>
 
       {metricCards.length === 0 ? (
-        <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+        <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
           {ko.kpi.noReport}
         </p>
       ) : (
@@ -189,17 +189,17 @@ export function KpiDashboard({
           {metricCards.map((card) => (
             <article
               key={card.metric}
-              className="grid min-h-36 content-between gap-3 rounded-md border border-slate-200 bg-slate-50 p-3"
+              className="grid min-h-36 content-between gap-3 rounded-md border border-line bg-muted-panel p-3"
             >
               <div>
-                <h3 className="text-sm font-semibold text-slate-700">
+                <h3 className="text-sm font-semibold text-steel">
                   {ko.kpi.metrics[card.metric]}
                 </h3>
-                <p className="mt-3 text-2xl font-bold text-slate-950">
+                <p className="mt-3 text-2xl font-bold text-ink">
                   {card.value}
                 </p>
               </div>
-              <p className="text-sm leading-5 text-slate-600">{card.detail}</p>
+              <p className="text-sm leading-5 text-steel">{card.detail}</p>
             </article>
           ))}
         </div>

@@ -4,7 +4,7 @@ import { ko } from "../../i18n/ko";
 import { slaStatus, type SlaStatus } from "./sla";
 
 const STATUS_CLASS: Record<Exclude<SlaStatus, "none">, string> = {
-  "on-track": "border-emerald-300 bg-emerald-50 text-emerald-800",
+  "on-track": "border-brand-teal/30 bg-brand-teal/10 text-brand-teal",
   "at-risk": "border-amber-300 bg-amber-50 text-amber-900",
   breached: "border-red-300 bg-red-50 text-red-800",
 };
