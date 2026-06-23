@@ -25,14 +25,14 @@ afterAll(() => {
 const orgs = [
   {
     id: "11111111-1111-4111-8111-111111111111",
-    slug: "acme-corp",
+    slug: "acme-corporation",
     name: "Acme Corporation",
     status: "ACTIVE",
     created_at: "2026-01-01T00:00:00Z",
   },
   {
     id: "22222222-2222-4222-8222-222222222222",
-    slug: "globex-corp",
+    slug: "globex-corporation",
     name: "Globex Corporation",
     status: "SUSPENDED",
     created_at: "2026-02-01T00:00:00Z",
@@ -124,7 +124,7 @@ describe("Platform tenant list", () => {
     const row = (await screen.findByText("Acme Corporation")).closest("tr");
     expect(row).not.toBeNull();
     const cells = within(row as HTMLElement);
-    expect(cells.getByText("acme-corp")).toBeVisible();
+    expect(cells.getByText("acme-corporation")).toBeVisible();
     expect(cells.getByText("활성")).toBeVisible();
   });
 
@@ -159,7 +159,7 @@ const opsTenants = {
   tenants: [
     {
       id: "11111111-1111-4111-8111-111111111111",
-      slug: "acme-corp",
+      slug: "acme-corporation",
       name: "Acme Corporation",
       status: "ACTIVE",
       user_count: 12,
@@ -170,7 +170,7 @@ const opsTenants = {
     },
     {
       id: "22222222-2222-4222-8222-222222222222",
-      slug: "globex-corp",
+      slug: "globex-corporation",
       name: "Globex Corporation",
       status: "SUSPENDED",
       user_count: 3,
@@ -194,7 +194,7 @@ describe("Platform ops dashboard", () => {
     const row = (await screen.findByText("Acme Corporation")).closest("tr");
     expect(row).not.toBeNull();
     const cells = within(row as HTMLElement);
-    expect(cells.getByText("acme-corp")).toBeVisible();
+    expect(cells.getByText("acme-corporation")).toBeVisible();
     expect(cells.getByText("활성")).toBeVisible();
     expect(cells.getByText("12")).toBeVisible();
     expect(cells.getByText("4")).toBeVisible();

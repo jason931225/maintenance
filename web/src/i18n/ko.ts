@@ -371,7 +371,7 @@ export const ko = {
         name: "이름",
         namePlaceholder: "예: Acme Corporation",
         slug: "슬러그",
-        slugPlaceholder: "예: hanbit-logistics",
+        slugPlaceholder: "예: acme-corporation",
         slugHint: "영문 소문자, 숫자, 하이픈만 사용할 수 있습니다.",
         submit: "테넌트 등록",
         submitting: "등록 중",
