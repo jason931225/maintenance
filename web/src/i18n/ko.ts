@@ -1467,7 +1467,7 @@ export const ko = {
         console: "운영자 콘솔",
       },
       family: {
-        koss: "Koss",
+        koss: "COSS",
         bestec: "Bestec",
       },
     },
