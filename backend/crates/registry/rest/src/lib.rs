@@ -781,6 +781,10 @@ struct UpdateEquipmentRequest {
     #[serde(default, deserialize_with = "double_option")]
     residual_value: Option<Option<i64>>,
     #[serde(default, deserialize_with = "double_option")]
+    acquisition_cost_won: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "double_option_iso_date")]
+    acquisition_date: Option<Option<Date>>,
+    #[serde(default, deserialize_with = "double_option")]
     note: Option<Option<String>>,
 }
 
@@ -792,6 +796,23 @@ where
     T: Deserialize<'de>,
 {
     Deserialize::deserialize(deserializer).map(Some)
+}
+
+/// `double_option` for an ISO-8601 calendar date (`"YYYY-MM-DD"`): "key absent"
+/// leaves the column unchanged, an explicit `null` clears it, and a date string
+/// sets it. Uses the `format: date` wire contract (an honest string), matching
+/// the regenerated OpenAPI/typed client.
+fn double_option_iso_date<'de, D>(deserializer: D) -> Result<Option<Option<Date>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw: Option<String> = Deserialize::deserialize(deserializer)?;
+    match raw {
+        Some(value) => Date::parse(&value, &time::format_description::well_known::Iso8601::DATE)
+            .map(|date| Some(Some(date)))
+            .map_err(serde::de::Error::custom),
+        None => Ok(Some(None)),
+    }
 }
 
 async fn update_equipment(
@@ -831,6 +852,10 @@ async fn update_equipment(
         rental_fee: body.rental_fee.map(|value| value.map(MoneyWon::new)),
         vehicle_value: body.vehicle_value.map(|value| value.map(MoneyWon::new)),
         residual_value: body.residual_value.map(|value| value.map(MoneyWon::new)),
+        acquisition_cost_won: body
+            .acquisition_cost_won
+            .map(|value| value.map(MoneyWon::new)),
+        acquisition_date: body.acquisition_date,
         note: body.note,
     };
     if fields.is_empty() {

@@ -2,15 +2,16 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_financial_application::{
-    AppendCostLedgerEntryCommand, CostLedgerEntrySummary, CostLedgerSource,
-    CreatePurchaseRequestCommand, CreateRentalQuoteCommand, ExecutePurchaseCommand,
-    FinancialConfigSnapshot, PrepareExpenditureCommand, PurchaseApprovalCommand,
-    PurchaseRequestSummary, PurchaseRestartCommand, PurchaseSubmitCommand, RejectPurchaseCommand,
-    RentalQuoteSummary, financial_audit_event,
+    AppendCostLedgerEntryCommand, AssetLifecycleCostSummary, CostLedgerEntrySummary,
+    CostLedgerSource, CreatePurchaseRequestCommand, CreateRentalQuoteCommand,
+    ExecutePurchaseCommand, FinancialConfigSnapshot, PrepareExpenditureCommand,
+    PurchaseApprovalCommand, PurchaseRequestSummary, PurchaseRestartCommand, PurchaseSubmitCommand,
+    RejectPurchaseCommand, RentalQuoteSummary, financial_audit_event,
 };
 use mnt_financial_domain::{
-    MoneyInput, PurchaseActor, PurchaseStatus, PurchaseTransition, RentalQuoteInput,
-    ResidualRecomputeInput, compute_rental_quote, recompute_residual_value,
+    AcquisitionAnchor, MoneyInput, PurchaseActor, PurchaseStatus, PurchaseTransition,
+    RentalQuoteInput, ResidualRecomputeInput, compute_rental_quote, cost_per_hour_won,
+    cost_per_month_won, gross_margin_won, recompute_residual_value, tco_won,
     validate_purchase_transition,
 };
 use mnt_kernel_core::{
@@ -486,6 +487,13 @@ impl PgFinancialStore {
         equipment_id: EquipmentId,
     ) -> Result<Vec<CostLedgerEntrySummary>, PgFinancialError> {
         cost_ledger_for_equipment(&self.pool, equipment_id).await
+    }
+
+    pub async fn lifecycle_cost_for_equipment(
+        &self,
+        equipment_id: EquipmentId,
+    ) -> Result<AssetLifecycleCostSummary, PgFinancialError> {
+        lifecycle_cost_for_equipment(&self.pool, equipment_id).await
     }
 
     pub async fn equipment_branch(
@@ -1264,6 +1272,197 @@ fn cost_ledger_from_row(
         residual_after_won: row.try_get("residual_after_won")?,
         entry_at: row.try_get("entry_at")?,
     })
+}
+
+/// Per-asset lifecycle / TCO rollup.
+///
+/// Every SELECT runs inside ONE `with_org_conn` closure so `app.current_org` is
+/// armed once and the `org_isolation` RLS policy narrows every tenant table in
+/// the same transaction — no cross-tenant leak. `current_org()` fails closed
+/// (unset GUC -> `MissingOrg`), and the bare pool is never used as an executor
+/// (only `tx.as_mut()`), so the rls-arming gate is satisfied.
+///
+/// Tenancy notes per table: `registry_equipment`, `equipment_cost_ledger`, and
+/// `sales_listings` are RLS-FORCED on `org_id` and filter themselves. The
+/// `outsource_works` table has NO `org_id`/RLS of its own; it is reached only
+/// through `work_orders` (RLS-FORCED), so joining outsource -> work_orders ->
+/// this asset keeps the outsource read tenant-scoped. Outsource cost is surfaced
+/// read-only and is NEVER summed into `tco_won` (double-count guard).
+async fn lifecycle_cost_for_equipment(
+    pool: &PgPool,
+    equipment_id: EquipmentId,
+) -> Result<AssetLifecycleCostSummary, PgFinancialError> {
+    let org = current_org().map_err(KernelError::from)?;
+    let equipment_uuid = *equipment_id.as_uuid();
+    let (master, source_totals, outsource, sale, timeline) =
+        with_org_conn::<_, _, PgFinancialError>(pool, org, move |tx| {
+            Box::pin(async move {
+                // Equipment master: acquisition fact + depreciation base + hours
+                // + status + equipment_no. RLS limits this to the armed tenant.
+                let master = sqlx::query(
+                    r#"
+        SELECT equipment_no, status, acquisition_cost_won, acquisition_date,
+               vehicle_value, residual_value, hours
+        FROM registry_equipment
+        WHERE id = $1
+        "#,
+                )
+                .bind(equipment_uuid)
+                .fetch_optional(tx.as_mut())
+                .await?;
+
+                // Σ maintenance split by source, plus a single total + entry
+                // count, off the per-asset cost spine.
+                let source_totals = sqlx::query(
+                    r#"
+        SELECT source, COALESCE(SUM(amount_won), 0)::BIGINT AS total_won, COUNT(*)::BIGINT AS entry_count
+        FROM equipment_cost_ledger
+        WHERE equipment_id = $1
+        GROUP BY source
+        "#,
+                )
+                .bind(equipment_uuid)
+                .fetch_all(tx.as_mut())
+                .await?;
+
+                // Outsource cost is reached ONLY through work_orders (which is
+                // RLS-FORCED), so the join inherits tenant isolation even though
+                // outsource_works itself has no org_id.
+                let outsource: Option<i64> = sqlx::query_scalar(
+                    r#"
+        SELECT COALESCE(SUM(ow.cost_won), 0)::BIGINT
+        FROM outsource_works ow
+        JOIN work_orders wo ON wo.id = ow.work_order_id
+        WHERE wo.equipment_id = $1
+          AND ow.cost_won IS NOT NULL
+        "#,
+                )
+                .bind(equipment_uuid)
+                .fetch_one(tx.as_mut())
+                .await?;
+
+                // Latest realized sale price for a SOLD listing on this asset.
+                let sale = sqlx::query(
+                    r#"
+        SELECT price_won, updated_at
+        FROM sales_listings
+        WHERE equipment_id = $1 AND status = 'SOLD'
+        ORDER BY updated_at DESC, id DESC
+        LIMIT 1
+        "#,
+                )
+                .bind(equipment_uuid)
+                .fetch_optional(tx.as_mut())
+                .await?;
+
+                let timeline = sqlx::query(
+                    r#"
+        SELECT id, branch_id, equipment_id, work_order_id, purchase_request_id,
+               source, amount_won, memo, residual_before_won, residual_after_won,
+               entry_at
+        FROM equipment_cost_ledger
+        WHERE equipment_id = $1
+        ORDER BY entry_at DESC, id DESC
+        "#,
+                )
+                .bind(equipment_uuid)
+                .fetch_all(tx.as_mut())
+                .await?;
+
+                Ok((master, source_totals, outsource, sale, timeline))
+            })
+        })
+        .await?;
+
+    let master = master.ok_or_else(|| KernelError::not_found("equipment was not found"))?;
+    let equipment_no: String = master.try_get("equipment_no")?;
+    let status: String = master.try_get("status")?;
+    let acquisition_cost_won: Option<i64> = master.try_get("acquisition_cost_won")?;
+    let acquisition_date: Option<Date> = master.try_get("acquisition_date")?;
+    let vehicle_value_won: Option<i64> = master.try_get("vehicle_value")?;
+    let residual_value_won: Option<i64> = master.try_get("residual_value")?;
+    let hours: Option<i64> = master.try_get("hours")?;
+
+    // Split Σ maintenance by source. Slice 0 surfaces only the existing sources;
+    // `maintenance_total_won` is the sum across ALL ledger rows so a future
+    // source still rolls into the total without code changes here.
+    let mut manual_total_won = 0_i64;
+    let mut purchase_total_won = 0_i64;
+    let mut maintenance_total_won = 0_i64;
+    let mut entry_count = 0_i64;
+    for row in &source_totals {
+        let source: String = row.try_get("source")?;
+        let total_won: i64 = row.try_get("total_won")?;
+        let count: i64 = row.try_get("entry_count")?;
+        maintenance_total_won = maintenance_total_won.saturating_add(total_won);
+        entry_count = entry_count.saturating_add(count);
+        match CostLedgerSource::from_db_str(&source)? {
+            CostLedgerSource::ManualAdmin => manual_total_won = total_won,
+            CostLedgerSource::PurchaseExecution => purchase_total_won = total_won,
+        }
+    }
+
+    let outsource_unlinked_won = match outsource {
+        Some(value) if value > 0 => Some(value),
+        _ => None,
+    };
+
+    let (sale_price_won, sold_at) = match sale {
+        Some(row) => {
+            let price: Option<i64> = row.try_get("price_won")?;
+            let updated_at: OffsetDateTime = row.try_get("updated_at")?;
+            (price, Some(updated_at.date()))
+        }
+        None => (None, None),
+    };
+
+    let anchor = AcquisitionAnchor::resolve(acquisition_cost_won, vehicle_value_won);
+    let tco_total = tco_won(anchor, maintenance_total_won);
+    let gross_margin = gross_margin_won(sale_price_won, tco_total);
+    let months_since_acquisition = acquisition_date.map(months_between);
+    let cost_per_month = cost_per_month_won(maintenance_total_won, months_since_acquisition);
+    let cost_per_hour = cost_per_hour_won(maintenance_total_won, hours);
+
+    let timeline = timeline
+        .iter()
+        .map(cost_ledger_from_row)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(AssetLifecycleCostSummary {
+        equipment_id,
+        equipment_no,
+        status,
+        acquisition_cost_won,
+        acquisition_date,
+        acquisition_source: anchor.basis,
+        maintenance_total_won,
+        manual_total_won,
+        purchase_total_won,
+        entry_count,
+        outsource_unlinked_won,
+        residual_value_won: residual_value_won.unwrap_or(0),
+        sale_price_won,
+        sold_at,
+        gross_margin_won: gross_margin,
+        tco_won: tco_total,
+        cost_per_month_won: cost_per_month,
+        cost_per_hour_won: cost_per_hour,
+        timeline,
+    })
+}
+
+/// Whole calendar months elapsed from `acquisition` to today (UTC), floored at
+/// the day granularity. A future acquisition date yields a negative span, which
+/// the per-month math treats as "unknown" (returns `None`) rather than a
+/// quotient.
+fn months_between(acquisition: Date) -> i64 {
+    let today = OffsetDateTime::now_utc().date();
+    let mut months = (i64::from(today.year()) - i64::from(acquisition.year())) * 12
+        + (i64::from(u8::from(today.month())) - i64::from(u8::from(acquisition.month())));
+    if today.day() < acquisition.day() {
+        months -= 1;
+    }
+    months
 }
 
 async fn purchase_actor_for_user_tx(

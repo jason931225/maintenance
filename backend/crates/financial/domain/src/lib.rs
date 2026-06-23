@@ -1,9 +1,17 @@
 //! Financial domain.
 //!
-//! Pure rental quote math, residual recomputation, and purchase FSM rules.
+//! Pure rental quote math, residual recomputation, purchase FSM rules, and
+//! asset lifecycle / total-cost-of-ownership math.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_kernel_core::KernelError;
+
+pub mod tco;
+
+pub use tco::{
+    AcquisitionAnchor, AcquisitionBasis, cost_per_hour_won, cost_per_month_won, gross_margin_won,
+    tco_won,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]

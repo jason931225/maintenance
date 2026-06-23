@@ -14,6 +14,8 @@ export type CreateEquipmentRequest =
   components["schemas"]["CreateEquipmentRequest"];
 export type UpdateEquipmentRequest =
   components["schemas"]["UpdateEquipmentRequest"];
+export type AssetLifecycleCostSummary =
+  components["schemas"]["AssetLifecycleCostSummary"];
 export type SubstituteCandidate =
   components["schemas"]["SubstituteCandidate"];
 export type SubstituteCandidatePage =

@@ -1533,6 +1533,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/financial/equipment/{equipmentId}/lifecycle-cost": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-asset lifecycle cost, TCO, and gross margin
+         * @description Read-gated (EquipmentCostLedgerRead). Returns the asset's acquisition cost (with a source tag), maintenance total split by source, read-only outsource cost, current residual, latest realized sale price, total cost of ownership, gross margin, and per-month/per-hour maintenance intensity.
+         */
+        get: operations["getEquipmentLifecycleCost"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/financial/equipment/{equipmentId}/cost-ledger/manual": {
         parameters: {
             query?: never;
@@ -3183,6 +3203,13 @@ export interface components {
             vehicle_value?: number | null;
             /** Format: int64 */
             residual_value?: number | null;
+            /**
+             * Format: int64
+             * @description Acquisition cost in KRW. A distinct accounting fact, never the depreciation base.
+             */
+            acquisition_cost_won?: number | null;
+            /** Format: date */
+            acquisition_date?: string | null;
             note?: string | null;
         };
         RegistryRowError: {
@@ -3295,6 +3322,47 @@ export interface components {
             /** Format: int64 */
             residual_after_won: number;
             entry_at: components["schemas"]["Timestamp"];
+        };
+        /**
+         * @description Where the acquisition figure that anchors TCO came from.
+         * @enum {string}
+         */
+        AcquisitionBasis: "EXPLICIT" | "VEHICLE_VALUE_FALLBACK" | "NONE";
+        /** @description Per-asset lifecycle / total-cost-of-ownership rollup. outsource_unlinked_won is read-only and never summed into tco_won. */
+        AssetLifecycleCostSummary: {
+            equipment_id: components["schemas"]["Uuid"];
+            equipment_no: string;
+            status: string;
+            /** Format: int64 */
+            acquisition_cost_won?: number | null;
+            /** Format: date */
+            acquisition_date?: string | null;
+            acquisition_source: components["schemas"]["AcquisitionBasis"];
+            /** Format: int64 */
+            maintenance_total_won: number;
+            /** Format: int64 */
+            manual_total_won: number;
+            /** Format: int64 */
+            purchase_total_won: number;
+            /** Format: int64 */
+            entry_count: number;
+            /** Format: int64 */
+            outsource_unlinked_won?: number | null;
+            /** Format: int64 */
+            residual_value_won: number;
+            /** Format: int64 */
+            sale_price_won?: number | null;
+            /** Format: date */
+            sold_at?: string | null;
+            /** Format: int64 */
+            gross_margin_won?: number | null;
+            /** Format: int64 */
+            tco_won: number;
+            /** Format: int64 */
+            cost_per_month_won?: number | null;
+            /** Format: int64 */
+            cost_per_hour_won?: number | null;
+            timeline: components["schemas"]["CostLedgerEntrySummary"][];
         };
         CreatePurchaseRequest: {
             branch_id: components["schemas"]["Uuid"];
@@ -5731,6 +5799,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CostLedgerEntrySummary"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getEquipmentLifecycleCost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                equipmentId: components["parameters"]["EquipmentIdV2"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Asset lifecycle cost summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssetLifecycleCostSummary"];
                 };
             };
             401: components["responses"]["Unauthorized"];

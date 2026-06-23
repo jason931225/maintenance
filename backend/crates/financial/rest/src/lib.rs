@@ -60,6 +60,10 @@ pub fn router(state: FinancialRestState) -> Router {
             get(list_cost_ledger),
         )
         .route(
+            "/api/v1/financial/equipment/{equipment_id}/lifecycle-cost",
+            get(get_lifecycle_cost),
+        )
+        .route(
             "/api/v1/financial/equipment/{equipment_id}/cost-ledger/manual",
             post(append_manual_cost_ledger),
         )
@@ -261,6 +265,32 @@ async fn list_cost_ledger(
         .await
         .map_err(RestError::from_store)?;
     Ok(Json(entries))
+}
+
+async fn get_lifecycle_cost(
+    State(state): State<FinancialRestState>,
+    headers: HeaderMap,
+    Path(equipment_id): Path<uuid::Uuid>,
+) -> Result<impl IntoResponse, RestError> {
+    let equipment_id = EquipmentId::from_uuid(equipment_id);
+    let principal = principal_from_headers(&state, &headers)?;
+    let branch_id = state
+        .store
+        .equipment_branch(equipment_id)
+        .await
+        .map_err(RestError::from_store)?;
+    authorize(
+        &principal,
+        Action::new(Feature::EquipmentCostLedgerRead),
+        branch_id,
+    )
+    .map_err(RestError::from_kernel)?;
+    let summary = state
+        .store
+        .lifecycle_cost_for_equipment(equipment_id)
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(summary))
 }
 
 async fn append_manual_cost_ledger(

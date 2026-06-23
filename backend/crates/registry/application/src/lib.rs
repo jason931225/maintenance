@@ -236,6 +236,11 @@ pub struct UpdateEquipmentFields {
     pub rental_fee: Option<Option<MoneyWon>>,
     pub vehicle_value: Option<Option<MoneyWon>>,
     pub residual_value: Option<Option<MoneyWon>>,
+    /// Acquisition cost (취득원가): a distinct accounting fact, never the
+    /// depreciation base. Independent of `vehicle_value`; never feeds the
+    /// residual engine.
+    pub acquisition_cost_won: Option<Option<MoneyWon>>,
+    pub acquisition_date: Option<Option<Date>>,
     pub note: Option<Option<String>>,
 }
 

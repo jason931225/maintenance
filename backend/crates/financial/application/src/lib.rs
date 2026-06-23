@@ -5,13 +5,51 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_financial_domain::{
-    DepreciationMethod, FinancialConfig, MoneyInput, PurchaseStatus, QuoteLine,
+    AcquisitionBasis, DepreciationMethod, FinancialConfig, MoneyInput, PurchaseStatus, QuoteLine,
 };
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, EquipmentId, EvidenceId, KernelError, PurchaseRequestId,
     QuoteId, Timestamp, TraceContext, UserId, WorkOrderId,
 };
 use serde::{Deserialize, Serialize};
+use time::Date;
+
+/// Serialize/deserialize `Option<Date>` as an ISO-8601 `"YYYY-MM-DD"` string (or
+/// `null`), so the wire contract matches the OpenAPI `format: date` and the
+/// generated typed clients. `time`'s built-in `serde::iso8601` only covers
+/// date-times, so calendar dates need this small helper.
+mod iso_date_opt {
+    use serde::{Deserialize, Deserializer, Serializer};
+    use time::Date;
+    use time::format_description::well_known::Iso8601;
+
+    pub fn serialize<S: Serializer>(
+        value: &Option<Date>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        match value {
+            Some(date) => {
+                let formatted = date
+                    .format(&Iso8601::DATE)
+                    .map_err(serde::ser::Error::custom)?;
+                serializer.serialize_some(&formatted)
+            }
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Date>, D::Error> {
+        let raw: Option<String> = Option::deserialize(deserializer)?;
+        match raw {
+            Some(value) => Date::parse(&value, &Iso8601::DATE)
+                .map(Some)
+                .map_err(serde::de::Error::custom),
+            None => Ok(None),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FinancialConfigSnapshot {
@@ -189,6 +227,49 @@ pub struct CostLedgerEntrySummary {
     pub residual_after_won: i64,
     #[serde(with = "time::serde::rfc3339")]
     pub entry_at: Timestamp,
+}
+
+/// Per-asset lifecycle / total-cost-of-ownership rollup.
+///
+/// Answers, for one asset: acquired for X, maintenance cost Y, sold for Z ->
+/// TCO and gross margin, plus per-month and per-hour maintenance intensity.
+///
+/// `outsource_unlinked_won` is surfaced READ-ONLY for visibility and is
+/// DELIBERATELY excluded from `tco_won` (double-count guard): outsource cost
+/// lives on a separate column, not in the cost ledger, so summing it would
+/// double-count work already captured as ledger entries. The acquisition leg of
+/// `tco_won` is `acquisition_cost_won` when present, else `vehicle_value` (the
+/// depreciation base) as a tagged fallback, added exactly once.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssetLifecycleCostSummary {
+    pub equipment_id: EquipmentId,
+    pub equipment_no: String,
+    /// The Korean asset status code ('임대', '예비', '폐기', '대체', '매각').
+    pub status: String,
+    pub acquisition_cost_won: Option<i64>,
+    #[serde(with = "iso_date_opt")]
+    pub acquisition_date: Option<Date>,
+    /// Where the acquisition leg of `tco_won` came from.
+    pub acquisition_source: AcquisitionBasis,
+    /// Σ of every cost-ledger entry on this asset (all sources).
+    pub maintenance_total_won: i64,
+    pub manual_total_won: i64,
+    pub purchase_total_won: i64,
+    /// Number of cost-ledger entries summed into `maintenance_total_won`.
+    pub entry_count: i64,
+    /// Read-only outsource cost (NOT part of `tco_won`).
+    pub outsource_unlinked_won: Option<i64>,
+    pub residual_value_won: i64,
+    /// Latest realized sale price for a SOLD listing, if any.
+    pub sale_price_won: Option<i64>,
+    #[serde(with = "iso_date_opt")]
+    pub sold_at: Option<Date>,
+    /// `sale_price_won − tco_won`; `None` until sold (loss allowed, never floored).
+    pub gross_margin_won: Option<i64>,
+    pub tco_won: i64,
+    pub cost_per_month_won: Option<i64>,
+    pub cost_per_hour_won: Option<i64>,
+    pub timeline: Vec<CostLedgerEntrySummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

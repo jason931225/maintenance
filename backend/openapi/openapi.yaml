@@ -2215,6 +2215,28 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/financial/equipment/{equipmentId}/lifecycle-cost:
+    get:
+      operationId: getEquipmentLifecycleCost
+      summary: Per-asset lifecycle cost, TCO, and gross margin
+      description: Read-gated (EquipmentCostLedgerRead). Returns the asset's acquisition cost (with a source tag), maintenance total split by source, read-only outsource cost, current residual, latest realized sale price, total cost of ownership, gross margin, and per-month/per-hour maintenance intensity.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/EquipmentIdV2'
+      responses:
+        '200':
+          description: Asset lifecycle cost summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetLifecycleCostSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/v1/financial/equipment/{equipmentId}/cost-ledger/manual:
     post:
       operationId: appendManualCostLedgerEntry
@@ -6419,6 +6441,18 @@ components:
           - integer
           - 'null'
           format: int64
+        acquisition_cost_won:
+          description: Acquisition cost in KRW. A distinct accounting fact, never the depreciation base.
+          type:
+          - integer
+          - 'null'
+          format: int64
+          minimum: 0
+        acquisition_date:
+          type:
+          - string
+          - 'null'
+          format: date
         note:
           type:
           - string
@@ -6720,6 +6754,99 @@ components:
           format: int64
         entry_at:
           $ref: '#/components/schemas/Timestamp'
+    AcquisitionBasis:
+      type: string
+      description: Where the acquisition figure that anchors TCO came from.
+      enum:
+      - EXPLICIT
+      - VEHICLE_VALUE_FALLBACK
+      - NONE
+    AssetLifecycleCostSummary:
+      type: object
+      description: Per-asset lifecycle / total-cost-of-ownership rollup. outsource_unlinked_won is read-only and never summed into tco_won.
+      required:
+      - equipment_id
+      - equipment_no
+      - status
+      - acquisition_source
+      - maintenance_total_won
+      - manual_total_won
+      - purchase_total_won
+      - entry_count
+      - residual_value_won
+      - tco_won
+      - timeline
+      properties:
+        equipment_id:
+          $ref: '#/components/schemas/Uuid'
+        equipment_no:
+          type: string
+        status:
+          type: string
+        acquisition_cost_won:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        acquisition_date:
+          type:
+          - string
+          - 'null'
+          format: date
+        acquisition_source:
+          $ref: '#/components/schemas/AcquisitionBasis'
+        maintenance_total_won:
+          type: integer
+          format: int64
+        manual_total_won:
+          type: integer
+          format: int64
+        purchase_total_won:
+          type: integer
+          format: int64
+        entry_count:
+          type: integer
+          format: int64
+        outsource_unlinked_won:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        residual_value_won:
+          type: integer
+          format: int64
+        sale_price_won:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        sold_at:
+          type:
+          - string
+          - 'null'
+          format: date
+        gross_margin_won:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        tco_won:
+          type: integer
+          format: int64
+        cost_per_month_won:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        cost_per_hour_won:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        timeline:
+          type: array
+          items:
+            $ref: '#/components/schemas/CostLedgerEntrySummary'
     CreatePurchaseRequest:
       type: object
       required:

@@ -455,6 +455,13 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/financial/equipment/{equipmentId}/cost-ledger`.
     /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/cost-ledger/get(listEquipmentCostLedger)`.
     func listEquipmentCostLedger(_ input: Operations.ListEquipmentCostLedger.Input) async throws -> Operations.ListEquipmentCostLedger.Output
+    /// Per-asset lifecycle cost, TCO, and gross margin
+    ///
+    /// Read-gated (EquipmentCostLedgerRead). Returns the asset's acquisition cost (with a source tag), maintenance total split by source, read-only outsource cost, current residual, latest realized sale price, total cost of ownership, gross margin, and per-month/per-hour maintenance intensity.
+    ///
+    /// - Remark: HTTP `GET /api/v1/financial/equipment/{equipmentId}/lifecycle-cost`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/lifecycle-cost/get(getEquipmentLifecycleCost)`.
+    func getEquipmentLifecycleCost(_ input: Operations.GetEquipmentLifecycleCost.Input) async throws -> Operations.GetEquipmentLifecycleCost.Output
     /// Append a manual admin equipment cost and recompute residual value
     ///
     /// - Remark: HTTP `POST /api/v1/financial/equipment/{equipmentId}/cost-ledger/manual`.
@@ -1755,6 +1762,21 @@ extension APIProtocol {
         headers: Operations.ListEquipmentCostLedger.Input.Headers = .init()
     ) async throws -> Operations.ListEquipmentCostLedger.Output {
         try await listEquipmentCostLedger(Operations.ListEquipmentCostLedger.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Per-asset lifecycle cost, TCO, and gross margin
+    ///
+    /// Read-gated (EquipmentCostLedgerRead). Returns the asset's acquisition cost (with a source tag), maintenance total split by source, read-only outsource cost, current residual, latest realized sale price, total cost of ownership, gross margin, and per-month/per-hour maintenance intensity.
+    ///
+    /// - Remark: HTTP `GET /api/v1/financial/equipment/{equipmentId}/lifecycle-cost`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/lifecycle-cost/get(getEquipmentLifecycleCost)`.
+    public func getEquipmentLifecycleCost(
+        path: Operations.GetEquipmentLifecycleCost.Input.Path,
+        headers: Operations.GetEquipmentLifecycleCost.Input.Headers = .init()
+    ) async throws -> Operations.GetEquipmentLifecycleCost.Output {
+        try await getEquipmentLifecycleCost(Operations.GetEquipmentLifecycleCost.Input(
             path: path,
             headers: headers
         ))
@@ -7267,6 +7289,12 @@ public enum Components {
             public var vehicleValue: Swift.Int64?
             /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/residual_value`.
             public var residualValue: Swift.Int64?
+            /// Acquisition cost in KRW. A distinct accounting fact, never the depreciation base.
+            ///
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/acquisition_cost_won`.
+            public var acquisitionCostWon: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/acquisition_date`.
+            public var acquisitionDate: Swift.String?
             /// - Remark: Generated from `#/components/schemas/UpdateEquipmentRequest/note`.
             public var note: Swift.String?
             /// Creates a new `UpdateEquipmentRequest`.
@@ -7299,6 +7327,8 @@ public enum Components {
             ///   - rentalFee:
             ///   - vehicleValue:
             ///   - residualValue:
+            ///   - acquisitionCostWon: Acquisition cost in KRW. A distinct accounting fact, never the depreciation base.
+            ///   - acquisitionDate:
             ///   - note:
             public init(
                 customerName: Swift.String? = nil,
@@ -7328,6 +7358,8 @@ public enum Components {
                 rentalFee: Swift.Int64? = nil,
                 vehicleValue: Swift.Int64? = nil,
                 residualValue: Swift.Int64? = nil,
+                acquisitionCostWon: Swift.Int64? = nil,
+                acquisitionDate: Swift.String? = nil,
                 note: Swift.String? = nil
             ) {
                 self.customerName = customerName
@@ -7357,6 +7389,8 @@ public enum Components {
                 self.rentalFee = rentalFee
                 self.vehicleValue = vehicleValue
                 self.residualValue = residualValue
+                self.acquisitionCostWon = acquisitionCostWon
+                self.acquisitionDate = acquisitionDate
                 self.note = note
             }
             public enum CodingKeys: String, CodingKey {
@@ -7387,6 +7421,8 @@ public enum Components {
                 case rentalFee = "rental_fee"
                 case vehicleValue = "vehicle_value"
                 case residualValue = "residual_value"
+                case acquisitionCostWon = "acquisition_cost_won"
+                case acquisitionDate = "acquisition_date"
                 case note
             }
         }
@@ -7878,6 +7914,141 @@ public enum Components {
                 case residualBeforeWon = "residual_before_won"
                 case residualAfterWon = "residual_after_won"
                 case entryAt = "entry_at"
+            }
+        }
+        /// Where the acquisition figure that anchors TCO came from.
+        ///
+        /// - Remark: Generated from `#/components/schemas/AcquisitionBasis`.
+        @frozen public enum AcquisitionBasis: String, Codable, Hashable, Sendable, CaseIterable {
+            case explicit = "EXPLICIT"
+            case vehicleValueFallback = "VEHICLE_VALUE_FALLBACK"
+            case none = "NONE"
+        }
+        /// Per-asset lifecycle / total-cost-of-ownership rollup. outsource_unlinked_won is read-only and never summed into tco_won.
+        ///
+        /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary`.
+        public struct AssetLifecycleCostSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary/equipment_id`.
+            public var equipmentId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary/equipment_no`.
+            public var equipmentNo: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary/status`.
+            public var status: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary/acquisition_cost_won`.
+            public var acquisitionCostWon: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary/acquisition_date`.
+            public var acquisitionDate: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary/acquisition_source`.
+            public var acquisitionSource: Components.Schemas.AcquisitionBasis
+            /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary/maintenance_total_won`.
+            public var maintenanceTotalWon: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary/manual_total_won`.
+            public var manualTotalWon: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary/purchase_total_won`.
+            public var purchaseTotalWon: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary/entry_count`.
+            public var entryCount: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary/outsource_unlinked_won`.
+            public var outsourceUnlinkedWon: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary/residual_value_won`.
+            public var residualValueWon: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary/sale_price_won`.
+            public var salePriceWon: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary/sold_at`.
+            public var soldAt: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary/gross_margin_won`.
+            public var grossMarginWon: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary/tco_won`.
+            public var tcoWon: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary/cost_per_month_won`.
+            public var costPerMonthWon: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary/cost_per_hour_won`.
+            public var costPerHourWon: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/AssetLifecycleCostSummary/timeline`.
+            public var timeline: [Components.Schemas.CostLedgerEntrySummary]
+            /// Creates a new `AssetLifecycleCostSummary`.
+            ///
+            /// - Parameters:
+            ///   - equipmentId:
+            ///   - equipmentNo:
+            ///   - status:
+            ///   - acquisitionCostWon:
+            ///   - acquisitionDate:
+            ///   - acquisitionSource:
+            ///   - maintenanceTotalWon:
+            ///   - manualTotalWon:
+            ///   - purchaseTotalWon:
+            ///   - entryCount:
+            ///   - outsourceUnlinkedWon:
+            ///   - residualValueWon:
+            ///   - salePriceWon:
+            ///   - soldAt:
+            ///   - grossMarginWon:
+            ///   - tcoWon:
+            ///   - costPerMonthWon:
+            ///   - costPerHourWon:
+            ///   - timeline:
+            public init(
+                equipmentId: Components.Schemas.Uuid,
+                equipmentNo: Swift.String,
+                status: Swift.String,
+                acquisitionCostWon: Swift.Int64? = nil,
+                acquisitionDate: Swift.String? = nil,
+                acquisitionSource: Components.Schemas.AcquisitionBasis,
+                maintenanceTotalWon: Swift.Int64,
+                manualTotalWon: Swift.Int64,
+                purchaseTotalWon: Swift.Int64,
+                entryCount: Swift.Int64,
+                outsourceUnlinkedWon: Swift.Int64? = nil,
+                residualValueWon: Swift.Int64,
+                salePriceWon: Swift.Int64? = nil,
+                soldAt: Swift.String? = nil,
+                grossMarginWon: Swift.Int64? = nil,
+                tcoWon: Swift.Int64,
+                costPerMonthWon: Swift.Int64? = nil,
+                costPerHourWon: Swift.Int64? = nil,
+                timeline: [Components.Schemas.CostLedgerEntrySummary]
+            ) {
+                self.equipmentId = equipmentId
+                self.equipmentNo = equipmentNo
+                self.status = status
+                self.acquisitionCostWon = acquisitionCostWon
+                self.acquisitionDate = acquisitionDate
+                self.acquisitionSource = acquisitionSource
+                self.maintenanceTotalWon = maintenanceTotalWon
+                self.manualTotalWon = manualTotalWon
+                self.purchaseTotalWon = purchaseTotalWon
+                self.entryCount = entryCount
+                self.outsourceUnlinkedWon = outsourceUnlinkedWon
+                self.residualValueWon = residualValueWon
+                self.salePriceWon = salePriceWon
+                self.soldAt = soldAt
+                self.grossMarginWon = grossMarginWon
+                self.tcoWon = tcoWon
+                self.costPerMonthWon = costPerMonthWon
+                self.costPerHourWon = costPerHourWon
+                self.timeline = timeline
+            }
+            public enum CodingKeys: String, CodingKey {
+                case equipmentId = "equipment_id"
+                case equipmentNo = "equipment_no"
+                case status
+                case acquisitionCostWon = "acquisition_cost_won"
+                case acquisitionDate = "acquisition_date"
+                case acquisitionSource = "acquisition_source"
+                case maintenanceTotalWon = "maintenance_total_won"
+                case manualTotalWon = "manual_total_won"
+                case purchaseTotalWon = "purchase_total_won"
+                case entryCount = "entry_count"
+                case outsourceUnlinkedWon = "outsource_unlinked_won"
+                case residualValueWon = "residual_value_won"
+                case salePriceWon = "sale_price_won"
+                case soldAt = "sold_at"
+                case grossMarginWon = "gross_margin_won"
+                case tcoWon = "tco_won"
+                case costPerMonthWon = "cost_per_month_won"
+                case costPerHourWon = "cost_per_hour_won"
+                case timeline
             }
         }
         /// - Remark: Generated from `#/components/schemas/CreatePurchaseRequest`.
@@ -25113,6 +25284,205 @@ public enum Operations {
             /// Resource was not found in branch scope.
             ///
             /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/cost-ledger/get(listEquipmentCostLedger)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Per-asset lifecycle cost, TCO, and gross margin
+    ///
+    /// Read-gated (EquipmentCostLedgerRead). Returns the asset's acquisition cost (with a source tag), maintenance total split by source, read-only outsource cost, current residual, latest realized sale price, total cost of ownership, gross margin, and per-month/per-hour maintenance intensity.
+    ///
+    /// - Remark: HTTP `GET /api/v1/financial/equipment/{equipmentId}/lifecycle-cost`.
+    /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/lifecycle-cost/get(getEquipmentLifecycleCost)`.
+    public enum GetEquipmentLifecycleCost {
+        public static let id: Swift.String = "getEquipmentLifecycleCost"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/financial/equipment/{equipmentId}/lifecycle-cost/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/equipment/{equipmentId}/lifecycle-cost/GET/path/equipmentId`.
+                public var equipmentId: Components.Parameters.EquipmentIdV2
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - equipmentId:
+                public init(equipmentId: Components.Parameters.EquipmentIdV2) {
+                    self.equipmentId = equipmentId
+                }
+            }
+            public var path: Operations.GetEquipmentLifecycleCost.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/financial/equipment/{equipmentId}/lifecycle-cost/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetEquipmentLifecycleCost.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetEquipmentLifecycleCost.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetEquipmentLifecycleCost.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.GetEquipmentLifecycleCost.Input.Path,
+                headers: Operations.GetEquipmentLifecycleCost.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/financial/equipment/{equipmentId}/lifecycle-cost/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/financial/equipment/{equipmentId}/lifecycle-cost/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.AssetLifecycleCostSummary)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.AssetLifecycleCostSummary {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetEquipmentLifecycleCost.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetEquipmentLifecycleCost.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Asset lifecycle cost summary.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/lifecycle-cost/get(getEquipmentLifecycleCost)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetEquipmentLifecycleCost.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetEquipmentLifecycleCost.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/lifecycle-cost/get(getEquipmentLifecycleCost)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/lifecycle-cost/get(getEquipmentLifecycleCost)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/financial/equipment/{equipmentId}/lifecycle-cost/get(getEquipmentLifecycleCost)/responses/404`.
             ///
             /// HTTP response code: `404 notFound`.
             case notFound(Components.Responses.NotFound)
