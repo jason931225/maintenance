@@ -230,13 +230,13 @@ export function DailyPlanPage() {
       <div className="grid gap-5 max-w-3xl">
         {canRequest ? (
           <Card className="grid gap-4">
-            <h2 className="text-lg font-semibold text-slate-950">
+            <h2 className="text-lg font-semibold text-ink">
               {ko.dailyPlan.createTitle}
             </h2>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="grid gap-2">
                 <label
-                  className="text-sm font-medium text-slate-700"
+                  className="text-sm font-medium text-steel"
                   htmlFor="plan-mechanic"
                 >
                   {ko.dailyPlan.mechanic}
@@ -258,7 +258,7 @@ export function DailyPlanPage() {
               </div>
               <div className="grid gap-2">
                 <label
-                  className="text-sm font-medium text-slate-700"
+                  className="text-sm font-medium text-steel"
                   htmlFor="plan-date"
                 >
                   {ko.dailyPlan.planDate}
@@ -275,7 +275,7 @@ export function DailyPlanPage() {
             </div>
 
             <div className="grid gap-2">
-              <span className="text-sm font-medium text-slate-700">
+              <span className="text-sm font-medium text-steel">
                 {ko.dailyPlan.items}
               </span>
               {items.map((item, index) => (
@@ -323,7 +323,7 @@ export function DailyPlanPage() {
         {plan ? (
           <Card className="grid gap-4">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-slate-950">
+              <h2 className="text-lg font-semibold text-ink">
                 {ko.dailyPlan.statusLabel}
               </h2>
               {status ? (
@@ -344,8 +344,8 @@ export function DailyPlanPage() {
             ) : null}
 
             {status === "REQUESTED" && canReview ? (
-              <div className="grid gap-3 rounded-md border border-slate-200 p-3">
-                <h3 className="text-base font-semibold text-slate-950">
+              <div className="grid gap-3 rounded-md border border-line p-3">
+                <h3 className="text-base font-semibold text-ink">
                   {ko.dailyPlan.review}
                 </h3>
                 <Textarea
@@ -388,12 +388,12 @@ export function DailyPlanPage() {
           </Card>
         ) : (
           <Card>
-            <p className="text-sm text-slate-600">{ko.dailyPlan.noPlan}</p>
+            <p className="text-sm text-steel">{ko.dailyPlan.noPlan}</p>
           </Card>
         )}
 
         {notice ? (
-          <p role="status" className="text-sm font-medium text-emerald-700">
+          <p role="status" className="text-sm font-medium text-brand-teal">
             {notice}
           </p>
         ) : null}

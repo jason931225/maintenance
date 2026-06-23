@@ -70,18 +70,18 @@ export function DispatchBoard({
   return (
     <Card className="grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-slate-950">{ko.dispatch.title}</h2>
-        <p className="text-sm text-slate-600">
+        <h2 className="text-lg font-semibold text-ink">{ko.dispatch.title}</h2>
+        <p className="text-sm text-steel">
           {ko.dispatch.selectedMechanic}: {selectedMechanicId}
         </p>
       </div>
       {workOrders.length === 0 ? (
         isLoading ? (
-          <p role="status" className="text-sm font-medium text-slate-700">
+          <p role="status" className="text-sm font-medium text-steel">
             {ko.common.loading}
           </p>
         ) : (
-          <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+          <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
             {ko.dispatch.empty}
           </p>
         )
@@ -94,19 +94,19 @@ export function DispatchBoard({
           return (
             <section
               key={group.key}
-              className="min-h-40 rounded-md border border-slate-200 bg-slate-50 p-3"
+              className="min-h-40 rounded-md border border-line bg-muted-panel p-3"
             >
-              <h3 className="mb-3 text-sm font-semibold text-slate-800">
+              <h3 className="mb-3 text-sm font-semibold text-steel">
                 {group.label}
               </h3>
               <div className="grid gap-2">
                 {items.map((workOrder) => (
                   <article
                     key={workOrder.id}
-                    className="rounded-md border border-slate-200 bg-white p-3"
+                    className="rounded-md border border-line bg-white p-3"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <p className="font-semibold text-slate-950">
+                      <p className="font-semibold text-ink">
                         {workOrder.request_no}
                       </p>
                       <Badge className={priorityClass(workOrder.priority)}>
@@ -114,12 +114,12 @@ export function DispatchBoard({
                       </Badge>
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <p className="text-sm text-slate-600">
+                      <p className="text-sm text-steel">
                         {ko.status[workOrder.status]}
                       </p>
                       <SlaBadge workOrder={workOrder} />
                     </div>
-                    <p className="mt-1 text-sm text-slate-700">
+                    <p className="mt-1 text-sm text-steel">
                       {workOrder.equipment.model ?? ko.common.unknown} /{" "}
                       {workOrder.customer.name}
                     </p>
@@ -168,10 +168,10 @@ function priorityClass(priority: WorkOrderListItem["priority"]) {
     case "P2":
       return "border-amber-300 bg-amber-50 text-amber-900";
     case "P3":
-      return "border-emerald-300 bg-emerald-50 text-emerald-800";
+      return "border-brand-teal/30 bg-brand-teal/10 text-brand-teal";
     case "OUTSOURCE":
       return "border-sky-300 bg-sky-50 text-sky-800";
     case "UNSET":
-      return "border-slate-300 bg-slate-50 text-slate-700";
+      return "border-line bg-muted-panel text-steel";
   }
 }

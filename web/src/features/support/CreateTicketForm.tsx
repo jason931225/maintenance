@@ -88,14 +88,14 @@ export function CreateTicketForm({
           void handleSubmit(event);
         }}
       >
-        <h2 className="text-lg font-semibold text-slate-950">
+        <h2 className="text-lg font-semibold text-ink">
           {ko.support.createTitle}
         </h2>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="grid gap-2">
             <label
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-medium text-steel"
               htmlFor="ticket-category"
             >
               {ko.support.form.category}
@@ -119,7 +119,7 @@ export function CreateTicketForm({
 
           <div className="grid gap-2">
             <label
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-medium text-steel"
               htmlFor="ticket-priority"
             >
               {ko.support.form.priority}
@@ -144,7 +144,7 @@ export function CreateTicketForm({
 
         <div className="grid gap-2">
           <label
-            className="text-sm font-medium text-slate-700"
+            className="text-sm font-medium text-steel"
             htmlFor="ticket-title"
           >
             {ko.support.form.ticketTitle}
@@ -171,7 +171,7 @@ export function CreateTicketForm({
 
         <div className="grid gap-2">
           <label
-            className="text-sm font-medium text-slate-700"
+            className="text-sm font-medium text-steel"
             htmlFor="ticket-body"
           >
             {ko.support.form.body}
@@ -203,7 +203,7 @@ export function CreateTicketForm({
             : ko.support.form.submit}
         </Button>
         {status === "created" ? (
-          <p role="status" className="text-sm font-semibold text-emerald-800">
+          <p role="status" className="text-sm font-semibold text-brand-teal">
             {ko.support.form.created}
           </p>
         ) : null}

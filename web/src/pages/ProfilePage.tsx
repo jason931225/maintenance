@@ -81,7 +81,7 @@ export function ProfilePage() {
           />
         ) : state === "loading" ? (
           <Card>
-            <p role="status" className="text-sm font-medium text-slate-700">
+            <p role="status" className="text-sm font-medium text-steel">
               {ko.common.loading}
             </p>
           </Card>
@@ -89,7 +89,7 @@ export function ProfilePage() {
           <Card className="grid gap-4">
             <div className="grid gap-2">
               <label
-                className="text-sm font-medium text-slate-700"
+                className="text-sm font-medium text-steel"
                 htmlFor="profile-display-name"
               >
                 {ko.profile.displayName}
@@ -106,7 +106,7 @@ export function ProfilePage() {
 
             <div className="grid gap-2">
               <label
-                className="text-sm font-medium text-slate-700"
+                className="text-sm font-medium text-steel"
                 htmlFor="profile-phone"
               >
                 {ko.profile.phone}
@@ -124,15 +124,15 @@ export function ProfilePage() {
             {profile ? (
               <div className="grid gap-2 text-sm">
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-slate-700">
+                  <span className="font-medium text-steel">
                     {ko.profile.team}:
                   </span>
-                  <span className="text-slate-600">
+                  <span className="text-steel">
                     {teamLabel(profile.team)}
                   </span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium text-slate-700">
+                  <span className="font-medium text-steel">
                     {ko.profile.roles}:
                   </span>
                   {profile.roles.length > 0 ? (
@@ -140,7 +140,7 @@ export function ProfilePage() {
                       <Badge key={role}>{roleLabel(role)}</Badge>
                     ))
                   ) : (
-                    <span className="text-slate-400">{ko.users.noRoles}</span>
+                    <span className="text-steel">{ko.users.noRoles}</span>
                   )}
                 </div>
               </div>
@@ -155,7 +155,7 @@ export function ProfilePage() {
               <p
                 role="status"
                 aria-live="polite"
-                className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900"
+                className="rounded-md border border-brand-teal/30 bg-brand-teal/10 px-4 py-2 text-sm font-medium text-brand-teal"
               >
                 {feedback}
               </p>

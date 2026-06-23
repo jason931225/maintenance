@@ -208,10 +208,10 @@ export function EquipmentManagementPanel({
     <Card className="grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-slate-950">
+          <h2 className="text-lg font-semibold text-ink">
             {ko.equipment.manageTitle}
           </h2>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-steel">
             {ko.equipment.manageDescription}
           </p>
         </div>
@@ -222,20 +222,20 @@ export function EquipmentManagementPanel({
       </div>
 
       {notice ? (
-        <p role="status" className="text-sm font-medium text-emerald-700">
+        <p role="status" className="text-sm font-medium text-brand-teal">
           {notice}
         </p>
       ) : null}
 
       {mode !== "idle" ? (
         <form
-          className="grid gap-3 rounded-md border border-slate-200 p-4"
+          className="grid gap-3 rounded-md border border-line p-4"
           onSubmit={(event) => {
             event.preventDefault();
             void handleSubmit();
           }}
         >
-          <h3 className="text-base font-semibold text-slate-950">
+          <h3 className="text-base font-semibold text-ink">
             {mode === "create" ? ko.equipment.create : ko.equipment.edit}
           </h3>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -250,7 +250,7 @@ export function EquipmentManagementPanel({
             />
             <div className="grid gap-2">
               <label
-                className="text-sm font-medium text-slate-700"
+                className="text-sm font-medium text-steel"
                 htmlFor="eq-status"
               >
                 {ko.equipment.fields.status}
@@ -331,7 +331,7 @@ export function EquipmentManagementPanel({
           </div>
           <div className="grid gap-2">
             <label
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-medium text-steel"
               htmlFor="eq-note"
             >
               {ko.equipment.fields.note}
@@ -369,20 +369,20 @@ export function EquipmentManagementPanel({
 
       <div className="grid gap-2">
         {results.length === 0 ? (
-          <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+          <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
             {ko.equipment.searchToManage}
           </p>
         ) : (
           results.map((eq) => (
             <div
               key={eq.id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-slate-200 p-3"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-line p-3"
             >
               <div className="grid gap-1">
-                <span className="font-semibold text-slate-950">
+                <span className="font-semibold text-ink">
                   {eq.management_no ?? eq.equipment_no}
                 </span>
-                <span className="text-sm text-slate-600">
+                <span className="text-sm text-steel">
                   {eq.model ?? ko.common.unknown} · {eq.ton_text}
                 </span>
               </div>
@@ -423,13 +423,13 @@ export function EquipmentManagementPanel({
           role="dialog"
           aria-modal="true"
           aria-label={ko.equipment.deleteTitle}
-          className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-4"
+          className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
         >
           <Card className="grid w-full max-w-md gap-4">
-            <h2 className="text-lg font-semibold text-slate-950">
+            <h2 className="text-lg font-semibold text-ink">
               {ko.equipment.deleteTitle}
             </h2>
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-steel">
               {ko.equipment.deleteConfirm.replace(
                 "{equipmentNo}",
                 deleteTarget.equipment_no,
@@ -478,7 +478,7 @@ interface FieldProps {
 function Field({ id, label, value, onChange, disabled }: FieldProps) {
   return (
     <div className="grid gap-2">
-      <label className="text-sm font-medium text-slate-700" htmlFor={id}>
+      <label className="text-sm font-medium text-steel" htmlFor={id}>
         {label}
       </label>
       <Input

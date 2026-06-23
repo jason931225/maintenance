@@ -111,7 +111,7 @@ export function EquipmentPage() {
       <div className={`grid gap-5 ${canManage ? "max-w-4xl" : "max-w-2xl"}`}>
         <Card className="grid gap-4">
           <div className="grid gap-2">
-            <label className="text-sm font-medium text-slate-700" htmlFor="equipment-search">
+            <label className="text-sm font-medium text-steel" htmlFor="equipment-search">
               {ko.intake.managementNo}
             </label>
             <Input
@@ -135,7 +135,7 @@ export function EquipmentPage() {
           </div>
 
           {lookupState.status === "loading" ? (
-            <p role="status" className="text-sm font-medium text-slate-700">
+            <p role="status" className="text-sm font-medium text-steel">
               {ko.intake.lookupLoading}
             </p>
           ) : null}
@@ -151,23 +151,23 @@ export function EquipmentPage() {
             <PageError message={ko.intake.lookupFailed} />
           ) : null}
           {lookupState.status === "ready" ? (
-            <dl className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm sm:grid-cols-3">
+            <dl className="grid gap-2 rounded-md border border-line bg-muted-panel p-3 text-sm sm:grid-cols-3">
               <div>
-                <dt className="font-semibold text-slate-600">{ko.intake.model}</dt>
-                <dd className="text-slate-950">{lookupState.equipment.model}</dd>
+                <dt className="font-semibold text-steel">{ko.intake.model}</dt>
+                <dd className="text-ink">{lookupState.equipment.model}</dd>
               </div>
               <div>
-                <dt className="font-semibold text-slate-600">{ko.intake.customer}</dt>
-                <dd className="text-slate-950">{lookupState.equipment.customerName}</dd>
+                <dt className="font-semibold text-steel">{ko.intake.customer}</dt>
+                <dd className="text-ink">{lookupState.equipment.customerName}</dd>
               </div>
               <div>
-                <dt className="font-semibold text-slate-600">{ko.intake.site}</dt>
-                <dd className="text-slate-950">{lookupState.equipment.siteName}</dd>
+                <dt className="font-semibold text-steel">{ko.intake.site}</dt>
+                <dd className="text-ink">{lookupState.equipment.siteName}</dd>
               </div>
             </dl>
           ) : null}
           {lookupState.status === "idle" ? (
-            <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-700">
+            <p className="rounded-md border border-dashed border-line bg-muted-panel p-3 text-sm text-steel">
               {ko.intake.lookupPrompt}
             </p>
           ) : null}

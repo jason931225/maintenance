@@ -35,8 +35,8 @@ export function FinancialPage() {
             aria-selected={tab === key}
             className={`min-h-10 rounded-md border px-4 py-2 text-sm font-semibold transition-colors ${
               tab === key
-                ? "border-slate-950 bg-slate-950 text-white"
-                : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                ? "border-ink bg-ink text-white"
+                : "border-line bg-white text-steel hover:bg-muted-panel"
             }`}
             onClick={() => {
               setTab(key);

@@ -39,8 +39,8 @@ export function LocationConsentPanel({
   const actionLabels = ko.location.actions;
   const stateLabels = ko.location.states;
   const statusTone = mayCollect
-    ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-    : "border-slate-200 bg-slate-50 text-slate-800";
+    ? "border-brand-teal/30 bg-brand-teal/10 text-brand-teal"
+    : "border-line bg-muted-panel text-steel";
   const latestLedger = useMemo(
     () => ledger?.items.slice(0, 4) ?? [],
     [ledger?.items],
@@ -134,11 +134,11 @@ export function LocationConsentPanel({
         <div className="grid gap-1">
           <h2
             id="location-consent-title"
-            className="text-base font-bold text-slate-950"
+            className="text-base font-bold text-ink"
           >
             {ko.location.title}
           </h2>
-          <p className="text-sm text-slate-600">{ko.location.subtitle}</p>
+          <p className="text-sm text-steel">{ko.location.subtitle}</p>
         </div>
         {hasStatus ? (
           <span
@@ -150,7 +150,7 @@ export function LocationConsentPanel({
       </div>
 
       {isLoading ? (
-        <p role="status" className="text-sm font-medium text-slate-700">
+        <p role="status" className="text-sm font-medium text-steel">
           {ko.location.loading}
         </p>
       ) : null}
@@ -227,15 +227,15 @@ export function LocationConsentPanel({
       </div>
 
       {exported ? (
-        <p role="status" className="text-sm font-semibold text-emerald-800">
+        <p role="status" className="text-sm font-semibold text-brand-teal">
           {ko.location.exported}
         </p>
       ) : null}
 
       <dl className="grid grid-cols-2 gap-2 text-sm">
         <div>
-          <dt className="text-slate-500">{ko.location.collection}</dt>
-          <dd className="font-semibold text-slate-950">
+          <dt className="text-steel">{ko.location.collection}</dt>
+          <dd className="font-semibold text-ink">
             {!hasStatus
               ? ko.common.notSet
               : mayCollect
@@ -244,8 +244,8 @@ export function LocationConsentPanel({
           </dd>
         </div>
         <div>
-          <dt className="text-slate-500">{ko.location.updatedAt}</dt>
-          <dd className="font-semibold text-slate-950">
+          <dt className="text-steel">{ko.location.updatedAt}</dt>
+          <dd className="font-semibold text-ink">
             {formatTimestamp(status?.updated_at)}
           </dd>
         </div>
@@ -255,13 +255,13 @@ export function LocationConsentPanel({
         <ul className="grid gap-2 text-sm">
           {latestLedger.map((entry) => (
             <li
-              className="flex items-center justify-between gap-3 border-t border-slate-100 pt-2"
+              className="flex items-center justify-between gap-3 border-t border-line pt-2"
               key={entry.id}
             >
-              <span className="font-medium text-slate-800">
+              <span className="font-medium text-steel">
                 {actionLabels[ledgerActionKey(entry.action)]}
               </span>
-              <time className="text-xs text-slate-500">
+              <time className="text-xs text-steel">
                 {formatTimestamp(entry.occurred_at)}
               </time>
             </li>
@@ -270,7 +270,7 @@ export function LocationConsentPanel({
       ) : null}
 
       {!session ? (
-        <p className="text-sm text-slate-600">{ko.location.sessionMissing}</p>
+        <p className="text-sm text-steel">{ko.location.sessionMissing}</p>
       ) : null}
       {error ? (
         <p role="alert" className="text-sm font-semibold text-red-700">

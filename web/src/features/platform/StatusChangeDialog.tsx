@@ -41,14 +41,14 @@ export function StatusChangeDialog({
       role="dialog"
       aria-modal="true"
       aria-label={ko.platform.tenants.statusChange.title}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-4"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
     >
       <Card className="grid w-full max-w-md gap-4">
         <div className="grid gap-1">
-          <h2 className="text-lg font-semibold text-slate-950">
+          <h2 className="text-lg font-semibold text-ink">
             {ko.platform.tenants.statusChange.title}
           </h2>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-steel">
             {ko.platform.tenants.statusChange.confirm
               .replace("{name}", org.name)
               .replace("{status}", orgStatusLabel(next))}

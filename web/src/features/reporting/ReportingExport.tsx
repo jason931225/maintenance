@@ -107,7 +107,7 @@ export function ReportingExport() {
       <div className="grid gap-2">
         <label
           htmlFor="reporting-report"
-          className="text-sm font-semibold text-slate-800"
+          className="text-sm font-semibold text-steel"
         >
           {ko.reporting.reportLabel}
         </label>
@@ -125,7 +125,7 @@ export function ReportingExport() {
       <div className="grid gap-2">
         <label
           htmlFor="reporting-date"
-          className="text-sm font-semibold text-slate-800"
+          className="text-sm font-semibold text-steel"
         >
           {ko.reporting.dateLabel}
         </label>
@@ -149,11 +149,11 @@ export function ReportingExport() {
         {state === "loading" ? ko.reporting.downloading : ko.reporting.download}
       </Button>
       {doneLabel ? (
-        <p role="status" className="text-sm font-medium text-emerald-700">
+        <p role="status" className="text-sm font-medium text-brand-teal">
           {ko.reporting.downloadDone.replace("{report}", doneLabel)}
         </p>
       ) : null}
-      <p className="text-xs text-slate-500">{ko.reporting.historyNote}</p>
+      <p className="text-xs text-steel">{ko.reporting.historyNote}</p>
     </Card>
   );
 }

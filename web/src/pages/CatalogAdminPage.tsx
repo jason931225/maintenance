@@ -44,7 +44,7 @@ const INQUIRY_STATUS_OPTIONS: InquiryStatus[] = ["NEW", "CONTACTED", "CLOSED"];
 const INQUIRY_BADGE: Record<InquiryStatus, string> = {
   NEW: "border-brand-teal bg-brand-teal/10 text-brand-teal",
   CONTACTED: "border-signal-dark bg-signal/15 text-signal-dark",
-  CLOSED: "border-slate-300 text-slate-500",
+  CLOSED: "border-line text-steel",
 };
 
 /** Editable string mirror of CreateListingRequest. Numbers are kept as raw

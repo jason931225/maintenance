@@ -83,14 +83,14 @@ export function OnboardingPage() {
   ];
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 px-4 py-12">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-muted-panel px-4 py-12">
       <div className="grid w-full max-w-md gap-6">
         <Card className="grid gap-5 p-6">
           <div className="grid gap-1">
-            <h1 className="text-xl font-semibold text-slate-950">
+            <h1 className="text-xl font-semibold text-ink">
               {ko.onboarding.title}
             </h1>
-            <p className="text-sm text-slate-600">{ko.onboarding.subtitle}</p>
+            <p className="text-sm text-steel">{ko.onboarding.subtitle}</p>
           </div>
 
           <div className="grid gap-3">
@@ -105,18 +105,18 @@ export function OnboardingPage() {
                   onClick={() => {
                     void enroll(method.key, method.attachment);
                   }}
-                  className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-4 text-left transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="flex items-start gap-3 rounded-lg border border-line bg-white p-4 text-left transition hover:border-steel hover:bg-muted-panel focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Icon
                     aria-hidden="true"
                     size={22}
-                    className="mt-0.5 shrink-0 text-slate-700"
+                    className="mt-0.5 shrink-0 text-steel"
                   />
                   <span className="grid gap-0.5">
-                    <span className="text-sm font-semibold text-slate-950">
+                    <span className="text-sm font-semibold text-ink">
                       {active ? ko.onboarding.enrolling : method.title}
                     </span>
-                    <span className="text-sm text-slate-600">
+                    <span className="text-sm text-steel">
                       {active
                         ? ko.onboarding.enrollingHint
                         : method.description}

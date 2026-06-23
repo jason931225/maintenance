@@ -143,7 +143,7 @@ export function InspectionPage() {
           <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
             <div className="grid gap-2">
               <label
-                className="text-sm font-medium text-slate-700"
+                className="text-sm font-medium text-steel"
                 htmlFor="inspection-range-start"
               >
                 {ko.inspection.rangeStart}
@@ -159,7 +159,7 @@ export function InspectionPage() {
             </div>
             <div className="grid gap-2">
               <label
-                className="text-sm font-medium text-slate-700"
+                className="text-sm font-medium text-steel"
                 htmlFor="inspection-range-end"
               >
                 {ko.inspection.rangeEnd}
@@ -186,27 +186,27 @@ export function InspectionPage() {
 
           {loadError ? <PageError message={ko.inspection.loadFailed} /> : null}
           {schedules && schedules.length === 0 ? (
-            <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-700">
+            <p className="rounded-md border border-dashed border-line bg-muted-panel p-3 text-sm text-steel">
               {ko.inspection.empty}
             </p>
           ) : null}
           {schedules && schedules.length > 0 ? (
             <div className="grid gap-2">
-              <h2 className="text-base font-semibold text-slate-950">
+              <h2 className="text-base font-semibold text-ink">
                 {ko.inspection.listTitle}
               </h2>
               <ul className="grid gap-2">
                 {schedules.map((schedule) => (
                   <li
                     key={schedule.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-slate-200 p-3"
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-line p-3"
                   >
                     <div className="grid gap-1">
-                      <span className="font-medium text-slate-950">
+                      <span className="font-medium text-ink">
                         {schedule.management_no ?? schedule.equipment_id}
                         {schedule.model ? ` · ${schedule.model}` : ""}
                       </span>
-                      <span className="text-sm text-slate-600">
+                      <span className="text-sm text-steel">
                         {schedule.site_name} ·{" "}
                         {ko.inspection.cycles[schedule.cycle]} ·{" "}
                         {schedule.due_date}
@@ -229,12 +229,12 @@ export function InspectionPage() {
 
         <Card className="grid gap-4">
           <div>
-            <h2 className="text-lg font-semibold text-slate-950">
+            <h2 className="text-lg font-semibold text-ink">
               {ko.inspection.createTitle}
             </h2>
           </div>
           {notice ? (
-            <p role="status" className="text-sm font-medium text-emerald-700">
+            <p role="status" className="text-sm font-medium text-brand-teal">
               {notice}
             </p>
           ) : null}
@@ -272,7 +272,7 @@ export function InspectionPage() {
             />
             <div className="grid gap-2">
               <label
-                className="text-sm font-medium text-slate-700"
+                className="text-sm font-medium text-steel"
                 htmlFor="ins-cycle"
               >
                 {ko.inspection.fields.cycle}
@@ -344,7 +344,7 @@ interface FieldProps {
 function Field({ id, label, value, onChange, type = "text" }: FieldProps) {
   return (
     <div className="grid gap-2">
-      <label className="text-sm font-medium text-slate-700" htmlFor={id}>
+      <label className="text-sm font-medium text-steel" htmlFor={id}>
         {label}
       </label>
       <Input

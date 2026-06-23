@@ -30,25 +30,25 @@ export function PlatformShell() {
 
   return (
     <TitleProvider>
-      <div className="flex h-screen overflow-hidden bg-slate-50">
+      <div className="flex h-screen overflow-hidden bg-muted-panel">
         <a
           href="#platform-main"
-          className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:rounded-md focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-slate-950 focus:shadow-md focus:outline-2 focus:outline-slate-950"
+          className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:rounded-md focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-ink focus:shadow-md focus:outline-2 focus:outline-ink"
         >
           {ko.shell.skipToContent}
         </a>
 
         <aside
           aria-label={ko.platform.shell.title}
-          className="hidden w-60 shrink-0 flex-col border-r border-slate-200 bg-white sm:flex"
+          className="hidden w-60 shrink-0 flex-col border-r border-line bg-white sm:flex"
         >
-          <div className="flex h-14 items-center gap-3 border-b border-slate-200 px-4">
+          <div className="flex h-14 items-center gap-3 border-b border-line px-4">
             <ServerCog
               size={20}
-              className="shrink-0 text-slate-950"
+              className="shrink-0 text-ink"
               aria-hidden="true"
             />
-            <span className="truncate font-bold text-slate-950">
+            <span className="truncate font-bold text-ink">
               {ko.platform.shell.title}
             </span>
           </div>
@@ -64,8 +64,8 @@ export function PlatformShell() {
                   cn(
                     "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
                     isActive
-                      ? "bg-slate-100 font-semibold text-slate-950"
-                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-950",
+                      ? "bg-muted-panel font-semibold text-ink"
+                      : "text-steel hover:bg-muted-panel hover:text-ink",
                   )
                 }
               >
@@ -108,12 +108,12 @@ function PlatformTopbar() {
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-4 border-b border-slate-200 bg-white px-4">
-      <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600">
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-4 border-b border-line bg-white px-4">
+      <span className="inline-flex items-center rounded-md border border-line bg-muted-panel px-2 py-1 text-xs font-semibold text-steel">
         {ko.platform.shell.badge}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-slate-600">
+        <p className="truncate text-sm font-medium text-steel">
           {session?.user_id ?? ko.shell.user}
         </p>
       </div>

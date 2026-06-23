@@ -135,18 +135,18 @@ export function WorkOrderActions({
 
   return (
     <Card className="grid gap-4">
-      <h2 className="text-lg font-semibold text-slate-950">
+      <h2 className="text-lg font-semibold text-ink">
         {ko.workOrder.startWork} / {ko.workOrder.submitReport}
       </h2>
       <div className="grid gap-3">
         {actionableOrders.map((wo) => (
           <div
             key={wo.id}
-            className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-slate-200 p-3"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-line p-3"
           >
             <div>
-              <p className="font-semibold text-slate-950">{wo.request_no}</p>
-              <p className="text-sm text-slate-600">
+              <p className="font-semibold text-ink">{wo.request_no}</p>
+              <p className="text-sm text-steel">
                 {ko.status[wo.status]} · {wo.equipment.model ?? ko.common.unknown}
               </p>
             </div>
@@ -175,7 +175,7 @@ export function WorkOrderActions({
               )}
             </div>
             {startDone === wo.id && (
-              <p role="status" className="w-full text-sm font-medium text-emerald-700">
+              <p role="status" className="w-full text-sm font-medium text-brand-teal">
                 {ko.workOrder.startWorkDone}
               </p>
             )}
@@ -197,28 +197,28 @@ export function WorkOrderActions({
           transitions to REPORT_SUBMITTED and leaves the actionable list, so a
           per-card message would unmount before the user (or a test) can see it. */}
       {reportDone && (
-        <p role="status" className="text-sm font-medium text-emerald-700">
+        <p role="status" className="text-sm font-medium text-brand-teal">
           {ko.workOrder.submitReportDone}
         </p>
       )}
 
       {/* Inline report form */}
       {reportForm && (
-        <div className="grid gap-3 rounded-md border border-slate-200 p-4">
-          <h3 className="text-sm font-semibold text-slate-950">
+        <div className="grid gap-3 rounded-md border border-line p-4">
+          <h3 className="text-sm font-semibold text-ink">
             {ko.workOrder.submitReport}
           </h3>
 
           <div className="grid gap-1">
             <label
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-medium text-steel"
               htmlFor="report-result-type"
             >
               {ko.workOrder.resultTypeLabel}
             </label>
             <select
               id="report-result-type"
-              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900"
+              className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-signal"
               value={reportForm.resultType}
               onChange={(e) => {
                 setReportForm((f) =>
@@ -236,7 +236,7 @@ export function WorkOrderActions({
 
           <div className="grid gap-1">
             <label
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-medium text-steel"
               htmlFor="report-diagnosis"
             >
               {ko.workOrder.diagnosisLabel}
@@ -244,7 +244,7 @@ export function WorkOrderActions({
             <textarea
               id="report-diagnosis"
               rows={3}
-              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900"
+              className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink placeholder:text-steel focus:outline-none focus:ring-2 focus:ring-signal"
               placeholder={ko.workOrder.diagnosisPlaceholder}
               aria-invalid={formErrors.diagnosis ? true : undefined}
               aria-describedby={
@@ -271,7 +271,7 @@ export function WorkOrderActions({
 
           <div className="grid gap-1">
             <label
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-medium text-steel"
               htmlFor="report-action-taken"
             >
               {ko.workOrder.actionTakenLabel}
@@ -279,7 +279,7 @@ export function WorkOrderActions({
             <textarea
               id="report-action-taken"
               rows={3}
-              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900"
+              className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink placeholder:text-steel focus:outline-none focus:ring-2 focus:ring-signal"
               placeholder={ko.workOrder.actionTakenPlaceholder}
               aria-invalid={formErrors.actionTaken ? true : undefined}
               aria-describedby={

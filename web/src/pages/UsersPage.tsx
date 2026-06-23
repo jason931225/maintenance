@@ -143,7 +143,7 @@ export function UsersPage() {
         <p
           role="status"
           aria-live="polite"
-          className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900"
+          className="mb-4 rounded-md border border-brand-teal/30 bg-brand-teal/10 px-4 py-2 text-sm font-medium text-brand-teal"
         >
           {feedback}
         </p>
@@ -161,10 +161,10 @@ export function UsersPage() {
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <div className="grid gap-4">
-          <label className="flex items-center gap-2 text-sm text-slate-700">
+          <label className="flex items-center gap-2 text-sm text-steel">
             <input
               type="checkbox"
-              className="size-4 rounded border-slate-300"
+              className="size-4 rounded border-line"
               checked={includeInactive}
               onChange={(event) => {
                 setIncludeInactive(event.currentTarget.checked);
@@ -273,7 +273,7 @@ function UserTable({
   if (isLoading) {
     return (
       <Card>
-        <p role="status" className="text-sm font-medium text-slate-700">
+        <p role="status" className="text-sm font-medium text-steel">
           {ko.common.loading}
         </p>
       </Card>
@@ -288,7 +288,7 @@ function UserTable({
     <Card className="overflow-x-auto p-0">
       <table className="w-full text-left text-sm">
         <thead>
-          <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <tr className="border-b border-line text-xs font-semibold uppercase tracking-wider text-steel">
             <th className="px-4 py-3">{ko.users.columns.name}</th>
             <th className="px-4 py-3">{ko.users.columns.phone}</th>
             <th className="px-4 py-3">{ko.users.columns.team}</th>
@@ -302,15 +302,15 @@ function UserTable({
           {users.map((user) => (
             <tr
               key={user.id}
-              className="border-b border-slate-100 last:border-0 align-top"
+              className="border-b border-line last:border-0 align-top"
             >
-              <td className="px-4 py-3 font-medium text-slate-950">
+              <td className="px-4 py-3 font-medium text-ink">
                 {user.display_name}
               </td>
-              <td className="px-4 py-3 text-slate-700">
+              <td className="px-4 py-3 text-steel">
                 {user.phone ?? ko.common.notSet}
               </td>
-              <td className="px-4 py-3 text-slate-700">
+              <td className="px-4 py-3 text-steel">
                 {teamLabel(user.team)}
               </td>
               <td className="px-4 py-3">
@@ -321,7 +321,7 @@ function UserTable({
                     ))}
                   </div>
                 ) : (
-                  <span className="text-slate-400">{ko.users.noRoles}</span>
+                  <span className="text-steel">{ko.users.noRoles}</span>
                 )}
               </td>
               <td className="px-4 py-3">
@@ -332,16 +332,16 @@ function UserTable({
                     ))}
                   </div>
                 ) : (
-                  <span className="text-slate-400">{ko.users.noBranches}</span>
+                  <span className="text-steel">{ko.users.noBranches}</span>
                 )}
               </td>
               <td className="px-4 py-3">
                 {user.is_active ? (
-                  <Badge className="border-emerald-300 text-emerald-800">
+                  <Badge className="border-brand-teal/30 text-brand-teal">
                     {ko.users.active}
                   </Badge>
                 ) : (
-                  <Badge className="border-slate-300 text-slate-500">
+                  <Badge className="border-line text-steel">
                     {ko.users.inactive}
                   </Badge>
                 )}
@@ -467,13 +467,13 @@ function UserForm({
 
   return (
     <Card className="grid gap-4">
-      <h2 className="text-lg font-semibold text-slate-950">
+      <h2 className="text-lg font-semibold text-ink">
         {editing ? ko.users.editTitle : ko.users.createTitle}
       </h2>
 
       <div className="grid gap-2">
         <label
-          className="text-sm font-medium text-slate-700"
+          className="text-sm font-medium text-steel"
           htmlFor="user-display-name"
         >
           {ko.users.form.displayName}
@@ -490,7 +490,7 @@ function UserForm({
 
       <div className="grid gap-2">
         <label
-          className="text-sm font-medium text-slate-700"
+          className="text-sm font-medium text-steel"
           htmlFor="user-phone"
         >
           {ko.users.form.phone}
@@ -506,7 +506,7 @@ function UserForm({
       </div>
 
       <div className="grid gap-2">
-        <label className="text-sm font-medium text-slate-700" htmlFor="user-team">
+        <label className="text-sm font-medium text-steel" htmlFor="user-team">
           {ko.users.form.team}
         </label>
         <Select
@@ -525,18 +525,18 @@ function UserForm({
       </div>
 
       <fieldset className="grid gap-2">
-        <legend className="text-sm font-medium text-slate-700">
+        <legend className="text-sm font-medium text-steel">
           {ko.users.form.roles}
         </legend>
         <div className="grid gap-1">
           {ASSIGNABLE_ROLES.map((role) => (
             <label
               key={role}
-              className="flex items-center gap-2 text-sm text-slate-700"
+              className="flex items-center gap-2 text-sm text-steel"
             >
               <input
                 type="checkbox"
-                className="size-4 rounded border-slate-300"
+                className="size-4 rounded border-line"
                 checked={roles.includes(role)}
                 onChange={() => {
                   setRoles((prev) => toggle(prev, role));
@@ -549,27 +549,27 @@ function UserForm({
       </fieldset>
 
       <fieldset className="grid gap-2">
-        <legend className="text-sm font-medium text-slate-700">
+        <legend className="text-sm font-medium text-steel">
           {ko.users.form.branches}
         </legend>
         {branches.length === 0 ? (
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-steel">
             {ko.users.form.noBranchOptions}
           </p>
         ) : (
           <>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-steel">
               {ko.users.form.branchesHint}
             </p>
             <div className="grid gap-1">
               {branches.map((branch) => (
                 <label
                   key={branch.id}
-                  className="flex items-center gap-2 text-sm text-slate-700"
+                  className="flex items-center gap-2 text-sm text-steel"
                 >
                   <input
                     type="checkbox"
-                    className="size-4 rounded border-slate-300"
+                    className="size-4 rounded border-line"
                     checked={branchIds.includes(branch.id)}
                     onChange={() => {
                       setBranchIds((prev) => toggle(prev, branch.id));
@@ -669,21 +669,21 @@ function IssueOtpDialog({
       role="dialog"
       aria-modal="true"
       aria-label={ko.users.otp.title}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-4"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
     >
       <Card className="grid w-full max-w-md gap-4">
         <div className="grid gap-1">
-          <h2 className="text-lg font-semibold text-slate-950">
+          <h2 className="text-lg font-semibold text-ink">
             {ko.users.otp.title}
           </h2>
-          <p className="text-sm text-slate-600">{ko.users.otp.description}</p>
-          <p className="text-sm font-medium text-slate-800">
+          <p className="text-sm text-steel">{ko.users.otp.description}</p>
+          <p className="text-sm font-medium text-steel">
             {user.display_name}
           </p>
         </div>
 
         {branchId ? (
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-steel">
             {ko.users.otp.branchLabel}: {branchName(branchId)}
           </p>
         ) : (
@@ -693,12 +693,12 @@ function IssueOtpDialog({
         )}
 
         {issued ? (
-          <div className="grid gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-4">
-            <span className="text-sm font-medium text-emerald-900">
+          <div className="grid gap-2 rounded-md border border-brand-teal/30 bg-brand-teal/10 p-4">
+            <span className="text-sm font-medium text-brand-teal">
               {ko.users.otp.issued}
             </span>
             <div className="flex items-center gap-2">
-              <code className="rounded bg-white px-3 py-2 text-lg font-semibold tracking-widest text-slate-950">
+              <code className="rounded bg-white px-3 py-2 text-lg font-semibold tracking-widest text-ink">
                 {issued.otp}
               </code>
               <Button
@@ -715,7 +715,7 @@ function IssueOtpDialog({
             <span role="status" aria-live="polite" className="sr-only">
               {copied ? ko.users.otp.copied : ""}
             </span>
-            <span className="text-sm text-emerald-900">
+            <span className="text-sm text-brand-teal">
               {ko.users.otp.expiresAt}:{" "}
               {new Date(issued.expiresAt).toLocaleString("ko-KR", {
                 dateStyle: "medium",
@@ -795,17 +795,17 @@ function ResetCredentialsDialog({
       role="dialog"
       aria-modal="true"
       aria-label={ko.users.reset.title}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-4"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
     >
       <Card className="grid w-full max-w-md gap-4">
         <div className="grid gap-1">
-          <h2 className="text-lg font-semibold text-slate-950">
+          <h2 className="text-lg font-semibold text-ink">
             {ko.users.reset.title}
           </h2>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-steel">
             {ko.users.reset.description}
           </p>
-          <p className="text-sm font-medium text-slate-800">
+          <p className="text-sm font-medium text-steel">
             {user.display_name}
           </p>
         </div>
@@ -818,12 +818,12 @@ function ResetCredentialsDialog({
         </p>
 
         {issued ? (
-          <div className="grid gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-4">
-            <span className="text-sm font-medium text-emerald-900">
+          <div className="grid gap-2 rounded-md border border-brand-teal/30 bg-brand-teal/10 p-4">
+            <span className="text-sm font-medium text-brand-teal">
               {ko.users.reset.issued}
             </span>
             <div className="flex items-center gap-2">
-              <code className="rounded bg-white px-3 py-2 text-lg font-semibold tracking-widest text-slate-950">
+              <code className="rounded bg-white px-3 py-2 text-lg font-semibold tracking-widest text-ink">
                 {issued.otp}
               </code>
               <Button
@@ -840,14 +840,14 @@ function ResetCredentialsDialog({
             <span role="status" aria-live="polite" className="sr-only">
               {copied ? ko.users.reset.copied : ""}
             </span>
-            <span className="text-sm text-emerald-900">
+            <span className="text-sm text-brand-teal">
               {ko.users.reset.expiresAt}:{" "}
               {new Date(issued.expiresAt).toLocaleString("ko-KR", {
                 dateStyle: "medium",
                 timeStyle: "short",
               })}
             </span>
-            <span className="text-sm text-emerald-900">
+            <span className="text-sm text-brand-teal">
               {ko.users.reset.handoff}
             </span>
           </div>

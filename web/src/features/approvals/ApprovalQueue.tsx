@@ -60,9 +60,9 @@ export function ApprovalQueue({
 
   return (
     <Card className="grid gap-4">
-      <h2 className="text-lg font-semibold text-slate-950">{ko.approvals.title}</h2>
+      <h2 className="text-lg font-semibold text-ink">{ko.approvals.title}</h2>
       <div className="grid gap-2">
-        <label className="text-sm font-medium text-slate-700" htmlFor="approval-memo">
+        <label className="text-sm font-medium text-steel" htmlFor="approval-memo">
           {ko.approvals.memo}
         </label>
         <Textarea
@@ -85,7 +85,7 @@ export function ApprovalQueue({
         ) : null}
       </div>
       {feedback === "approved" || feedback === "rejected" ? (
-        <p role="status" className="text-sm font-semibold text-emerald-800">
+        <p role="status" className="text-sm font-semibold text-brand-teal">
           {feedback === "approved"
             ? ko.approvals.approved
             : ko.approvals.rejected}
@@ -97,7 +97,7 @@ export function ApprovalQueue({
         </p>
       ) : null}
       {pending.length === 0 ? (
-        <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+        <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
           {ko.approvals.empty}
         </p>
       ) : null}
@@ -105,10 +105,10 @@ export function ApprovalQueue({
         {pending.map((workOrder) => (
           <article
             key={workOrder.id}
-            className="grid gap-3 rounded-md border border-slate-200 p-3 sm:grid-cols-[1fr_auto]"
+            className="grid gap-3 rounded-md border border-line p-3 sm:grid-cols-[1fr_auto]"
           >
             <div>
-              <p className="font-semibold text-slate-950">{workOrder.request_no}</p>
+              <p className="font-semibold text-ink">{workOrder.request_no}</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <Badge>{ko.status[workOrder.status]}</Badge>
                 <Badge>{workOrder.priority}</Badge>

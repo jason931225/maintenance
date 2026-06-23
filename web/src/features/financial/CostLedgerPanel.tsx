@@ -46,10 +46,10 @@ export function CostLedgerPanel({ api, roles }: CostLedgerPanelProps) {
   if (!canRead) {
     return (
       <Card className="grid gap-2">
-        <h2 className="text-lg font-semibold text-slate-950">
+        <h2 className="text-lg font-semibold text-ink">
           {ko.financial.ledger.title}
         </h2>
-        <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+        <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
           {ko.financial.ledger.empty}
         </p>
       </Card>
@@ -59,15 +59,15 @@ export function CostLedgerPanel({ api, roles }: CostLedgerPanelProps) {
   return (
     <Card className="grid gap-4">
       <div>
-        <h2 className="text-lg font-semibold text-slate-950">
+        <h2 className="text-lg font-semibold text-ink">
           {ko.financial.ledger.title}
         </h2>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-steel">
           {ko.financial.ledger.description}
         </p>
       </div>
 
-      <div className="grid gap-3 rounded-md border border-slate-200 p-4">
+      <div className="grid gap-3 rounded-md border border-line p-4">
         <EquipmentSelector
           api={api}
           selected={equipment}
@@ -100,7 +100,7 @@ export function CostLedgerPanel({ api, roles }: CostLedgerPanelProps) {
 
       {state === "ready" ? (
         entries.length === 0 ? (
-          <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+          <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
             {ko.financial.ledger.empty}
           </p>
         ) : (
@@ -108,16 +108,16 @@ export function CostLedgerPanel({ api, roles }: CostLedgerPanelProps) {
             {entries.map((entry) => (
               <li
                 key={entry.id}
-                className="grid gap-2 rounded-md border border-slate-200 p-3"
+                className="grid gap-2 rounded-md border border-line p-3"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-semibold text-slate-950">
+                  <span className="font-semibold text-ink">
                     {formatWon(entry.amount_won)} {ko.financial.wonUnit}
                   </span>
                   <Badge>{ko.financial.ledger.sources[entry.source]}</Badge>
                 </div>
                 {entry.memo ? (
-                  <p className="text-sm text-slate-700">{entry.memo}</p>
+                  <p className="text-sm text-steel">{entry.memo}</p>
                 ) : null}
                 <dl className="grid gap-2 text-sm sm:grid-cols-3">
                   <Row
@@ -145,8 +145,8 @@ export function CostLedgerPanel({ api, roles }: CostLedgerPanelProps) {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="font-semibold text-slate-600">{label}</dt>
-      <dd className="text-slate-950">{value}</dd>
+      <dt className="font-semibold text-steel">{label}</dt>
+      <dd className="text-ink">{value}</dd>
     </div>
   );
 }

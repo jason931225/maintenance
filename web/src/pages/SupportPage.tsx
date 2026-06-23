@@ -289,7 +289,7 @@ export function SupportPage() {
             )
           ) : detailState === "loading" ? (
             <Card>
-              <p role="status" className="text-sm font-medium text-slate-700">
+              <p role="status" className="text-sm font-medium text-steel">
                 {ko.common.loading}
               </p>
             </Card>
@@ -365,10 +365,10 @@ function FilterBar({
           options={SUPPORT_ORIGINS.map((v) => ({ value: v, label: originLabel(v) }))}
         />
       </div>
-      <label className="flex items-center gap-2 text-sm text-slate-700">
+      <label className="flex items-center gap-2 text-sm text-steel">
         <input
           type="checkbox"
-          className="size-4 rounded border-slate-300"
+          className="size-4 rounded border-line"
           checked={filters.includeUntriaged}
           onChange={(event) => {
             onChange({ ...filters, includeUntriaged: event.currentTarget.checked });
@@ -394,7 +394,7 @@ function FilterSelect({
   const id = `support-filter-${label}`;
   return (
     <div className="grid gap-1">
-      <label className="text-xs font-semibold text-slate-600" htmlFor={id}>
+      <label className="text-xs font-semibold text-steel" htmlFor={id}>
         {label}
       </label>
       <Select
