@@ -12,7 +12,7 @@ name: Image Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/multi-tenant-phase1]
     tags: ["v*"]
     # The auto digest-bump job (below) commits the freshly built digests into
     # deploy/apps/maintenance/overlays/prod/kustomization.yaml. paths-ignore keeps
