@@ -146,10 +146,18 @@ pub enum Feature {
     /// Triage (OPEN → REVIEWED / DISMISSED / ESCALATED) a governance finding.
     /// Gated identically to read; triage is itself audited via `with_audit`.
     IntegrityFindingTriage,
+    /// Configure the tenant's corporate webmail account (SMTP/IMAP host, port,
+    /// credentials). Stores credentials write-only (envelope AEAD); every change
+    /// is audited. ADMIN + SUPER_ADMIN only — it holds the mailbox secrets.
+    MailAccountManage,
+    /// Use the configured webmail: send / reply / forward, and (in later
+    /// batches) read inbound threads. RECEPTIONIST + ADMIN + EXECUTIVE +
+    /// SUPER_ADMIN; MECHANIC is excluded (work lives in the messenger surface).
+    MailUse,
 }
 
 impl Feature {
-    pub const ALL: [Self; 39] = [
+    pub const ALL: [Self; 41] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -189,6 +197,8 @@ impl Feature {
         Self::AiAssist,
         Self::IntegrityFindingsRead,
         Self::IntegrityFindingTriage,
+        Self::MailAccountManage,
+        Self::MailUse,
     ];
 
     const fn matrix_row(self) -> [PermissionLevel; 6] {
@@ -241,6 +251,12 @@ impl Feature {
             // findings about themselves. EXECUTIVE + SUPER_ADMIN only.
             Self::IntegrityFindingsRead => [D, D, D, D, A, A],
             Self::IntegrityFindingTriage => [D, D, D, D, A, A],
+            // Configuring the mailbox holds the tenant's mail secrets: ADMIN +
+            // SUPER_ADMIN only.
+            Self::MailAccountManage => [D, D, D, A, D, A],
+            // Sending/replying/forwarding mail: front-office + leadership.
+            // MECHANIC is excluded (their workflow is the messenger surface).
+            Self::MailUse => [D, A, D, A, A, A],
         }
     }
 }

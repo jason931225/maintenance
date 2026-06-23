@@ -2470,6 +2470,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mail/account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the tenant's configured webmail account (write-only password)
+         * @description Returns the configured corporate mailbox for the caller's tenant. The response NEVER contains a password; the has_smtp_password / has_imap_password booleans signal whether a credential is on file. Requires the MailAccountManage feature.
+         */
+        get: operations["getMailAccount"];
+        /**
+         * Configure (create or replace) the tenant's webmail account
+         * @description Upserts the mailbox config. Passwords are write-only: a present password is sealed (envelope AEAD) and only the ciphertext is stored; an absent/null password leaves the stored secret unchanged. A first-time configure requires both the SMTP and IMAP password. Audited. Requires the MailAccountManage feature.
+         */
+        put: operations["configureMailAccount"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/account/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test the SMTP connection with the stored credentials
+         * @description Authenticates to the tenant's configured SMTP server using the stored credentials and reports a structured result. Never leaks the secret; the error_code is a stable, non-secret token. Requires the MailAccountManage feature.
+         */
+        post: operations["testMailAccountConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compose and send a new message
+         * @description Sends a new outbound message through the tenant's SMTP server and persists it as a direction=OUT message. The From is constrained to the configured account address. Audited (email.send). Requires the MailUse feature.
+         */
+        post: operations["sendMail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/reply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reply to a message (sets In-Reply-To / References)
+         * @description Sends a reply through the tenant's SMTP server, stamping the In-Reply-To and References threading headers, and persists it as direction=OUT. Audited (email.reply). Requires the MailUse feature.
+         */
+        post: operations["replyMail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/forward": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Forward a message (sets In-Reply-To / References)
+         * @description Forwards a message through the tenant's SMTP server, stamping the In-Reply-To and References threading headers, and persists it as direction=OUT. Audited (email.forward). Requires the MailUse feature.
+         */
+        post: operations["forwardMail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4246,6 +4350,85 @@ export interface components {
             /** @description Reviewer memo. Required when dismissing or escalating. */
             memo?: string | null;
         };
+        /**
+         * @description Transport security. SSL_TLS is implicit TLS (port 993/465); START_TLS upgrades a plaintext connection (port 143/587). There is no plaintext option.
+         * @enum {string}
+         */
+        MailSecurity: "SSL_TLS" | "START_TLS";
+        MailAddress: {
+            /** @description The bare mailbox, e.g. user@example.com. */
+            address: string;
+            /** @description Optional display name. */
+            name?: string | null;
+        };
+        MailAttachment: {
+            filename: string;
+            content_type: string;
+            /** @description Standard-base64 encoded attachment bytes. */
+            content_base64: string;
+        };
+        /** @description The write-only view of a configured mailbox. It NEVER contains a password; has_smtp_password / has_imap_password signal whether a credential is on file. */
+        MailAccountView: {
+            id: components["schemas"]["Uuid"];
+            display_name: string;
+            email_address: string;
+            from_name?: string | null;
+            imap_host: string;
+            /** Format: int32 */
+            imap_port: number;
+            imap_security: components["schemas"]["MailSecurity"];
+            imap_username: string;
+            smtp_host: string;
+            /** Format: int32 */
+            smtp_port: number;
+            smtp_security: components["schemas"]["MailSecurity"];
+            smtp_username: string;
+            has_smtp_password: boolean;
+            has_imap_password: boolean;
+            status: string;
+        };
+        /** @description Configure (create or replace) the mailbox. A password field that is absent or null leaves the stored secret unchanged; a present value is re-sealed. A first-time configure requires both passwords. */
+        ConfigureMailAccountRequest: {
+            display_name: string;
+            email_address: string;
+            from_name?: string | null;
+            imap_host: string;
+            /** Format: int32 */
+            imap_port: number;
+            imap_security: components["schemas"]["MailSecurity"];
+            imap_username: string;
+            /** @description Write-only. Present = (re)seal; absent/null = keep the stored secret. */
+            imap_password?: string | null;
+            smtp_host: string;
+            /** Format: int32 */
+            smtp_port: number;
+            smtp_security: components["schemas"]["MailSecurity"];
+            smtp_username: string;
+            /** @description Write-only. Present = (re)seal; absent/null = keep the stored secret. */
+            smtp_password?: string | null;
+        };
+        MailTestConnectionResult: {
+            ok: boolean;
+            /** @description A stable, non-secret token when the connection failed. */
+            error_code?: string | null;
+        };
+        /** @description Compose a message. For reply/forward, in_reply_to is required and references carries the accumulated chain. The From is constrained to the configured account address (it cannot be set here). */
+        SendMailRequest: {
+            to: components["schemas"]["MailAddress"][];
+            cc?: components["schemas"]["MailAddress"][];
+            bcc?: components["schemas"]["MailAddress"][];
+            subject: string;
+            body_text: string;
+            attachments?: components["schemas"]["MailAttachment"][];
+            /** @description Required for reply/forward — the Message-ID being responded to. */
+            in_reply_to?: string | null;
+            references?: string[];
+        };
+        SendMailResult: {
+            message_id: components["schemas"]["Uuid"];
+            /** @description The RFC 5322 Message-ID stamped on the sent message. */
+            rfc_message_id: string;
+        };
     };
     responses: {
         /** @description Missing or invalid bearer token. */
@@ -4304,6 +4487,15 @@ export interface components {
         };
         /** @description An upstream dependency (e.g. the email relay) failed. */
         BadGateway: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorBody"];
+            };
+        };
+        /** @description Webmail is not configured on this server (the master key MNT_MAIL_MASTER_KEY is absent), or JWT verification is not configured. The app is otherwise healthy. */
+        MailUnavailable: {
             headers: {
                 [name: string]: unknown;
             };
@@ -8071,6 +8263,172 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    getMailAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The configured mailbox. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailAccountView"];
+                };
+            };
+            /** @description No mailbox is configured for this tenant. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    configureMailAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigureMailAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description The configured mailbox (write-only view). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailAccountView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    testMailAccountConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The structured test-connection result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailTestConnectionResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    sendMail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendMailRequest"];
+            };
+        };
+        responses: {
+            /** @description The message was sent and persisted. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendMailResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    replyMail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendMailRequest"];
+            };
+        };
+        responses: {
+            /** @description The reply was sent and persisted. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendMailResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    forwardMail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendMailRequest"];
+            };
+        };
+        responses: {
+            /** @description The forward was sent and persisted. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendMailResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["MailUnavailable"];
         };
     };
 }

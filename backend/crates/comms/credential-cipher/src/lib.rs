@@ -134,6 +134,40 @@ pub trait CredentialCipher: Send + Sync {
     ) -> Result<SecretBox<Vec<u8>>, CipherError>;
 }
 
+/// Forward the port through a shared reference, so a `&EnvelopeCredentialCipher`
+/// satisfies a generic `C: CredentialCipher` bound without moving/cloning the
+/// KEK. (Defined here, where the trait is local, so there is no orphan-rule
+/// violation.)
+impl<C: CredentialCipher + ?Sized> CredentialCipher for &C {
+    fn encrypt(&self, plaintext: &[u8], aad: Aad<'_>) -> Result<SealedCredential, CipherError> {
+        (**self).encrypt(plaintext, aad)
+    }
+
+    fn decrypt(
+        &self,
+        sealed: &SealedCredential,
+        aad: Aad<'_>,
+    ) -> Result<SecretBox<Vec<u8>>, CipherError> {
+        (**self).decrypt(sealed, aad)
+    }
+}
+
+/// Forward the port through an `Arc`, so the single shared cipher can satisfy a
+/// generic `C: CredentialCipher` bound directly.
+impl<C: CredentialCipher + ?Sized> CredentialCipher for std::sync::Arc<C> {
+    fn encrypt(&self, plaintext: &[u8], aad: Aad<'_>) -> Result<SealedCredential, CipherError> {
+        (**self).encrypt(plaintext, aad)
+    }
+
+    fn decrypt(
+        &self,
+        sealed: &SealedCredential,
+        aad: Aad<'_>,
+    ) -> Result<SecretBox<Vec<u8>>, CipherError> {
+        (**self).decrypt(sealed, aad)
+    }
+}
+
 /// `XChaCha20Poly1305` envelope cipher holding the master KEK in a [`SecretBox`].
 pub struct EnvelopeCredentialCipher {
     /// The master key-encryption key (32 bytes), zeroized on drop.

@@ -21,6 +21,9 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
+use mnt_comms_adapter_postgres::PgMailStore;
+use mnt_comms_credential_cipher::EnvelopeCredentialCipher;
+use mnt_comms_rest::CommsRestState;
 use mnt_compliance_adapter_postgres::PgComplianceStore;
 use mnt_compliance_rest::ComplianceRestState;
 use mnt_dispatch_adapter_postgres::PgDispatchStore;
@@ -756,6 +759,12 @@ pub struct AppState {
     email_sender: Arc<dyn EmailSender>,
     realtime_hub: Option<Arc<PgRealtimeHub>>,
     realtime_bridge: Option<PostgresBridgeHandle>,
+    /// The webmail master-key cipher (envelope AEAD for SMTP/IMAP credentials).
+    /// `None` when `MNT_MAIL_MASTER_KEY` is absent at boot — the app STILL boots
+    /// and the mail router still mounts, but every mail endpoint returns a clear
+    /// `503 email_not_configured`. The cipher feature is lazily/optionally init'd
+    /// so a missing key is never a panic.
+    mail_cipher: Option<Arc<EnvelopeCredentialCipher>>,
 }
 
 impl AppState {
@@ -799,6 +808,7 @@ impl AppState {
             email_sender: Arc::new(StubEmailSender),
             realtime_hub,
             realtime_bridge: None,
+            mail_cipher: None,
         })
     }
 
@@ -889,6 +899,25 @@ impl AppState {
         // `config.email` is resolved above.
         if let Some(auth_rest) = state.auth_rest.take() {
             state.auth_rest = Some(auth_rest.with_email_sender(state.email_sender.clone()));
+        }
+        // Webmail master key (envelope AEAD KEK) — GRACEFULLY OPTIONAL. When
+        // `MNT_MAIL_MASTER_KEY` is present + valid it arms the webmail credential
+        // cipher; when it is absent the app STILL boots and the mail router still
+        // mounts (so the OpenAPI paths exist), but every mail endpoint returns a
+        // clear 503. A malformed key is a real misconfiguration → surfaced as a
+        // boot error so it is caught immediately rather than at first use.
+        match EnvelopeCredentialCipher::from_env() {
+            Ok(cipher) => state.mail_cipher = Some(Arc::new(cipher)),
+            Err(_) if std::env::var(mnt_comms_credential_cipher::MASTER_KEY_ENV).is_err() => {
+                tracing::info!(
+                    "MNT_MAIL_MASTER_KEY unset: webmail is unavailable (endpoints return 503); the app boots normally"
+                );
+            }
+            Err(_) => {
+                return Err(AppError::Config(
+                    "MNT_MAIL_MASTER_KEY is set but is not a valid base64 32-byte key".to_owned(),
+                ));
+            }
         }
         if let Some(hub) = state.realtime_hub.clone() {
             state.realtime_bridge = Some(
@@ -1265,6 +1294,14 @@ pub fn build_router(state: AppState) -> Router {
                 ))
                 .merge(mnt_messenger_rest::router(MessengerRestState::new(
                     messenger_store,
+                    state.jwt_verifier.clone(),
+                )))
+                // Webmail (`/api/v1/mail/*`). The router ALWAYS mounts so the
+                // OpenAPI paths exist and the app boots without the master key;
+                // when `state.mail_cipher` is `None` every endpoint returns 503.
+                .merge(mnt_comms_rest::router(CommsRestState::new(
+                    PgMailStore::new(pool.clone()),
+                    state.mail_cipher.clone(),
                     state.jwt_verifier.clone(),
                 )));
             // READ-ONLY WALL for PLATFORM "view as": wrap the WHOLE tenant

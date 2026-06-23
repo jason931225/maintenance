@@ -115,6 +115,15 @@ chacha20poly1305 = "0.10.1"
 secrecy = "0.10.3"
 zeroize = "1.9.0"
 base64 = "0.22.1"
+# SSRF guard for outbound webmail connections (B-mail-2). Versions verified live
+# against the crates.io index 2026-06-23: hickory-resolver 0.26.1 (latest
+# stable), ipnet 2.12.0 (latest stable). The resolver gives us a resolve-once,
+# validate-the-IP, then dial-the-pinned-IP path (DNS-rebinding safe); ipnet
+# matches the resolved IP against the RFC1918 / loopback / link-local / ULA /
+# CGNAT denylist. hickory-resolver brings its own tokio runtime integration and
+# does NOT add a second rustls stack (it speaks plain UDP/TCP DNS by default).
+hickory-resolver = "0.26.1"
+ipnet = "2.12.0"
 
 mnt-kernel-core = { path = "crates/kernel/core" }
 mnt-compliance-domain = { path = "crates/compliance/domain" }
@@ -160,6 +169,10 @@ mnt-messenger-adapter-postgres = { path = "crates/messenger/adapter-postgres" }
 mnt-messenger-rest = { path = "crates/messenger/rest" }
 mnt-comms-domain = { path = "crates/comms/domain" }
 mnt-comms-credential-cipher = { path = "crates/comms/credential-cipher" }
+mnt-comms-application = { path = "crates/comms/application" }
+mnt-comms-adapter-postgres = { path = "crates/comms/adapter-postgres" }
+mnt-comms-adapter-smtp = { path = "crates/comms/adapter-smtp" }
+mnt-comms-rest = { path = "crates/comms/rest" }
 mnt-dispatch-domain = { path = "crates/dispatch/domain" }
 mnt-dispatch-application = { path = "crates/dispatch/application" }
 mnt-dispatch-adapter-postgres = { path = "crates/dispatch/adapter-postgres" }

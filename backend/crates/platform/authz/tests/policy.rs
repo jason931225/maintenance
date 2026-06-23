@@ -18,17 +18,17 @@ const ROLES: [Role; 6] = [
     Role::SuperAdmin,
 ];
 
-fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 39] {
+fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 41] {
     use Feature::{
         AiAssist, AssigneeManage, AuditLogRead, BranchManage, CompletionReview, DailyPlanRequest,
         DailyPlanReview, ElevatedRoleGrant, EquipmentCostLedgerRead, EquipmentCostLedgerWrite,
         EquipmentManage, EvidenceAttach, ExcelDownload, InspectionRoundComplete,
         InspectionScheduleManage, IntegrityFindingTriage, IntegrityFindingsRead,
-        KpiExclusionManage, KpiRead, Login, MasterListImport, OpsDashboardRead, PriorityManage,
-        PurchaseExecute, PurchaseFinalApprove, PurchaseRequestApprove, PurchaseRequestCreate,
-        PurchaseRequestRead, RegionManage, RentalQuoteManage, SalesManage, SubordinateUserCreate,
-        TargetManage, UserManage, WorkOrderCreate, WorkOrderEditIntake, WorkOrderReadAll,
-        WorkOrderStart, WorkReportSubmit,
+        KpiExclusionManage, KpiRead, Login, MailAccountManage, MailUse, MasterListImport,
+        OpsDashboardRead, PriorityManage, PurchaseExecute, PurchaseFinalApprove,
+        PurchaseRequestApprove, PurchaseRequestCreate, PurchaseRequestRead, RegionManage,
+        RentalQuoteManage, SalesManage, SubordinateUserCreate, TargetManage, UserManage,
+        WorkOrderCreate, WorkOrderEditIntake, WorkOrderReadAll, WorkOrderStart, WorkReportSubmit,
     };
     use PermissionLevel::{Allow as A, Deny as D, Limited as L, RequestOnly as R};
 
@@ -79,6 +79,10 @@ fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 39] {
         // Integrity findings are labor-law sensitive: EXECUTIVE + SUPER_ADMIN only.
         (IntegrityFindingsRead, [D, D, D, D, A, A]),
         (IntegrityFindingTriage, [D, D, D, D, A, A]),
+        // Webmail: configuring the mailbox is ADMIN + SUPER_ADMIN (holds the
+        // mail secrets); sending is front-office + leadership (no MECHANIC).
+        (MailAccountManage, [D, D, D, A, D, A]),
+        (MailUse, [D, A, D, A, A, A]),
     ]
 }
 
@@ -103,7 +107,7 @@ fn role_enum_uses_canonical_database_codes() {
 #[test]
 fn member_role_is_default_deny_except_login() {
     // The open-signup default tier: it can authenticate but nothing else until an
-    // admin elevates it. `Login` is its only `Allow` cell across all 39 features.
+    // admin elevates it. `Login` is its only `Allow` cell across all 41 features.
     for feature in Feature::ALL {
         let level = permission_for(Role::Member, feature);
         if feature == Feature::Login {
@@ -131,7 +135,7 @@ fn member_role_is_default_deny_except_login() {
 #[test]
 fn permission_matrix_is_exhaustive_and_matches_inherited_table() {
     let matrix = expected_matrix();
-    assert_eq!(Feature::ALL.len(), 39);
+    assert_eq!(Feature::ALL.len(), 41);
     assert_eq!(matrix.len(), Feature::ALL.len());
 
     for feature in Feature::ALL {

@@ -4059,6 +4059,184 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/v1/mail/account:
+    get:
+      operationId: getMailAccount
+      summary: Get the tenant's configured webmail account (write-only password)
+      description: >-
+        Returns the configured corporate mailbox for the caller's tenant. The
+        response NEVER contains a password; the has_smtp_password /
+        has_imap_password booleans signal whether a credential is on file.
+        Requires the MailAccountManage feature.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: The configured mailbox.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailAccountView'
+        '204':
+          description: No mailbox is configured for this tenant.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/MailUnavailable'
+    put:
+      operationId: configureMailAccount
+      summary: Configure (create or replace) the tenant's webmail account
+      description: >-
+        Upserts the mailbox config. Passwords are write-only: a present password
+        is sealed (envelope AEAD) and only the ciphertext is stored; an
+        absent/null password leaves the stored secret unchanged. A first-time
+        configure requires both the SMTP and IMAP password. Audited. Requires
+        the MailAccountManage feature.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigureMailAccountRequest'
+      responses:
+        '200':
+          description: The configured mailbox (write-only view).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailAccountView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/MailUnavailable'
+  /api/v1/mail/account/test:
+    post:
+      operationId: testMailAccountConnection
+      summary: Test the SMTP connection with the stored credentials
+      description: >-
+        Authenticates to the tenant's configured SMTP server using the stored
+        credentials and reports a structured result. Never leaks the secret; the
+        error_code is a stable, non-secret token. Requires the MailAccountManage
+        feature.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: The structured test-connection result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailTestConnectionResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/MailUnavailable'
+  /api/v1/mail/send:
+    post:
+      operationId: sendMail
+      summary: Compose and send a new message
+      description: >-
+        Sends a new outbound message through the tenant's SMTP server and
+        persists it as a direction=OUT message. The From is constrained to the
+        configured account address. Audited (email.send). Requires the MailUse
+        feature.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMailRequest'
+      responses:
+        '201':
+          description: The message was sent and persisted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendMailResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/MailUnavailable'
+  /api/v1/mail/reply:
+    post:
+      operationId: replyMail
+      summary: Reply to a message (sets In-Reply-To / References)
+      description: >-
+        Sends a reply through the tenant's SMTP server, stamping the In-Reply-To
+        and References threading headers, and persists it as direction=OUT.
+        Audited (email.reply). Requires the MailUse feature.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMailRequest'
+      responses:
+        '201':
+          description: The reply was sent and persisted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendMailResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/MailUnavailable'
+  /api/v1/mail/forward:
+    post:
+      operationId: forwardMail
+      summary: Forward a message (sets In-Reply-To / References)
+      description: >-
+        Forwards a message through the tenant's SMTP server, stamping the
+        In-Reply-To and References threading headers, and persists it as
+        direction=OUT. Audited (email.forward). Requires the MailUse feature.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMailRequest'
+      responses:
+        '201':
+          description: The forward was sent and persisted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendMailResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/MailUnavailable'
 components:
   securitySchemes:
     bearerAuth:
@@ -4204,6 +4382,15 @@ components:
             $ref: '#/components/schemas/ErrorBody'
     BadGateway:
       description: An upstream dependency (e.g. the email relay) failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    MailUnavailable:
+      description: >-
+        Webmail is not configured on this server (the master key
+        MNT_MAIL_MASTER_KEY is absent), or JWT verification is not configured.
+        The app is otherwise healthy.
       content:
         application/json:
           schema:
@@ -8978,3 +9165,212 @@ components:
           - 'null'
           maxLength: 2000
           description: Reviewer memo. Required when dismissing or escalating.
+    MailSecurity:
+      type: string
+      description: >-
+        Transport security. SSL_TLS is implicit TLS (port 993/465); START_TLS
+        upgrades a plaintext connection (port 143/587). There is no plaintext
+        option.
+      enum:
+      - SSL_TLS
+      - START_TLS
+    MailAddress:
+      type: object
+      required:
+      - address
+      properties:
+        address:
+          type: string
+          description: The bare mailbox, e.g. user@example.com.
+        name:
+          type:
+          - string
+          - 'null'
+          description: Optional display name.
+    MailAttachment:
+      type: object
+      required:
+      - filename
+      - content_type
+      - content_base64
+      properties:
+        filename:
+          type: string
+        content_type:
+          type: string
+        content_base64:
+          type: string
+          description: Standard-base64 encoded attachment bytes.
+    MailAccountView:
+      type: object
+      description: >-
+        The write-only view of a configured mailbox. It NEVER contains a
+        password; has_smtp_password / has_imap_password signal whether a
+        credential is on file.
+      required:
+      - id
+      - display_name
+      - email_address
+      - imap_host
+      - imap_port
+      - imap_security
+      - imap_username
+      - smtp_host
+      - smtp_port
+      - smtp_security
+      - smtp_username
+      - has_smtp_password
+      - has_imap_password
+      - status
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        display_name:
+          type: string
+        email_address:
+          type: string
+        from_name:
+          type:
+          - string
+          - 'null'
+        imap_host:
+          type: string
+        imap_port:
+          type: integer
+          format: int32
+        imap_security:
+          $ref: '#/components/schemas/MailSecurity'
+        imap_username:
+          type: string
+        smtp_host:
+          type: string
+        smtp_port:
+          type: integer
+          format: int32
+        smtp_security:
+          $ref: '#/components/schemas/MailSecurity'
+        smtp_username:
+          type: string
+        has_smtp_password:
+          type: boolean
+        has_imap_password:
+          type: boolean
+        status:
+          type: string
+    ConfigureMailAccountRequest:
+      type: object
+      description: >-
+        Configure (create or replace) the mailbox. A password field that is
+        absent or null leaves the stored secret unchanged; a present value is
+        re-sealed. A first-time configure requires both passwords.
+      required:
+      - display_name
+      - email_address
+      - imap_host
+      - imap_port
+      - imap_security
+      - imap_username
+      - smtp_host
+      - smtp_port
+      - smtp_security
+      - smtp_username
+      properties:
+        display_name:
+          type: string
+        email_address:
+          type: string
+        from_name:
+          type:
+          - string
+          - 'null'
+        imap_host:
+          type: string
+        imap_port:
+          type: integer
+          format: int32
+        imap_security:
+          $ref: '#/components/schemas/MailSecurity'
+        imap_username:
+          type: string
+        imap_password:
+          type:
+          - string
+          - 'null'
+          description: Write-only. Present = (re)seal; absent/null = keep the stored secret.
+        smtp_host:
+          type: string
+        smtp_port:
+          type: integer
+          format: int32
+        smtp_security:
+          $ref: '#/components/schemas/MailSecurity'
+        smtp_username:
+          type: string
+        smtp_password:
+          type:
+          - string
+          - 'null'
+          description: Write-only. Present = (re)seal; absent/null = keep the stored secret.
+    MailTestConnectionResult:
+      type: object
+      required:
+      - ok
+      properties:
+        ok:
+          type: boolean
+        error_code:
+          type:
+          - string
+          - 'null'
+          description: A stable, non-secret token when the connection failed.
+    SendMailRequest:
+      type: object
+      description: >-
+        Compose a message. For reply/forward, in_reply_to is required and
+        references carries the accumulated chain. The From is constrained to the
+        configured account address (it cannot be set here).
+      required:
+      - to
+      - subject
+      - body_text
+      properties:
+        to:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailAddress'
+        cc:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailAddress'
+        bcc:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailAddress'
+        subject:
+          type: string
+        body_text:
+          type: string
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailAttachment'
+        in_reply_to:
+          type:
+          - string
+          - 'null'
+          description: Required for reply/forward — the Message-ID being responded to.
+        references:
+          type: array
+          items:
+            type: string
+    SendMailResult:
+      type: object
+      required:
+      - message_id
+      - rfc_message_id
+      properties:
+        message_id:
+          $ref: '#/components/schemas/Uuid'
+        rfc_message_id:
+          type: string
+          description: The RFC 5322 Message-ID stamped on the sent message.
