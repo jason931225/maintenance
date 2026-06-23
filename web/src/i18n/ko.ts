@@ -79,6 +79,7 @@ export const ko = {
     loading: "불러오는 중",
     loadFailed: "데이터를 불러오지 못했습니다.",
     empty: "표시할 내용이 없습니다.",
+    dismiss: "알림 닫기",
   },
   app: {
     title: "정비 콘솔",

@@ -8,10 +8,13 @@ import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { PageEmpty } from "../components/states/PageEmpty";
 import { PageError } from "../components/states/PageError";
+import { SkeletonTable } from "../components/states/Skeleton";
+import { FeedbackBanner } from "../components/states/FeedbackBanner";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
+import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../lib/useAutoDismiss";
 
 type ReadState = "idle" | "loading" | "error";
 
@@ -27,23 +30,42 @@ export function OrgPage() {
 
   const [regions, setRegions] = useState<RegionSummary[]>([]);
   const [branches, setBranches] = useState<BranchSummary[]>([]);
-  const [state, setState] = useState<ReadState>("loading");
+  // Each sub-resource owns its own read state so one failed fetch shows an error
+  // only inside its panel — the other panel keeps rendering its data instead of
+  // the whole page blanking out.
+  const [regionsState, setRegionsState] = useState<ReadState>("loading");
+  const [branchesState, setBranchesState] = useState<ReadState>("loading");
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
+  const clearFeedback = useCallback(() => {
+    setFeedback(undefined);
+  }, []);
+  useAutoDismiss(feedback, clearFeedback, SUCCESS_DISMISS_MS);
 
-  const load = useCallback(async () => {
-    setState("loading");
-    const [regionsRes, branchesRes] = await Promise.all([
-      api.GET("/api/v1/regions").catch(() => undefined),
-      api.GET("/api/v1/branches").catch(() => undefined),
-    ]);
-    if (!regionsRes?.data || !branchesRes?.data) {
-      setState("error");
+  const loadRegions = useCallback(async () => {
+    setRegionsState("loading");
+    const res = await api.GET("/api/v1/regions").catch(() => undefined);
+    if (!res?.data) {
+      setRegionsState("error");
       return;
     }
-    setRegions(regionsRes.data);
-    setBranches(branchesRes.data);
-    setState("idle");
+    setRegions(res.data);
+    setRegionsState("idle");
   }, [api]);
+
+  const loadBranches = useCallback(async () => {
+    setBranchesState("loading");
+    const res = await api.GET("/api/v1/branches").catch(() => undefined);
+    if (!res?.data) {
+      setBranchesState("error");
+      return;
+    }
+    setBranches(res.data);
+    setBranchesState("idle");
+  }, [api]);
+
+  const load = useCallback(async () => {
+    await Promise.all([loadRegions(), loadBranches()]);
+  }, [loadRegions, loadBranches]);
 
   useEffect(() => {
     void Promise.resolve().then(load);
@@ -133,55 +155,51 @@ export function OrgPage() {
             onClick={() => {
               void load();
             }}
-            isLoading={state === "loading"}
+            isLoading={
+              regionsState === "loading" || branchesState === "loading"
+            }
           />
         }
       />
 
-      {feedback ? (
-        <p
-          role="status"
-          aria-live="polite"
-          className="mb-4 rounded-md border border-brand-teal/30 bg-brand-teal/10 px-4 py-2 text-sm font-medium text-brand-teal"
-        >
-          {feedback}
-        </p>
-      ) : null}
+      <FeedbackBanner
+        kind="success"
+        message={feedback}
+        onDismiss={clearFeedback}
+        className="mb-4"
+      />
 
-      {state === "error" ? (
-        <PageError
-          message={ko.org.loadFailed}
+      <div className="grid gap-5 lg:grid-cols-2">
+        <RegionsPanel
+          regions={regions}
+          branches={branches}
+          state={regionsState}
           onRetry={() => {
-            void load();
+            void loadRegions();
+          }}
+          onCreate={createRegion}
+          onUpdate={updateRegion}
+          onDelete={deleteRegion}
+          onChanged={() => {
+            setFeedback(undefined);
           }}
         />
-      ) : (
-        <div className="grid gap-5 lg:grid-cols-2">
-          <RegionsPanel
-            regions={regions}
-            branches={branches}
-            isLoading={state === "loading"}
-            onCreate={createRegion}
-            onUpdate={updateRegion}
-            onDelete={deleteRegion}
-            onChanged={() => {
-              setFeedback(undefined);
-            }}
-          />
-          <BranchesPanel
-            regions={regions}
-            branches={branches}
-            isLoading={state === "loading"}
-            regionName={regionName}
-            onCreate={createBranch}
-            onUpdate={updateBranch}
-            onDelete={deleteBranch}
-            onChanged={() => {
-              setFeedback(undefined);
-            }}
-          />
-        </div>
-      )}
+        <BranchesPanel
+          regions={regions}
+          branches={branches}
+          state={branchesState}
+          onRetry={() => {
+            void loadBranches();
+          }}
+          regionName={regionName}
+          onCreate={createBranch}
+          onUpdate={updateBranch}
+          onDelete={deleteBranch}
+          onChanged={() => {
+            setFeedback(undefined);
+          }}
+        />
+      </div>
     </>
   );
 }
@@ -189,7 +207,8 @@ export function OrgPage() {
 function RegionsPanel({
   regions,
   branches,
-  isLoading,
+  state,
+  onRetry,
   onCreate,
   onUpdate,
   onDelete,
@@ -197,7 +216,8 @@ function RegionsPanel({
 }: {
   regions: RegionSummary[];
   branches: BranchSummary[];
-  isLoading: boolean;
+  state: ReadState;
+  onRetry: () => void;
   onCreate: (name: string) => Promise<void>;
   onUpdate: (id: string, name: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -291,10 +311,10 @@ function RegionsPanel({
         ) : null}
       </div>
 
-      {isLoading ? (
-        <p role="status" className="text-sm font-medium text-steel">
-          {ko.common.loading}
-        </p>
+      {state === "loading" && regions.length === 0 ? (
+        <SkeletonTable rows={3} cols={2} />
+      ) : state === "error" ? (
+        <PageError message={ko.org.loadFailed} onRetry={onRetry} />
       ) : regions.length === 0 ? (
         <PageEmpty message={ko.org.regions.empty} />
       ) : (
@@ -448,7 +468,8 @@ function RegionEditRow({
 function BranchesPanel({
   regions,
   branches,
-  isLoading,
+  state,
+  onRetry,
   regionName,
   onCreate,
   onUpdate,
@@ -457,7 +478,8 @@ function BranchesPanel({
 }: {
   regions: RegionSummary[];
   branches: BranchSummary[];
-  isLoading: boolean;
+  state: ReadState;
+  onRetry: () => void;
   regionName: (id: string) => string;
   onCreate: (name: string, regionId: string) => Promise<void>;
   onUpdate: (id: string, name: string, regionId: string) => Promise<void>;
@@ -576,10 +598,10 @@ function BranchesPanel({
         ) : null}
       </div>
 
-      {isLoading ? (
-        <p role="status" className="text-sm font-medium text-steel">
-          {ko.common.loading}
-        </p>
+      {state === "loading" && branches.length === 0 ? (
+        <SkeletonTable rows={3} cols={2} />
+      ) : state === "error" ? (
+        <PageError message={ko.org.loadFailed} onRetry={onRetry} />
       ) : branches.length === 0 ? (
         <PageEmpty message={ko.org.branches.empty} />
       ) : (

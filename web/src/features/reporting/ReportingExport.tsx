@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Download } from "lucide-react";
 
 import { useAuth } from "../../context/auth";
@@ -8,6 +8,7 @@ import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { PageError } from "../../components/states/PageError";
 import { ko } from "../../i18n/ko";
+import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../../lib/useAutoDismiss";
 import { todayInSeoul } from "../../lib/utils";
 
 /** The reporting export endpoints, keyed by the report the user selects. */
@@ -72,6 +73,10 @@ export function ReportingExport() {
   const [date, setDate] = useState(todayIso);
   const [state, setState] = useState<DownloadState>("idle");
   const [doneLabel, setDoneLabel] = useState<string | undefined>(undefined);
+  const clearDone = useCallback(() => {
+    setDoneLabel(undefined);
+  }, []);
+  useAutoDismiss(doneLabel, clearDone, SUCCESS_DISMISS_MS);
 
   async function download(): Promise<void> {
     setState("loading");

@@ -1,10 +1,14 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import type { components } from "@maintenance/api-client-ts";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { ko } from "../../i18n/ko";
 import type { WorkOrderListItem } from "../../api/types";
+import {
+  SUCCESS_DISMISS_MS,
+  useAutoDismiss,
+} from "../../lib/useAutoDismiss";
 import { EvidenceUpload } from "./EvidenceUpload";
 
 type WorkResultType = components["schemas"]["WorkResultType"];
@@ -62,6 +66,18 @@ export function WorkOrderActions({
     diagnosis?: string;
     actionTaken?: string;
   }>({});
+
+  // Success confirmations are transient: clear the per-order "started" and the
+  // panel-level "report submitted" banners after a short window so they do not
+  // linger forever (the never-auto-dismissing `<p role="status">` defect).
+  const clearStartDone = useCallback(() => {
+    setStartDone(null);
+  }, []);
+  const clearReportDone = useCallback(() => {
+    setReportDone(null);
+  }, []);
+  useAutoDismiss(startDone, clearStartDone, SUCCESS_DISMISS_MS);
+  useAutoDismiss(reportDone, clearReportDone, SUCCESS_DISMISS_MS);
 
   // Filter to orders the mechanic can act on:
   // - ASSIGNED: can start work

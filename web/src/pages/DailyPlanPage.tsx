@@ -18,6 +18,7 @@ import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { Textarea } from "../components/ui/textarea";
 import { ko } from "../i18n/ko";
+import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../lib/useAutoDismiss";
 import { todayInSeoul } from "../lib/utils";
 
 /** DailyPlanRequest holders (backend matrix: MECHANIC/ADMIN/SUPER_ADMIN). */
@@ -56,6 +57,10 @@ export function DailyPlanPage() {
   const [writeState, setWriteState] = useState<WriteState>("idle");
   const [errorKey, setErrorKey] = useState<string>();
   const [notice, setNotice] = useState<string>();
+  const clearNotice = useCallback(() => {
+    setNotice(undefined);
+  }, []);
+  useAutoDismiss(notice, clearNotice, SUCCESS_DISMISS_MS);
 
   const loadMechanics = useCallback(async () => {
     // Managers/reviewers can read the branch roster to plan for any mechanic.

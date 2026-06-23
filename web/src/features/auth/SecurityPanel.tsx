@@ -4,6 +4,7 @@ import type { PasskeySummary } from "../../api/types";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { PageError } from "../../components/states/PageError";
+import { SkeletonCards } from "../../components/states/Skeleton";
 import { useAuth } from "../../context/auth";
 import { ko } from "../../i18n/ko";
 import { EnrollHandoffQr } from "./EnrollHandoffQr";
@@ -120,9 +121,7 @@ export function SecurityPanel() {
           }}
         />
       ) : state === "loading" ? (
-        <p role="status" className="text-sm font-medium text-steel">
-          {ko.security.loading}
-        </p>
+        <SkeletonCards count={2} lines={1} />
       ) : (
         <div className="grid gap-3">
           <h3 className="text-sm font-medium text-steel">

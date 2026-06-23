@@ -5,6 +5,7 @@ import { useAuth } from "../context/auth";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { PageError } from "../components/states/PageError";
+import { SkeletonCards } from "../components/states/Skeleton";
 import { Card } from "../components/ui/card";
 import { ko } from "../i18n/ko";
 
@@ -56,7 +57,9 @@ export function OpsDashboardPage() {
         ) : null}
         {summary ? (
           <OpsContent summary={summary} />
-        ) : readState === "loading" ? null : (
+        ) : readState === "loading" ? (
+          <SkeletonCards count={2} lines={3} />
+        ) : (
           <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
             {ko.ops.empty}
           </p>
@@ -95,7 +98,9 @@ function ArrivalEventsCard() {
       <h2 className="mb-3 text-sm font-semibold text-steel">
         {ko.ops.arrivals.title}
       </h2>
-      {state === "loading" ? null : state === "error" ? (
+      {state === "loading" ? (
+        <SkeletonCards count={3} lines={1} />
+      ) : state === "error" ? (
         <p className="rounded-md border border-dashed border-red-300 p-3 text-sm text-red-700">
           {ko.ops.arrivals.error}
         </p>

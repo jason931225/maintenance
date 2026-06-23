@@ -6,11 +6,14 @@ import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { PageError } from "../components/states/PageError";
+import { SkeletonCards } from "../components/states/Skeleton";
+import { FeedbackBanner } from "../components/states/FeedbackBanner";
 import { PageHeader } from "../components/shell/PageHeader";
 import { SecurityPanel } from "../features/auth/SecurityPanel";
 import { useAuth } from "../context/auth";
 import { roleLabel, teamLabel } from "../features/org/org-format";
 import { ko } from "../i18n/ko";
+import { useFeedback } from "../lib/useAutoDismiss";
 
 type ReadState = "idle" | "loading" | "error";
 
@@ -22,8 +25,8 @@ export function ProfilePage() {
   const [displayName, setDisplayName] = useState("");
   const [phone, setPhone] = useState("");
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | undefined>(undefined);
-  const [feedback, setFeedback] = useState<string | undefined>(undefined);
+  const { feedback, error, showFeedback, showError, clearFeedback, clearError } =
+    useFeedback();
 
   const load = useCallback(async () => {
     setState("loading");
@@ -43,10 +46,9 @@ export function ProfilePage() {
   }, [load]);
 
   async function handleSave() {
-    setError(undefined);
-    setFeedback(undefined);
+    clearFeedback();
     if (!displayName.trim()) {
-      setError(ko.profile.requiredDisplayName);
+      showError(ko.profile.requiredDisplayName);
       return;
     }
     setPending(true);
@@ -59,9 +61,9 @@ export function ProfilePage() {
       });
       if (!response.data) throw new Error("updateCurrentUser failed");
       setProfile(response.data);
-      setFeedback(ko.profile.saved);
+      showFeedback(ko.profile.saved);
     } catch {
-      setError(ko.profile.saveFailed);
+      showError(ko.profile.saveFailed);
     } finally {
       setPending(false);
     }
@@ -80,11 +82,7 @@ export function ProfilePage() {
             }}
           />
         ) : state === "loading" ? (
-          <Card>
-            <p role="status" className="text-sm font-medium text-steel">
-              {ko.common.loading}
-            </p>
-          </Card>
+          <SkeletonCards count={1} lines={4} />
         ) : (
           <Card className="grid gap-4">
             <div className="grid gap-2">
@@ -146,20 +144,12 @@ export function ProfilePage() {
               </div>
             ) : null}
 
-            {error ? (
-              <p role="alert" className="text-sm font-medium text-red-700">
-                {error}
-              </p>
-            ) : null}
-            {feedback ? (
-              <p
-                role="status"
-                aria-live="polite"
-                className="rounded-md border border-brand-teal/30 bg-brand-teal/10 px-4 py-2 text-sm font-medium text-brand-teal"
-              >
-                {feedback}
-              </p>
-            ) : null}
+            <FeedbackBanner kind="error" message={error} onDismiss={clearError} />
+            <FeedbackBanner
+              kind="success"
+              message={feedback}
+              onDismiss={clearFeedback}
+            />
 
             <Button
               type="button"

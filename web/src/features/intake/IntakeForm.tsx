@@ -1,6 +1,6 @@
 import { Save } from "lucide-react";
 import type { SyntheticEvent } from "react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import type {
   CreateWorkOrderRequest,
@@ -14,6 +14,7 @@ import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { ko } from "../../i18n/ko";
+import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../../lib/useAutoDismiss";
 import { todayInSeoul } from "../../lib/utils";
 
 /**
@@ -78,6 +79,28 @@ export function IntakeForm({
     "idle" | "saving" | "created" | "error"
   >("idle");
 
+  // The "created" confirmation is transient: drop it back to idle after a short
+  // window so the banner does not linger forever on the now-empty form.
+  const clearCreated = useCallback(() => {
+    setStatus("idle");
+  }, []);
+  useAutoDismiss(
+    status === "created" ? status : undefined,
+    clearCreated,
+    SUCCESS_DISMISS_MS,
+  );
+
+  function resetForm() {
+    setManagementNo("");
+    setRequestedOn(todayInSeoul());
+    setSymptom("");
+    setContactPhone("");
+    setCustomerRequest("");
+    setServiceCategory("");
+    setTargetDueAt("");
+    setErrors({});
+  }
+
   async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextErrors: Errors = {};
@@ -127,6 +150,7 @@ export function IntakeForm({
           : undefined,
       });
       setStatus("created");
+      resetForm();
       onCreated?.(created);
     } catch {
       setStatus("error");

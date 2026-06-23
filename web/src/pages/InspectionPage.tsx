@@ -12,6 +12,7 @@ import type {
 } from "../api/types";
 import { useAuth } from "../context/auth";
 import { PageError } from "../components/states/PageError";
+import { SkeletonCards } from "../components/states/Skeleton";
 import { PageHeader } from "../components/shell/PageHeader";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -25,6 +26,7 @@ import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { Textarea } from "../components/ui/textarea";
 import { ko } from "../i18n/ko";
+import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../lib/useAutoDismiss";
 import { safeLabel, todayInSeoul } from "../lib/utils";
 
 const ROUND_OUTCOMES: InspectionRoundOutcome[] = [
@@ -96,6 +98,15 @@ export function InspectionPage() {
   // notice. There is one open round form at a time so the list stays compact.
   const [completingId, setCompletingId] = useState<string>();
   const [roundNotice, setRoundNotice] = useState<string>();
+  // Transient success confirmations clear themselves so they do not linger.
+  const clearRoundNotice = useCallback(() => {
+    setRoundNotice(undefined);
+  }, []);
+  useAutoDismiss(roundNotice, clearRoundNotice, SUCCESS_DISMISS_MS);
+  const clearNotice = useCallback(() => {
+    setNotice(undefined);
+  }, []);
+  useAutoDismiss(notice, clearNotice, SUCCESS_DISMISS_MS);
 
   const load = useCallback(async () => {
     setLoadError(false);
@@ -291,11 +302,21 @@ export function InspectionPage() {
             </Button>
           </div>
 
-          {loadError ? <PageError message={ko.inspection.loadFailed} /> : null}
+          {loadError ? (
+            <PageError
+              message={ko.inspection.loadFailed}
+              onRetry={() => {
+                void load();
+              }}
+            />
+          ) : null}
           {roundNotice ? (
             <p role="status" className="text-sm font-medium text-brand-teal">
               {roundNotice}
             </p>
+          ) : null}
+          {!loadError && schedules === undefined ? (
+            <SkeletonCards count={3} lines={2} />
           ) : null}
           {schedules && schedules.length === 0 ? (
             <p className="rounded-md border border-dashed border-line bg-muted-panel p-3 text-sm text-steel">

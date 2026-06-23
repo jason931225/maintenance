@@ -17,8 +17,8 @@ import { useAuth } from "../context/auth";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { PageError } from "../components/states/PageError";
-import { PageSpinner } from "../components/states/PageSpinner";
 import { PageEmpty } from "../components/states/PageEmpty";
+import { SkeletonTable } from "../components/states/Skeleton";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
@@ -550,7 +550,11 @@ function ListingsTab({
         </Button>
       </header>
 
-      {state === "loading" ? <PageSpinner /> : null}
+      {state === "loading" && listings.length === 0 ? (
+        <div className="p-4">
+          <SkeletonTable rows={5} cols={5} />
+        </div>
+      ) : null}
       {state === "error" ? (
         <div className="p-4">
           <PageError message={ko.catalog.listings.error} onRetry={onRetry} />
@@ -751,7 +755,11 @@ function InquiriesTab({
         </div>
       ) : null}
 
-      {state === "loading" ? <PageSpinner /> : null}
+      {state === "loading" && inquiries.length === 0 ? (
+        <div className="p-4">
+          <SkeletonTable rows={5} cols={4} />
+        </div>
+      ) : null}
       {state === "error" ? (
         <div className="p-4">
           <PageError message={ko.catalog.inquiries.error} onRetry={onRetry} />

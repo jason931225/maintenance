@@ -3,6 +3,7 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { PageEmpty } from "../../components/states/PageEmpty";
+import { SkeletonTable } from "../../components/states/Skeleton";
 import { ko } from "../../i18n/ko";
 import { orgStatusBadgeClass, orgStatusLabel } from "./org-status";
 
@@ -26,14 +27,10 @@ export function TenantTable({
   onRemove: (org: PlatformOrg) => void;
   onViewAs: (org: PlatformOrg) => void;
 }) {
-  if (isLoading) {
-    return (
-      <Card>
-        <p role="status" className="text-sm font-medium text-steel">
-          {ko.common.loading}
-        </p>
-      </Card>
-    );
+  // Keep existing rows visible on a refetch (stale-while-revalidate); only the
+  // first load (no rows yet) shows the skeleton.
+  if (isLoading && orgs.length === 0) {
+    return <SkeletonTable rows={4} cols={5} />;
   }
 
   if (orgs.length === 0) {

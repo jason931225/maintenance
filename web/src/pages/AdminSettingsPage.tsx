@@ -8,6 +8,7 @@ import { Card } from "../components/ui/card";
 import { Combobox, type ComboboxOption } from "../components/ui/combobox";
 import { useActiveBranchId, useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
+import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../lib/useAutoDismiss";
 import { issueAdminOtp } from "../auth/webauthn";
 
 interface IssuedOtp {
@@ -26,6 +27,11 @@ export function AdminSettingsPage() {
   const [issued, setIssued] = useState<IssuedOtp | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
   const [copied, setCopied] = useState(false);
+  // The "copied" confirmation reverts to the default copy label after a moment.
+  const clearCopied = useCallback(() => {
+    setCopied(false);
+  }, []);
+  useAutoDismiss(copied ? "copied" : undefined, clearCopied, SUCCESS_DISMISS_MS);
 
   // Load the user + branch option sources so the admin picks by human name
   // rather than transcribing a UUID.

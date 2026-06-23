@@ -13,6 +13,7 @@ import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { ko } from "../../i18n/ko";
+import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../../lib/useAutoDismiss";
 
 const t = ko.dispatchMap.manage;
 const f = ko.dispatchMap.fields;
@@ -85,6 +86,16 @@ export function SiteGeographyPanel({ api }: SiteGeographyPanelProps) {
   const [notice, setNotice] = useState<string>();
   const [pairError, setPairError] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
+  // Self-dismiss the success notice; a failure (writeState === "error") keeps
+  // its message until the next action so it is not missed.
+  const clearNotice = useCallback(() => {
+    setNotice(undefined);
+  }, []);
+  useAutoDismiss(
+    writeState === "error" ? undefined : notice,
+    clearNotice,
+    SUCCESS_DISMISS_MS,
+  );
 
   const loadSites = useCallback(
     async (signal?: AbortSignal) => {

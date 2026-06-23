@@ -22,6 +22,8 @@ import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { PageEmpty } from "../components/states/PageEmpty";
 import { PageError } from "../components/states/PageError";
+import { SkeletonTable } from "../components/states/Skeleton";
+import { FeedbackBanner } from "../components/states/FeedbackBanner";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { useAuth } from "../context/auth";
@@ -33,6 +35,10 @@ import {
 } from "../features/org/org-format";
 import { issueAdminOtp, resetUserCredentials } from "../auth/webauthn";
 import { ko } from "../i18n/ko";
+import {
+  SUCCESS_DISMISS_MS,
+  useAutoDismiss,
+} from "../lib/useAutoDismiss";
 import { safeLabel } from "../lib/utils";
 
 type ReadState = "idle" | "loading" | "error";
@@ -62,6 +68,10 @@ export function UsersPage() {
     undefined,
   );
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
+  const clearFeedback = useCallback(() => {
+    setFeedback(undefined);
+  }, []);
+  useAutoDismiss(feedback, clearFeedback, SUCCESS_DISMISS_MS);
   // Track the most-recently created user so we can nudge the admin to issue OTP.
   const [newUserId, setNewUserId] = useState<string | undefined>(undefined);
 
@@ -174,15 +184,12 @@ export function UsersPage() {
         }
       />
 
-      {feedback ? (
-        <p
-          role="status"
-          aria-live="polite"
-          className="mb-4 rounded-md border border-brand-teal/30 bg-brand-teal/10 px-4 py-2 text-sm font-medium text-brand-teal"
-        >
-          {feedback}
-        </p>
-      ) : null}
+      <FeedbackBanner
+        kind="success"
+        message={feedback}
+        onDismiss={clearFeedback}
+        className="mb-4"
+      />
 
       {newUserId ? (
         <p
@@ -302,14 +309,10 @@ function UserTable({
   onIssueOtp: (user: UserSummary) => void;
   onResetCredentials: (user: UserSummary) => void;
 }) {
-  if (isLoading) {
-    return (
-      <Card>
-        <p role="status" className="text-sm font-medium text-steel">
-          {ko.common.loading}
-        </p>
-      </Card>
-    );
+  // Only show the skeleton on the first load; a refetch keeps the existing rows
+  // visible (stale-while-revalidate) instead of flashing back to placeholders.
+  if (isLoading && users.length === 0) {
+    return <SkeletonTable rows={5} cols={7} />;
   }
 
   if (users.length === 0) {
@@ -816,6 +819,11 @@ function IssueOtpDialog({
   const [issued, setIssued] = useState<IssuedOtp | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
   const [copied, setCopied] = useState(false);
+  // The "copied" confirmation reverts to the default copy label after a moment.
+  const clearCopied = useCallback(() => {
+    setCopied(false);
+  }, []);
+  useAutoDismiss(copied ? "copied" : undefined, clearCopied, SUCCESS_DISMISS_MS);
 
   async function handleIssue() {
     if (!branchId) return;
@@ -945,6 +953,11 @@ function ResetCredentialsDialog({
   const [issued, setIssued] = useState<IssuedOtp | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
   const [copied, setCopied] = useState(false);
+  // The "copied" confirmation reverts to the default copy label after a moment.
+  const clearCopied = useCallback(() => {
+    setCopied(false);
+  }, []);
+  useAutoDismiss(copied ? "copied" : undefined, clearCopied, SUCCESS_DISMISS_MS);
 
   async function handleReset() {
     if (!window.confirm(ko.users.reset.confirm)) return;

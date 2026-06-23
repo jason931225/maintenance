@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import type { ConsoleApiClient } from "../../api/client";
 import type {
@@ -10,6 +10,7 @@ import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { ko } from "../../i18n/ko";
+import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../../lib/useAutoDismiss";
 import { DEFAULT_FINANCIAL_CONFIG, formatWon, RENTAL_QUOTE_ROLES } from "./config";
 import { EquipmentSelector } from "./EquipmentSelector";
 import type { SelectedEquipment } from "./EquipmentSelector";
@@ -38,6 +39,10 @@ export function RentalQuotePanel({ api, roles }: RentalQuotePanelProps) {
   const [equipment, setEquipment] = useState<SelectedEquipment>();
   const [writeState, setWriteState] = useState<WriteState>("idle");
   const [notice, setNotice] = useState<string>();
+  const clearNotice = useCallback(() => {
+    setNotice(undefined);
+  }, []);
+  useAutoDismiss(notice, clearNotice, SUCCESS_DISMISS_MS);
 
   const [lookupId, setLookupId] = useState("");
   const [lookupError, setLookupError] = useState(false);

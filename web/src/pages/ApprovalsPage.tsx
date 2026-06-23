@@ -10,6 +10,7 @@ import { Badge } from "../components/ui/badge";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { PageError } from "../components/states/PageError";
+import { SkeletonCards } from "../components/states/Skeleton";
 import { ApprovalQueue } from "../features/approvals/ApprovalQueue";
 import { TargetChangeReviewQueue } from "../features/approvals/TargetChangeReviewQueue";
 import { ko } from "../i18n/ko";
@@ -125,13 +126,21 @@ export function ApprovalsPage() {
         }
       />
       <div className="grid gap-5">
-        {readState === "error" ? <PageError onRetry={() => { void loadData(); }} /> : null}
         {writeState === "error" ? <PageError message={ko.common.writeFailed} /> : null}
-        <ApprovalQueue
-          workOrders={workOrders}
-          onApprove={approveWorkOrder}
-          onReject={rejectWorkOrder}
-        />
+        {/* First load shows a skeleton so the empty-queue copy is never mistaken
+            for "nothing to approve" while the fetch is still in flight. A
+            refetch keeps the current queue visible (stale-while-revalidate). */}
+        {readState === "loading" && workOrders.length === 0 ? (
+          <SkeletonCards count={3} lines={2} />
+        ) : readState === "error" ? (
+          <PageError onRetry={() => { void loadData(); }} />
+        ) : (
+          <ApprovalQueue
+            workOrders={workOrders}
+            onApprove={approveWorkOrder}
+            onReject={rejectWorkOrder}
+          />
+        )}
         <TargetChangeReviewQueue onReview={reviewTargetChange} />
       </div>
     </>

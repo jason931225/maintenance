@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getPlatformOps } from "../../api/platform";
 import type { PlatformTenantHealth } from "../../api/platform";
 import { PageError } from "../../components/states/PageError";
+import { SkeletonTable } from "../../components/states/Skeleton";
 import { PageHeader } from "../../components/shell/PageHeader";
 import { RefreshButton } from "../../components/shell/RefreshButton";
 import { Badge } from "../../components/ui/badge";
@@ -74,7 +75,9 @@ export function PlatformOpsPage() {
         ) : null}
         {tenants.length > 0 ? (
           <TenantHealthTable tenants={tenants} />
-        ) : readState === "loading" ? null : (
+        ) : readState === "loading" ? (
+          <SkeletonTable rows={4} cols={5} />
+        ) : (
           <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
             {ko.platform.ops.empty}
           </p>

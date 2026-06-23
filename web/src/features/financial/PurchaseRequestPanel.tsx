@@ -1,6 +1,6 @@
 import { Plus } from "lucide-react";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import type { ConsoleApiClient } from "../../api/client";
 import type {
@@ -15,6 +15,7 @@ import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import { ko } from "../../i18n/ko";
+import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../../lib/useAutoDismiss";
 import {
   DEFAULT_FINANCIAL_CONFIG,
   formatWon,
@@ -70,6 +71,10 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
   const [form, setForm] = useState<CreateForm>(emptyCreateForm);
   const [writeState, setWriteState] = useState<WriteState>("idle");
   const [notice, setNotice] = useState<string>();
+  const clearNotice = useCallback(() => {
+    setNotice(undefined);
+  }, []);
+  useAutoDismiss(notice, clearNotice, SUCCESS_DISMISS_MS);
 
   const [lookupId, setLookupId] = useState("");
   const [lookupError, setLookupError] = useState(false);

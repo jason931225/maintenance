@@ -10,6 +10,7 @@ import type {
   SiteLocationGroup,
 } from "../api/types";
 import { PageError } from "../components/states/PageError";
+import { SkeletonCards } from "../components/states/Skeleton";
 import { PageHeader } from "../components/shell/PageHeader";
 import { hasAnyRole, ROLES } from "../components/shell/nav";
 import { Button } from "../components/ui/button";
@@ -100,6 +101,10 @@ export function DispatchMapPage() {
   return (
     <>
       <PageHeader title={t.title} description={t.description} />
+
+      {loadState === "loading" ? (
+        <SkeletonCards count={2} lines={3} />
+      ) : null}
 
       {loadState === "error" ? (
         <PageError

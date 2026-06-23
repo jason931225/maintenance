@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import type { ConsoleApiClient } from "../../api/client";
 import type {
@@ -13,6 +13,7 @@ import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import { ko } from "../../i18n/ko";
 import { formatKoreanDateTime } from "../../lib/datetime";
+import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../../lib/useAutoDismiss";
 import {
   COST_LEDGER_READ_ROLES,
   COST_LEDGER_WRITE_ROLES,
@@ -41,6 +42,10 @@ export function CostLedgerPanel({ api, roles }: CostLedgerPanelProps) {
   const [manualSubmitting, setManualSubmitting] = useState(false);
   const [manualNotice, setManualNotice] = useState<string>();
   const [manualError, setManualError] = useState<string>();
+  const clearManualNotice = useCallback(() => {
+    setManualNotice(undefined);
+  }, []);
+  useAutoDismiss(manualNotice, clearManualNotice, SUCCESS_DISMISS_MS);
 
   async function loadLedger() {
     if (!equipment) return;

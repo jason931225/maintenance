@@ -6,7 +6,9 @@ import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
+import { FeedbackBanner } from "../../components/states/FeedbackBanner";
 import { ko } from "../../i18n/ko";
+import { useFeedback } from "../../lib/useAutoDismiss";
 import { priorityLabel } from "../../lib/utils";
 
 type PriorityLevel = WorkOrderListItem["priority"];
@@ -89,35 +91,30 @@ export function WorkOrderDispatchControls({
   const [outsourceReason, setOutsourceReason] = useState("");
   const [creatingOutsource, setCreatingOutsource] = useState(false);
 
-  const [feedback, setFeedback] = useState<string | undefined>(undefined);
-  const [error, setError] = useState<string | undefined>(undefined);
-
-  function reset(message: string) {
-    setError(undefined);
-    setFeedback(message);
-  }
+  const { feedback, error, showFeedback, showError, clearFeedback, clearError } =
+    useFeedback();
 
   async function handlePriority() {
     const ok = await onSetPriority(workOrder.id, priority);
-    if (ok) reset(t.priorityUpdated);
-    else setError(t.actionFailed);
+    if (ok) showFeedback(t.priorityUpdated);
+    else showError(t.actionFailed);
   }
 
   async function handleSchedule() {
-    setFeedback(undefined);
+    clearFeedback();
     if (!scheduleAt || !scheduleReason.trim()) {
-      setError(t.actionFailed);
+      showError(t.actionFailed);
       return;
     }
     // datetime-local yields `YYYY-MM-DDTHH:mm`; send an RFC3339 instant.
     const iso = new Date(scheduleAt).toISOString();
     const ok = await onRequestSchedule(workOrder.id, iso, scheduleReason.trim());
     if (ok) {
-      reset(t.scheduleRequested);
+      showFeedback(t.scheduleRequested);
       setScheduleAt("");
       setScheduleReason("");
     } else {
-      setError(t.actionFailed);
+      showError(t.actionFailed);
     }
   }
 
@@ -141,52 +138,52 @@ export function WorkOrderDispatchControls({
   }
 
   async function handleAssign() {
-    setFeedback(undefined);
+    clearFeedback();
     const assignments: MechanicAssignmentInput[] = Object.entries(selected).map(
       ([mechanic_id, role]) => ({ mechanic_id, role }),
     );
     const hasPrimary = assignments.some((a) => a.role === "PRIMARY");
     if (!hasPrimary) {
-      setError(t.selectPrimary);
+      showError(t.selectPrimary);
       return;
     }
     const ok = await onAssign(workOrder.id, assignments);
     if (ok) {
-      reset(t.assigned);
+      showFeedback(t.assigned);
       setSelected({});
     } else {
-      setError(t.actionFailed);
+      showError(t.actionFailed);
     }
   }
 
   async function handleForceAssign() {
     if (!forceAssignDispatchId || !forceMechanicId) return;
     setForcePending(true);
-    setFeedback(undefined);
+    clearFeedback();
     const ok = await onForceAssign(forceAssignDispatchId, forceMechanicId);
     setForcePending(false);
     setConfirmingForce(false);
     if (ok) {
-      reset(t.forceAssigned);
+      showFeedback(t.forceAssigned);
       setForceMechanicId("");
     } else {
-      setError(t.actionFailed);
+      showError(t.actionFailed);
     }
   }
 
   async function handleStartP1() {
     setStartingP1(true);
-    setFeedback(undefined);
+    clearFeedback();
     const ok = await onStartP1Dispatch(workOrder.id);
     setStartingP1(false);
-    if (ok) reset(t.startP1Done);
-    else setError(t.actionFailed);
+    if (ok) showFeedback(t.startP1Done);
+    else showError(t.actionFailed);
   }
 
   async function handleCreateOutsource() {
-    setFeedback(undefined);
+    clearFeedback();
     if (!outsourceVendor.trim() || !outsourceReason.trim()) {
-      setError(t.actionFailed);
+      showError(t.actionFailed);
       return;
     }
     setCreatingOutsource(true);
@@ -198,12 +195,12 @@ export function WorkOrderDispatchControls({
     );
     setCreatingOutsource(false);
     if (ok) {
-      reset(t.outsourceDone);
+      showFeedback(t.outsourceDone);
       setOutsourceVendor("");
       setOutsourceContact("");
       setOutsourceReason("");
     } else {
-      setError(t.actionFailed);
+      showError(t.actionFailed);
     }
   }
 
@@ -221,16 +218,13 @@ export function WorkOrderDispatchControls({
         </span>
       </div>
 
-      {feedback ? (
-        <p role="status" className="text-sm font-medium text-brand-teal">
-          {feedback}
-        </p>
-      ) : null}
-      {error ? (
-        <p role="alert" className="text-sm font-medium text-red-700">
-          {error}
-        </p>
-      ) : null}
+      <FeedbackBanner
+        kind="success"
+        message={feedback}
+        onDismiss={clearFeedback}
+      />
+      <FeedbackBanner kind="error" message={error} onDismiss={clearError} />
+
 
       {/* priority */}
       <div className="grid gap-2">

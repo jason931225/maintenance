@@ -1,5 +1,5 @@
 import { Check, X } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import type { WorkOrderListItem } from "../../api/types";
 import { Badge } from "../../components/ui/badge";
@@ -7,6 +7,11 @@ import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Textarea } from "../../components/ui/textarea";
 import { ko } from "../../i18n/ko";
+import {
+  ERROR_DISMISS_MS,
+  SUCCESS_DISMISS_MS,
+  useAutoDismiss,
+} from "../../lib/useAutoDismiss";
 import { priorityClass, priorityLabel } from "../../lib/utils";
 
 interface ApprovalQueueProps {
@@ -26,6 +31,16 @@ export function ApprovalQueue({
   const [memoError, setMemoError] = useState<string | undefined>();
   const [busy, setBusy] = useState<{ id: string; action: BusyAction }>();
   const [feedback, setFeedback] = useState<"approved" | "rejected" | "error">();
+  // Self-dismiss the action result: success clears fast, an error lingers a bit
+  // longer so it is not missed before it disappears.
+  const clearFeedback = useCallback(() => {
+    setFeedback(undefined);
+  }, []);
+  useAutoDismiss(
+    feedback,
+    clearFeedback,
+    feedback === "error" ? ERROR_DISMISS_MS : SUCCESS_DISMISS_MS,
+  );
   const pending = workOrders.filter(
     (workOrder) =>
       workOrder.status === "REPORT_SUBMITTED" ||

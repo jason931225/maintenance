@@ -10,6 +10,7 @@ import type {
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { ko } from "../../i18n/ko";
+import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../../lib/useAutoDismiss";
 
 interface LocationConsentPanelProps {
   api: ConsoleApiClient;
@@ -31,6 +32,16 @@ export function LocationConsentPanel({
   const [isExporting, setIsExporting] = useState(false);
   const [exported, setExported] = useState(false);
   const [error, setError] = useState(false);
+  // The "exported" confirmation clears itself so it does not linger after the
+  // CSV download has already started.
+  const clearExported = useCallback(() => {
+    setExported(false);
+  }, []);
+  useAutoDismiss(
+    exported ? "exported" : undefined,
+    clearExported,
+    SUCCESS_DISMISS_MS,
+  );
 
   const canCallApi = Boolean(session);
   const hasStatus = status !== undefined;

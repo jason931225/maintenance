@@ -20,6 +20,7 @@ import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
+import { SkeletonCards } from "../../components/states/Skeleton";
 import { cn } from "../../lib/utils";
 import { ko } from "../../i18n/ko";
 import {
@@ -423,7 +424,11 @@ export function MessengerPanel({
           <h3 className="text-sm font-semibold text-steel">
             {ko.messenger.threads}
           </h3>
-          {state.threads.length === 0 ? (
+          {/* First load shows a skeleton so an in-flight fetch is not mistaken
+              for an empty thread list (stale-while-revalidate on refetch). */}
+          {loadState === "loading" && state.threads.length === 0 ? (
+            <SkeletonCards count={4} lines={1} />
+          ) : state.threads.length === 0 ? (
             <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
               {ko.messenger.emptyThreads}
             </p>
