@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -10,6 +11,24 @@ import { AuthProvider, useAuth } from "./auth";
 function fakeAccessToken(sub: string): string {
   const header = btoa(JSON.stringify({ alg: "ES256", typ: "JWT" }));
   const payload = btoa(JSON.stringify({ sub, roles: ["MECHANIC"] }));
+  return `${header}.${payload}.sig`;
+}
+
+/** A platform-tier token (the `platform` claim drives `isPlatform`). */
+function fakePlatformToken(sub: string): string {
+  const header = btoa(JSON.stringify({ alg: "ES256", typ: "JWT" }));
+  const payload = btoa(
+    JSON.stringify({ sub, roles: ["SUPER_ADMIN"], platform: true }),
+  );
+  return `${header}.${payload}.sig`;
+}
+
+/** A view_as (impersonation) token: tenant-tier (`platform` false), acting role. */
+function fakeViewAsToken(sub: string, role: string): string {
+  const header = btoa(JSON.stringify({ alg: "ES256", typ: "JWT" }));
+  const payload = btoa(
+    JSON.stringify({ sub, roles: [role], platform: false, view_as: true }),
+  );
   return `${header}.${payload}.sig`;
 }
 
@@ -103,5 +122,98 @@ describe("AuthProvider boot silent refresh", () => {
       expect(screen.getByTestId("state")).toHaveTextContent("anon");
     });
     expect(sessionStorage.length).toBe(0);
+  });
+});
+
+/**
+ * A probe that surfaces the active session's platform flag + token plus buttons
+ * to enter/exit view-as, so a test can drive the provider's impersonation state
+ * machine through the real `AuthProvider`.
+ */
+function ViewAsProbe({ viewAsToken }: { viewAsToken: string }) {
+  const { session, viewAs, enterViewAs, exitViewAs } = useAuth();
+  if (!session) return <div data-testid="va">anon</div>;
+  return (
+    <div>
+      <div data-testid="va">
+        {`platform:${String(session.isPlatform ?? false)}`}
+      </div>
+      <div data-testid="token">{session.access_token}</div>
+      <div data-testid="banner">{viewAs ? viewAs.actingOrgName : "none"}</div>
+      <button
+        type="button"
+        onClick={() => {
+          enterViewAs({
+            token: viewAsToken,
+            actingOrgId: "org-a",
+            actingOrgName: "Acme Corporation",
+            actingRole: "ADMIN",
+          });
+        }}
+      >
+        enter
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          exitViewAs();
+        }}
+      >
+        exit
+      </button>
+    </div>
+  );
+}
+
+describe("AuthProvider view-as (read-only impersonation)", () => {
+  it("switches into the tenant view on enter and restores the platform session on exit", async () => {
+    const user = userEvent.setup();
+    const platformToken = fakePlatformToken(
+      "00000000-0000-4000-8000-000000000009",
+    );
+    const viewAsToken = fakeViewAsToken(
+      "00000000-0000-4000-8000-000000000009",
+      "ADMIN",
+    );
+    server.use(
+      http.post("*/api/v1/auth/token/refresh", () =>
+        HttpResponse.json({
+          access_token: platformToken,
+          refresh_token: null,
+          token_type: "Bearer",
+          refresh_expires_at: "2026-06-19T00:00:00Z",
+        }),
+      ),
+    );
+
+    render(
+      <AuthProvider>
+        <ViewAsProbe viewAsToken={viewAsToken} />
+      </AuthProvider>,
+    );
+
+    // Boot recovers the operator's PLATFORM session.
+    await waitFor(() => {
+      expect(screen.getByTestId("va")).toHaveTextContent("platform:true");
+    });
+    expect(screen.getByTestId("banner")).toHaveTextContent("none");
+
+    // Entering view-as switches the active session to the TENANT view (the
+    // impersonation token has platform=false) and arms the banner context.
+    await user.click(screen.getByRole("button", { name: "enter" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("va")).toHaveTextContent("platform:false");
+    });
+    expect(screen.getByTestId("token")).toHaveTextContent(viewAsToken);
+    expect(screen.getByTestId("banner")).toHaveTextContent("Acme Corporation");
+
+    // Exiting restores the operator's platform session verbatim and clears the
+    // impersonation context.
+    await user.click(screen.getByRole("button", { name: "exit" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("va")).toHaveTextContent("platform:true");
+    });
+    expect(screen.getByTestId("token")).toHaveTextContent(platformToken);
+    expect(screen.getByTestId("banner")).toHaveTextContent("none");
   });
 });

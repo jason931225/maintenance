@@ -1379,6 +1379,9 @@ async fn issue_token_pair(
             roles: user.roles.clone(),
             branches: user.branches.clone(),
             platform: user.org_id == OrgId::platform(),
+            // A normal login/refresh token is never an impersonation token.
+            view_as: false,
+            read_only: false,
             issued_at: now,
         })
         .map_err(|err| RestError::internal(err.to_string()))?;
@@ -1419,6 +1422,9 @@ fn issue_access_token(
             // mint a platform token so it can reach `/platform/*` (and is rejected
             // on tenant `/api/*`). Every real tenant user gets `false`.
             platform: user.org_id == OrgId::platform(),
+            // The ordinary refresh path never mints an impersonation token.
+            view_as: false,
+            read_only: false,
             issued_at: OffsetDateTime::now_utc(),
         })
         .map_err(|err| RestError::internal(err.to_string()))

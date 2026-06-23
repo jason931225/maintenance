@@ -12,6 +12,7 @@ axum = { workspace = true }
 mnt-kernel-core = { workspace = true }
 mnt-platform-auth = { path = "../auth" }
 mnt-platform-authz = { path = "../authz" }
+mnt-platform-db = { workspace = true }
 mnt-platform-provisioning = { path = "../provisioning" }
 mnt-platform-request-context = { workspace = true }
 serde = { workspace = true }
@@ -27,6 +28,8 @@ http = { workspace = true }
 tokio = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 mnt-platform-db = { workspace = true }
+mnt-platform-request-context = { workspace = true }
+serde_json = { workspace = true }
 p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8", "pem"] }
 
 [lints]

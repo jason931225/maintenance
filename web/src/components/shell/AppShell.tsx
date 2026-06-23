@@ -4,6 +4,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/auth";
 import { TitleProvider } from "../../context/title";
 import { ko } from "../../i18n/ko";
+import { ViewAsBanner } from "../../features/platform/ViewAsBanner";
 import { RouteErrorBoundary } from "../RouteErrorBoundary";
 import { PageSpinner } from "../states/PageSpinner";
 import { Sidebar } from "./Sidebar";
@@ -55,6 +56,9 @@ export function AppShell() {
         />
 
         <div className="flex flex-1 flex-col overflow-hidden">
+          {/* Persistent read-only "view as" banner — renders only while a
+              platform operator is impersonating a tenant, on every page. */}
+          <ViewAsBanner />
           <Topbar onOpenMobileSidebar={() => { setSidebarOpen(true); }} />
           <main
             ref={mainRef}

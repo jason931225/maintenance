@@ -85,6 +85,8 @@ impl Harness {
                 roles: vec!["SUPER_ADMIN".to_owned()],
                 branches: vec![],
                 platform,
+                view_as: false,
+                read_only: false,
                 issued_at: OffsetDateTime::now_utc(),
             })
             .unwrap()

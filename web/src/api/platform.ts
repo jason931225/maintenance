@@ -119,6 +119,69 @@ async function parseError(response: Response): Promise<PlatformApiError> {
   return new PlatformApiError(response.status, code);
 }
 
+/**
+ * The canonical tenant role codes a platform operator may impersonate, matching
+ * the backend `Role` enum. Kept here (not derived from a generated client) since
+ * the `/api/platform/*` API is intentionally outside the served OpenAPI.
+ */
+export type ViewAsRole =
+  | "SUPER_ADMIN"
+  | "ADMIN"
+  | "EXECUTIVE"
+  | "MECHANIC"
+  | "RECEPTIONIST"
+  | "MEMBER";
+
+/** Request body for POST /api/platform/view-as. */
+export interface ViewAsStartRequest {
+  org_id: string;
+  role: ViewAsRole;
+}
+
+/** Response of POST /api/platform/view-as: the short-lived read-only token. */
+export interface ViewAsStartResponse {
+  access_token: string;
+  token_type: string;
+  acting_org_id: string;
+  acting_org_name: string;
+  acting_role: string;
+  expires_at: string;
+}
+
+/**
+ * POST /api/platform/view-as — mint a SHORT-LIVED, READ-ONLY impersonation token
+ * to view a tenant as a given role for troubleshooting. Platform-tier only; the
+ * minted token can never mutate (a blanket backend gate rejects every non-GET
+ * tenant request it carries).
+ */
+export async function startViewAs(
+  bearerToken: string | undefined,
+  body: ViewAsStartRequest,
+): Promise<ViewAsStartResponse> {
+  const response = await platformFetch(bearerToken, "/api/platform/view-as", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw await parseError(response);
+  return (await response.json()) as ViewAsStartResponse;
+}
+
+/**
+ * POST /api/platform/view-as/exit — end an impersonation session (audited).
+ * Called with the operator's PLATFORM token, not the impersonation token, so it
+ * is reachable after the app has switched into the tenant view.
+ */
+export async function exitViewAs(
+  bearerToken: string | undefined,
+): Promise<void> {
+  const response = await platformFetch(
+    bearerToken,
+    "/api/platform/view-as/exit",
+    { method: "POST" },
+  );
+  if (!response.ok) throw await parseError(response);
+}
+
 /** One tenant's health/usage numbers from the platform ops dashboard. */
 export interface PlatformTenantHealth {
   id: string;

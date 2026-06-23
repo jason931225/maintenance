@@ -41,8 +41,8 @@ use mnt_kernel_core::{
 use mnt_messenger_adapter_postgres::PgMessengerStore;
 use mnt_messenger_rest::MessengerRestState;
 use mnt_platform_auth::{
-    AccessClaims, AndroidAssetLinksConfig, AppleAppSiteAssociationConfig, JwtSettings, JwtVerifier,
-    WELL_KNOWN_AASA_PATH, WELL_KNOWN_ASSETLINKS_PATH, android_assetlinks_json,
+    AccessClaims, AndroidAssetLinksConfig, AppleAppSiteAssociationConfig, JwtIssuer, JwtSettings,
+    JwtVerifier, WELL_KNOWN_AASA_PATH, WELL_KNOWN_ASSETLINKS_PATH, android_assetlinks_json,
     apple_app_site_association_json,
 };
 use mnt_platform_auth_rest::{AuthRestConfig, AuthRestState};
@@ -245,6 +245,25 @@ impl JwtVerifierConfig {
         )
         .map_err(|err| AppError::Config(format!("invalid MNT_JWT_PUBLIC_KEY_PEM: {err}")))
     }
+}
+
+/// Build the JWT issuer the PLATFORM view-as START path uses to mint short-lived
+/// read-only impersonation tokens. It signs with the SAME ES256 keypair as the
+/// auth-rest issuer (sourced from [`AuthRestConfig`]), so the tokens it mints
+/// verify against the live `jwt_verifier`. The settings' `access_token_ttl` is
+/// set to the view-as ceiling as a backstop; the START handler additionally
+/// clamps every minted token to that ceiling explicitly.
+fn build_view_as_issuer(config: &AuthRestConfig) -> Result<JwtIssuer, AppError> {
+    JwtIssuer::from_es256_pem(
+        JwtSettings {
+            issuer: config.jwt_issuer.clone(),
+            audience: config.jwt_audience.clone(),
+            access_token_ttl: mnt_platform_rest::VIEW_AS_TOKEN_TTL,
+        },
+        config.jwt_private_key_pem.as_bytes(),
+        config.jwt_public_key_pem.as_bytes(),
+    )
+    .map_err(|err| AppError::Config(format!("invalid view-as issuer key material: {err}")))
 }
 
 impl AppConfig {
@@ -699,6 +718,12 @@ pub struct AppState {
     config: AppConfig,
     database: DatabaseDependency,
     jwt_verifier: Option<JwtVerifier>,
+    /// JWT issuer used ONLY by the PLATFORM view-as START path to mint
+    /// short-lived read-only impersonation tokens. Built from the same ES256
+    /// keypair as the auth-rest issuer (so view-as tokens verify with the live
+    /// `jwt_verifier`). `None` when no private key is configured — the view-as
+    /// START endpoint then returns 503.
+    view_as_issuer: Option<JwtIssuer>,
     auth_rest: Option<AuthRestState>,
     evidence_storage: Option<EvidenceService<SeaweedS3Storage>>,
     /// Object store + bucket backing the public storefront media-serve route.
@@ -720,6 +745,15 @@ impl AppState {
             .as_ref()
             .map(JwtVerifierConfig::build)
             .transpose()?;
+        // The view-as issuer is built from the SAME ES256 keypair as auth-rest,
+        // so impersonation tokens it mints verify against the live `jwt_verifier`.
+        // The per-call TTL override (≤30 min) is enforced in the START handler;
+        // the issuer's default TTL here is a backstop of the same length.
+        let view_as_issuer = config
+            .auth_rest
+            .as_ref()
+            .map(build_view_as_issuer)
+            .transpose()?;
         let auth_rest = match &database {
             DatabaseDependency::Postgres(pool) => match &config.auth_rest {
                 Some(auth_config) => Some(
@@ -736,6 +770,7 @@ impl AppState {
             config,
             database,
             jwt_verifier,
+            view_as_issuer,
             auth_rest,
             evidence_storage: None,
             sales_media_storage: None,
@@ -1209,6 +1244,19 @@ pub fn build_router(state: AppState) -> Router {
                     messenger_store,
                     state.jwt_verifier.clone(),
                 )));
+            // READ-ONLY WALL for PLATFORM "view as": wrap the WHOLE tenant
+            // domain router so any request carrying a `view_as` token may use
+            // ONLY GET/HEAD — every other method is rejected 403 `view_as_read_only`
+            // BEFORE any handler or per-handler authz runs. This is a blanket
+            // method gate keyed purely on the token's `view_as` claim, so no
+            // mutation handler on any tenant route is reachable while
+            // impersonating, regardless of the acting role. It is orthogonal to
+            // (and does not replace) the tenant org middleware each domain router
+            // already applies; an ordinary tenant/platform token is untouched.
+            let domain_router = mnt_platform_rest::with_view_as_read_only_gate(
+                domain_router,
+                state.jwt_verifier.clone(),
+            );
             // The realtime WS upgrade and the pre-auth login/refresh endpoints are
             // intentionally NOT under the org middleware: a login request has no
             // tenant yet, and the WS handler runs its own auth over the socket
@@ -1223,11 +1271,14 @@ pub fn build_router(state: AppState) -> Router {
             // ingress `/api`→backend rule route it while the SPA keeps the bare
             // browser routes `/platform/*`. This is the only path that creates org
             // rows.
-            let platform_router = mnt_platform_rest::router(PlatformRestState::new(
-                pool.clone(),
-                state.jwt_verifier.clone(),
-                PlatformProvisioner::new(state.config.coldstart_otp_ttl),
-            ));
+            let platform_router = mnt_platform_rest::router(
+                PlatformRestState::new(
+                    pool.clone(),
+                    state.jwt_verifier.clone(),
+                    PlatformProvisioner::new(state.config.coldstart_otp_ttl),
+                )
+                .with_view_as_issuer(state.view_as_issuer.clone()),
+            );
             // Everything EXCEPT the realtime WS upgrade: base health/openapi
             // routes, the tenant domain routers, the platform tier, and the
             // pre-auth login/refresh endpoints. These are all short-lived
@@ -1235,7 +1286,20 @@ pub fn build_router(state: AppState) -> Router {
             let timed = {
                 let timed = router.merge(domain_router).merge(platform_router);
                 let timed = match state.auth_rest.clone() {
-                    Some(auth_rest) => timed.merge(mnt_platform_auth_rest::router(auth_rest)),
+                    Some(auth_rest) => {
+                        // The auth-rest router carries authenticated tenant
+                        // mutations (issue-OTP, credential-reset, enroll-handoff,
+                        // passkey register/finish). They live OUTSIDE the tenant
+                        // domain router, so the view-as read-only wall must also
+                        // wrap them — otherwise an impersonation token could reach
+                        // a write here. The pre-auth POSTs (login/refresh/redeem)
+                        // carry no view_as token, so the gate is a no-op for them.
+                        let auth_router = mnt_platform_rest::with_view_as_read_only_gate(
+                            mnt_platform_auth_rest::router(auth_rest),
+                            state.jwt_verifier.clone(),
+                        );
+                        timed.merge(auth_router)
+                    }
                     None => timed,
                 };
                 // Defense-in-depth: shed any request that hangs on a slow

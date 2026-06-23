@@ -14,12 +14,19 @@
 //! shows in both the platform and the tenant's audit trail).
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+mod view_as;
+
+pub use view_as::{
+    PLATFORM_VIEW_AS_EXIT_PATH, PLATFORM_VIEW_AS_START_PATH, VIEW_AS_READ_ONLY_CODE,
+    VIEW_AS_TOKEN_TTL, with_view_as_read_only_gate,
+};
+
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch};
 use axum::{Extension, Json, Router};
-use mnt_platform_auth::JwtVerifier;
+use mnt_platform_auth::{JwtIssuer, JwtVerifier};
 use mnt_platform_authz::{PlatformFeature, PlatformPrincipal};
 use mnt_platform_provisioning::{
     OrganizationSummary, PlatformProvisioner, ProvisioningError, TenantHealth, TenantOnboarding,
@@ -38,6 +45,10 @@ pub const PLATFORM_OPS_PATH: &str = "/api/platform/ops";
 pub struct PlatformRestState {
     pool: PgPool,
     jwt_verifier: Option<JwtVerifier>,
+    /// Issuer used ONLY by the view-as START path to mint short-lived read-only
+    /// impersonation tokens. `None` disables the START endpoint (503): no other
+    /// platform route mints tokens, so token issuance is opt-in here.
+    view_as_issuer: Option<JwtIssuer>,
     provisioner: PlatformProvisioner,
 }
 
@@ -51,8 +62,18 @@ impl PlatformRestState {
         Self {
             pool,
             jwt_verifier,
+            view_as_issuer: None,
             provisioner,
         }
+    }
+
+    /// Install the JWT issuer the view-as START path uses to mint impersonation
+    /// tokens. Without it the START endpoint returns 503; EXIT and the read-only
+    /// gate do not need an issuer.
+    #[must_use]
+    pub fn with_view_as_issuer(mut self, issuer: Option<JwtIssuer>) -> Self {
+        self.view_as_issuer = issuer;
+        self
     }
 }
 
@@ -65,8 +86,11 @@ pub fn router(state: PlatformRestState) -> Router {
             PLATFORM_ORG_PATH_TEMPLATE,
             patch(update_org).delete(delete_org),
         )
-        .route(PLATFORM_OPS_PATH, get(ops_dashboard))
-        .with_state(state);
+        .route(PLATFORM_OPS_PATH, get(ops_dashboard));
+    // View-as START + EXIT (read-only impersonation). Both are PLATFORM-tier
+    // routes behind the platform extractor below; EXIT is platform-scoped so it
+    // is reachable with the operator's platform token, never the view_as token.
+    let router = view_as::routes(router).with_state(state);
     // PLATFORM extractor: resolves the PlatformPrincipal and REJECTS any tenant
     // token. Deliberately NOT the tenant org middleware â the platform tier is
     // not tenant-scoped, and each handler arms the TARGET org per action.

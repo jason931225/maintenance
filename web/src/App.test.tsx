@@ -124,6 +124,9 @@ function makeAuthContext(session: AuthSession | undefined): AuthContextValue {
     refresh: async () => {},
     acceptTokens: () => {},
     clearPasskeySetup: () => {},
+    viewAs: undefined,
+    enterViewAs: () => {},
+    exitViewAs: () => undefined,
     api,
   };
 }

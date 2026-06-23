@@ -441,6 +441,42 @@ export const ko = {
         done: "테넌트 목록으로",
       },
     },
+    viewAs: {
+      // Read-only tenant impersonation for troubleshooting. The action label sits
+      // on each tenant row; the dialog picks the role; the banner is shown on every
+      // page while impersonating.
+      action: "이 테넌트로 보기",
+      dialog: {
+        title: "테넌트로 보기 (읽기 전용)",
+        description:
+          "‘{name}’ 테넌트를 선택한 역할의 시점에서 읽기 전용으로 조회합니다. 어떤 데이터도 변경할 수 없습니다.",
+        roleLabel: "역할",
+        warning:
+          "읽기 전용 세션입니다. 모든 변경 작업은 차단되며, 시작과 종료가 감사 기록에 남습니다.",
+        cancel: "취소",
+        start: "보기 시작",
+        starting: "여는 중",
+        failed: "테넌트 보기를 시작하지 못했습니다. 다시 시도하세요.",
+        notActive:
+          "활성 상태가 아닌 테넌트는 조회할 수 없습니다. 먼저 활성화하세요.",
+      },
+      roles: {
+        SUPER_ADMIN: "최고 관리자",
+        ADMIN: "관리자",
+        EXECUTIVE: "임원",
+        MECHANIC: "정비사",
+        RECEPTIONIST: "접수 담당",
+        MEMBER: "일반 멤버",
+      },
+      // The persistent, unmissable banner shown on every page while impersonating.
+      // `{tenant}` / `{role}` are interpolated by the banner component.
+      banner: {
+        label: "⚠ ‘{tenant}’ / {role} (으)로 보는 중 · 읽기 전용",
+        readOnly: "읽기 전용",
+        exit: "나가기",
+        exiting: "종료 중",
+      },
+    },
   },
   profile: {
     title: "내 프로필",

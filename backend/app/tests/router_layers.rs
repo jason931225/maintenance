@@ -74,6 +74,8 @@ fn issue_token(private_key_pem: &[u8], public_key_pem: &[u8]) -> String {
             roles: vec!["ADMIN".to_owned()],
             branches: vec![BranchId::new()],
             platform: false,
+            view_as: false,
+            read_only: false,
             issued_at: OffsetDateTime::now_utc(),
         })
         .unwrap()

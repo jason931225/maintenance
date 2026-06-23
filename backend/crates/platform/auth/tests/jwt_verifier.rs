@@ -37,6 +37,8 @@ fn public_key_verifier_accepts_es256_access_token() {
             roles: vec!["ADMIN".to_owned()],
             branches: vec![branch_id],
             platform: false,
+            view_as: false,
+            read_only: false,
             issued_at: OffsetDateTime::now_utc(),
         })
         .unwrap();

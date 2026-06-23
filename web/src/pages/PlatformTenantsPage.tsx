@@ -5,8 +5,9 @@ import {
   listPlatformOrgs,
   removePlatformOrg,
   setPlatformOrgStatus,
+  startViewAs,
 } from "../api/platform";
-import type { OrgStatus, PlatformOrg } from "../api/platform";
+import type { OrgStatus, PlatformOrg, ViewAsRole } from "../api/platform";
 import { Button } from "../components/ui/button";
 import { PageError } from "../components/states/PageError";
 import { PageHeader } from "../components/shell/PageHeader";
@@ -15,6 +16,7 @@ import { useAuth } from "../context/auth";
 import { RemoveTenantDialog } from "../features/platform/RemoveTenantDialog";
 import { StatusChangeDialog } from "../features/platform/StatusChangeDialog";
 import { TenantTable } from "../features/platform/TenantTable";
+import { ViewAsDialog } from "../features/platform/ViewAsDialog";
 import { ko } from "../i18n/ko";
 
 type ReadState = "idle" | "loading" | "error";
@@ -25,7 +27,7 @@ interface PendingChange {
 }
 
 export function PlatformTenantsPage() {
-  const { session } = useAuth();
+  const { session, enterViewAs } = useAuth();
   const navigate = useNavigate();
   const token = session?.access_token;
 
@@ -35,6 +37,9 @@ export function PlatformTenantsPage() {
     undefined,
   );
   const [pendingRemoval, setPendingRemoval] = useState<PlatformOrg | undefined>(
+    undefined,
+  );
+  const [pendingViewAs, setPendingViewAs] = useState<PlatformOrg | undefined>(
     undefined,
   );
 
@@ -77,6 +82,27 @@ export function PlatformTenantsPage() {
     await removePlatformOrg(token, pendingRemoval.id);
     setPendingRemoval(undefined);
     await loadOrgs();
+  }
+
+  async function startViewAsSession(role: ViewAsRole): Promise<void> {
+    if (!pendingViewAs) return;
+    // Mint the short-lived read-only impersonation token with the operator's
+    // platform token. A failure (e.g. 409 not-active) is thrown to the dialog.
+    const result = await startViewAs(token, {
+      org_id: pendingViewAs.id,
+      role,
+    });
+    // Switch the app into the tenant view: store the view_as token + platform
+    // session, then navigate into the tenant shell. The persistent banner is
+    // rendered by AppShell while impersonating.
+    enterViewAs({
+      token: result.access_token,
+      actingOrgId: result.acting_org_id,
+      actingOrgName: result.acting_org_name,
+      actingRole: result.acting_role,
+    });
+    setPendingViewAs(undefined);
+    void navigate("/dispatch");
   }
 
   return (
@@ -122,6 +148,9 @@ export function PlatformTenantsPage() {
           onRemove={(org) => {
             setPendingRemoval(org);
           }}
+          onViewAs={(org) => {
+            setPendingViewAs(org);
+          }}
         />
       )}
 
@@ -142,6 +171,16 @@ export function PlatformTenantsPage() {
           onConfirm={applyRemoval}
           onClose={() => {
             setPendingRemoval(undefined);
+          }}
+        />
+      ) : null}
+
+      {pendingViewAs ? (
+        <ViewAsDialog
+          org={pendingViewAs}
+          onConfirm={startViewAsSession}
+          onClose={() => {
+            setPendingViewAs(undefined);
           }}
         />
       ) : null}

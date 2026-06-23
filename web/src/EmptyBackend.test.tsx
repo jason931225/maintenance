@@ -132,6 +132,9 @@ function makeAuthContext(s: AuthSession): AuthContextValue {
     refresh: async () => {},
     acceptTokens: () => {},
     clearPasskeySetup: () => {},
+    viewAs: undefined,
+    enterViewAs: () => {},
+    exitViewAs: () => undefined,
     api: createConsoleApiClient(s.access_token),
   };
 }

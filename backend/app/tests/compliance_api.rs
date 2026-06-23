@@ -322,6 +322,8 @@ fn issue_token(
         roles,
         branches,
         platform: false,
+        view_as: false,
+        read_only: false,
         issued_at: OffsetDateTime::now_utc(),
     })?)
 }

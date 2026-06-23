@@ -38,6 +38,8 @@ fn es256_access_token_round_trips_with_expected_claims() {
             roles: vec!["MECHANIC".to_owned()],
             branches: vec![branch_id],
             platform: false,
+            view_as: false,
+            read_only: false,
             issued_at: now,
         })
         .unwrap();

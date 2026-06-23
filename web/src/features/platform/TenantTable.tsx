@@ -18,11 +18,13 @@ export function TenantTable({
   isLoading,
   onChangeStatus,
   onRemove,
+  onViewAs,
 }: {
   orgs: PlatformOrg[];
   isLoading: boolean;
   onChangeStatus: (org: PlatformOrg, next: OrgStatus) => void;
   onRemove: (org: PlatformOrg) => void;
+  onViewAs: (org: PlatformOrg) => void;
 }) {
   if (isLoading) {
     return (
@@ -72,6 +74,20 @@ export function TenantTable({
               </td>
               <td className="px-4 py-3">
                 <div className="flex flex-wrap items-center justify-end gap-2">
+                  {/* Read-only "view as" — only for ACTIVE tenants (the backend
+                      refuses impersonating a suspended/archived tenant). */}
+                  {org.status === "ACTIVE" ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        onViewAs(org);
+                      }}
+                    >
+                      {ko.platform.viewAs.action}
+                    </Button>
+                  ) : null}
                   {ACTIONS_BY_STATUS[org.status].map((next) => (
                     <Button
                       key={next}

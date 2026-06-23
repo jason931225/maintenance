@@ -33,6 +33,19 @@ pub struct AccessTokenInput {
     /// token is rejected on `/platform/*` — the two tiers are strictly
     /// separated. Tenant tokens always set this `false`.
     pub platform: bool,
+    /// PLATFORM "view as" impersonation marker. When `true` this is a short-lived
+    /// token minted by a platform operator to view a tenant strictly READ-ONLY.
+    /// It is a TENANT-tier token (`platform = false`, `org_id = acting tenant`),
+    /// so it flows through the tenant org middleware and arms `app.current_org`
+    /// to the target tenant — but the blanket read-only method gate rejects every
+    /// non-GET/HEAD request that carries it. An ordinary token always sets this
+    /// `false`.
+    pub view_as: bool,
+    /// Companion to [`Self::view_as`]: the impersonation token is read-only. Kept
+    /// as a distinct flag (not implied by `view_as`) so the read-only contract is
+    /// explicit in the token and a future non-read-only impersonation mode would
+    /// be an additive change, never a silent reinterpretation.
+    pub read_only: bool,
     pub issued_at: time::OffsetDateTime,
 }
 
@@ -57,6 +70,17 @@ pub struct AccessClaims {
     /// platform token.
     #[serde(default)]
     pub platform: bool,
+    /// `true` for a PLATFORM "view as" impersonation token (read-only tenant
+    /// view minted by a platform operator). Absent in every ordinary token →
+    /// defaults to `false`, so a normal tenant/platform token is never mistaken
+    /// for an impersonation token. The read-only method gate keys off this flag.
+    #[serde(default)]
+    pub view_as: bool,
+    /// `true` when the `view_as` token is read-only. Defaults to `false` when
+    /// absent. Today every `view_as` token sets this `true`; it is a separate,
+    /// explicit claim so the read-only contract is self-describing.
+    #[serde(default)]
+    pub read_only: bool,
     pub alg: String,
 }
 
@@ -87,8 +111,29 @@ impl JwtIssuer {
     }
 
     pub fn issue_access_token(&self, input: AccessTokenInput) -> Result<String, AuthError> {
+        self.issue_access_token_with_ttl(input, self.settings.access_token_ttl)
+    }
+
+    /// Mint an access token with an EXPLICIT lifetime, overriding the issuer's
+    /// default `access_token_ttl`.
+    ///
+    /// Used by the PLATFORM "view as" START path, which must mint a deliberately
+    /// SHORT-LIVED (≤30 min) impersonation token regardless of the configured
+    /// session TTL. `ttl` is clamped to a positive duration; a non-positive value
+    /// is treated as a zero-length (immediately-expired) token rather than a
+    /// long-lived one, so a misconfiguration fails closed.
+    pub fn issue_access_token_with_ttl(
+        &self,
+        input: AccessTokenInput,
+        ttl: Duration,
+    ) -> Result<String, AuthError> {
+        let ttl = if ttl.is_positive() {
+            ttl
+        } else {
+            Duration::ZERO
+        };
         let issued_at = input.issued_at.unix_timestamp();
-        let expires_at = (input.issued_at + self.settings.access_token_ttl).unix_timestamp();
+        let expires_at = (input.issued_at + ttl).unix_timestamp();
         let claims = AccessClaims {
             iss: self.settings.issuer.clone(),
             aud: self.settings.audience.clone(),
@@ -105,6 +150,8 @@ impl JwtIssuer {
                 .map(|branch| branch.to_string())
                 .collect(),
             platform: input.platform,
+            view_as: input.view_as,
+            read_only: input.read_only,
             alg: "ES256".to_owned(),
         };
 

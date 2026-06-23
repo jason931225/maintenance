@@ -83,6 +83,8 @@ impl Harness {
                 roles: roles.iter().map(|r| (*r).to_owned()).collect(),
                 branches,
                 platform: false,
+                view_as: false,
+                read_only: false,
                 issued_at: OffsetDateTime::now_utc(),
             })
             .unwrap()

@@ -37,6 +37,9 @@ function makeAuthContext(
     acceptTokens: overrides.acceptTokens ?? (() => {}),
     clearPasskeySetup: overrides.clearPasskeySetup ?? (() => {}),
     api,
+    viewAs: overrides.viewAs,
+    enterViewAs: overrides.enterViewAs ?? (() => {}),
+    exitViewAs: overrides.exitViewAs ?? (() => undefined),
   };
 }
 
