@@ -19,16 +19,37 @@ function safeNext(raw: string | null): string {
   return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/dispatch";
 }
 
+/**
+ * Sanitize an `?otp=` query param (a scanned cross-device enrollment handoff or an
+ * admin-issued sign-in code). Returns the code only when it matches the exact
+ * server OTP shape — 8 characters over the copy-paste-safe alphabet
+ * `A-Za-z0-9!@#$%^&*-_` — so a malformed or injected value is ignored rather than
+ * prefilled. Anything else yields undefined.
+ */
+function safeOtpParam(raw: string | null): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  return /^[A-Za-z0-9!@#$%^&*\-_]{8}$/.test(trimmed) ? trimmed : undefined;
+}
+
 export function LoginPage() {
   const { session, restoring, login, acceptTokens, api } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
+  // A scanned cross-device enrollment QR (or an admin-issued code link) lands here
+  // as `?otp=<code>`: derive the initial OTP + open panel from the param ONCE at
+  // first render (a lazy initializer, not an effect, so there is no cascading
+  // render and the user's later edits are never overwritten). We do NOT auto-submit
+  // — redeeming a one-time code is a credential action, so the user taps the
+  // confirm button explicitly. A logged-in user is redirected away by the effect.
+  const scannedOtp = safeOtpParam(searchParams.get("otp"));
+
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [notice, setNotice] = useState<string | undefined>(undefined);
-  const [otpOpen, setOtpOpen] = useState(false);
-  const [otp, setOtp] = useState("");
+  const [otpOpen, setOtpOpen] = useState(() => scannedOtp !== undefined);
+  const [otp, setOtp] = useState(() => scannedOtp ?? "");
   const [otpPending, setOtpPending] = useState(false);
   const [signupOpenForm, setSignupOpenForm] = useState(false);
   const [signupEmail, setSignupEmail] = useState("");

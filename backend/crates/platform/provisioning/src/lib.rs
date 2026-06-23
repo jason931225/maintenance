@@ -386,6 +386,80 @@ impl BootstrapCredentialStore {
         .await
     }
 
+    /// Cross-device SELF passkey-enrollment handoff: mint a fresh single-use,
+    /// short-TTL one-time code for the CURRENTLY AUTHENTICATED user so they can
+    /// finish passkey enrollment on a SECOND device (typically a phone scanning a
+    /// QR on the desktop console). The returned code is scoped to THAT SAME user
+    /// and is redeemed through the ordinary `/auth/otp/redeem` first-sign-in path
+    /// on the phone, which lands the phone on its own onboarding page to enroll a
+    /// platform passkey — no Bluetooth / caBLE hybrid tunnel involved.
+    ///
+    /// This NEVER mints a handoff for another user: `user_id` and `org` are taken
+    /// from the caller's VERIFIED access token at the REST layer, never from the
+    /// request body, so a caller can only ever hand off to itself.
+    ///
+    /// Issuance semantics ([`IssueMode::ForceReset`], but WITHOUT touching
+    /// passkeys — the REST layer enforces the step-up gate for an already-enrolled
+    /// user before calling this):
+    ///   * A user MID-ONBOARDING (just redeemed, zero passkeys) typically already
+    ///     holds one OPEN bootstrap code (the one they redeemed; it is consumed
+    ///     only at passkey registration). The partial-unique
+    ///     `idx_auth_bootstrap_credentials_one_open_per_user` permits only ONE open
+    ///     code per user, so this REVOKES that stale open code (reason `reset`) and
+    ///     mints a fresh one in its place. The original code therefore stops
+    ///     working the moment a handoff is issued — at most one live code exists.
+    ///   * A user ADDING A DEVICE (already has a passkey) gets a fresh handoff code
+    ///     too; `ForceReset` bypasses the passkey-existence rejection that the
+    ///     admin path uses, but does NOT delete any passkey.
+    ///
+    /// The TTL is SHORT (the caller passes e.g. 5 min — distinct from the 4h admin
+    /// OTP) to keep the credential-handoff window tight. The code value is NEVER
+    /// audited or logged; only the issuance event (action
+    /// `auth.passkey.enroll_handoff_issued`, target = the user) is recorded, armed
+    /// to the caller's tenant so the FORCE-RLS WITH CHECK accepts the new row.
+    pub async fn issue_self_enroll_handoff(
+        &self,
+        pool: &PgPool,
+        user_id: Uuid,
+        org: OrgId,
+        now: OffsetDateTime,
+        ttl: Duration,
+    ) -> Result<BootstrapCredentialIssue, ProvisioningError> {
+        with_audits::<_, BootstrapCredentialIssue, ProvisioningError>(pool, org, |tx| {
+            Box::pin(async move {
+                // ForceReset: revoke any stale OPEN code for this user and mint a
+                // fresh one, WITHOUT requiring (or deleting) passkeys. Works both
+                // mid-onboarding (an open redeemed code is superseded) and for an
+                // already-enrolled add-device user (no open code -> clean insert).
+                let issue =
+                    issue_bootstrap_if_needed_tx(tx, user_id, org, now, ttl, IssueMode::ForceReset)
+                        .await?
+                        .ok_or(ProvisioningError::ActiveBootstrapCredentialExists)?;
+
+                let event = AuditEvent::new(
+                    Some(UserId::from_uuid(user_id)),
+                    AuditAction::new("auth.passkey.enroll_handoff_issued")?,
+                    "auth_bootstrap_credential",
+                    issue.credential_id.to_string(),
+                    TraceContext::generate(),
+                    now,
+                )
+                .with_org(org)
+                .with_snapshots(
+                    None,
+                    Some(serde_json::json!({
+                        "user_id": user_id,
+                        "expires_at": issue.expires_at,
+                        "purpose": "passkey_enrollment_handoff",
+                    })),
+                );
+
+                Ok((issue, vec![event]))
+            })
+        })
+        .await
+    }
+
     /// Redeem a one-time OTP (bootstrap token) as a FIRST SIGN-IN.
     ///
     /// This is a sign-in, not signup: the user row was pre-provisioned by the

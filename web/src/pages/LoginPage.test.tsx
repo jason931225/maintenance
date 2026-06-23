@@ -222,13 +222,13 @@ describe("OnboardingPage enrollment", () => {
 
     renderApp("/onboarding", makeAuthContext({ session, clearPasskeySetup }));
 
-    await user.click(await screen.findByRole("button", { name: /이 데스크톱/ }));
+    await user.click(await screen.findByRole("button", { name: /이 기기/ }));
 
     await waitFor(() => {
       expect(clearPasskeySetup).toHaveBeenCalledTimes(1);
     });
-    // "이 데스크톱" must request the platform authenticator (Touch ID / Windows Hello)
-    // while keeping the credential discoverable for usernameless login.
+    // The "this device" option must request the platform authenticator (Touch ID /
+    // Windows Hello) while keeping the credential discoverable for usernameless login.
     const arg = create.mock.calls[0][0] as {
       publicKey: PublicKeyCredentialCreationOptions;
     };
@@ -237,7 +237,7 @@ describe("OnboardingPage enrollment", () => {
     expect(selection?.residentKey).toBe("required");
   });
 
-  it("offers desktop, mobile, and QR cross-device passkey methods", async () => {
+  it("offers exactly the this-device and phone-QR enrollment methods", async () => {
     renderApp(
       "/onboarding",
       makeAuthContext({
@@ -247,12 +247,65 @@ describe("OnboardingPage enrollment", () => {
         },
       }),
     );
+    // Exactly two reliable methods; the flaky native cross-device hybrid is gone.
     expect(
-      await screen.findByRole("button", { name: /이 데스크톱/ }),
+      await screen.findByRole("button", { name: /이 기기/ }),
     ).toBeTruthy();
-    expect(screen.getByRole("button", { name: /휴대폰에 패스키/ })).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: /데스크톱 \+ 휴대폰/ }),
+      screen.getByRole("button", { name: /휴대폰으로 등록/ }),
+    ).toBeTruthy();
+    // The removed native hybrid / "use a phone" options must not reappear.
+    expect(
+      screen.queryByRole("button", { name: /보안 키|데스크톱 \+ 휴대폰/ }),
+    ).toBeNull();
+  });
+
+  it("renders a QR handoff when the phone-QR method is chosen", async () => {
+    const user = userEvent.setup();
+    let handoffCalls = 0;
+    server.use(
+      http.post("*/api/v1/auth/passkey/enroll-handoff", () => {
+        handoffCalls += 1;
+        return HttpResponse.json({
+          otp: "Abcd1234",
+          expires_at: "2026-06-14T00:05:00Z",
+          enroll_url: "https://console.knllogistic.com/login?otp=Abcd1234",
+        });
+      }),
+    );
+
+    renderApp(
+      "/onboarding",
+      makeAuthContext({
+        session: { access_token: "a", requires_passkey_setup: true },
+      }),
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: /휴대폰으로 등록/ }),
+    );
+
+    // The handoff is minted and the fallback enrollment link is shown.
+    const link = await screen.findByRole("link");
+    await waitFor(() => {
+      expect(handoffCalls).toBe(1);
+    });
+    expect(link.getAttribute("href")).toBe(
+      "https://console.knllogistic.com/login?otp=Abcd1234",
+    );
+  });
+
+  it("prefills and reveals the OTP panel from a scanned ?otp= link", async () => {
+    renderApp("/login?otp=Abcd1234", makeAuthContext({}));
+    const field = await screen.findByLabelText(/일회용 코드/);
+    expect(field).toHaveValue("Abcd1234");
+  });
+
+  it("ignores a malformed ?otp= param", async () => {
+    renderApp("/login?otp=not-valid", makeAuthContext({}));
+    // The login card renders; the OTP panel stays collapsed (reveal button shown).
+    expect(
+      await screen.findByRole("button", { name: /일회용 코드로 로그인/ }),
     ).toBeTruthy();
   });
 });

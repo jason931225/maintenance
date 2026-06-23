@@ -365,6 +365,13 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/auth/admin/credential-reset`.
     /// - Remark: Generated from `#/paths//api/v1/auth/admin/credential-reset/post`.
     func postApiV1AuthAdminCredentialReset(_ input: Operations.PostApiV1AuthAdminCredentialReset.Input) async throws -> Operations.PostApiV1AuthAdminCredentialReset.Output
+    /// Mint a cross-device passkey-enrollment handoff (self)
+    ///
+    /// Mints a fresh single-use, short-lived (5 minutes) one-time code for the CURRENTLY AUTHENTICATED user so they can finish passkey enrollment on a SECOND device (typically a phone scanning a QR shown on the desktop console). SELF-ONLY — the user and org come from the verified access token, never the request body, so a caller can only ever mint a handoff for itself. When the caller is ALREADY enrolled (adding a device), a fresh `step_up` assertion of an existing passkey (user verification required) is mandatory, exactly like `passkey/register/start`; a mid-onboarding caller (no passkey yet) omits it. The response returns the code once (only its hash is stored) plus the ready-to-encode enrollment URL. The phone opens that URL, redeems the code via `POST /api/v1/auth/otp/redeem`, and enrolls a platform passkey — no Bluetooth required.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/passkey/enroll-handoff`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/passkey/enroll-handoff/post`.
+    func postApiV1AuthPasskeyEnrollHandoff(_ input: Operations.PostApiV1AuthPasskeyEnrollHandoff.Input) async throws -> Operations.PostApiV1AuthPasskeyEnrollHandoff.Output
     /// Rotate refresh token
     ///
     /// Rotates an opaque refresh token; reuse of an old token revokes the whole family and returns 401.
@@ -1585,6 +1592,21 @@ extension APIProtocol {
         body: Operations.PostApiV1AuthAdminCredentialReset.Input.Body
     ) async throws -> Operations.PostApiV1AuthAdminCredentialReset.Output {
         try await postApiV1AuthAdminCredentialReset(Operations.PostApiV1AuthAdminCredentialReset.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Mint a cross-device passkey-enrollment handoff (self)
+    ///
+    /// Mints a fresh single-use, short-lived (5 minutes) one-time code for the CURRENTLY AUTHENTICATED user so they can finish passkey enrollment on a SECOND device (typically a phone scanning a QR shown on the desktop console). SELF-ONLY — the user and org come from the verified access token, never the request body, so a caller can only ever mint a handoff for itself. When the caller is ALREADY enrolled (adding a device), a fresh `step_up` assertion of an existing passkey (user verification required) is mandatory, exactly like `passkey/register/start`; a mid-onboarding caller (no passkey yet) omits it. The response returns the code once (only its hash is stored) plus the ready-to-encode enrollment URL. The phone opens that URL, redeems the code via `POST /api/v1/auth/otp/redeem`, and enrolls a platform passkey — no Bluetooth required.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/passkey/enroll-handoff`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/passkey/enroll-handoff/post`.
+    public func postApiV1AuthPasskeyEnrollHandoff(
+        headers: Operations.PostApiV1AuthPasskeyEnrollHandoff.Input.Headers = .init(),
+        body: Operations.PostApiV1AuthPasskeyEnrollHandoff.Input.Body? = nil
+    ) async throws -> Operations.PostApiV1AuthPasskeyEnrollHandoff.Output {
+        try await postApiV1AuthPasskeyEnrollHandoff(Operations.PostApiV1AuthPasskeyEnrollHandoff.Input(
             headers: headers,
             body: body
         ))
@@ -5996,6 +6018,58 @@ public enum Components {
                 case userId = "user_id"
                 case otp
                 case expiresAt = "expires_at"
+            }
+        }
+        /// Cross-device passkey-enrollment handoff request. Carries NO user/org — those come from the verified access token, so a caller can only mint a handoff for itself. `step_up` is REQUIRED only when the caller already has a passkey (adding a device); a mid-onboarding caller (zero passkeys) omits it.
+        ///
+        /// - Remark: Generated from `#/components/schemas/EnrollHandoffRequest`.
+        public struct EnrollHandoffRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EnrollHandoffRequest/step_up`.
+            public var stepUp: Components.Schemas.PasskeyStepUpAssertion?
+            /// Creates a new `EnrollHandoffRequest`.
+            ///
+            /// - Parameters:
+            ///   - stepUp:
+            public init(stepUp: Components.Schemas.PasskeyStepUpAssertion? = nil) {
+                self.stepUp = stepUp
+            }
+            public enum CodingKeys: String, CodingKey {
+                case stepUp = "step_up"
+            }
+        }
+        /// The minted single-use, short-lived passkey-enrollment code (returned once, only its hash is stored) plus the ready-to-encode enrollment URL the frontend renders as a QR. The phone opens `enroll_url`, redeems `otp` via the first-sign-in path, and enrolls a platform passkey.
+        ///
+        /// - Remark: Generated from `#/components/schemas/EnrollHandoffResponse`.
+        public struct EnrollHandoffResponse: Codable, Hashable, Sendable {
+            /// The single-use enrollment handoff code.
+            ///
+            /// - Remark: Generated from `#/components/schemas/EnrollHandoffResponse/otp`.
+            public var otp: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EnrollHandoffResponse/expires_at`.
+            public var expiresAt: Components.Schemas.Timestamp
+            /// The console enrollment URL embedding the handoff code as a query parameter (`{origin}/login?otp=<code>`), to be rendered as a QR and scanned on a phone.
+            ///
+            /// - Remark: Generated from `#/components/schemas/EnrollHandoffResponse/enroll_url`.
+            public var enrollUrl: Swift.String
+            /// Creates a new `EnrollHandoffResponse`.
+            ///
+            /// - Parameters:
+            ///   - otp: The single-use enrollment handoff code.
+            ///   - expiresAt:
+            ///   - enrollUrl: The console enrollment URL embedding the handoff code as a query parameter (`{origin}/login?otp=<code>`), to be rendered as a QR and scanned on a phone.
+            public init(
+                otp: Swift.String,
+                expiresAt: Components.Schemas.Timestamp,
+                enrollUrl: Swift.String
+            ) {
+                self.otp = otp
+                self.expiresAt = expiresAt
+                self.enrollUrl = enrollUrl
+            }
+            public enum CodingKeys: String, CodingKey {
+                case otp
+                case expiresAt = "expires_at"
+                case enrollUrl = "enroll_url"
             }
         }
         /// - Remark: Generated from `#/components/schemas/PasskeyLoginStartResponse`.
@@ -22419,6 +22493,175 @@ public enum Operations {
             /// State conflict or illegal transition.
             ///
             /// - Remark: Generated from `#/paths//api/v1/auth/admin/credential-reset/post/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Mint a cross-device passkey-enrollment handoff (self)
+    ///
+    /// Mints a fresh single-use, short-lived (5 minutes) one-time code for the CURRENTLY AUTHENTICATED user so they can finish passkey enrollment on a SECOND device (typically a phone scanning a QR shown on the desktop console). SELF-ONLY — the user and org come from the verified access token, never the request body, so a caller can only ever mint a handoff for itself. When the caller is ALREADY enrolled (adding a device), a fresh `step_up` assertion of an existing passkey (user verification required) is mandatory, exactly like `passkey/register/start`; a mid-onboarding caller (no passkey yet) omits it. The response returns the code once (only its hash is stored) plus the ready-to-encode enrollment URL. The phone opens that URL, redeems the code via `POST /api/v1/auth/otp/redeem`, and enrolls a platform passkey — no Bluetooth required.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/passkey/enroll-handoff`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/passkey/enroll-handoff/post`.
+    public enum PostApiV1AuthPasskeyEnrollHandoff {
+        public static let id: Swift.String = "post/api/v1/auth/passkey/enroll-handoff"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/auth/passkey/enroll-handoff/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PostApiV1AuthPasskeyEnrollHandoff.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PostApiV1AuthPasskeyEnrollHandoff.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.PostApiV1AuthPasskeyEnrollHandoff.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/auth/passkey/enroll-handoff/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/passkey/enroll-handoff/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.EnrollHandoffRequest)
+            }
+            public var body: Operations.PostApiV1AuthPasskeyEnrollHandoff.Input.Body?
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.PostApiV1AuthPasskeyEnrollHandoff.Input.Headers = .init(),
+                body: Operations.PostApiV1AuthPasskeyEnrollHandoff.Input.Body? = nil
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/passkey/enroll-handoff/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/auth/passkey/enroll-handoff/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.EnrollHandoffResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.EnrollHandoffResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PostApiV1AuthPasskeyEnrollHandoff.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PostApiV1AuthPasskeyEnrollHandoff.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The minted single-use enrollment code, its expiry, and the QR enrollment URL.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/passkey/enroll-handoff/post/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.PostApiV1AuthPasskeyEnrollHandoff.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.PostApiV1AuthPasskeyEnrollHandoff.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/passkey/enroll-handoff/post/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/passkey/enroll-handoff/post/responses/409`.
             ///
             /// HTTP response code: `409 conflict`.
             case conflict(Components.Responses.Conflict)

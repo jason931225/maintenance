@@ -6,6 +6,7 @@ import { Card } from "../../components/ui/card";
 import { PageError } from "../../components/states/PageError";
 import { useAuth } from "../../context/auth";
 import { ko } from "../../i18n/ko";
+import { EnrollHandoffQr } from "./EnrollHandoffQr";
 import {
   finishPasskeyRegistration,
   startPasskeyRegistration,
@@ -28,6 +29,7 @@ export function SecurityPanel() {
   const [passkeys, setPasskeys] = useState<PasskeySummary[]>([]);
   const [state, setState] = useState<ReadState>("loading");
   const [adding, setAdding] = useState(false);
+  const [showQr, setShowQr] = useState(false);
   const [revokingId, setRevokingId] = useState<string | undefined>(undefined);
   const [confirmId, setConfirmId] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
@@ -48,9 +50,10 @@ export function SecurityPanel() {
     void Promise.resolve().then(load);
   }, [load]);
 
-  async function handleAdd(attachment: AuthenticatorAttachment) {
+  async function handleAddThisDevice() {
     setError(undefined);
     setFeedback(undefined);
+    setShowQr(false);
     setAdding(true);
     try {
       // An already-enrolled user must step up with an existing passkey before a
@@ -59,7 +62,7 @@ export function SecurityPanel() {
       const ceremony = await startPasskeyRegistration(
         api,
         {},
-        attachment,
+        "platform",
         requireStepUp,
       );
       await finishPasskeyRegistration(api, ceremony);
@@ -176,7 +179,7 @@ export function SecurityPanel() {
               size="sm"
               disabled={adding}
               onClick={() => {
-                void handleAdd("platform");
+                void handleAddThisDevice();
               }}
             >
               {adding
@@ -188,15 +191,22 @@ export function SecurityPanel() {
               variant="secondary"
               size="sm"
               disabled={adding}
+              aria-expanded={showQr}
               onClick={() => {
-                void handleAdd("cross-platform");
+                setError(undefined);
+                setFeedback(undefined);
+                setShowQr((open) => !open);
               }}
             >
-              {adding
-                ? ko.security.adding
-                : `${ko.security.add} (${ko.security.addAnotherDevice})`}
+              {ko.security.addPhoneQr}
             </Button>
           </div>
+
+          {showQr ? (
+            <div className="rounded-lg border border-line bg-muted-panel p-4">
+              <EnrollHandoffQr requireStepUp={passkeys.length > 0} />
+            </div>
+          ) : null}
         </div>
       )}
 

@@ -133,18 +133,26 @@ export const ko = {
     signOut: "다른 계정으로 로그인",
     methods: {
       desktop: {
-        title: "이 데스크톱",
-        description: "Touch ID·Windows Hello 등 이 컴퓨터의 인증으로 등록합니다.",
+        title: "이 기기",
+        description: "Touch ID·Windows Hello 등 이 기기의 생체 인증으로 등록합니다.",
       },
-      mobile: {
-        title: "휴대폰",
-        description: "휴대폰에 패스키를 등록합니다. 브라우저가 QR 코드를 표시합니다.",
-      },
-      qr: {
-        title: "데스크톱 + 휴대폰 (QR)",
-        description: "데스크톱에서 시작하고 휴대폰으로 QR을 스캔해 연결합니다.",
+      phoneQr: {
+        title: "휴대폰으로 등록 (QR)",
+        description:
+          "QR 코드를 휴대폰 카메라로 스캔하여 휴대폰에 패스키를 등록합니다.",
       },
     },
+  },
+  enrollHandoff: {
+    instruction: "휴대폰 카메라로 스캔하여 등록",
+    description:
+      "휴대폰 카메라로 아래 QR 코드를 스캔하면 휴대폰에서 패스키 등록을 이어서 진행합니다.",
+    generating: "QR 코드를 생성하는 중",
+    failed: "QR 코드를 생성하지 못했습니다. 다시 시도하세요.",
+    linkLabel: "스캔이 어려우면 이 링크를 휴대폰에서 여세요",
+    expiresHint: "이 QR 코드는 5분 후 만료됩니다.",
+    regenerate: "QR 코드 다시 생성",
+    qrAlt: "휴대폰 패스키 등록용 QR 코드",
   },
   admin: {
     title: "관리자 설정",
@@ -449,9 +457,11 @@ export const ko = {
     add: "패스키 추가",
     adding: "등록 중",
     addThisDevice: "이 기기",
-    addAnotherDevice: "휴대폰 또는 보안 키",
+    addPhoneQr: "휴대폰으로 등록 (QR)",
     addFailed: "패스키를 등록하지 못했습니다. 다시 시도하세요.",
     added: "패스키를 등록했습니다.",
+    handoffFailed: "휴대폰 등록 QR을 생성하지 못했습니다. 다시 시도하세요.",
+    handoffCancel: "닫기",
     revoke: "삭제",
     revoking: "삭제 중",
     revoked: "패스키를 삭제했습니다.",

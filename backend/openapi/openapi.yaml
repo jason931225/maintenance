@@ -1779,6 +1779,38 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
+  /api/v1/auth/passkey/enroll-handoff:
+    post:
+      summary: Mint a cross-device passkey-enrollment handoff (self)
+      description: Mints a fresh single-use, short-lived (5 minutes) one-time code for the
+        CURRENTLY AUTHENTICATED user so they can finish passkey enrollment on a SECOND device
+        (typically a phone scanning a QR shown on the desktop console). SELF-ONLY — the user and
+        org come from the verified access token, never the request body, so a caller can only
+        ever mint a handoff for itself. When the caller is ALREADY enrolled (adding a device),
+        a fresh `step_up` assertion of an existing passkey (user verification required) is
+        mandatory, exactly like `passkey/register/start`; a mid-onboarding caller (no passkey
+        yet) omits it. The response returns the code once (only its hash is stored) plus the
+        ready-to-encode enrollment URL. The phone opens that URL, redeems the code via
+        `POST /api/v1/auth/otp/redeem`, and enrolls a platform passkey — no Bluetooth required.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollHandoffRequest'
+      responses:
+        '200':
+          description: The minted single-use enrollment code, its expiry, and the QR enrollment URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollHandoffResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /api/v1/auth/token/refresh:
     post:
       summary: Rotate refresh token
@@ -5801,6 +5833,38 @@ components:
           type: string
         expires_at:
           $ref: '#/components/schemas/Timestamp'
+    EnrollHandoffRequest:
+      type: object
+      description: >-
+        Cross-device passkey-enrollment handoff request. Carries NO user/org —
+        those come from the verified access token, so a caller can only mint a
+        handoff for itself. `step_up` is REQUIRED only when the caller already has
+        a passkey (adding a device); a mid-onboarding caller (zero passkeys) omits
+        it.
+      properties:
+        step_up:
+          $ref: '#/components/schemas/PasskeyStepUpAssertion'
+    EnrollHandoffResponse:
+      type: object
+      description: >-
+        The minted single-use, short-lived passkey-enrollment code (returned once,
+        only its hash is stored) plus the ready-to-encode enrollment URL the
+        frontend renders as a QR. The phone opens `enroll_url`, redeems `otp` via
+        the first-sign-in path, and enrolls a platform passkey.
+      required:
+      - otp
+      - expires_at
+      - enroll_url
+      properties:
+        otp:
+          type: string
+          description: The single-use enrollment handoff code.
+        expires_at:
+          $ref: '#/components/schemas/Timestamp'
+        enroll_url:
+          type: string
+          description: The console enrollment URL embedding the handoff code as a query parameter
+            (`{origin}/login?otp=<code>`), to be rendered as a QR and scanned on a phone.
     PasskeyLoginStartResponse:
       type: object
       required:

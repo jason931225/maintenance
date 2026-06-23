@@ -1,9 +1,10 @@
-import { Monitor, QrCode, Smartphone } from "lucide-react";
+import { Monitor, QrCode } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import { EnrollHandoffQr } from "../features/auth/EnrollHandoffQr";
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
 import {
@@ -16,26 +17,28 @@ import {
  * session carries requires_passkey_setup the shell routes here; enrolling a
  * passkey clears the flag so the next sign-in can use the passkey button.
  *
- * The user picks where the passkey lives: this desktop (platform authenticator),
- * a phone (cross-platform), or desktop linked to a phone via the browser's QR /
- * hybrid flow (also cross-platform). All three create a discoverable passkey.
+ * Exactly two reliable paths (the unreliable browser-native cross-device hybrid /
+ * QR was removed — the phone's biometric completed but the result never relayed
+ * back to the desktop, hanging the ceremony):
+ *   1. This device — a platform authenticator (Touch ID / Windows Hello). Fast
+ *      and reliable.
+ *   2. Phone via QR — an app-level handoff: mint a single-use code, show a QR of
+ *      its enroll URL, the user scans it on their phone and enrolls a platform
+ *      passkey there. Works with NO Bluetooth.
  */
 export function OnboardingPage() {
   const { api, logout, clearPasskeySetup } = useAuth();
   const navigate = useNavigate();
-  const [pending, setPending] = useState<AuthenticatorAttachment | "qr" | null>(
-    null,
-  );
+  const [pending, setPending] = useState(false);
+  const [showQr, setShowQr] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
 
-  async function enroll(
-    key: AuthenticatorAttachment | "qr",
-    attachment: AuthenticatorAttachment,
-  ) {
+  async function enrollThisDevice() {
     setError(undefined);
-    setPending(key);
+    setShowQr(false);
+    setPending(true);
     try {
-      const ceremony = await startPasskeyRegistration(api, {}, attachment);
+      const ceremony = await startPasskeyRegistration(api, {}, "platform");
       await finishPasskeyRegistration(api, ceremony);
       clearPasskeySetup();
       void navigate("/dispatch", { replace: true });
@@ -47,40 +50,11 @@ export function OnboardingPage() {
         cancelled ? ko.onboarding.enrollCancelled : ko.onboarding.enrollFailed,
       );
     } finally {
-      setPending(null);
+      setPending(false);
     }
   }
 
-  const busy = pending !== null;
-  const methods: {
-    key: AuthenticatorAttachment | "qr";
-    attachment: AuthenticatorAttachment;
-    icon: typeof Monitor;
-    title: string;
-    description: string;
-  }[] = [
-    {
-      key: "platform",
-      attachment: "platform",
-      icon: Monitor,
-      title: ko.onboarding.methods.desktop.title,
-      description: ko.onboarding.methods.desktop.description,
-    },
-    {
-      key: "cross-platform",
-      attachment: "cross-platform",
-      icon: Smartphone,
-      title: ko.onboarding.methods.mobile.title,
-      description: ko.onboarding.methods.mobile.description,
-    },
-    {
-      key: "qr",
-      attachment: "cross-platform",
-      icon: QrCode,
-      title: ko.onboarding.methods.qr.title,
-      description: ko.onboarding.methods.qr.description,
-    },
-  ];
+  const busy = pending;
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-muted-panel px-4 py-12">
@@ -94,37 +68,63 @@ export function OnboardingPage() {
           </div>
 
           <div className="grid gap-3">
-            {methods.map((method) => {
-              const Icon = method.icon;
-              const active = pending === method.key;
-              return (
-                <button
-                  key={method.key}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    void enroll(method.key, method.attachment);
-                  }}
-                  className="flex items-start gap-3 rounded-lg border border-line bg-white p-4 text-left transition hover:border-steel hover:bg-muted-panel focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <Icon
-                    aria-hidden="true"
-                    size={22}
-                    className="mt-0.5 shrink-0 text-steel"
-                  />
-                  <span className="grid gap-0.5">
-                    <span className="text-sm font-semibold text-ink">
-                      {active ? ko.onboarding.enrolling : method.title}
-                    </span>
-                    <span className="text-sm text-steel">
-                      {active
-                        ? ko.onboarding.enrollingHint
-                        : method.description}
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                void enrollThisDevice();
+              }}
+              className="flex items-start gap-3 rounded-lg border border-line bg-white p-4 text-left transition hover:border-steel hover:bg-muted-panel focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Monitor
+                aria-hidden="true"
+                size={22}
+                className="mt-0.5 shrink-0 text-steel"
+              />
+              <span className="grid gap-0.5">
+                <span className="text-sm font-semibold text-ink">
+                  {pending
+                    ? ko.onboarding.enrolling
+                    : ko.onboarding.methods.desktop.title}
+                </span>
+                <span className="text-sm text-steel">
+                  {pending
+                    ? ko.onboarding.enrollingHint
+                    : ko.onboarding.methods.desktop.description}
+                </span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              disabled={busy}
+              aria-expanded={showQr}
+              onClick={() => {
+                setError(undefined);
+                setShowQr((open) => !open);
+              }}
+              className="flex items-start gap-3 rounded-lg border border-line bg-white p-4 text-left transition hover:border-steel hover:bg-muted-panel focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <QrCode
+                aria-hidden="true"
+                size={22}
+                className="mt-0.5 shrink-0 text-steel"
+              />
+              <span className="grid gap-0.5">
+                <span className="text-sm font-semibold text-ink">
+                  {ko.onboarding.methods.phoneQr.title}
+                </span>
+                <span className="text-sm text-steel">
+                  {ko.onboarding.methods.phoneQr.description}
+                </span>
+              </span>
+            </button>
+
+            {showQr ? (
+              <div className="rounded-lg border border-line bg-muted-panel p-4">
+                <EnrollHandoffQr requireStepUp={false} />
+              </div>
+            ) : null}
           </div>
 
           <Button

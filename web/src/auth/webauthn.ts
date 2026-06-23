@@ -149,6 +149,31 @@ export async function resetUserCredentials(
   return requireData<AdminCredentialResetResponse>(result.data);
 }
 
+type EnrollHandoffResponse = components["schemas"]["EnrollHandoffResponse"];
+
+/**
+ * Mint a cross-device passkey-enrollment handoff for the authenticated user. The
+ * backend returns a fresh single-use, short-lived code plus a ready-to-encode
+ * `enroll_url`; the frontend renders that URL as a QR for the user to scan on
+ * their phone, where it redeems via the first-sign-in flow and enrolls a passkey
+ * — no Bluetooth/hybrid tunnel.
+ *
+ * SELF-ONLY server-side: the target user/org come from the verified access token,
+ * never the request. When the caller already has a passkey (adding a device) the
+ * backend requires a fresh step-up assertion of an existing passkey, so this
+ * performs one first; a mid-onboarding caller (no passkey yet) skips it.
+ */
+export async function issueEnrollHandoff(
+  api: WebAuthnApi,
+  requireStepUp = false,
+): Promise<EnrollHandoffResponse> {
+  const stepUp = requireStepUp ? await assertStepUp(api) : undefined;
+  const result = await api.POST("/api/v1/auth/passkey/enroll-handoff", {
+    body: stepUp ? { step_up: stepUp } : {},
+  });
+  return requireData<EnrollHandoffResponse>(result.data);
+}
+
 export async function startPasskeyRegistration(
   api: WebAuthnApi,
   body: components["schemas"]["PasskeyRegisterStartRequest"],
@@ -282,9 +307,10 @@ function toCreationOptions(
   if (attachment) {
     // Steer which authenticator the user chose without weakening the server's
     // resident-key requirement — passkeys MUST stay discoverable for usernameless
-    // login. "platform" = this device (Touch ID / Windows Hello); "cross-platform"
-    // = a phone or security key, which makes the browser show its native QR /
-    // hybrid (cross-device) flow.
+    // login. We only pass "platform" (this device: Touch ID / Windows Hello): the
+    // unreliable browser-native cross-device hybrid/QR flow was replaced by the
+    // app-level scan-to-enroll-on-phone handoff (issueEnrollHandoff), so a
+    // "cross-platform" attachment is no longer used here.
     const existing = isRecord(options.authenticatorSelection)
       ? options.authenticatorSelection
       : {};

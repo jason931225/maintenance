@@ -57,6 +57,7 @@ pub const PASSKEY_LOGIN_FINISH_PATH: &str = "/api/v1/auth/passkey/login/finish";
 pub const OTP_REDEEM_PATH: &str = "/api/v1/auth/otp/redeem";
 pub const ADMIN_OTP_ISSUE_PATH: &str = "/api/v1/auth/admin/otp/issue";
 pub const ADMIN_CREDENTIAL_RESET_PATH: &str = "/api/v1/auth/admin/credential-reset";
+pub const PASSKEY_ENROLL_HANDOFF_PATH: &str = "/api/v1/auth/passkey/enroll-handoff";
 pub const TOKEN_REFRESH_PATH: &str = "/api/v1/auth/token/refresh";
 pub const LOGOUT_PATH: &str = "/api/v1/auth/logout";
 pub const AUTH_ROUTE_PATHS: &[&str] = &[
@@ -68,6 +69,7 @@ pub const AUTH_ROUTE_PATHS: &[&str] = &[
     OTP_REDEEM_PATH,
     ADMIN_OTP_ISSUE_PATH,
     ADMIN_CREDENTIAL_RESET_PATH,
+    PASSKEY_ENROLL_HANDOFF_PATH,
     TOKEN_REFRESH_PATH,
     LOGOUT_PATH,
 ];
@@ -86,6 +88,12 @@ const DEFAULT_OTP_TTL: Duration = Duration::hours(4);
 /// Upper bound on a caller-specified OTP TTL; rejects absurd values. Tightened to
 /// 24h (from 30d): no legitimate first sign-in needs a code that outlives a day.
 const MAX_OTP_TTL: Duration = Duration::hours(24);
+
+/// Lifetime of a cross-device passkey-enrollment HANDOFF code. Deliberately SHORT
+/// (5 min, distinct from the 4h admin OTP): the handoff is minted by the user for
+/// themselves and scanned onto a second device within seconds, so a tight window
+/// keeps the leaked-code blast radius minimal for this credential-handoff path.
+const ENROLL_HANDOFF_TTL: Duration = Duration::minutes(5);
 
 /// Fixed-window length for the DB-backed unauthenticated-endpoint rate limiter.
 const RATE_LIMIT_WINDOW: Duration = Duration::minutes(1);
@@ -147,6 +155,12 @@ struct AuthServices {
     jwt_verifier: JwtVerifier,
     refresh_tokens: RefreshTokenStore,
     bootstrap_credentials: BootstrapCredentialStore,
+    /// The console's public origin (the WebAuthn RP origin, e.g.
+    /// `https://console.knllogistic.com`). Used to build the cross-device
+    /// passkey-enrollment handoff URL the frontend renders as a QR; the phone
+    /// opens it to redeem the handoff and enroll a passkey. Always a validated,
+    /// scheme+host origin with no path/query (parsed once at config time).
+    rp_origin: Url,
     refresh_token_ttl: Duration,
     refresh_family_absolute_ttl: Duration,
     cookie_secure: bool,
@@ -170,6 +184,9 @@ impl AuthRestState {
 
     pub fn new(pool: PgPool, config: AuthRestConfig) -> Result<Self, AuthRestConfigError> {
         let rp_origin = Url::parse(&config.rp_origin)?;
+        // Keep a copy of the validated origin to build the cross-device enrollment
+        // handoff URL; `WebauthnSettings` takes ownership of the other clone below.
+        let handoff_origin = rp_origin.clone();
         let passkeys = PasskeyService::new(WebauthnSettings {
             rp_id: config.rp_id,
             rp_origin,
@@ -198,6 +215,7 @@ impl AuthRestState {
                 jwt_verifier,
                 refresh_tokens: RefreshTokenStore,
                 bootstrap_credentials: BootstrapCredentialStore,
+                rp_origin: handoff_origin,
                 refresh_token_ttl: config.refresh_token_ttl,
                 refresh_family_absolute_ttl: config.refresh_family_absolute_ttl,
                 cookie_secure: config.cookie_secure,
@@ -240,6 +258,7 @@ pub fn router(state: AuthRestState) -> Router {
         .route(OTP_REDEEM_PATH, post(redeem_otp))
         .route(ADMIN_OTP_ISSUE_PATH, post(issue_admin_otp))
         .route(ADMIN_CREDENTIAL_RESET_PATH, post(admin_credential_reset))
+        .route(PASSKEY_ENROLL_HANDOFF_PATH, post(enroll_handoff))
         .route(TOKEN_REFRESH_PATH, post(refresh_token))
         .route(LOGOUT_PATH, post(logout))
         .with_state(state)
@@ -374,6 +393,29 @@ struct AdminCredentialResetResponse {
     user_id: Uuid,
     otp: String,
     expires_at: OffsetDateTime,
+}
+
+/// Cross-device self passkey-enrollment handoff request. The body carries NO
+/// user/org — those come from the caller's verified access token, so a caller can
+/// only ever mint a handoff for ITSELF. `step_up` is required ONLY when the caller
+/// is already enrolled (add-device): exactly like `register/start`, an
+/// already-enrolled user must assert an existing passkey (UV) before a fresh
+/// enrollment credential is issued, so a stolen bearer token alone cannot mint a
+/// device-enrollment handoff. A mid-onboarding user (zero passkeys) omits it.
+#[derive(Debug, Deserialize, Default)]
+struct EnrollHandoffRequest {
+    step_up: Option<StepUpAssertion>,
+}
+
+/// The minted single-use, short-TTL passkey-enrollment handoff code (returned
+/// once, never stored in plaintext) plus the ready-to-encode enrollment URL the
+/// frontend renders as a QR. The phone opens `enroll_url`, redeems the `otp` via
+/// the ordinary first-sign-in path, and enrolls a platform passkey on the phone.
+#[derive(Debug, Serialize)]
+struct EnrollHandoffResponse {
+    otp: String,
+    expires_at: OffsetDateTime,
+    enroll_url: String,
 }
 
 /// A minted access/refresh pair. `refresh_token` is `null` in the cookie
@@ -1089,6 +1131,88 @@ async fn admin_credential_reset(
         otp: issue.token.as_str().to_owned(),
         expires_at: issue.expires_at,
     }))
+}
+
+/// Mint a cross-device passkey-enrollment handoff for the AUTHENTICATED user.
+///
+/// SELF-ONLY: the target user id and org come from the caller's VERIFIED access
+/// token (`authenticated_user_context`), NEVER from the request body, so a caller
+/// can only ever mint a handoff for itself — there is no path to hand off another
+/// user's enrollment.
+///
+/// Scoped to passkey enrollment: the returned code is a fresh single-use,
+/// short-TTL (5 min) bootstrap credential for THIS user, redeemed on a second
+/// device (a phone scanning the QR) through the ordinary first-sign-in path. The
+/// phone lands on its own onboarding page and enrolls a platform passkey there —
+/// no Bluetooth / caBLE hybrid tunnel.
+///
+/// Step-up gate (mirrors `start_registration` exactly): when the caller is ALREADY
+/// enrolled (has >=1 passkey, i.e. this is add-a-device), a fresh `step_up`
+/// assertion of an existing passkey (UV required) is mandatory before a handoff is
+/// minted, so a stolen bearer token alone cannot mint a device-enrollment code. A
+/// mid-onboarding caller (zero passkeys) is exempt — there is nothing to assert,
+/// and the redeem on the phone still gates the actual enrollment.
+///
+/// Audited inside `issue_self_enroll_handoff` as
+/// `auth.passkey.enroll_handoff_issued`; the code value is never logged.
+async fn enroll_handoff(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+    Json(body): Json<EnrollHandoffRequest>,
+) -> Result<Json<EnrollHandoffResponse>, RestError> {
+    let services = state.services()?;
+    // SELF-ONLY: user + org are taken from the verified token, never the body.
+    let (user_id, org_id) = authenticated_user_context(services, &headers)?;
+
+    // Step-up gate: an already-enrolled user MUST assert an existing passkey (UV)
+    // before a fresh enrollment handoff is minted; a user with zero passkeys is
+    // mid-onboarding and exempt — identical to `start_registration`.
+    let existing_passkeys = services
+        .passkeys
+        .count_user_passkeys(&state.pool, org_id, user_id)
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
+    if existing_passkeys > 0 {
+        let step_up = body.step_up.ok_or_else(|| {
+            RestError::unauthorized(
+                "minting an enrollment handoff requires a step-up assertion of an existing passkey",
+            )
+        })?;
+        services
+            .passkeys
+            .verify_step_up_for_user(
+                &state.pool,
+                step_up.ceremony_id,
+                step_up.credential,
+                user_id,
+            )
+            .await
+            .map_err(|err| RestError::unauthorized(err.to_string()))?;
+    }
+
+    let now = OffsetDateTime::now_utc();
+    let issue = services
+        .bootstrap_credentials
+        .issue_self_enroll_handoff(&state.pool, user_id, org_id, now, ENROLL_HANDOFF_TTL)
+        .await
+        .map_err(RestError::from_provisioning)?;
+
+    Ok(Json(EnrollHandoffResponse {
+        enroll_url: build_enroll_url(&services.rp_origin, issue.token.as_str()),
+        otp: issue.token.as_str().to_owned(),
+        expires_at: issue.expires_at,
+    }))
+}
+
+/// Build the QR-encoded enrollment URL `{rp_origin}/login?otp=<handoff>` from the
+/// validated console origin and the freshly minted handoff code. Uses the `url`
+/// crate so the OTP is correctly percent-encoded as a query parameter (the OTP
+/// alphabet includes `#$%^&*` etc.), never string-concatenated.
+fn build_enroll_url(rp_origin: &Url, otp: &str) -> String {
+    let mut url = rp_origin.clone();
+    url.set_path("/login");
+    url.query_pairs_mut().clear().append_pair("otp", otp);
+    url.to_string()
 }
 
 /// Remap the `401` that `load_user_auth_context_in_org` returns for a

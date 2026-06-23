@@ -1257,6 +1257,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/passkey/enroll-handoff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint a cross-device passkey-enrollment handoff (self)
+         * @description Mints a fresh single-use, short-lived (5 minutes) one-time code for the CURRENTLY AUTHENTICATED user so they can finish passkey enrollment on a SECOND device (typically a phone scanning a QR shown on the desktop console). SELF-ONLY — the user and org come from the verified access token, never the request body, so a caller can only ever mint a handoff for itself. When the caller is ALREADY enrolled (adding a device), a fresh `step_up` assertion of an existing passkey (user verification required) is mandatory, exactly like `passkey/register/start`; a mid-onboarding caller (no passkey yet) omits it. The response returns the code once (only its hash is stored) plus the ready-to-encode enrollment URL. The phone opens that URL, redeems the code via `POST /api/v1/auth/otp/redeem`, and enrolls a platform passkey — no Bluetooth required.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["EnrollHandoffRequest"];
+                };
+            };
+            responses: {
+                /** @description The minted single-use enrollment code, its expiry, and the QR enrollment URL. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EnrollHandoffResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/token/refresh": {
         parameters: {
             query?: never;
@@ -3006,6 +3051,18 @@ export interface components {
             user_id: components["schemas"]["Uuid"];
             otp: string;
             expires_at: components["schemas"]["Timestamp"];
+        };
+        /** @description Cross-device passkey-enrollment handoff request. Carries NO user/org — those come from the verified access token, so a caller can only mint a handoff for itself. `step_up` is REQUIRED only when the caller already has a passkey (adding a device); a mid-onboarding caller (zero passkeys) omits it. */
+        EnrollHandoffRequest: {
+            step_up?: components["schemas"]["PasskeyStepUpAssertion"];
+        };
+        /** @description The minted single-use, short-lived passkey-enrollment code (returned once, only its hash is stored) plus the ready-to-encode enrollment URL the frontend renders as a QR. The phone opens `enroll_url`, redeems `otp` via the first-sign-in path, and enrolls a platform passkey. */
+        EnrollHandoffResponse: {
+            /** @description The single-use enrollment handoff code. */
+            otp: string;
+            expires_at: components["schemas"]["Timestamp"];
+            /** @description The console enrollment URL embedding the handoff code as a query parameter (`{origin}/login?otp=<code>`), to be rendered as a QR and scanned on a phone. */
+            enroll_url: string;
         };
         PasskeyLoginStartResponse: {
             ceremony_id: components["schemas"]["Uuid"];
