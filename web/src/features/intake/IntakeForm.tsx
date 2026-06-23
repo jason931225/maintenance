@@ -1,6 +1,7 @@
 import { Save } from "lucide-react";
 import type { SyntheticEvent } from "react";
 import { useCallback, useState } from "react";
+import { Link } from "react-router-dom";
 
 import type {
   CreateWorkOrderRequest,
@@ -79,11 +80,17 @@ export function IntakeForm({
   const [status, setStatus] = useState<
     "idle" | "saving" | "created" | "error"
   >("idle");
+  // The created work order so the success banner can read the request_no back to
+  // the caller and deep-link to its detail view (the intake dead-end fix).
+  const [createdWorkOrder, setCreatedWorkOrder] = useState<
+    WorkOrderSummary | null
+  >(null);
 
   // The "created" confirmation is transient: drop it back to idle after a short
   // window so the banner does not linger forever on the now-empty form.
   const clearCreated = useCallback(() => {
     setStatus("idle");
+    setCreatedWorkOrder(null);
   }, []);
   useAutoDismiss(
     status === "created" ? status : undefined,
@@ -91,8 +98,10 @@ export function IntakeForm({
     SUCCESS_DISMISS_MS,
   );
 
+  // Reset the per-request fields after a successful submit but KEEP the
+  // equipment context (managementNo) so the receptionist can file a follow-up
+  // for the same machine or read the lookup panel while talking to the caller.
   function resetForm() {
-    setManagementNo("");
     setRequestedOn(todayInSeoul());
     setSymptom("");
     setContactPhone("");
@@ -151,6 +160,7 @@ export function IntakeForm({
           : undefined,
       });
       setStatus("created");
+      setCreatedWorkOrder(created);
       resetForm();
       onCreated?.(created);
     } catch {
@@ -333,9 +343,27 @@ export function IntakeForm({
           {status === "saving" ? ko.intake.saving : ko.intake.save}
         </Button>
         {status === "created" ? (
-          <p role="status" className="text-sm font-semibold text-brand-teal">
-            {ko.intake.created}
-          </p>
+          <div
+            role="status"
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-brand-teal/20 bg-brand-teal/10 px-3 py-2 text-sm font-semibold text-brand-teal"
+          >
+            <span>
+              {createdWorkOrder
+                ? ko.intake.createdWithNo.replace(
+                    "{requestNo}",
+                    createdWorkOrder.request_no,
+                  )
+                : ko.intake.created}
+            </span>
+            {createdWorkOrder ? (
+              <Link
+                to={`/work-orders/${createdWorkOrder.id}`}
+                className="underline underline-offset-2"
+              >
+                {ko.intake.viewWorkOrder}
+              </Link>
+            ) : null}
+          </div>
         ) : null}
         {status === "error" ? (
           <p role="alert" className="text-sm font-semibold text-red-700">

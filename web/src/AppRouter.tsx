@@ -36,6 +36,11 @@ const OnboardingPage = lazy(() =>
 const DispatchPage = lazy(() =>
   import("./pages/DispatchPage").then((m) => ({ default: m.DispatchPage })),
 );
+const WorkOrderDetailPage = lazy(() =>
+  import("./pages/WorkOrderDetailPage").then((m) => ({
+    default: m.WorkOrderDetailPage,
+  })),
+);
 const DispatchMapPage = lazy(() =>
   import("./pages/DispatchMapPage").then((m) => ({
     default: m.DispatchMapPage,
@@ -199,6 +204,9 @@ export function AppRouter() {
             authenticated paths there. */}
         <Route element={<AppShell />}>
           <Route path="/dispatch" element={<DispatchPage />} />
+          {/* Work-order detail (read gate is WorkOrderReadAll = every role).
+              Write controls inside are gated to the assigned mechanic. */}
+          <Route path="/work-orders/:id" element={<WorkOrderDetailPage />} />
           <Route path="/dispatch-map" element={<DispatchMapPage />} />
           <Route path="/intake" element={<IntakePage />} />
           <Route element={<RequireDailyPlanRoute />}>

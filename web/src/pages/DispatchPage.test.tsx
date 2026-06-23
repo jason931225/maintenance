@@ -84,10 +84,10 @@ function makeAuthContext(session: AuthSession): AuthContextValue {
   };
 }
 
-function renderApp(ctx: AuthContextValue) {
+function renderApp(ctx: AuthContextValue, path = "/dispatch") {
   return render(
     <AuthContext.Provider value={ctx}>
-      <MemoryRouter initialEntries={["/dispatch"]}>
+      <MemoryRouter initialEntries={[path]}>
         <AppRouter />
       </MemoryRouter>
     </AuthContext.Provider>,
@@ -226,6 +226,69 @@ describe("DispatchPage manager controls", () => {
     await waitFor(() => {
       expect(forced).toHaveBeenCalledWith({ mechanic_id: primaryMechanicId });
     });
+  });
+});
+
+describe("DispatchPage search and deep-link", () => {
+  it("filters the work-order list by the free-text query (client-side)", async () => {
+    const user = userEvent.setup();
+    server.use(workOrdersHandler());
+
+    renderApp(makeAuthContext(adminSession));
+
+    // All three fixture orders load initially (request_no shows in both the
+    // searchable list and the grouped board, so there are multiple matches).
+    expect((await screen.findAllByText("20260612-001")).length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.getAllByText("20260612-002").length).toBeGreaterThan(0);
+
+    // Typing a request_no narrows both the list and the board to the match.
+    await user.type(
+      screen.getByLabelText("접수번호·고객사·호기 검색"),
+      "20260612-002",
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("20260612-001")).not.toBeInTheDocument();
+    });
+    expect(screen.getAllByText("20260612-002").length).toBeGreaterThan(0);
+  });
+
+  it("redirects a /dispatch?wo={id} deep link to the detail view", async () => {
+    server.use(
+      workOrdersHandler(),
+      http.get("*/api/v1/work-orders/:id", () =>
+        HttpResponse.json({
+          ...workOrderListItems[0],
+          symptom: "유압 누유",
+          customer_request: null,
+          delay_reason: null,
+          delay_note: null,
+          diagnosis: null,
+          action_taken: null,
+          report_submitted_by: null,
+          report_submitted_at: null,
+          kpi_excluded: false,
+          evidence_verified: false,
+          approval_line: [],
+          status_history: [],
+          evidence: [],
+        }),
+      ),
+    );
+
+    renderApp(
+      makeAuthContext(adminSession),
+      `/dispatch?wo=${workOrderListItems[0].id}`,
+    );
+
+    // The deep link lands on the work-order detail page (its header), not the
+    // dispatch board.
+    expect(
+      await screen.findByRole("heading", { name: "작업지시 상세" }),
+    ).toBeVisible();
+    expect(await screen.findByText("유압 누유")).toBeVisible();
   });
 });
 

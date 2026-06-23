@@ -1,5 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
+import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { IntakeForm } from "./IntakeForm";
@@ -19,13 +21,19 @@ const readyEquipment = {
   },
 };
 
+// The success banner deep-links to the work-order detail via <Link>, so the
+// form must render inside a router context.
+function renderForm(ui: ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>);
+}
+
 describe("IntakeForm", () => {
   it("validates required fields and submits createWorkOrder through the generated API client", async () => {
     const user = userEvent.setup();
     const createWorkOrder = vi.fn().mockResolvedValue(workOrders[0]);
     const lookup = vi.fn();
 
-    render(
+    renderForm(
       <IntakeForm
         branchId={branchId}
         onCreateWorkOrder={createWorkOrder}
@@ -64,8 +72,41 @@ describe("IntakeForm", () => {
     expect("priority" in firstCall).toBe(false);
   });
 
+  it("reads the request_no back and deep-links to the work-order detail on success", async () => {
+    const user = userEvent.setup();
+    const createWorkOrder = vi.fn().mockResolvedValue(workOrders[0]);
+
+    renderForm(
+      <IntakeForm
+        branchId={branchId}
+        onCreateWorkOrder={createWorkOrder}
+        equipmentLookupState={readyEquipment}
+      />,
+    );
+
+    await user.type(screen.getByLabelText(/호기/), "290");
+    await user.type(screen.getByLabelText(/고장내용/), "유압 누유");
+    await user.type(screen.getByLabelText(/정비문의/), "010-2625-0987");
+    await user.click(screen.getByRole("button", { name: "접수 저장" }));
+
+    // The success banner reads the returned request_no back to the caller and
+    // links to the new detail view (the intake dead-end fix).
+    const banner = await screen.findByRole("status");
+    expect(within(banner).getByText(/20260612-001/)).toBeVisible();
+    const link = within(banner).getByRole("link", { name: "작업지시 보기" });
+    expect(link).toHaveAttribute(
+      "href",
+      `/work-orders/${workOrders[0].id}`,
+    );
+
+    // The equipment context (호기) is preserved instead of full-reset, while the
+    // per-request 고장내용 field is cleared for the next intake.
+    expect(screen.getByLabelText(/호기/)).toHaveValue("290");
+    expect(screen.getByLabelText(/고장내용/)).toHaveValue("");
+  });
+
   it("does not expose a priority control or auto-filled priority hint to the submitter", () => {
-    render(
+    renderForm(
       <IntakeForm
         branchId={branchId}
         onCreateWorkOrder={vi.fn()}
@@ -80,7 +121,7 @@ describe("IntakeForm", () => {
   });
 
   it("marks the required fields with a visible asterisk and aria-required", () => {
-    render(
+    renderForm(
       <IntakeForm
         branchId={branchId}
         onCreateWorkOrder={vi.fn()}
@@ -112,7 +153,7 @@ describe("IntakeForm", () => {
     const user = userEvent.setup();
     const createWorkOrder = vi.fn().mockResolvedValue(workOrders[0]);
 
-    render(
+    renderForm(
       <IntakeForm
         branchId={branchId}
         onCreateWorkOrder={createWorkOrder}

@@ -105,11 +105,11 @@ export function IntakePage() {
             equipmentSuggestions={equipmentSuggestions}
             onManagementNoChange={handleManagementNoChange}
             onCreateWorkOrder={createWorkOrder}
-            onCreated={() => {
-              setManagementNo("");
-              setEquipmentSuggestions([]);
-              setEquipmentLookupState({ status: "idle" });
-            }}
+            // Keep the equipment context (managementNo + the resolved lookup
+            // panel) after a successful submit so the receptionist can read the
+            // returned request_no back to the caller and, if needed, file a
+            // follow-up for the same machine. The form clears its own per-request
+            // fields and surfaces the request_no + detail deep-link.
           />
         ) : (
           <PageEmpty message={ko.common.noBranch} />

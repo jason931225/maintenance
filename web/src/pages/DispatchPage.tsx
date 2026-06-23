@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import type { components } from "@maintenance/api-client-ts";
 import type { UserSummary, WorkOrderListItem } from "../api/types";
@@ -9,6 +10,12 @@ import { RefreshButton } from "../components/shell/RefreshButton";
 import { PageError } from "../components/states/PageError";
 import { DispatchBoard } from "../features/dispatch/DispatchBoard";
 import { WorkOrderList } from "../features/dispatch/WorkOrderList";
+import { WorkOrderFilters } from "../features/dispatch/WorkOrderFilters";
+import {
+  EMPTY_WORK_ORDER_FILTERS,
+  matchesWorkOrderQuery,
+} from "../features/dispatch/workOrderQuery";
+import type { WorkOrderFilterState } from "../features/dispatch/workOrderQuery";
 import { WorkOrderDispatchControls } from "../features/dispatch/WorkOrderDispatchControls";
 import type { MechanicAssignmentInput } from "../features/dispatch/WorkOrderDispatchControls";
 import { MechanicDispatchOffers } from "../features/dispatch/MechanicDispatchOffers";
@@ -28,9 +35,14 @@ const WORK_ORDER_PAGE_SIZE = 100;
 
 export function DispatchPage() {
   const { api, session } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [workOrders, setWorkOrders] = useState<WorkOrderListItem[]>([]);
   const [workOrderTotal, setWorkOrderTotal] = useState<number | undefined>(
     undefined,
+  );
+  const [filters, setFilters] = useState<WorkOrderFilterState>(
+    EMPTY_WORK_ORDER_FILTERS,
   );
   const [mechanics, setMechanics] = useState<UserSummary[]>([]);
   const [readState, setReadState] = useState<ReadState>("loading");
@@ -49,11 +61,27 @@ export function DispatchPage() {
   const isManager = roles.some((role) => ADMIN_ROLES.includes(role));
   const isMechanic = roles.includes("MECHANIC");
 
+  // The list endpoint accepts `status[]` / `priority[]` server-side; the free-text
+  // query is applied client-side over the loaded rows (no such backend param).
+  const serverFilterQuery = useMemo(
+    () => ({
+      ...(filters.status ? { status: [filters.status] } : {}),
+      ...(filters.priority ? { priority: [filters.priority] } : {}),
+    }),
+    [filters.status, filters.priority],
+  );
+
   const loadData = useCallback(async () => {
     setReadState("loading");
     const response = await api
       .GET("/api/v1/work-orders", {
-        params: { query: { limit: WORK_ORDER_PAGE_SIZE, offset: 0 } },
+        params: {
+          query: {
+            limit: WORK_ORDER_PAGE_SIZE,
+            offset: 0,
+            ...serverFilterQuery,
+          },
+        },
       })
       .catch(() => undefined);
     if (!response?.data) {
@@ -63,14 +91,18 @@ export function DispatchPage() {
     setWorkOrders(response.data.items);
     setWorkOrderTotal(response.data.total);
     setReadState("idle");
-  }, [api]);
+  }, [api, serverFilterQuery]);
 
   const loadMoreWorkOrders = useCallback(async () => {
     setLoadingMore(true);
     const response = await api
       .GET("/api/v1/work-orders", {
         params: {
-          query: { limit: WORK_ORDER_PAGE_SIZE, offset: workOrders.length },
+          query: {
+            limit: WORK_ORDER_PAGE_SIZE,
+            offset: workOrders.length,
+            ...serverFilterQuery,
+          },
         },
       })
       .catch(() => undefined);
@@ -79,7 +111,7 @@ export function DispatchPage() {
       setWorkOrderTotal(response.data.total);
     }
     setLoadingMore(false);
-  }, [api, workOrders.length]);
+  }, [api, workOrders.length, serverFilterQuery]);
 
   const loadMechanics = useCallback(async () => {
     // Managers pick a specific mechanic to assign; only they can read the roster
@@ -98,6 +130,15 @@ export function DispatchPage() {
   useEffect(() => {
     void Promise.resolve().then(loadData);
   }, [loadData]);
+
+  // Deep-link support: `/dispatch?wo={id}` (e.g. the intake success link) opens
+  // the work-order detail view directly.
+  const deepLinkWorkOrderId = searchParams.get("wo");
+  useEffect(() => {
+    if (deepLinkWorkOrderId) {
+      void navigate(`/work-orders/${deepLinkWorkOrderId}`, { replace: true });
+    }
+  }, [deepLinkWorkOrderId, navigate]);
 
   useEffect(() => {
     void Promise.resolve().then(loadMechanics);
@@ -363,6 +404,15 @@ export function DispatchPage() {
     [workOrders, selectedWorkOrderId],
   );
 
+  // Client-side free-text filter (request_no / customer / equipment-no) over the
+  // loaded rows for the searchable list view. Status/priority are already
+  // applied server-side via the list query params.
+  const filteredWorkOrders = useMemo(
+    () =>
+      workOrders.filter((order) => matchesWorkOrderQuery(order, filters.query)),
+    [workOrders, filters.query],
+  );
+
   // A dispatch can be force-assigned while it is still resolving (broadcasting)
   // or escalated to a manager. Only surface it for the matching work order.
   const forceAssignDispatchId =
@@ -393,17 +443,34 @@ export function DispatchPage() {
         {writeState === "error" ? (
           <PageError message={ko.common.writeFailed} />
         ) : null}
-        <WorkOrderList
-          workOrders={workOrders}
-          isLoading={readState === "loading"}
-          total={workOrderTotal}
-          onLoadMore={() => {
-            void loadMoreWorkOrders();
+        <WorkOrderFilters
+          value={filters}
+          onChange={setFilters}
+          onReset={() => {
+            setFilters(EMPTY_WORK_ORDER_FILTERS);
           }}
+        />
+        <WorkOrderList
+          workOrders={filteredWorkOrders}
+          isLoading={readState === "loading"}
+          // While a free-text query is active the loaded rows are filtered
+          // client-side, so the server total / load-more no longer describe the
+          // visible set — hide them to keep the count honest.
+          total={filters.query.trim() ? undefined : workOrderTotal}
+          onLoadMore={
+            filters.query.trim()
+              ? undefined
+              : () => {
+                  void loadMoreWorkOrders();
+                }
+          }
           isLoadingMore={loadingMore}
+          emptyMessage={
+            filters.query.trim() ? ko.dispatch.search.noMatches : undefined
+          }
         />
         <DispatchBoard
-          workOrders={workOrders}
+          workOrders={filteredWorkOrders}
           selectedMechanicId={session?.user_id ?? ""}
           selectedMechanicName={session?.display_name}
           isLoading={readState === "loading"}

@@ -560,6 +560,10 @@ export const ko = {
     requiredRequestedOn: "요청일자를 선택하세요.",
     requiredContactPhone: "정비문의 연락처를 입력하세요.",
     created: "접수가 저장되었습니다.",
+    // Success banner reads the returned request_no back so the receptionist can
+    // tell the caller their order number, with a deep-link to the detail view.
+    createdWithNo: "접수가 저장되었습니다. 접수번호 {requestNo}",
+    viewWorkOrder: "작업지시 보기",
     saveFailed: "접수를 저장하지 못했습니다. 다시 시도하세요.",
     lookupPrompt: "호기를 입력하면 장비와 고객 정보를 조회합니다.",
     lookupLoading: "장비 조회 중",
@@ -599,6 +603,21 @@ export const ko = {
     selectedMechanic: "배정 정비사",
     assign: "배정",
     empty: "표시할 접수건이 없습니다.",
+    openDetail: "상세 보기",
+    // Search/filter bar over the work-order list. The text box filters the loaded
+    // rows by 접수번호·고객사·호기 (client-side); 상태·중요도 use the existing list
+    // query params (status[]/priority[]) and re-fetch from the server.
+    search: {
+      title: "검색·필터",
+      label: "접수번호·고객사·호기 검색",
+      placeholder: "접수번호, 고객사, 호기로 검색",
+      statusLabel: "상태 필터",
+      statusAll: "전체 상태",
+      priorityLabel: "중요도 필터",
+      priorityAll: "전체 중요도",
+      reset: "초기화",
+      noMatches: "검색 결과가 없습니다.",
+    },
     groups: {
       received: "접수",
       assigned: "배정",
@@ -733,6 +752,46 @@ export const ko = {
       rejectedSizeVideo: "영상은 200MB 이하만 업로드할 수 있습니다.",
       uploadFailed: "업로드하지 못했습니다. 다시 시도하세요.",
       processingFailed: "처리에 실패했습니다.",
+    },
+    // Work-order detail view (GET /api/v1/work-orders/{id}). Any role holding
+    // WorkOrderReadAll (every authenticated role) may open it read-only; the
+    // start/report/EvidenceUpload write controls stay gated to the assigned
+    // mechanic, exactly as on the dispatch board.
+    detail: {
+      title: "작업지시 상세",
+      description: "접수된 고장내용과 진행 이력을 확인하고, 진단·보고를 작성합니다.",
+      back: "목록으로",
+      notFound: "작업지시를 찾을 수 없습니다.",
+      loadFailed: "작업지시를 불러오지 못했습니다.",
+      forbidden: "이 작업지시를 볼 권한이 없습니다.",
+      requestNo: "접수번호",
+      equipment: "호기·장비",
+      customer: "고객사",
+      site: "사업장",
+      symptom: "고장내용",
+      customerRequest: "고객 요청사항",
+      priority: "중요도",
+      status: "상태",
+      assignee: "배정 정비사",
+      noAssignee: "배정된 정비사가 없습니다.",
+      targetDueAt: "목표 완료",
+      diagnosis: "진단 내용",
+      actionTaken: "조치 내용",
+      // Status-history timeline (StatusHistorySummary[]). KST via formatKoreanDateTime.
+      historyTitle: "진행 이력",
+      historyEmpty: "기록된 이력이 없습니다.",
+      // Read-only evidence list rendered from WorkOrderDetail.evidence[]; the
+      // thumbnail (when READY) is fetched per item from the evidence status
+      // endpoint. The detail payload itself carries no thumbnail URL.
+      evidenceTitle: "증거 자료",
+      evidenceEmpty: "첨부된 증거가 없습니다.",
+      evidenceVerified: "확인됨",
+      evidenceThumbAlt: "증거 미리보기",
+      // 길찾기 (directions). The work-order/site payload (NamedEntity) carries no
+      // address or coordinates, so directions are deferred until the backend adds
+      // a geocoded site address/lat·lon to the detail response.
+      directions: "길찾기",
+      directionsUnavailable: "사업장 주소·좌표가 아직 제공되지 않습니다.",
     },
   },
   approvals: {

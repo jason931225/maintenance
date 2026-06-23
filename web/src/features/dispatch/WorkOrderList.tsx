@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+
 import type { WorkOrderListItem } from "../../api/types";
 import { Badge } from "../../components/ui/badge";
 import { Card } from "../../components/ui/card";
@@ -15,6 +17,8 @@ interface WorkOrderListProps {
   /** Fetches and appends the next page (omitted when not paginated). */
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
+  /** Override for the empty state (e.g. "no search matches" vs "no orders"). */
+  emptyMessage?: string;
 }
 
 export function WorkOrderList({
@@ -23,6 +27,7 @@ export function WorkOrderList({
   total,
   onLoadMore,
   isLoadingMore = false,
+  emptyMessage,
 }: WorkOrderListProps) {
   const hasMore = total !== undefined && workOrders.length < total;
   return (
@@ -40,7 +45,7 @@ export function WorkOrderList({
           </p>
         ) : (
           <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
-            {ko.dispatch.empty}
+            {emptyMessage ?? ko.dispatch.empty}
           </p>
         )
       ) : (
@@ -51,9 +56,14 @@ export function WorkOrderList({
               className="grid gap-3 rounded-md border border-line p-3 md:grid-cols-[minmax(8rem,1fr)_minmax(10rem,1.2fr)_auto]"
             >
               <div>
-                <p className="font-semibold text-ink">
+                {/* Deep-link to the read-only detail view — reachable by any
+                    WorkOrderReadAll holder (every role), not just managers. */}
+                <Link
+                  to={`/work-orders/${workOrder.id}`}
+                  className="font-semibold text-ink underline-offset-2 hover:underline focus-visible:underline"
+                >
                   {workOrder.request_no}
-                </p>
+                </Link>
                 <p className="text-sm text-steel">
                   {ko.status[workOrder.status]}
                 </p>
