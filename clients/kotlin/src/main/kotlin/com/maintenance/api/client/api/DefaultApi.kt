@@ -36,6 +36,7 @@ import com.maintenance.api.client.model.AndroidAssetLinkStatement
 import com.maintenance.api.client.model.AppendManualCostLedgerRequest
 import com.maintenance.api.client.model.AppleAppSiteAssociation
 import com.maintenance.api.client.model.ArrivalEventPage
+import com.maintenance.api.client.model.AssetLifecycleCostSummary
 import com.maintenance.api.client.model.AssignSubstituteRequest
 import com.maintenance.api.client.model.AssignTicketRequest
 import com.maintenance.api.client.model.AssignWorkOrderRequest
@@ -3919,6 +3920,79 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/daily-work-plans/{planId}".replace("{"+"planId"+"}", encodeURIComponent(planId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/financial/equipment/{equipmentId}/lifecycle-cost
+     * Per-asset lifecycle cost, TCO, and gross margin
+     * Read-gated (EquipmentCostLedgerRead). Returns the asset&#39;s acquisition cost (with a source tag), maintenance total split by source, read-only outsource cost, current residual, latest realized sale price, total cost of ownership, gross margin, and per-month/per-hour maintenance intensity.
+     * @param equipmentId
+     * @return AssetLifecycleCostSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getEquipmentLifecycleCost(equipmentId: java.util.UUID) : AssetLifecycleCostSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = getEquipmentLifecycleCostWithHttpInfo(equipmentId = equipmentId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as AssetLifecycleCostSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/financial/equipment/{equipmentId}/lifecycle-cost
+     * Per-asset lifecycle cost, TCO, and gross margin
+     * Read-gated (EquipmentCostLedgerRead). Returns the asset&#39;s acquisition cost (with a source tag), maintenance total split by source, read-only outsource cost, current residual, latest realized sale price, total cost of ownership, gross margin, and per-month/per-hour maintenance intensity.
+     * @param equipmentId
+     * @return ApiResponse<AssetLifecycleCostSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getEquipmentLifecycleCostWithHttpInfo(equipmentId: java.util.UUID) : ApiResponse<AssetLifecycleCostSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getEquipmentLifecycleCostRequestConfig(equipmentId = equipmentId)
+
+        return@withContext request<Unit, AssetLifecycleCostSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getEquipmentLifecycleCost
+     *
+     * @param equipmentId
+     * @return RequestConfig
+     */
+    fun getEquipmentLifecycleCostRequestConfig(equipmentId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/financial/equipment/{equipmentId}/lifecycle-cost".replace("{"+"equipmentId"+"}", encodeURIComponent(equipmentId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

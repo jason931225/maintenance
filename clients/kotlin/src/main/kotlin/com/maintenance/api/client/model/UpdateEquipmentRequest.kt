@@ -59,6 +59,8 @@ import kotlinx.serialization.Contextual
  * @param rentalFee
  * @param vehicleValue
  * @param residualValue
+ * @param acquisitionCostWon Acquisition cost in KRW. A distinct accounting fact, never the depreciation base.
+ * @param acquisitionDate
  * @param note
  */
 @Serializable
@@ -145,6 +147,13 @@ data class UpdateEquipmentRequest (
 
     @SerialName(value = "residual_value")
     val residualValue: kotlin.Long? = null,
+
+    /* Acquisition cost in KRW. A distinct accounting fact, never the depreciation base. */
+    @SerialName(value = "acquisition_cost_won")
+    val acquisitionCostWon: kotlin.Long? = null,
+
+    @Contextual @SerialName(value = "acquisition_date")
+    val acquisitionDate: java.time.LocalDate? = null,
 
     @SerialName(value = "note")
     val note: kotlin.String? = null

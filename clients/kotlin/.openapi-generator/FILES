@@ -29,6 +29,7 @@ src/main/kotlin/com/maintenance/api/client/infrastructure/StringBuilderAdapter.k
 src/main/kotlin/com/maintenance/api/client/infrastructure/URIAdapter.kt
 src/main/kotlin/com/maintenance/api/client/infrastructure/URLAdapter.kt
 src/main/kotlin/com/maintenance/api/client/infrastructure/UUIDAdapter.kt
+src/main/kotlin/com/maintenance/api/client/model/AcquisitionBasis.kt
 src/main/kotlin/com/maintenance/api/client/model/AddCommentRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AdminCredentialResetRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AdminCredentialResetResponse.kt
@@ -42,6 +43,7 @@ src/main/kotlin/com/maintenance/api/client/model/AppleAppSiteAssociationWebcrede
 src/main/kotlin/com/maintenance/api/client/model/ApprovalStepSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/ArrivalEvent.kt
 src/main/kotlin/com/maintenance/api/client/model/ArrivalEventPage.kt
+src/main/kotlin/com/maintenance/api/client/model/AssetLifecycleCostSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/AssignSubstituteRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AssignTicketRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AssignWorkOrderRequest.kt

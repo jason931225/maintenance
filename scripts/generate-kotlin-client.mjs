@@ -30,6 +30,14 @@ function hasJava() {
   return spawnSync("java", ["-version"], { stdio: "ignore" }).status === 0;
 }
 
+function hasRunningDocker() {
+  // `docker info` exits non-zero (and prints to stderr) when the CLI is present
+  // but no daemon is reachable. spawnSync.status is null when `docker` itself is
+  // not installed (ENOENT) — treat both as "no usable Docker". The timeout keeps
+  // a wedged daemon socket from stalling the preflight indefinitely.
+  return spawnSync("docker", ["info"], { stdio: "ignore", timeout: 10_000 }).status === 0;
+}
+
 function normalizeGeneratedTextFiles(directory) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const path = resolve(directory, entry.name);
@@ -71,7 +79,27 @@ const generatorArgs = [
   "apiTests=false,modelTests=false,apiDocs=false,modelDocs=false",
 ];
 
-if (process.env.OPENAPI_GENERATOR_USE_DOCKER === "1" || !hasJava()) {
+const forceDocker = process.env.OPENAPI_GENERATOR_USE_DOCKER === "1";
+const javaAvailable = hasJava();
+
+// Preflight: openapi-generator-cli runs the generator JAR under Java, falling
+// back to the openapitools Docker image when no JDK is on PATH. If neither a
+// Java runtime nor a reachable Docker daemon exists, fail with an actionable
+// message here rather than letting the (webpacked, minified) wrapper throw a
+// "Unable to locate a Java Runtime" stack trace whose trailing "Node.js vXX"
+// footer is easily misread as a Node/ESM incompatibility (it is not). CI
+// installs Temurin 21, so the Java path is taken there and this never trips.
+if ((forceDocker || !javaAvailable) && !hasRunningDocker()) {
+  throw new Error(
+    "Kotlin client generation needs either a Java 17+ runtime (preferred) or a " +
+      "running Docker daemon, and found neither.\n" +
+      "  - Install a JDK (e.g. `brew install temurin`) so `java -version` works, or\n" +
+      "  - start Docker/Colima so `docker info` succeeds, then re-run `npm run gen:api:kotlin`.\n" +
+      "Set OPENAPI_GENERATOR_USE_DOCKER=1 to force the Docker path when a JDK is present but undesired.",
+  );
+}
+
+if (forceDocker || !javaAvailable) {
   const dockerInput = "/workspace/backend/openapi/openapi.yaml";
   const dockerOutput = "/workspace/clients/kotlin";
   const dockerConfig = "/workspace/clients/kotlin-generator-config.yaml";
