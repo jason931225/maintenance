@@ -2534,6 +2534,8 @@ export interface components {
         };
         KpiRollup: {
             scope: components["schemas"]["KpiRollupScope"];
+            /** @description Human-readable name for the scope (region/branch/mechanic), resolved via a same-org lookup. Null for the company-wide scope or a deleted region/branch/user. Optional; absent on the pure-domain shape. */
+            scope_display_name?: string | null;
             /** Format: int32 */
             approved_report_count: number;
             /** Format: int32 */
@@ -2723,6 +2725,8 @@ export interface components {
             branch_id: components["schemas"]["Uuid"];
             equipment_id: components["schemas"]["Uuid"];
             mechanic_id: components["schemas"]["Uuid"];
+            /** @description Assigned mechanic's display name, resolved via a same-org LEFT JOIN on users. Null when the mechanic account no longer exists. */
+            mechanic_display_name: string | null;
             cycle: components["schemas"]["InspectionCycle"];
             /** Format: int32 */
             interval_days: number;
@@ -2736,6 +2740,15 @@ export interface components {
             model: string | null;
             created_at: components["schemas"]["Timestamp"];
             updated_at: components["schemas"]["Timestamp"];
+        };
+        InspectionSchedulePage: {
+            items: components["schemas"]["InspectionScheduleSummary"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
         };
         InspectionRoundSummary: {
             id: components["schemas"]["Uuid"];
@@ -2797,6 +2810,8 @@ export interface components {
             requester_user_id: components["schemas"]["Uuid"];
             requester_name: string | null;
             assignee_user_id: components["schemas"]["Uuid"];
+            /** @description Assignee display name, resolved via a same-org LEFT JOIN on users. Null when unassigned or the assignee account no longer exists. */
+            assignee_name: string | null;
             /** Format: date-time */
             due_at: string | null;
             created_at: components["schemas"]["Timestamp"];
@@ -2810,6 +2825,8 @@ export interface components {
             id: components["schemas"]["Uuid"];
             ticket_id: components["schemas"]["Uuid"];
             author_user_id: components["schemas"]["Uuid"];
+            /** @description Comment author display name, resolved via a same-org LEFT JOIN on users. Null for an authorless comment or a deleted author. */
+            author_name: string | null;
             body: string;
             is_internal_note: boolean;
             created_at: components["schemas"]["Timestamp"];
@@ -2817,6 +2834,16 @@ export interface components {
         SupportTicketDetail: {
             ticket: components["schemas"]["SupportTicketSummary"];
             comments: components["schemas"]["SupportTicketComment"][];
+        };
+        SupportTicketPage: {
+            items: components["schemas"]["SupportTicketSummary"][];
+            /**
+             * Format: uuid
+             * @description Id to pass as `cursor` for the next page, or null on the last page.
+             */
+            next_cursor: string | null;
+            /** Format: int64 */
+            total: number;
         };
         EquipmentAutocompletePage: {
             items: components["schemas"]["EquipmentLookupResponse"][];
@@ -3116,11 +3143,7 @@ export interface components {
         };
         ArrivalEvent: {
             id: string;
-            user_id: components["schemas"]["Uuid"];
-            branch_id: components["schemas"]["Uuid"];
-            work_order_id: string;
             work_order_no: string;
-            site_id: string;
             site_name: string;
             /** @enum {string} */
             kind: "ARRIVAL" | "DEPARTURE";
@@ -3348,6 +3371,8 @@ export interface components {
             thread_id: components["schemas"]["Uuid"];
             branch_id: components["schemas"]["Uuid"];
             sender_id: components["schemas"]["Uuid"];
+            /** @description Sender display name, resolved via a same-org LEFT JOIN on users. Null when the sender account no longer exists. */
+            sender_name: string | null;
             body: string;
             attachment_evidence_ids: components["schemas"]["Uuid"][];
             sent_at: components["schemas"]["Timestamp"];
@@ -3924,6 +3949,15 @@ export interface components {
             has_passkey: boolean;
             account_status: components["schemas"]["AccountStatus"];
             created_at: components["schemas"]["Timestamp"];
+        };
+        UserPage: {
+            items: components["schemas"]["UserSummary"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
         };
         RegionSummary: {
             id: components["schemas"]["Uuid"];
@@ -4948,6 +4982,8 @@ export interface operations {
             query: {
                 due_start: components["schemas"]["Date"];
                 due_end: components["schemas"]["Date"];
+                limit?: number;
+                offset?: number;
             };
             header?: never;
             path?: never;
@@ -4955,13 +4991,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Inspection schedules due in the requested date range. */
+            /** @description A page of inspection schedules due in the requested range. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["InspectionScheduleSummary"][];
+                    "application/json": components["schemas"]["InspectionSchedulePage"];
                 };
             };
             400: components["responses"]["ValidationError"];
@@ -5077,13 +5113,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Support tickets visible in the principal's branch scope. */
+            /** @description A keyset page of support tickets visible in the principal's branch scope, plus the unpaged total for the same filters. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SupportTicketSummary"][];
+                    "application/json": components["schemas"]["SupportTicketPage"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -7096,6 +7132,7 @@ export interface operations {
             query?: {
                 include_inactive?: boolean;
                 limit?: number;
+                offset?: number;
             };
             header?: never;
             path?: never;
@@ -7103,13 +7140,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Users in the principal's branch scope. */
+            /** @description A page of users in the principal's branch scope. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserSummary"][];
+                    "application/json": components["schemas"]["UserPage"];
                 };
             };
             401: components["responses"]["Unauthorized"];

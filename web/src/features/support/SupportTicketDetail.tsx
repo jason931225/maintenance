@@ -12,6 +12,7 @@ import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Textarea } from "../../components/ui/textarea";
 import { ko } from "../../i18n/ko";
+import { safeLabel } from "../../lib/utils";
 import {
   allowedTransitions,
   categoryLabel,
@@ -113,6 +114,16 @@ export function SupportTicketDetail({
             </dt>
             <dd className="text-ink">
               {ticket.requester_name ?? ko.common.unknown}
+            </dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-steel">
+              {ko.support.assignee}
+            </dt>
+            <dd className="text-ink">
+              {ticket.assignee_user_id
+                ? safeLabel(ticket.assignee_name)
+                : ko.support.unassigned}
             </dd>
           </div>
           <div>
@@ -224,6 +235,11 @@ function CommentThread({ comments }: { comments: SupportTicketComment[] }) {
                 {ko.support.comments.internalNote}
               </Badge>
             ) : null}
+            <span className="text-xs font-medium text-ink">
+              {comment.author_user_id
+                ? safeLabel(comment.author_name)
+                : ko.support.comments.systemAuthor}
+            </span>
             <span className="text-xs text-steel">
               {formatDateTime(comment.created_at)}
             </span>

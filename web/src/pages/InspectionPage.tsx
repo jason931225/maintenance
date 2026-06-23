@@ -14,6 +14,7 @@ import { useAuth } from "../context/auth";
 import { PageError } from "../components/states/PageError";
 import { SkeletonCards } from "../components/states/Skeleton";
 import { PageHeader } from "../components/shell/PageHeader";
+import { LoadMoreButton } from "../components/shell/LoadMoreButton";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
@@ -28,6 +29,9 @@ import { Textarea } from "../components/ui/textarea";
 import { ko } from "../i18n/ko";
 import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../lib/useAutoDismiss";
 import { formatListCount, safeLabel, todayInSeoul } from "../lib/utils";
+
+/** Schedule page size; matches the backend default and keeps the list bounded. */
+const SCHEDULES_PAGE_SIZE = 200;
 
 const ROUND_OUTCOMES: InspectionRoundOutcome[] = [
   "COMPLETED",
@@ -82,6 +86,8 @@ export function InspectionPage() {
   const [rangeStart, setRangeStart] = useState(today);
   const [rangeEnd, setRangeEnd] = useState(() => plusDays(30));
   const [schedules, setSchedules] = useState<InspectionScheduleSummary[]>();
+  const [scheduleTotal, setScheduleTotal] = useState<number>();
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [creating, setCreating] = useState(false);
@@ -112,10 +118,18 @@ export function InspectionPage() {
     setLoadError(false);
     try {
       const response = await api.GET("/api/v1/inspections/schedules", {
-        params: { query: { due_start: rangeStart, due_end: rangeEnd } },
+        params: {
+          query: {
+            due_start: rangeStart,
+            due_end: rangeEnd,
+            limit: SCHEDULES_PAGE_SIZE,
+            offset: 0,
+          },
+        },
       });
       if (response.data) {
-        setSchedules(response.data);
+        setSchedules(response.data.items);
+        setScheduleTotal(response.data.total);
       } else {
         setLoadError(true);
       }
@@ -123,6 +137,30 @@ export function InspectionPage() {
       setLoadError(true);
     }
   }, [api, rangeStart, rangeEnd]);
+
+  const loadMore = useCallback(async () => {
+    if (schedules === undefined) return;
+    setLoadingMore(true);
+    try {
+      const response = await api.GET("/api/v1/inspections/schedules", {
+        params: {
+          query: {
+            due_start: rangeStart,
+            due_end: rangeEnd,
+            limit: SCHEDULES_PAGE_SIZE,
+            offset: schedules.length,
+          },
+        },
+      });
+      if (response.data) {
+        const next = response.data;
+        setSchedules((current) => [...(current ?? []), ...next.items]);
+        setScheduleTotal(next.total);
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [api, rangeStart, rangeEnd, schedules]);
 
   useEffect(() => {
     void Promise.resolve().then(load);
@@ -141,7 +179,7 @@ export function InspectionPage() {
     if (branchRes?.data) setBranches(branchRes.data);
     if (userRes?.data) {
       setMechanics(
-        userRes.data.filter((user) => user.roles.includes("MECHANIC")),
+        userRes.data.items.filter((user) => user.roles.includes("MECHANIC")),
       );
     }
   }, [api]);
@@ -329,7 +367,9 @@ export function InspectionPage() {
                 <h2 className="text-base font-semibold text-ink">
                   {ko.inspection.listTitle}
                 </h2>
-                <Badge>{formatListCount(schedules.length)}</Badge>
+                <Badge>
+                  {formatListCount(scheduleTotal ?? schedules.length)}
+                </Badge>
               </div>
               <ul className="grid gap-2">
                 {schedules.map((schedule) => (
@@ -352,7 +392,9 @@ export function InspectionPage() {
                         <span className="text-sm text-steel">
                           {schedule.site_name} ·{" "}
                           {ko.inspection.cycles[schedule.cycle]} ·{" "}
-                          {schedule.due_date}
+                          {schedule.due_date} ·{" "}
+                          {ko.inspection.fields.mechanic}:{" "}
+                          {safeLabel(schedule.mechanic_display_name)}
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
@@ -398,6 +440,17 @@ export function InspectionPage() {
                   </li>
                 ))}
               </ul>
+              {scheduleTotal !== undefined &&
+              schedules.length < scheduleTotal ? (
+                <LoadMoreButton
+                  onClick={() => {
+                    void loadMore();
+                  }}
+                  isLoading={loadingMore}
+                  loaded={schedules.length}
+                  total={scheduleTotal}
+                />
+              ) : null}
             </div>
           ) : null}
         </Card>

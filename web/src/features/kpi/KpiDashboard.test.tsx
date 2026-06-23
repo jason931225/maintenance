@@ -30,6 +30,15 @@ describe("KpiDashboard", () => {
     expect(screen.getAllByText("데이터 수집 전")[0]).toBeVisible();
     expect(screen.getByText("정기검사 도메인 병합 대기")).toBeVisible();
 
+    // Each non-company scope button shows the resolved name (region/branch/
+    // mechanic) instead of a raw id; the company scope shows just its label.
+    expect(screen.getByText(/지점 · 창원지점/)).toBeVisible();
+    expect(screen.getByText(/권역 · 경남권역/)).toBeVisible();
+    expect(screen.getByText(/정비사 · 김정비/)).toBeVisible();
+    expect(
+      screen.queryByText("abababab-abab-4bab-8bab-abababababab"),
+    ).not.toBeInTheDocument();
+
     await user.click(screen.getByRole("button", { name: "지점 보기" }));
 
     expect(screen.getByText("7건")).toBeVisible();

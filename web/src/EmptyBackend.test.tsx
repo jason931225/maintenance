@@ -75,9 +75,17 @@ const server = setupServer(
   http.get("*/api/messenger/threads", () =>
     HttpResponse.json({ items: [] }),
   ),
+  // Paginated list endpoints → empty page envelopes.
+  http.get("*/api/v1/support/tickets", () =>
+    HttpResponse.json({ items: [], next_cursor: null, total: 0 }),
+  ),
+  http.get("*/api/v1/users", () =>
+    HttpResponse.json({ items: [], limit: 200, offset: 0, total: 0 }),
+  ),
+  http.get("*/api/v1/inspections/schedules", () =>
+    HttpResponse.json({ items: [], limit: 200, offset: 0, total: 0 }),
+  ),
   // Bare-array list endpoints → empty array.
-  http.get("*/api/v1/support/tickets", () => HttpResponse.json([])),
-  http.get("*/api/v1/users", () => HttpResponse.json([])),
   http.get("*/api/v1/users/me", () => HttpResponse.json(me)),
   http.get("*/api/v1/branches", () => HttpResponse.json([])),
   http.get("*/api/v1/regions", () => HttpResponse.json([])),

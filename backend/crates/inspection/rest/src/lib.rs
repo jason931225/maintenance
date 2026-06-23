@@ -93,7 +93,16 @@ struct CompleteRoundRequest {
 struct ListSchedulesRequest {
     due_start: String,
     due_end: String,
+    /// Page size. Optional; the adapter clamps to `1..=500` and a missing value
+    /// defaults below, so older clients that omit it still get a bounded page.
+    limit: Option<i64>,
+    /// Zero-based row offset for offset pagination. Optional, defaults to 0.
+    offset: Option<i64>,
 }
+
+/// Default schedule page size when the client omits `limit`. Generous enough
+/// that a typical month's roster fits in one page, but still bounded.
+const DEFAULT_SCHEDULE_LIMIT: i64 = 200;
 
 #[derive(Debug, Serialize)]
 struct ErrorBody {
@@ -149,16 +158,24 @@ async fn list_schedules(
         representative_branch(&principal.branch_scope)?,
     )
     .map_err(RestError::from_kernel)?;
-    let schedules = state
+    let offset = query.offset.unwrap_or(0);
+    if offset < 0 {
+        return Err(RestError::from_kernel(KernelError::validation(
+            "offset must be non-negative",
+        )));
+    }
+    let page = state
         .store
         .list_due_schedules(ListInspectionSchedulesQuery {
             branch_scope: principal.branch_scope,
             due_start: parse_date(&query.due_start)?,
             due_end: parse_date(&query.due_end)?,
+            limit: query.limit.unwrap_or(DEFAULT_SCHEDULE_LIMIT),
+            offset,
         })
         .await
         .map_err(RestError::from_store)?;
-    Ok(Json(schedules))
+    Ok(Json(page))
 }
 
 async fn complete_round(

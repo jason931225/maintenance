@@ -36,6 +36,8 @@ export type CreateSiteRequest = components["schemas"]["CreateSiteRequest"];
 export type CreatedSite = components["schemas"]["CreatedSite"];
 export type InspectionScheduleSummary =
   components["schemas"]["InspectionScheduleSummary"];
+export type InspectionSchedulePage =
+  components["schemas"]["InspectionSchedulePage"];
 export type InspectionCycle = components["schemas"]["InspectionCycle"];
 export type CreateInspectionScheduleRequest =
   components["schemas"]["CreateInspectionScheduleRequest"];
@@ -110,6 +112,8 @@ export type SupportTicketComment =
   components["schemas"]["SupportTicketComment"];
 export type SupportTicketDetail =
   components["schemas"]["SupportTicketDetail"];
+export type SupportTicketPage =
+  components["schemas"]["SupportTicketPage"];
 export type CreateInternalTicketRequest =
   components["schemas"]["CreateInternalTicketRequest"];
 export type CustomerIntakeRequest =
@@ -182,6 +186,7 @@ export type UpdateInquiryStatusRequest =
 export type Team = components["schemas"]["Team"];
 export type AccountStatus = components["schemas"]["AccountStatus"];
 export type UserSummary = components["schemas"]["UserSummary"];
+export type UserPage = components["schemas"]["UserPage"];
 export type CreateUserRequest = components["schemas"]["CreateUserRequest"];
 export type UpdateUserRequest = components["schemas"]["UpdateUserRequest"];
 export type UpdateSelfProfileRequest =

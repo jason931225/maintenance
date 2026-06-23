@@ -2272,6 +2272,20 @@ public struct Client: APIProtocol {
                     name: "due_end",
                     value: input.query.dueEnd
                 )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "limit",
+                    value: input.query.limit
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "offset",
+                    value: input.query.offset
+                )
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
@@ -2292,7 +2306,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            [Components.Schemas.InspectionScheduleSummary].self,
+                            Components.Schemas.InspectionSchedulePage.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -2966,7 +2980,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            [Components.Schemas.SupportTicketSummary].self,
+                            Components.Schemas.SupportTicketPage.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -14268,6 +14282,13 @@ public struct Client: APIProtocol {
                     name: "limit",
                     value: input.query.limit
                 )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "offset",
+                    value: input.query.offset
+                )
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
@@ -14288,7 +14309,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            [Components.Schemas.UserSummary].self,
+                            Components.Schemas.UserPage.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)

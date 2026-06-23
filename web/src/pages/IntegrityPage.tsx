@@ -106,7 +106,7 @@ export function IntegrityPage() {
   // shared unknown-label fallback via safeLabel rather than leaking the id.
   const loadUsers = useCallback(async () => {
     const res = await api.GET("/api/v1/users").catch(() => undefined);
-    if (res?.data) setUsers(res.data);
+    if (res?.data) setUsers(res.data.items);
   }, [api]);
 
   // Defer the first state write out of the synchronous effect pass (mirrors

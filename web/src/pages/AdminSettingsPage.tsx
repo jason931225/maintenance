@@ -44,7 +44,7 @@ export function AdminSettingsPage() {
         .catch(() => undefined),
       api.GET("/api/v1/branches").catch(() => undefined),
     ]);
-    if (userRes?.data) setUsers(userRes.data);
+    if (userRes?.data) setUsers(userRes.data.items);
     if (branchRes?.data) setBranches(branchRes.data);
   }, [api]);
 

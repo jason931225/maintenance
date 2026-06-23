@@ -2913,6 +2913,10 @@ public enum Components {
         public struct KpiRollup: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/KpiRollup/scope`.
             public var scope: Components.Schemas.KpiRollupScope
+            /// Human-readable name for the scope (region/branch/mechanic), resolved via a same-org lookup. Null for the company-wide scope or a deleted region/branch/user. Optional; absent on the pure-domain shape.
+            ///
+            /// - Remark: Generated from `#/components/schemas/KpiRollup/scope_display_name`.
+            public var scopeDisplayName: Swift.String?
             /// - Remark: Generated from `#/components/schemas/KpiRollup/approved_report_count`.
             public var approvedReportCount: Swift.Int32
             /// - Remark: Generated from `#/components/schemas/KpiRollup/completed_count`.
@@ -2965,6 +2969,7 @@ public enum Components {
             ///
             /// - Parameters:
             ///   - scope:
+            ///   - scopeDisplayName: Human-readable name for the scope (region/branch/mechanic), resolved via a same-org lookup. Null for the company-wide scope or a deleted region/branch/user. Optional; absent on the pure-domain shape.
             ///   - approvedReportCount:
             ///   - completedCount:
             ///   - weightedCompletedPoints:
@@ -2982,6 +2987,7 @@ public enum Components {
             ///   - p1AcceptanceBps:
             public init(
                 scope: Components.Schemas.KpiRollupScope,
+                scopeDisplayName: Swift.String? = nil,
                 approvedReportCount: Swift.Int32,
                 completedCount: Swift.Int32,
                 weightedCompletedPoints: Swift.Int32,
@@ -2999,6 +3005,7 @@ public enum Components {
                 p1AcceptanceBps: Swift.Int32? = nil
             ) {
                 self.scope = scope
+                self.scopeDisplayName = scopeDisplayName
                 self.approvedReportCount = approvedReportCount
                 self.completedCount = completedCount
                 self.weightedCompletedPoints = weightedCompletedPoints
@@ -3017,6 +3024,7 @@ public enum Components {
             }
             public enum CodingKeys: String, CodingKey {
                 case scope
+                case scopeDisplayName = "scope_display_name"
                 case approvedReportCount = "approved_report_count"
                 case completedCount = "completed_count"
                 case weightedCompletedPoints = "weighted_completed_points"
@@ -3828,6 +3836,10 @@ public enum Components {
             public var equipmentId: Components.Schemas.Uuid
             /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary/mechanic_id`.
             public var mechanicId: Components.Schemas.Uuid
+            /// Assigned mechanic's display name, resolved via a same-org LEFT JOIN on users. Null when the mechanic account no longer exists.
+            ///
+            /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary/mechanic_display_name`.
+            public var mechanicDisplayName: Swift.String?
             /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary/cycle`.
             public var cycle: Components.Schemas.InspectionCycle
             /// - Remark: Generated from `#/components/schemas/InspectionScheduleSummary/interval_days`.
@@ -3857,6 +3869,7 @@ public enum Components {
             ///   - branchId:
             ///   - equipmentId:
             ///   - mechanicId:
+            ///   - mechanicDisplayName: Assigned mechanic's display name, resolved via a same-org LEFT JOIN on users. Null when the mechanic account no longer exists.
             ///   - cycle:
             ///   - intervalDays:
             ///   - dueDate:
@@ -3873,6 +3886,7 @@ public enum Components {
                 branchId: Components.Schemas.Uuid,
                 equipmentId: Components.Schemas.Uuid,
                 mechanicId: Components.Schemas.Uuid,
+                mechanicDisplayName: Swift.String? = nil,
                 cycle: Components.Schemas.InspectionCycle,
                 intervalDays: Swift.Int32,
                 dueDate: Components.Schemas.Date,
@@ -3889,6 +3903,7 @@ public enum Components {
                 self.branchId = branchId
                 self.equipmentId = equipmentId
                 self.mechanicId = mechanicId
+                self.mechanicDisplayName = mechanicDisplayName
                 self.cycle = cycle
                 self.intervalDays = intervalDays
                 self.dueDate = dueDate
@@ -3906,6 +3921,7 @@ public enum Components {
                 case branchId = "branch_id"
                 case equipmentId = "equipment_id"
                 case mechanicId = "mechanic_id"
+                case mechanicDisplayName = "mechanic_display_name"
                 case cycle
                 case intervalDays = "interval_days"
                 case dueDate = "due_date"
@@ -3917,6 +3933,41 @@ public enum Components {
                 case model
                 case createdAt = "created_at"
                 case updatedAt = "updated_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/InspectionSchedulePage`.
+        public struct InspectionSchedulePage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/InspectionSchedulePage/items`.
+            public var items: [Components.Schemas.InspectionScheduleSummary]
+            /// - Remark: Generated from `#/components/schemas/InspectionSchedulePage/limit`.
+            public var limit: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/InspectionSchedulePage/offset`.
+            public var offset: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/InspectionSchedulePage/total`.
+            public var total: Swift.Int64
+            /// Creates a new `InspectionSchedulePage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - limit:
+            ///   - offset:
+            ///   - total:
+            public init(
+                items: [Components.Schemas.InspectionScheduleSummary],
+                limit: Swift.Int64,
+                offset: Swift.Int64,
+                total: Swift.Int64
+            ) {
+                self.items = items
+                self.limit = limit
+                self.offset = offset
+                self.total = total
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case limit
+                case offset
+                case total
             }
         }
         /// - Remark: Generated from `#/components/schemas/InspectionRoundSummary`.
@@ -4205,6 +4256,10 @@ public enum Components {
             public var requesterName: Swift.String?
             /// - Remark: Generated from `#/components/schemas/SupportTicketSummary/assignee_user_id`.
             public var assigneeUserId: Components.Schemas.Uuid
+            /// Assignee display name, resolved via a same-org LEFT JOIN on users. Null when unassigned or the assignee account no longer exists.
+            ///
+            /// - Remark: Generated from `#/components/schemas/SupportTicketSummary/assignee_name`.
+            public var assigneeName: Swift.String?
             /// - Remark: Generated from `#/components/schemas/SupportTicketSummary/due_at`.
             public var dueAt: Foundation.Date?
             /// - Remark: Generated from `#/components/schemas/SupportTicketSummary/created_at`.
@@ -4228,6 +4283,7 @@ public enum Components {
             ///   - requesterUserId:
             ///   - requesterName:
             ///   - assigneeUserId:
+            ///   - assigneeName: Assignee display name, resolved via a same-org LEFT JOIN on users. Null when unassigned or the assignee account no longer exists.
             ///   - dueAt:
             ///   - createdAt:
             ///   - updatedAt:
@@ -4244,6 +4300,7 @@ public enum Components {
                 requesterUserId: Components.Schemas.Uuid,
                 requesterName: Swift.String? = nil,
                 assigneeUserId: Components.Schemas.Uuid,
+                assigneeName: Swift.String? = nil,
                 dueAt: Foundation.Date? = nil,
                 createdAt: Components.Schemas.Timestamp,
                 updatedAt: Components.Schemas.Timestamp,
@@ -4260,6 +4317,7 @@ public enum Components {
                 self.requesterUserId = requesterUserId
                 self.requesterName = requesterName
                 self.assigneeUserId = assigneeUserId
+                self.assigneeName = assigneeName
                 self.dueAt = dueAt
                 self.createdAt = createdAt
                 self.updatedAt = updatedAt
@@ -4277,6 +4335,7 @@ public enum Components {
                 case requesterUserId = "requester_user_id"
                 case requesterName = "requester_name"
                 case assigneeUserId = "assignee_user_id"
+                case assigneeName = "assignee_name"
                 case dueAt = "due_at"
                 case createdAt = "created_at"
                 case updatedAt = "updated_at"
@@ -4292,6 +4351,10 @@ public enum Components {
             public var ticketId: Components.Schemas.Uuid
             /// - Remark: Generated from `#/components/schemas/SupportTicketComment/author_user_id`.
             public var authorUserId: Components.Schemas.Uuid
+            /// Comment author display name, resolved via a same-org LEFT JOIN on users. Null for an authorless comment or a deleted author.
+            ///
+            /// - Remark: Generated from `#/components/schemas/SupportTicketComment/author_name`.
+            public var authorName: Swift.String?
             /// - Remark: Generated from `#/components/schemas/SupportTicketComment/body`.
             public var body: Swift.String
             /// - Remark: Generated from `#/components/schemas/SupportTicketComment/is_internal_note`.
@@ -4304,6 +4367,7 @@ public enum Components {
             ///   - id:
             ///   - ticketId:
             ///   - authorUserId:
+            ///   - authorName: Comment author display name, resolved via a same-org LEFT JOIN on users. Null for an authorless comment or a deleted author.
             ///   - body:
             ///   - isInternalNote:
             ///   - createdAt:
@@ -4311,6 +4375,7 @@ public enum Components {
                 id: Components.Schemas.Uuid,
                 ticketId: Components.Schemas.Uuid,
                 authorUserId: Components.Schemas.Uuid,
+                authorName: Swift.String? = nil,
                 body: Swift.String,
                 isInternalNote: Swift.Bool,
                 createdAt: Components.Schemas.Timestamp
@@ -4318,6 +4383,7 @@ public enum Components {
                 self.id = id
                 self.ticketId = ticketId
                 self.authorUserId = authorUserId
+                self.authorName = authorName
                 self.body = body
                 self.isInternalNote = isInternalNote
                 self.createdAt = createdAt
@@ -4326,6 +4392,7 @@ public enum Components {
                 case id
                 case ticketId = "ticket_id"
                 case authorUserId = "author_user_id"
+                case authorName = "author_name"
                 case body
                 case isInternalNote = "is_internal_note"
                 case createdAt = "created_at"
@@ -4352,6 +4419,37 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case ticket
                 case comments
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SupportTicketPage`.
+        public struct SupportTicketPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SupportTicketPage/items`.
+            public var items: [Components.Schemas.SupportTicketSummary]
+            /// Id to pass as `cursor` for the next page, or null on the last page.
+            ///
+            /// - Remark: Generated from `#/components/schemas/SupportTicketPage/next_cursor`.
+            public var nextCursor: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SupportTicketPage/total`.
+            public var total: Swift.Int64
+            /// Creates a new `SupportTicketPage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - nextCursor: Id to pass as `cursor` for the next page, or null on the last page.
+            ///   - total:
+            public init(
+                items: [Components.Schemas.SupportTicketSummary],
+                nextCursor: Swift.String? = nil,
+                total: Swift.Int64
+            ) {
+                self.items = items
+                self.nextCursor = nextCursor
+                self.total = total
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case nextCursor = "next_cursor"
+                case total
             }
         }
         /// - Remark: Generated from `#/components/schemas/EquipmentAutocompletePage`.
@@ -5863,16 +5961,8 @@ public enum Components {
         public struct ArrivalEvent: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ArrivalEvent/id`.
             public var id: Swift.String
-            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/user_id`.
-            public var userId: Components.Schemas.Uuid
-            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/branch_id`.
-            public var branchId: Components.Schemas.Uuid
-            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/work_order_id`.
-            public var workOrderId: Swift.String
             /// - Remark: Generated from `#/components/schemas/ArrivalEvent/work_order_no`.
             public var workOrderNo: Swift.String
-            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/site_id`.
-            public var siteId: Swift.String
             /// - Remark: Generated from `#/components/schemas/ArrivalEvent/site_name`.
             public var siteName: Swift.String
             /// - Remark: Generated from `#/components/schemas/ArrivalEvent/kind`.
@@ -5888,42 +5978,26 @@ public enum Components {
             ///
             /// - Parameters:
             ///   - id:
-            ///   - userId:
-            ///   - branchId:
-            ///   - workOrderId:
             ///   - workOrderNo:
-            ///   - siteId:
             ///   - siteName:
             ///   - kind:
             ///   - occurredAt:
             public init(
                 id: Swift.String,
-                userId: Components.Schemas.Uuid,
-                branchId: Components.Schemas.Uuid,
-                workOrderId: Swift.String,
                 workOrderNo: Swift.String,
-                siteId: Swift.String,
                 siteName: Swift.String,
                 kind: Components.Schemas.ArrivalEvent.KindPayload,
                 occurredAt: Components.Schemas.Timestamp
             ) {
                 self.id = id
-                self.userId = userId
-                self.branchId = branchId
-                self.workOrderId = workOrderId
                 self.workOrderNo = workOrderNo
-                self.siteId = siteId
                 self.siteName = siteName
                 self.kind = kind
                 self.occurredAt = occurredAt
             }
             public enum CodingKeys: String, CodingKey {
                 case id
-                case userId = "user_id"
-                case branchId = "branch_id"
-                case workOrderId = "work_order_id"
                 case workOrderNo = "work_order_no"
-                case siteId = "site_id"
                 case siteName = "site_name"
                 case kind
                 case occurredAt = "occurred_at"
@@ -7072,6 +7146,10 @@ public enum Components {
             public var branchId: Components.Schemas.Uuid
             /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/sender_id`.
             public var senderId: Components.Schemas.Uuid
+            /// Sender display name, resolved via a same-org LEFT JOIN on users. Null when the sender account no longer exists.
+            ///
+            /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/sender_name`.
+            public var senderName: Swift.String?
             /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/body`.
             public var body: Swift.String
             /// - Remark: Generated from `#/components/schemas/MessengerMessageSummary/attachment_evidence_ids`.
@@ -7087,6 +7165,7 @@ public enum Components {
             ///   - threadId:
             ///   - branchId:
             ///   - senderId:
+            ///   - senderName: Sender display name, resolved via a same-org LEFT JOIN on users. Null when the sender account no longer exists.
             ///   - body:
             ///   - attachmentEvidenceIds:
             ///   - sentAt:
@@ -7096,6 +7175,7 @@ public enum Components {
                 threadId: Components.Schemas.Uuid,
                 branchId: Components.Schemas.Uuid,
                 senderId: Components.Schemas.Uuid,
+                senderName: Swift.String? = nil,
                 body: Swift.String,
                 attachmentEvidenceIds: [Components.Schemas.Uuid],
                 sentAt: Components.Schemas.Timestamp,
@@ -7105,6 +7185,7 @@ public enum Components {
                 self.threadId = threadId
                 self.branchId = branchId
                 self.senderId = senderId
+                self.senderName = senderName
                 self.body = body
                 self.attachmentEvidenceIds = attachmentEvidenceIds
                 self.sentAt = sentAt
@@ -7115,6 +7196,7 @@ public enum Components {
                 case threadId = "thread_id"
                 case branchId = "branch_id"
                 case senderId = "sender_id"
+                case senderName = "sender_name"
                 case body
                 case attachmentEvidenceIds = "attachment_evidence_ids"
                 case sentAt = "sent_at"
@@ -9611,6 +9693,41 @@ public enum Components {
                 case hasPasskey = "has_passkey"
                 case accountStatus = "account_status"
                 case createdAt = "created_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/UserPage`.
+        public struct UserPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UserPage/items`.
+            public var items: [Components.Schemas.UserSummary]
+            /// - Remark: Generated from `#/components/schemas/UserPage/limit`.
+            public var limit: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/UserPage/offset`.
+            public var offset: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/UserPage/total`.
+            public var total: Swift.Int64
+            /// Creates a new `UserPage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - limit:
+            ///   - offset:
+            ///   - total:
+            public init(
+                items: [Components.Schemas.UserSummary],
+                limit: Swift.Int64,
+                offset: Swift.Int64,
+                total: Swift.Int64
+            ) {
+                self.items = items
+                self.limit = limit
+                self.offset = offset
+                self.total = total
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case limit
+                case offset
+                case total
             }
         }
         /// - Remark: Generated from `#/components/schemas/RegionSummary`.
@@ -14850,17 +14967,27 @@ public enum Operations {
                 public var dueStart: Components.Schemas.Date
                 /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/GET/query/due_end`.
                 public var dueEnd: Components.Schemas.Date
+                /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/GET/query/offset`.
+                public var offset: Swift.Int64?
                 /// Creates a new `Query`.
                 ///
                 /// - Parameters:
                 ///   - dueStart:
                 ///   - dueEnd:
+                ///   - limit:
+                ///   - offset:
                 public init(
                     dueStart: Components.Schemas.Date,
-                    dueEnd: Components.Schemas.Date
+                    dueEnd: Components.Schemas.Date,
+                    limit: Swift.Int64? = nil,
+                    offset: Swift.Int64? = nil
                 ) {
                     self.dueStart = dueStart
                     self.dueEnd = dueEnd
+                    self.limit = limit
+                    self.offset = offset
                 }
             }
             public var query: Operations.ListInspectionSchedules.Input.Query
@@ -14894,12 +15021,12 @@ public enum Operations {
                 /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/GET/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
                     /// - Remark: Generated from `#/paths/api/v1/inspections/schedules/GET/responses/200/content/application\/json`.
-                    case json([Components.Schemas.InspectionScheduleSummary])
+                    case json(Components.Schemas.InspectionSchedulePage)
                     /// The associated value of the enum case if `self` is `.json`.
                     ///
                     /// - Throws: An error if `self` is not `.json`.
                     /// - SeeAlso: `.json`.
-                    public var json: [Components.Schemas.InspectionScheduleSummary] {
+                    public var json: Components.Schemas.InspectionSchedulePage {
                         get throws {
                             switch self {
                             case let .json(body):
@@ -14918,7 +15045,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// Inspection schedules due in the requested date range.
+            /// A page of inspection schedules due in the requested range.
             ///
             /// - Remark: Generated from `#/paths//api/v1/inspections/schedules/get(listInspectionSchedules)/responses/200`.
             ///
@@ -15838,12 +15965,12 @@ public enum Operations {
                 /// - Remark: Generated from `#/paths/api/v1/support/tickets/GET/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
                     /// - Remark: Generated from `#/paths/api/v1/support/tickets/GET/responses/200/content/application\/json`.
-                    case json([Components.Schemas.SupportTicketSummary])
+                    case json(Components.Schemas.SupportTicketPage)
                     /// The associated value of the enum case if `self` is `.json`.
                     ///
                     /// - Throws: An error if `self` is not `.json`.
                     /// - SeeAlso: `.json`.
-                    public var json: [Components.Schemas.SupportTicketSummary] {
+                    public var json: Components.Schemas.SupportTicketPage {
                         get throws {
                             switch self {
                             case let .json(body):
@@ -15862,7 +15989,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// Support tickets visible in the principal's branch scope.
+            /// A keyset page of support tickets visible in the principal's branch scope, plus the unpaged total for the same filters.
             ///
             /// - Remark: Generated from `#/paths//api/v1/support/tickets/get(listSupportTickets)/responses/200`.
             ///
@@ -32740,17 +32867,22 @@ public enum Operations {
                 public var includeInactive: Swift.Bool?
                 /// - Remark: Generated from `#/paths/api/v1/users/GET/query/limit`.
                 public var limit: Swift.Int64?
+                /// - Remark: Generated from `#/paths/api/v1/users/GET/query/offset`.
+                public var offset: Swift.Int64?
                 /// Creates a new `Query`.
                 ///
                 /// - Parameters:
                 ///   - includeInactive:
                 ///   - limit:
+                ///   - offset:
                 public init(
                     includeInactive: Swift.Bool? = nil,
-                    limit: Swift.Int64? = nil
+                    limit: Swift.Int64? = nil,
+                    offset: Swift.Int64? = nil
                 ) {
                     self.includeInactive = includeInactive
                     self.limit = limit
+                    self.offset = offset
                 }
             }
             public var query: Operations.ListUsers.Input.Query
@@ -32784,12 +32916,12 @@ public enum Operations {
                 /// - Remark: Generated from `#/paths/api/v1/users/GET/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
                     /// - Remark: Generated from `#/paths/api/v1/users/GET/responses/200/content/application\/json`.
-                    case json([Components.Schemas.UserSummary])
+                    case json(Components.Schemas.UserPage)
                     /// The associated value of the enum case if `self` is `.json`.
                     ///
                     /// - Throws: An error if `self` is not `.json`.
                     /// - SeeAlso: `.json`.
-                    public var json: [Components.Schemas.UserSummary] {
+                    public var json: Components.Schemas.UserPage {
                         get throws {
                             switch self {
                             case let .json(body):
@@ -32808,7 +32940,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// Users in the principal's branch scope.
+            /// A page of users in the principal's branch scope.
             ///
             /// - Remark: Generated from `#/paths//api/v1/users/get(listUsers)/responses/200`.
             ///

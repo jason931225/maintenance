@@ -10,6 +10,7 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { ko } from "../../i18n/ko";
+import { safeLabel } from "../../lib/utils";
 import {
   formatBps,
   formatCount,
@@ -167,6 +168,9 @@ export function KpiDashboard({
                     aria-label={ko.kpi.scopeActions[rollup.scope.kind]}
                   >
                     {ko.kpi.scopes[rollup.scope.kind]}
+                    {rollup.scope.kind !== "company"
+                      ? ` · ${safeLabel(rollup.scope_display_name)}`
+                      : ""}
                   </Button>
                 );
               })}

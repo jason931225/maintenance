@@ -186,28 +186,33 @@ describe("MessengerPanel", () => {
 
     server.use(
       http.get("*/api/v1/users", () =>
-        HttpResponse.json([
-          {
-            id: senderId,
-            display_name: "나",
-            phone: null,
-            team: "MAINTENANCE",
-            roles: ["ADMIN"],
-            branch_ids: [branchId],
-            is_active: true,
-            created_at: "2026-01-01T00:00:00Z",
-          },
-          {
-            id: memberId,
-            display_name: "김정비",
-            phone: null,
-            team: "MAINTENANCE",
-            roles: ["MECHANIC"],
-            branch_ids: [branchId],
-            is_active: true,
-            created_at: "2026-01-01T00:00:00Z",
-          },
-        ]),
+        HttpResponse.json({
+          items: [
+            {
+              id: senderId,
+              display_name: "나",
+              phone: null,
+              team: "MAINTENANCE",
+              roles: ["ADMIN"],
+              branch_ids: [branchId],
+              is_active: true,
+              created_at: "2026-01-01T00:00:00Z",
+            },
+            {
+              id: memberId,
+              display_name: "김정비",
+              phone: null,
+              team: "MAINTENANCE",
+              roles: ["MECHANIC"],
+              branch_ids: [branchId],
+              is_active: true,
+              created_at: "2026-01-01T00:00:00Z",
+            },
+          ],
+          limit: 200,
+          offset: 0,
+          total: 2,
+        }),
       ),
       http.post("*/api/messenger/threads", async ({ request }) => {
         createdBodies.push(await request.json());
@@ -240,6 +245,7 @@ describe("MessengerPanel", () => {
               thread_id: newThreadId,
               branch_id: branchId,
               sender_id: senderId,
+              sender_name: "나",
               body: body.body,
               attachment_evidence_ids: [],
               sent_at: "2026-06-12T10:01:00Z",
@@ -304,6 +310,7 @@ function message(
     thread_id: threadId,
     branch_id: branchId,
     sender_id: senderId,
+    sender_name: "나",
     body,
     attachment_evidence_ids: attachmentEvidenceIds,
     sent_at: `2026-06-12T09:${String(minute).padStart(2, "0")}:00Z`,

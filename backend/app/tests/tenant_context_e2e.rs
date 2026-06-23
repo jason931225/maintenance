@@ -112,6 +112,17 @@ async fn list_users_round_trips_under_mnt_rt_with_org_from_jwt(super_pool: PgPoo
             .is_some_and(|id| id == admin_id.to_string())
     });
     assert!(seen, "the seeded SUPER_ADMIN user must be visible: {json}");
+    // The paginated envelope's COUNT(*) total must also run under mnt_rt and be
+    // RLS-scoped — at least the rows we can see, never fewer.
+    let total = json
+        .get("total")
+        .and_then(Value::as_i64)
+        .expect("UserPage must report a total");
+    assert!(
+        total >= users.len() as i64 && total >= 1,
+        "total ({total}) must cover the visible rows ({}) under RLS",
+        users.len()
+    );
 
     // (2) No bearer token → fail closed (handler never runs). ------------------
     let response = service

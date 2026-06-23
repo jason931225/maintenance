@@ -14,7 +14,7 @@ use mnt_platform_request_context::current_org;
 use mnt_support_application::{
     AddCommentCommand, AssignTicketCommand, CommentAudience, CommentView,
     CreateCustomerIntakeCommand, CreateInternalTicketCommand, ListTicketsQuery, TicketDetail,
-    TicketNotification, TicketNotificationKind, TicketSummary, TransitionTicketCommand,
+    TicketNotification, TicketNotificationKind, TicketPage, TicketSummary, TransitionTicketCommand,
     support_audit_event,
 };
 use mnt_support_domain::{SlaPolicy, TicketCategory, TicketOrigin, TicketPriority, TicketStatus};
@@ -444,7 +444,7 @@ impl PgSupportStore {
     pub async fn list_tickets(
         &self,
         query: ListTicketsQuery,
-    ) -> Result<Vec<TicketSummary>, PgSupportError> {
+    ) -> Result<TicketPage, PgSupportError> {
         // Always clamp to a hard server-side cap so an unbounded fetch is
         // impossible, even when the client sends no limit.
         let limit = normalized_limit(query.limit);
@@ -454,41 +454,63 @@ impl PgSupportStore {
             None => None,
         };
 
+        // Branch scope + filters are shared by the page query and the COUNT.
+        // The COUNT must NOT apply the keyset cursor, so the total is the same
+        // across every page of the same filter set.
+        let branch_scope = query.branch_scope.clone();
+        let include_untriaged = query.include_untriaged;
+        let status = query.status;
+        let priority = query.priority;
+        let category = query.category;
+        let origin = query.origin;
+        let assignee_user_id = query.assignee_user_id;
+        let push_filters = move |builder: &mut QueryBuilder<Postgres>| {
+            builder.push("(");
+            push_branch_scope(builder, &branch_scope, include_untriaged);
+            builder.push(")");
+            if let Some(status) = status {
+                builder.push(" AND status = ");
+                builder.push_bind(status.as_db_str());
+            }
+            if let Some(priority) = priority {
+                builder.push(" AND priority = ");
+                builder.push_bind(priority.as_db_str());
+            }
+            if let Some(category) = category {
+                builder.push(" AND category = ");
+                builder.push_bind(category.as_db_str());
+            }
+            if let Some(origin) = origin {
+                builder.push(" AND origin = ");
+                builder.push_bind(origin.as_db_str());
+            }
+            if let Some(assignee) = assignee_user_id {
+                builder.push(" AND assignee_user_id = ");
+                builder.push_bind(*assignee.as_uuid());
+            }
+        };
+
+        let mut count_builder =
+            QueryBuilder::<Postgres>::new("SELECT COUNT(*) FROM support_tickets WHERE ");
+        push_filters(&mut count_builder);
+
         let mut builder = QueryBuilder::<Postgres>::new(
             r#"
             SELECT
                 id, branch_id, origin, category, priority, status, title,
-                requester_user_id, requester_name, assignee_user_id, due_at,
+                requester_user_id, requester_name, assignee_user_id,
+                -- Same-org correlated lookup (RLS-scoped to app.current_org,
+                -- exactly like the LEFT JOIN it stands in for): resolves the
+                -- assignee's display name, NULL when unassigned or deleted.
+                (SELECT u.display_name FROM users u
+                  WHERE u.id = support_tickets.assignee_user_id) AS assignee_name,
+                due_at,
                 created_at, updated_at, resolved_at, closed_at
             FROM support_tickets
-            WHERE (
+            WHERE
             "#,
         );
-        // Branch scoping: cross-branch principals may additionally opt into the
-        // untriaged (branch_id IS NULL) intake queue.
-        push_branch_scope(&mut builder, &query.branch_scope, query.include_untriaged);
-        builder.push(")");
-
-        if let Some(status) = query.status {
-            builder.push(" AND status = ");
-            builder.push_bind(status.as_db_str());
-        }
-        if let Some(priority) = query.priority {
-            builder.push(" AND priority = ");
-            builder.push_bind(priority.as_db_str());
-        }
-        if let Some(category) = query.category {
-            builder.push(" AND category = ");
-            builder.push_bind(category.as_db_str());
-        }
-        if let Some(origin) = query.origin {
-            builder.push(" AND origin = ");
-            builder.push_bind(origin.as_db_str());
-        }
-        if let Some(assignee) = query.assignee_user_id {
-            builder.push(" AND assignee_user_id = ");
-            builder.push_bind(*assignee.as_uuid());
-        }
+        push_filters(&mut builder);
         // Keyset: strictly after the cursor on the (created_at DESC, id) order.
         if let Some((created_at, id)) = cursor {
             builder.push(" AND (created_at, id) < (");
@@ -497,15 +519,40 @@ impl PgSupportStore {
             builder.push_bind(id);
             builder.push(")");
         }
+        // Fetch one extra row to know whether a further page exists; the extra
+        // row (if any) becomes the keyset cursor and is not returned.
         builder.push(" ORDER BY created_at DESC, id DESC LIMIT ");
-        builder.push_bind(limit);
+        builder.push_bind(limit + 1);
 
         let org = current_org().map_err(KernelError::from)?;
-        let rows = with_org_conn::<_, _, PgSupportError>(&self.pool, org, move |tx| {
-            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        let (total, rows) = with_org_conn::<_, _, PgSupportError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let total: i64 = count_builder
+                    .build_query_scalar()
+                    .fetch_one(tx.as_mut())
+                    .await?;
+                let rows = builder.build().fetch_all(tx.as_mut()).await?;
+                Ok((total, rows))
+            })
         })
         .await?;
-        rows.iter().map(summary_from_row).collect()
+
+        let mut items = rows
+            .iter()
+            .map(summary_from_row)
+            .collect::<Result<Vec<_>, _>>()?;
+        let next_cursor = if i64::try_from(items.len()).unwrap_or(0) > limit {
+            // Drop the look-ahead row and expose the last KEPT id as the cursor.
+            items.truncate(usize::try_from(limit).unwrap_or(items.len()));
+            items.last().map(|ticket| ticket.id)
+        } else {
+            None
+        };
+        Ok(TicketPage {
+            items,
+            next_cursor,
+            total,
+        })
     }
 
     // -----------------------------------------------------------------------
@@ -521,7 +568,13 @@ impl PgSupportStore {
             r#"
             SELECT
                 id, branch_id, origin, category, priority, status, title,
-                requester_user_id, requester_name, assignee_user_id, due_at,
+                requester_user_id, requester_name, assignee_user_id,
+                -- Same-org correlated lookup (RLS-scoped to app.current_org,
+                -- exactly like the LEFT JOIN it stands in for): resolves the
+                -- assignee's display name, NULL when unassigned or deleted.
+                (SELECT u.display_name FROM users u
+                  WHERE u.id = support_tickets.assignee_user_id) AS assignee_name,
+                due_at,
                 created_at, updated_at, resolved_at, closed_at
             FROM support_tickets
             WHERE id =
@@ -551,7 +604,11 @@ impl PgSupportStore {
     ) -> Result<Vec<CommentView>, PgSupportError> {
         let mut builder = QueryBuilder::<Postgres>::new(
             r#"
-            SELECT id, ticket_id, author_user_id, body, is_internal_note, created_at
+            SELECT id, ticket_id, author_user_id, body, is_internal_note, created_at,
+                -- Same-org correlated lookup (RLS-scoped to app.current_org):
+                -- the comment author's display name, NULL when authorless/deleted.
+                (SELECT u.display_name FROM users u
+                  WHERE u.id = support_ticket_comments.author_user_id) AS author_name
             FROM support_ticket_comments
             WHERE ticket_id =
             "#,
@@ -765,7 +822,10 @@ async fn fetch_summary_tx(
         r#"
         SELECT
             id, branch_id, origin, category, priority, status, title,
-            requester_user_id, requester_name, assignee_user_id, due_at,
+            requester_user_id, requester_name, assignee_user_id,
+            (SELECT u.display_name FROM users u
+              WHERE u.id = support_tickets.assignee_user_id) AS assignee_name,
+            due_at,
             created_at, updated_at, resolved_at, closed_at
         FROM support_tickets
         WHERE id = $1
@@ -783,7 +843,9 @@ async fn fetch_comment_tx(
 ) -> Result<CommentView, PgSupportError> {
     let row = sqlx::query(
         r#"
-        SELECT id, ticket_id, author_user_id, body, is_internal_note, created_at
+        SELECT id, ticket_id, author_user_id, body, is_internal_note, created_at,
+            (SELECT u.display_name FROM users u
+              WHERE u.id = support_ticket_comments.author_user_id) AS author_name
         FROM support_ticket_comments
         WHERE id = $1
         "#,
@@ -1005,6 +1067,7 @@ fn summary_from_row(row: &sqlx::postgres::PgRow) -> Result<TicketSummary, PgSupp
         assignee_user_id: row
             .try_get::<Option<uuid::Uuid>, _>("assignee_user_id")?
             .map(UserId::from_uuid),
+        assignee_name: row.try_get("assignee_name")?,
         due_at: row.try_get("due_at")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
@@ -1020,6 +1083,7 @@ fn comment_from_row(row: &sqlx::postgres::PgRow) -> Result<CommentView, PgSuppor
         author_user_id: row
             .try_get::<Option<uuid::Uuid>, _>("author_user_id")?
             .map(UserId::from_uuid),
+        author_name: row.try_get("author_name")?,
         body: row.try_get("body")?,
         is_internal_note: row.try_get("is_internal_note")?,
         created_at: row.try_get("created_at")?,

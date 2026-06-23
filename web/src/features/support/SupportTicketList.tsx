@@ -3,7 +3,7 @@ import { Badge } from "../../components/ui/badge";
 import { Card } from "../../components/ui/card";
 import { LoadMoreButton } from "../../components/shell/LoadMoreButton";
 import { ko } from "../../i18n/ko";
-import { formatListCount } from "../../lib/utils";
+import { formatListCount, safeLabel } from "../../lib/utils";
 import {
   categoryLabel,
   formatDateTime,
@@ -26,6 +26,8 @@ interface SupportTicketListProps {
   hasMore?: boolean;
   isLoadingMore?: boolean;
   onLoadMore?: () => void;
+  /** Unpaged total matching the current filters, reported by the API. */
+  total?: number;
 }
 
 export function SupportTicketList({
@@ -37,6 +39,7 @@ export function SupportTicketList({
   hasMore = false,
   isLoadingMore = false,
   onLoadMore,
+  total,
 }: SupportTicketListProps) {
   return (
     <Card className="grid gap-4">
@@ -45,7 +48,9 @@ export function SupportTicketList({
           {ko.support.listTitle}
         </h2>
         <Badge>
-          {formatListCount(tickets.length, { mayHaveMore: hasMore })}
+          {total !== undefined
+            ? formatListCount(total)
+            : formatListCount(tickets.length, { mayHaveMore: hasMore })}
         </Badge>
       </div>
 
@@ -100,6 +105,11 @@ export function SupportTicketList({
                   <p className="text-sm text-steel">
                     {categoryLabel(ticket.category)}
                     {" · "}
+                    {ko.support.assignee}:{" "}
+                    {ticket.assignee_user_id
+                      ? safeLabel(ticket.assignee_name)
+                      : ko.support.unassigned}
+                    {" · "}
                     {ko.support.createdAt} {formatDateTime(ticket.created_at)}
                   </p>
                 </button>
@@ -114,6 +124,7 @@ export function SupportTicketList({
           onClick={onLoadMore}
           isLoading={isLoadingMore}
           loaded={tickets.length}
+          total={total}
         />
       ) : null}
     </Card>

@@ -9,6 +9,7 @@ import { AppRouter } from "../AppRouter";
 import { AuthContext } from "../context/auth";
 import type { AuthContextValue, AuthSession } from "../context/auth";
 import { createConsoleApiClient } from "../api/client";
+import { userPage } from "../test/fixtures";
 
 const server = setupServer();
 
@@ -93,7 +94,7 @@ describe("UsersPage gating", () => {
 describe("UsersPage listing", () => {
   it("renders users in a table with team, role, and branch labels", async () => {
     server.use(
-      http.get("*/api/v1/users", () => HttpResponse.json(users)),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage(users))),
       http.get("*/api/v1/branches", () => HttpResponse.json(branches)),
     );
 
@@ -110,13 +111,51 @@ describe("UsersPage listing", () => {
 
   it("shows the empty state when there are no users", async () => {
     server.use(
-      http.get("*/api/v1/users", () => HttpResponse.json([])),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage([]))),
       http.get("*/api/v1/branches", () => HttpResponse.json(branches)),
     );
 
     renderApp("/settings/users", makeAuthContext(adminSession));
 
     expect(await screen.findByText("등록된 사용자가 없습니다.")).toBeVisible();
+  });
+
+  it("paginates by offset against the real total and appends the next page", async () => {
+    const user = userEvent.setup();
+    const secondUser = {
+      ...users[0],
+      id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      display_name: "다음사람",
+    };
+    const offsets: string[] = [];
+    server.use(
+      http.get("*/api/v1/users", ({ request }) => {
+        const offset = new URL(request.url).searchParams.get("offset") ?? "0";
+        offsets.push(offset);
+        // total = 2 but each page returns one row, so "더 보기" is offered until
+        // the appended rows reach the total.
+        return HttpResponse.json(
+          offset === "0"
+            ? userPage(users, 2)
+            : userPage([secondUser], 2),
+        );
+      }),
+      http.get("*/api/v1/branches", () => HttpResponse.json(branches)),
+    );
+
+    renderApp("/settings/users", makeAuthContext(adminSession));
+
+    // First page rendered; the honest total (2) drives the "더 보기" control.
+    expect(await screen.findByText("제갈태수")).toBeVisible();
+    const loadMore = await screen.findByRole("button", { name: /더 보기/ });
+    await user.click(loadMore);
+
+    // The second page is appended (not replaced) and the second offset was sent.
+    expect(await screen.findByText("다음사람")).toBeVisible();
+    expect(screen.getByText("제갈태수")).toBeVisible();
+    await waitFor(() => {
+      expect(offsets).toContain("1");
+    });
   });
 });
 
@@ -125,7 +164,7 @@ describe("UsersPage create", () => {
     const user = userEvent.setup();
     const created = vi.fn();
     server.use(
-      http.get("*/api/v1/users", () => HttpResponse.json([])),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage([]))),
       http.get("*/api/v1/branches", () => HttpResponse.json(branches)),
       http.post("*/api/v1/users", async ({ request }) => {
         created(await request.json());
@@ -196,7 +235,7 @@ describe("UsersPage no-credential UX", () => {
 
     server.use(
       // Initially empty user list, then returns the new user after creation.
-      http.get("*/api/v1/users", () => HttpResponse.json([])),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage([]))),
       http.get("*/api/v1/branches", () => HttpResponse.json(branches)),
       http.post("*/api/v1/users", () =>
         HttpResponse.json(newUser, { status: 201 }),
@@ -208,7 +247,7 @@ describe("UsersPage no-credential UX", () => {
 
     // Update the GET handler to return the newly created user.
     server.use(
-      http.get("*/api/v1/users", () => HttpResponse.json([newUser])),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage([newUser]))),
     );
 
     // Open the create slide-over, fill it in, and submit.
@@ -237,7 +276,7 @@ describe("UsersPage OTP issue", () => {
   it("issues a sign-in OTP and shows the code", async () => {
     const user = userEvent.setup();
     server.use(
-      http.get("*/api/v1/users", () => HttpResponse.json(users)),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage(users))),
       http.get("*/api/v1/branches", () => HttpResponse.json(branches)),
       http.post("*/api/v1/auth/admin/otp/issue", () =>
         HttpResponse.json({
@@ -276,7 +315,7 @@ describe("UsersPage credential reset", () => {
     const user = userEvent.setup();
     const resetBody = vi.fn();
     server.use(
-      http.get("*/api/v1/users", () => HttpResponse.json(users)),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage(users))),
       http.get("*/api/v1/branches", () => HttpResponse.json(branches)),
       http.post(
         "*/api/v1/auth/admin/credential-reset",

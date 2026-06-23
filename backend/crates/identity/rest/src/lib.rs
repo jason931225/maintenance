@@ -169,6 +169,8 @@ struct ListUsersRequest {
     #[serde(default)]
     include_inactive: bool,
     limit: Option<i64>,
+    /// Zero-based row offset for offset pagination. Optional, defaults to 0.
+    offset: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -269,18 +271,24 @@ async fn list_users(
 ) -> Result<impl IntoResponse, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
     authorize_org_manage(&principal, Feature::UserManage)?;
-    let users = state
+    if query.offset.is_some_and(|offset| offset < 0) {
+        return Err(RestError::from_kernel(KernelError::validation(
+            "offset must be non-negative",
+        )));
+    }
+    let page = state
         .store
         .list_users(
             &principal.branch_scope,
             UserListQuery {
                 include_inactive: query.include_inactive,
                 limit: query.limit,
+                offset: query.offset,
             },
         )
         .await
         .map_err(RestError::from_store)?;
-    Ok(Json(users))
+    Ok(Json(page))
 }
 
 async fn get_user(

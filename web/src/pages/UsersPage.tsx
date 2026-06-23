@@ -26,6 +26,7 @@ import { PageError } from "../components/states/PageError";
 import { SkeletonTable } from "../components/states/Skeleton";
 import { FeedbackBanner } from "../components/states/FeedbackBanner";
 import { PageHeader } from "../components/shell/PageHeader";
+import { LoadMoreButton } from "../components/shell/LoadMoreButton";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { useAuth } from "../context/auth";
 import {
@@ -44,10 +45,9 @@ import { formatListCount, safeLabel } from "../lib/utils";
 
 type ReadState = "idle" | "loading" | "error";
 
-// The /api/v1/users endpoint caps at `limit` (default 50, max 200) and reports
-// NO total or offset, so true pagination is impossible client-side. Request the
-// max so the table is not silently truncated at 50; an honest "loaded+" badge
-// warns when the cap is hit. A backend `total` + offset is the proper follow-up.
+// The /api/v1/users endpoint now returns a UserPage with `total` + `offset`, so
+// the roster pages properly: fetch one page at a time and append via offset, and
+// show the honest unpaged total from the API.
 const USERS_PAGE_LIMIT = 200;
 
 interface IssuedOtp {
@@ -59,6 +59,8 @@ export function UsersPage() {
   const { api } = useAuth();
 
   const [users, setUsers] = useState<UserSummary[]>([]);
+  const [userTotal, setUserTotal] = useState<number>();
+  const [loadingMore, setLoadingMore] = useState(false);
   const [branches, setBranches] = useState<BranchSummary[]>([]);
   const [listState, setListState] = useState<ReadState>("loading");
   const [includeInactive, setIncludeInactive] = useState(false);
@@ -96,6 +98,7 @@ export function UsersPage() {
           query: {
             include_inactive: includeInactive,
             limit: USERS_PAGE_LIMIT,
+            offset: 0,
           },
         },
       })
@@ -104,9 +107,34 @@ export function UsersPage() {
       setListState("error");
       return;
     }
-    setUsers(response.data);
+    setUsers(response.data.items);
+    setUserTotal(response.data.total);
     setListState("idle");
   }, [api, includeInactive]);
+
+  const loadMoreUsers = useCallback(async () => {
+    setLoadingMore(true);
+    try {
+      const response = await api
+        .GET("/api/v1/users", {
+          params: {
+            query: {
+              include_inactive: includeInactive,
+              limit: USERS_PAGE_LIMIT,
+              offset: users.length,
+            },
+          },
+        })
+        .catch(() => undefined);
+      if (response?.data) {
+        const next = response.data;
+        setUsers((current) => [...current, ...next.items]);
+        setUserTotal(next.total);
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [api, includeInactive, users.length]);
 
   const loadBranches = useCallback(async () => {
     const response = await api.GET("/api/v1/branches").catch(() => undefined);
@@ -236,9 +264,7 @@ export function UsersPage() {
           </label>
           {listState === "idle" && users.length > 0 ? (
             <Badge>
-              {formatListCount(users.length, {
-                mayHaveMore: users.length >= USERS_PAGE_LIMIT,
-              })}
+              {formatListCount(userTotal ?? users.length)}
             </Badge>
           ) : null}
         </div>
@@ -279,6 +305,18 @@ export function UsersPage() {
             }}
           />
         )}
+        {listState === "idle" &&
+        userTotal !== undefined &&
+        users.length < userTotal ? (
+          <LoadMoreButton
+            onClick={() => {
+              void loadMoreUsers();
+            }}
+            isLoading={loadingMore}
+            loaded={users.length}
+            total={userTotal}
+          />
+        ) : null}
       </div>
 
       {editorMode !== "closed" ? (

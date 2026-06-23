@@ -1444,6 +1444,8 @@ export const ko = {
     comments: {
       title: "대화 내역",
       empty: "아직 코멘트가 없습니다.",
+      author: "작성자",
+      systemAuthor: "시스템",
       internalNote: "내부 메모",
       placeholder: "코멘트 또는 내부 메모를 입력하세요.",
       add: "코멘트 등록",

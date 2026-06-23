@@ -29,7 +29,7 @@ import { Dialog } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import { SkeletonCards } from "../../components/states/Skeleton";
-import { cn } from "../../lib/utils";
+import { cn, safeLabel } from "../../lib/utils";
 import { ko } from "../../i18n/ko";
 import {
   createMessengerState,
@@ -250,7 +250,7 @@ export function MessengerPanel({
       .catch(() => undefined);
     if (response?.data) {
       setMembers(
-        response.data.filter((user) => user.id !== currentUserId),
+        response.data.items.filter((user) => user.id !== currentUserId),
       );
     }
   }
@@ -642,6 +642,9 @@ function MessageRow({ message }: { message: MessengerMessageSummary }) {
     <article className="rounded-md border border-line bg-white p-3">
       <p className="whitespace-pre-wrap text-sm text-ink">{message.body}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-steel">
+        <span className="font-medium text-ink">
+          {safeLabel(message.sender_name)}
+        </span>
         <time dateTime={message.sent_at}>
           {new Date(message.sent_at).toLocaleTimeString("ko-KR", {
             hour: "2-digit",

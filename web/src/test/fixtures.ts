@@ -3,6 +3,34 @@ import type { components } from "@maintenance/api-client-ts";
 export const branchId = "11111111-1111-4111-8111-111111111111";
 export const primaryMechanicId = "22222222-2222-4222-8222-222222222222";
 
+// ---------------------------------------------------------------------------
+// Paginated-envelope helpers. The list endpoints now return
+// `{ items, limit, offset, total }` (or a keyset variant), so tests wrap their
+// fixture arrays through these instead of returning a bare array.
+// ---------------------------------------------------------------------------
+
+export function userPage(
+  items: components["schemas"]["UserSummary"][],
+  total = items.length,
+): components["schemas"]["UserPage"] {
+  return { items, limit: 200, offset: 0, total };
+}
+
+export function supportTicketPage(
+  items: components["schemas"]["SupportTicketSummary"][],
+  total = items.length,
+  nextCursor: string | null = null,
+): components["schemas"]["SupportTicketPage"] {
+  return { items, next_cursor: nextCursor, total };
+}
+
+export function inspectionSchedulePage(
+  items: components["schemas"]["InspectionScheduleSummary"][],
+  total = items.length,
+): components["schemas"]["InspectionSchedulePage"] {
+  return { items, limit: 200, offset: 0, total };
+}
+
 export const tokenPair: components["schemas"]["TokenPairResponse"] = {
   access_token: "test-access-token",
   refresh_token: "test-refresh-token",
@@ -194,6 +222,7 @@ export const kpiReport: components["schemas"]["KpiReport"] = {
         kind: "branch",
         id: branchId,
       },
+      scope_display_name: "창원지점",
       approved_report_count: 8,
       completed_count: 7,
       weighted_completed_points: 10,
@@ -211,6 +240,7 @@ export const kpiReport: components["schemas"]["KpiReport"] = {
         kind: "region",
         id: "abababab-abab-4bab-8bab-abababababab",
       },
+      scope_display_name: "경남권역",
       approved_report_count: 14,
       completed_count: 12,
       weighted_completed_points: 18,
@@ -228,6 +258,7 @@ export const kpiReport: components["schemas"]["KpiReport"] = {
         kind: "technician",
         id: primaryMechanicId,
       },
+      scope_display_name: "김정비",
       approved_report_count: 4,
       completed_count: 4,
       weighted_completed_points: 6,

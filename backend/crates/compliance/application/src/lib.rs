@@ -129,11 +129,10 @@ pub struct ArrivalEventQuery {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArrivalEvent {
     pub id: String,
-    pub user_id: UserId,
-    pub branch_id: BranchId,
-    pub work_order_id: String,
+    // Slimmed wire model: the OpsDashboard renders only the human-facing
+    // request_no / site_name / kind / time, so the raw user_id, branch_id,
+    // work_order_id and site_id UUIDs are no longer shipped to the browser.
     pub work_order_no: String,
-    pub site_id: String,
     pub site_name: String,
     pub kind: String,
     pub occurred_at: Timestamp,

@@ -163,12 +163,40 @@ async fn due_schedule_listing_respects_branch_scope(pool: PgPool) {
                 branch_scope: BranchScope::single(branch_a),
                 due_start: time::macros::date!(2026 - 06 - 01),
                 due_end: time::macros::date!(2026 - 07 - 01),
+                limit: 50,
+                offset: 0,
             })
             .await
             .unwrap();
 
-        assert_eq!(visible.len(), 1);
-        assert_eq!(visible[0].branch_id, branch_a);
+        assert_eq!(visible.total, 1);
+        assert_eq!(visible.items.len(), 1);
+        assert_eq!(visible.items[0].branch_id, branch_a);
+        // The same-org LEFT JOIN resolves the assigned mechanic's display name
+        // (seed_user stamps "예방A-<uuid>") — no raw-UUID leak.
+        assert!(
+            visible.items[0]
+                .mechanic_display_name
+                .as_deref()
+                .is_some_and(|name| name.starts_with("예방A")),
+            "expected mechanic_display_name to resolve to 예방A, got {:?}",
+            visible.items[0].mechanic_display_name
+        );
+
+        // Offset paging: a second page past the only row is empty, but total
+        // still reflects the full match count.
+        let page2 = store
+            .list_due_schedules(ListInspectionSchedulesQuery {
+                branch_scope: BranchScope::single(branch_a),
+                due_start: time::macros::date!(2026 - 06 - 01),
+                due_end: time::macros::date!(2026 - 07 - 01),
+                limit: 50,
+                offset: 1,
+            })
+            .await
+            .unwrap();
+        assert_eq!(page2.total, 1);
+        assert!(page2.items.is_empty());
     })
     .await;
 }

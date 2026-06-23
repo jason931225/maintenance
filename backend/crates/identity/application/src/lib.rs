@@ -11,8 +11,8 @@ pub use org::{
     AccountStatus, BranchSummary, CreateBranchCommand, CreateRegionCommand, CreateUserCommand,
     DeactivateBranchCommand, DeactivateRegionCommand, DeactivateUserCommand, RegionSummary,
     UpdateBranchCommand, UpdateRegionCommand, UpdateSelfProfileCommand, UpdateUserCommand,
-    UserListQuery, UserSummary, account_status_for, branch_audit_event, region_audit_event,
-    user_audit_event,
+    UserListQuery, UserPage, UserSummary, account_status_for, branch_audit_event,
+    region_audit_event, user_audit_event,
 };
 
 use std::future::Future;

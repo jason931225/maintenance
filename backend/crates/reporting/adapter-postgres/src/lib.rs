@@ -20,9 +20,9 @@ use mnt_reporting_application::{
 };
 use mnt_reporting_domain::{
     DailyStatusReport, DailyStatusRow, ExportSourceNote, KpiInputRecord, KpiInspectionRecord,
-    KpiMetric, KpiP1Record, KpiReport, KpiScope, OpsEquipmentStatus, OpsFunnel, OpsMechanicLoad,
-    OpsSummary, PeriodicInspectionRow, UnavailableMetric, WorkDiaryActionEntry, WorkDiaryBody,
-    WorkDiaryDraft, WorkDiaryStatus, calculate_kpi_report,
+    KpiMetric, KpiP1Record, KpiReport, KpiRollupScope, KpiScope, OpsEquipmentStatus, OpsFunnel,
+    OpsMechanicLoad, OpsSummary, PeriodicInspectionRow, UnavailableMetric, WorkDiaryActionEntry,
+    WorkDiaryBody, WorkDiaryDraft, WorkDiaryStatus, calculate_kpi_report,
 };
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use time::{Date, Duration, OffsetDateTime, Time};
@@ -83,6 +83,30 @@ impl From<PgReportingError> for ReportingExportError {
     }
 }
 
+/// Resolve `id -> name` for a small set of ids using a fixed, literal SQL string
+/// that selects the id and a `name`-aliased display column. The query text is a
+/// `&'static str` (never built from input), so it satisfies the workspace's
+/// `SqlSafeStr` gate; only the id list is bound. Runs inside the caller's
+/// already-armed, org-scoped transaction so the lookup is RLS-bounded to the
+/// caller's tenant.
+async fn name_map(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    sql: &'static str,
+    ids: &[uuid::Uuid],
+) -> Result<std::collections::HashMap<uuid::Uuid, String>, PgReportingError> {
+    if ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let rows = sqlx::query(sql).bind(ids).fetch_all(tx.as_mut()).await?;
+    let mut map = std::collections::HashMap::with_capacity(rows.len());
+    for row in &rows {
+        let id: uuid::Uuid = row.try_get("id")?;
+        let name: String = row.try_get("name")?;
+        map.insert(id, name);
+    }
+    Ok(map)
+}
+
 #[derive(Debug, Clone)]
 pub struct PgKpiRepository {
     pool: PgPool,
@@ -110,14 +134,79 @@ impl PgKpiRepository {
         let inspection_records = self.load_inspection_records(&query).await?;
         let p1_records = self.load_p1_records(&query).await?;
         let unavailable_metrics = self.unavailable_source_metrics().await?;
-        Ok(calculate_kpi_report(
+        let mut report = calculate_kpi_report(
             query.period,
             query.scope,
             &records,
             &inspection_records,
             &p1_records,
             unavailable_metrics,
-        ))
+        );
+        self.resolve_scope_names(&mut report).await?;
+        Ok(report)
+    }
+
+    /// Fill `scope_display_name` on every rollup so the console shows each scope
+    /// by name (region/branch/mechanic) instead of a raw id. The pure domain
+    /// calculation cannot do this — it has no DB — so we resolve the distinct
+    /// scope ids here in ONE same-org-armed transaction. The `regions`,
+    /// `branches` and `users` lookups are RLS-scoped to `app.current_org`, so
+    /// they can only resolve names within the caller's tenant; an id from a
+    /// since-deleted row simply stays `None` and the web falls back via
+    /// `safeLabel`. The company-wide scope has no id and keeps `None`.
+    async fn resolve_scope_names(&self, report: &mut KpiReport) -> Result<(), KpiQueryError> {
+        let mut region_ids: Vec<uuid::Uuid> = Vec::new();
+        let mut branch_ids: Vec<uuid::Uuid> = Vec::new();
+        let mut user_ids: Vec<uuid::Uuid> = Vec::new();
+        for rollup in &report.rollups {
+            match rollup.scope {
+                KpiRollupScope::Company => {}
+                KpiRollupScope::Region(id) => region_ids.push(*id.as_uuid()),
+                KpiRollupScope::Branch(id) => branch_ids.push(*id.as_uuid()),
+                KpiRollupScope::Technician(id) => user_ids.push(*id.as_uuid()),
+            }
+        }
+        if region_ids.is_empty() && branch_ids.is_empty() && user_ids.is_empty() {
+            return Ok(());
+        }
+
+        let org = current_org().map_err(|e| KpiQueryError::Database(e.to_string()))?;
+        let (regions, branches, users) =
+            with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+                Box::pin(async move {
+                    let regions = name_map(
+                        tx,
+                        "SELECT id, name AS name FROM regions WHERE id = ANY($1)",
+                        &region_ids,
+                    )
+                    .await?;
+                    let branches = name_map(
+                        tx,
+                        "SELECT id, name AS name FROM branches WHERE id = ANY($1)",
+                        &branch_ids,
+                    )
+                    .await?;
+                    let users = name_map(
+                        tx,
+                        "SELECT id, display_name AS name FROM users WHERE id = ANY($1)",
+                        &user_ids,
+                    )
+                    .await?;
+                    Ok((regions, branches, users))
+                })
+            })
+            .await
+            .map_err(|e| KpiQueryError::Database(e.to_string()))?;
+
+        for rollup in &mut report.rollups {
+            rollup.scope_display_name = match rollup.scope {
+                KpiRollupScope::Company => None,
+                KpiRollupScope::Region(id) => regions.get(id.as_uuid()).cloned(),
+                KpiRollupScope::Branch(id) => branches.get(id.as_uuid()).cloned(),
+                KpiRollupScope::Technician(id) => users.get(id.as_uuid()).cloned(),
+            };
+        }
+        Ok(())
     }
 
     async fn load_work_order_records(

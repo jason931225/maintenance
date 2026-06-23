@@ -83,6 +83,14 @@ impl KpiReport {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KpiRollup {
     pub scope: KpiRollupScope,
+    /// Human-readable name for the scope (region/branch/mechanic), resolved by
+    /// the adapter via a same-org lookup after the pure aggregation runs. `None`
+    /// for the company-wide scope (which has no id) or a since-deleted
+    /// region/branch/user; the web renders it through `safeLabel` so a missing
+    /// name never leaks the UUID. `#[serde(default)]` keeps the pure domain
+    /// calculation (which leaves it `None`) and older payloads valid.
+    #[serde(default)]
+    pub scope_display_name: Option<String>,
     pub approved_report_count: u32,
     pub completed_count: u32,
     pub weighted_completed_points: u32,
@@ -331,6 +339,9 @@ impl KpiRollupBuilder {
         self.work_order_ids.sort_unstable();
         KpiRollup {
             scope,
+            // Names are resolved by the adapter post-pass (DB lookup); the pure
+            // domain calculation has no access to region/branch/user names.
+            scope_display_name: None,
             approved_report_count: self.approved_report_count,
             completed_count: self.completed_count,
             weighted_completed_points: self.weighted_completed_points,

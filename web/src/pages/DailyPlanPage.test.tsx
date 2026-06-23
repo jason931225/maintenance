@@ -9,7 +9,7 @@ import { AppRouter } from "../AppRouter";
 import { AuthContext } from "../context/auth";
 import type { AuthContextValue, AuthSession } from "../context/auth";
 import { createConsoleApiClient } from "../api/client";
-import { branchId, primaryMechanicId } from "../test/fixtures";
+import { branchId, primaryMechanicId, userPage } from "../test/fixtures";
 
 const server = setupServer();
 
@@ -87,7 +87,7 @@ const executiveSession: AuthSession = {
 };
 
 function usersHandler() {
-  return http.get("*/api/v1/users", () => HttpResponse.json(mechanics));
+  return http.get("*/api/v1/users", () => HttpResponse.json(userPage(mechanics)));
 }
 
 function planSummary(status: string) {

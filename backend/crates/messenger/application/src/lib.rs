@@ -117,6 +117,10 @@ pub struct MessageSummary {
     pub thread_id: ThreadId,
     pub branch_id: BranchId,
     pub sender_id: UserId,
+    /// Display name of the sender, resolved via a LEFT JOIN on `users`. `None`
+    /// when the sender row no longer exists (e.g. a hard-deleted account); the
+    /// web falls back through `safeLabel` so a missing name never leaks a UUID.
+    pub sender_name: Option<String>,
     pub body: String,
     pub attachment_evidence_ids: Vec<EvidenceId>,
     #[serde(with = "time::serde::rfc3339")]

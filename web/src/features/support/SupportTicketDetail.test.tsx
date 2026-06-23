@@ -25,6 +25,7 @@ function detail(
       requester_user_id: OTHER,
       requester_name: "태성이엔지",
       assignee_user_id: OTHER,
+      assignee_name: "박정비",
       due_at: "2026-06-13T18:00:00Z",
       created_at: "2026-06-13T09:00:00Z",
       updated_at: "2026-06-13T09:00:00Z",
@@ -70,6 +71,7 @@ describe("SupportTicketDetail", () => {
             id: "c1",
             ticket_id: "33333333-3333-4333-8333-333333333333",
             author_user_id: ME,
+            author_name: "이작성",
             body: "고객에게 공개되는 코멘트",
             is_internal_note: false,
             created_at: "2026-06-13T10:00:00Z",
@@ -78,6 +80,7 @@ describe("SupportTicketDetail", () => {
             id: "c2",
             ticket_id: "33333333-3333-4333-8333-333333333333",
             author_user_id: ME,
+            author_name: "이작성",
             body: "내부 전용 메모",
             is_internal_note: true,
             created_at: "2026-06-13T10:05:00Z",
@@ -94,6 +97,9 @@ describe("SupportTicketDetail", () => {
     expect(screen.getByText("고객에게 공개되는 코멘트")).toBeVisible();
     expect(screen.getByText("내부 전용 메모")).toBeVisible();
     expect(screen.getByText(ko.support.comments.internalNote)).toBeVisible();
+    // Each comment renders its author by display name (never a raw UUID).
+    expect(screen.getAllByText("이작성").length).toBe(2);
+    expect(screen.queryByText(ME)).not.toBeInTheDocument();
   });
 
   it("submits a transition through the callback", async () => {

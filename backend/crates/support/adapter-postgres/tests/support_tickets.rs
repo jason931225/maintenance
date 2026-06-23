@@ -143,12 +143,38 @@ async fn assign_ticket_audits_and_enqueues_assignee_notification(pool: PgPool) {
             .unwrap();
 
         assert_eq!(summary.assignee_user_id, Some(assignee));
+        // The same-org LEFT JOIN resolves the assignee's display name on the
+        // returned summary (no raw-UUID leak to the client).
+        assert_eq!(summary.assignee_name.as_deref(), Some("Assignee"));
         assert_eq!(notifications.len(), 1);
         assert_eq!(notifications[0].recipient, assignee);
         assert_eq!(notifications[0].kind, TicketNotificationKind::Assigned);
 
         let actions = audit_actions_for_target(&pool, ticket.id).await;
         assert!(actions.contains(&"support.ticket.assign".to_owned()));
+
+        // The display-name JOIN also resolves through the list path, and an
+        // unassigned ticket yields NULL there (not a UUID).
+        let listed = store
+            .list_tickets(ListTicketsQuery {
+                branch_scope: BranchScope::single(branch),
+                status: None,
+                priority: None,
+                category: None,
+                origin: None,
+                assignee_user_id: None,
+                include_untriaged: false,
+                limit: None,
+                cursor: None,
+            })
+            .await
+            .unwrap();
+        let listed_ticket = listed
+            .items
+            .iter()
+            .find(|t| t.id == ticket.id)
+            .expect("assigned ticket is in the list");
+        assert_eq!(listed_ticket.assignee_name.as_deref(), Some("Assignee"));
     })
     .await;
 }
@@ -353,6 +379,8 @@ async fn add_comment_audits_and_respects_internal_note_visibility(pool: PgPool) 
             .await
             .unwrap();
         assert!(note.is_internal_note);
+        // The same-org LEFT JOIN resolves the comment author's display name.
+        assert_eq!(note.author_name.as_deref(), Some("Assignee"));
         assert!(note_notifications.is_empty());
 
         // Customer-visible reply by the assignee: notifies the requester.
@@ -470,8 +498,9 @@ async fn list_tickets_respects_branch_scope_and_filters(pool: PgPool) {
             })
             .await
             .unwrap();
-        assert_eq!(a_all.len(), 2);
-        assert!(a_all.iter().all(|t| t.branch_id == Some(branch_a)));
+        assert_eq!(a_all.total, 2);
+        assert_eq!(a_all.items.len(), 2);
+        assert!(a_all.items.iter().all(|t| t.branch_id == Some(branch_a)));
 
         // Filter by priority within branch A.
         let a_high_only = store
@@ -488,8 +517,9 @@ async fn list_tickets_respects_branch_scope_and_filters(pool: PgPool) {
             })
             .await
             .unwrap();
-        assert_eq!(a_high_only.len(), 1);
-        assert_eq!(a_high_only[0].id, a_high.id);
+        assert_eq!(a_high_only.total, 1);
+        assert_eq!(a_high_only.items.len(), 1);
+        assert_eq!(a_high_only.items[0].id, a_high.id);
 
         // Cross-branch (All) sees all three.
         let all = store
@@ -506,7 +536,8 @@ async fn list_tickets_respects_branch_scope_and_filters(pool: PgPool) {
             })
             .await
             .unwrap();
-        assert_eq!(all.len(), 3);
+        assert_eq!(all.total, 3);
+        assert_eq!(all.items.len(), 3);
     })
     .await;
 }
@@ -550,7 +581,8 @@ async fn untriaged_intake_is_only_visible_cross_branch(pool: PgPool) {
             })
             .await
             .unwrap();
-        assert!(scoped.is_empty());
+        assert_eq!(scoped.total, 0);
+        assert!(scoped.items.is_empty());
 
         // Cross-branch with the flag sees it.
         let cross = store
@@ -567,8 +599,9 @@ async fn untriaged_intake_is_only_visible_cross_branch(pool: PgPool) {
             })
             .await
             .unwrap();
-        assert_eq!(cross.len(), 1);
-        assert_eq!(cross[0].branch_id, None);
+        assert_eq!(cross.total, 1);
+        assert_eq!(cross.items.len(), 1);
+        assert_eq!(cross.items[0].branch_id, None);
     })
     .await;
 }
@@ -695,32 +728,51 @@ async fn list_tickets_caps_and_pages_by_keyset_cursor(pool: PgPool) {
             cursor,
         };
 
-        // First page of 2: the two newest tickets.
+        // First page of 2: the two newest tickets. The unpaged total is the same
+        // (5) on every page, and `next_cursor` points at the next page.
         let page1 = store.list_tickets(query(Some(2), None)).await.unwrap();
-        assert_eq!(page1.len(), 2);
+        assert_eq!(page1.items.len(), 2);
+        assert_eq!(page1.total, 5);
+        let cursor = page1.next_cursor.expect("more pages exist after page1");
+        // The cursor is the last KEPT id (look-ahead row is dropped, not exposed).
+        assert_eq!(cursor, page1.items[1].id);
         // Newest first.
-        assert!(page1[0].created_at >= page1[1].created_at);
+        assert!(page1.items[0].created_at >= page1.items[1].created_at);
 
-        // Next page after the last id of page1: two more, all strictly older.
-        let cursor = page1[1].id;
+        // Next page after page1's cursor: two more, all strictly older.
         let page2 = store
             .list_tickets(query(Some(2), Some(cursor)))
             .await
             .unwrap();
-        assert_eq!(page2.len(), 2);
-        assert!(page2[0].created_at <= page1[1].created_at);
+        assert_eq!(page2.items.len(), 2);
+        assert_eq!(page2.total, 5);
+        assert!(page2.items[0].created_at <= page1.items[1].created_at);
         // No overlap between pages.
-        for ticket in &page2 {
-            assert!(!page1.iter().any(|p| p.id == ticket.id));
+        for ticket in &page2.items {
+            assert!(!page1.items.iter().any(|p| p.id == ticket.id));
         }
+
+        // The final page (1 remaining) reports no further cursor.
+        let cursor2 = page2.next_cursor.expect("one more page after page2");
+        let page3 = store
+            .list_tickets(query(Some(2), Some(cursor2)))
+            .await
+            .unwrap();
+        assert_eq!(page3.items.len(), 1);
+        assert_eq!(page3.total, 5);
+        assert!(page3.next_cursor.is_none(), "last page has no next_cursor");
 
         // A None limit must still bound the fetch (default 50), never unbounded.
         let defaulted = store.list_tickets(query(None, None)).await.unwrap();
-        assert_eq!(defaulted.len(), 5);
+        assert_eq!(defaulted.items.len(), 5);
+        assert_eq!(defaulted.total, 5);
+        // The whole set fits in one page, so there is no further cursor.
+        assert!(defaulted.next_cursor.is_none());
 
         // An over-large limit is clamped, not honored verbatim.
         let clamped = store.list_tickets(query(Some(10_000), None)).await.unwrap();
-        assert_eq!(clamped.len(), 5);
+        assert_eq!(clamped.items.len(), 5);
+        assert_eq!(clamped.total, 5);
     })
     .await;
 }

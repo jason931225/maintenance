@@ -78,6 +78,7 @@ fn message_event(branch_id: BranchId, sender_id: UserId, body: &str) -> Realtime
             thread_id: ThreadId::new(),
             branch_id,
             sender_id,
+            sender_name: Some("Sender".to_owned()),
             body: body.to_owned(),
             attachment_evidence_ids: Vec::new(),
             sent_at: OffsetDateTime::now_utc(),

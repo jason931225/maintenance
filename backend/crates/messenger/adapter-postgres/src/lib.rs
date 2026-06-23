@@ -438,7 +438,8 @@ impl PgMessengerStore {
             builder.push_bind(id);
             builder.push(")");
         }
-        builder.push(" GROUP BY m.id ORDER BY m.sent_at DESC, m.id DESC LIMIT ");
+        builder
+            .push(" GROUP BY m.id, sender.display_name ORDER BY m.sent_at DESC, m.id DESC LIMIT ");
         builder.push_bind(page_limit);
 
         let org = current_org().map_err(KernelError::from)?;
@@ -492,7 +493,8 @@ impl PgMessengerStore {
         builder.push_bind(format!("%{search}%"));
         builder.push(")");
         push_scope_filter(&mut builder, "m.branch_id", &query.branch_scope)?;
-        builder.push(" GROUP BY m.id ORDER BY m.sent_at DESC, m.id DESC LIMIT ");
+        builder
+            .push(" GROUP BY m.id, sender.display_name ORDER BY m.sent_at DESC, m.id DESC LIMIT ");
         builder.push_bind(limit);
 
         let org = current_org().map_err(KernelError::from)?;
@@ -809,7 +811,7 @@ fn message_select_builder() -> QueryBuilder<Postgres> {
     QueryBuilder::<Postgres>::new(
         r#"
         SELECT m.id, m.thread_id, m.branch_id, m.sender_id, m.body,
-               m.sent_at, m.created_at,
+               m.sent_at, m.created_at, sender.display_name AS sender_name,
                COALESCE(
                    array_agg(a.evidence_id ORDER BY a.sort_order)
                        FILTER (WHERE a.evidence_id IS NOT NULL),
@@ -817,6 +819,10 @@ fn message_select_builder() -> QueryBuilder<Postgres> {
                ) AS attachment_evidence_ids
         FROM messenger_messages m
         LEFT JOIN messenger_message_attachments a ON a.message_id = m.id
+        -- Same-org JOIN: `users` is RLS-scoped to app.current_org just like
+        -- messenger_messages, so this can only resolve a sender in the caller's
+        -- tenant. A cross-tenant or hard-deleted sender simply yields NULL.
+        LEFT JOIN users sender ON sender.id = m.sender_id
         "#,
     )
 }
@@ -828,7 +834,7 @@ async fn fetch_message_summary_tx(
     let mut builder = message_select_builder();
     builder.push(" WHERE m.id = ");
     builder.push_bind(*message_id.as_uuid());
-    builder.push(" GROUP BY m.id");
+    builder.push(" GROUP BY m.id, sender.display_name");
     let row = builder.build().fetch_one(tx.as_mut()).await?;
     message_summary_from_row(&row)
 }
@@ -842,6 +848,7 @@ fn message_summary_from_row(
         thread_id: ThreadId::from_uuid(row.try_get("thread_id")?),
         branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
         sender_id: UserId::from_uuid(row.try_get("sender_id")?),
+        sender_name: row.try_get("sender_name")?,
         body: row.try_get("body")?,
         attachment_evidence_ids: attachment_ids
             .into_iter()

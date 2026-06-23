@@ -9,7 +9,12 @@ import { AppRouter } from "../AppRouter";
 import { AuthContext } from "../context/auth";
 import type { AuthContextValue, AuthSession } from "../context/auth";
 import { createConsoleApiClient } from "../api/client";
-import { branchId, primaryMechanicId, workOrderListItems } from "../test/fixtures";
+import {
+  branchId,
+  primaryMechanicId,
+  userPage,
+  workOrderListItems,
+} from "../test/fixtures";
 
 const server = setupServer();
 
@@ -120,7 +125,7 @@ describe("DispatchPage manager controls", () => {
     const patched = vi.fn();
     server.use(
       workOrdersHandler(),
-      http.get("*/api/v1/users", () => HttpResponse.json(mechanics)),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage(mechanics))),
       http.patch("*/api/work-orders/:id/priority", async ({ request }) => {
         patched(await request.json());
         return HttpResponse.json({ ...workOrderListItems[0], priority: "P2" });
@@ -149,7 +154,7 @@ describe("DispatchPage manager controls", () => {
     const assigned = vi.fn();
     server.use(
       workOrdersHandler(),
-      http.get("*/api/v1/users", () => HttpResponse.json(mechanics)),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage(mechanics))),
       http.put("*/api/work-orders/:id/assignments", async ({ request }) => {
         assigned(await request.json());
         return HttpResponse.json(workOrderListItems[0]);
@@ -182,7 +187,7 @@ describe("DispatchPage manager controls", () => {
     const forced = vi.fn();
     server.use(
       workOrdersHandler(),
-      http.get("*/api/v1/users", () => HttpResponse.json(mechanics)),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage(mechanics))),
       http.get("*/api/v1/p1-dispatches/:id", () =>
         HttpResponse.json(dispatchSummary),
       ),

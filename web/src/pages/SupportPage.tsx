@@ -84,8 +84,10 @@ export function SupportPage() {
   // Wall-clock stamped each time the list loads, so SLA badges are computed
   // against a stable value rather than an impure call during render.
   const [nowMs, setNowMs] = useState(0);
-  // A full page means there may be more rows behind the server-side cap.
-  const [hasMore, setHasMore] = useState(false);
+  // The keyset cursor for the next page, or null on the last page.
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  // Unpaged total matching the current filters, reported by the API.
+  const [total, setTotal] = useState<number>();
   const [loadingMore, setLoadingMore] = useState(false);
 
   const queryFilters = useCallback(
@@ -109,26 +111,28 @@ export function SupportPage() {
       setListState("error");
       return;
     }
-    setTickets(response.data);
-    setHasMore(response.data.length === PAGE_SIZE);
+    setTickets(response.data.items);
+    setNextCursor(response.data.next_cursor);
+    setTotal(response.data.total);
     setNowMs(Date.now());
     setListState("idle");
   }, [api, queryFilters]);
 
-  // Append the next keyset page (cursor = the last loaded ticket id).
+  // Append the next keyset page using the cursor the API reported.
   const loadMore = useCallback(async () => {
+    if (nextCursor === null) return;
     setLoadingMore(true);
-    const cursor = tickets.at(-1)?.id;
     const response = await api
       .GET("/api/v1/support/tickets", {
-        params: { query: { ...queryFilters(), cursor } },
+        params: { query: { ...queryFilters(), cursor: nextCursor } },
       })
       .catch(() => undefined);
     setLoadingMore(false);
     if (!response?.data) return;
-    setTickets((prev) => [...prev, ...response.data]);
-    setHasMore(response.data.length === PAGE_SIZE);
-  }, [api, queryFilters, tickets]);
+    setTickets((prev) => [...prev, ...response.data.items]);
+    setNextCursor(response.data.next_cursor);
+    setTotal(response.data.total);
+  }, [api, queryFilters, nextCursor]);
 
   useEffect(() => {
     void Promise.resolve().then(loadTickets);
@@ -265,8 +269,9 @@ export function SupportPage() {
             isLoading={listState === "loading"}
             nowMs={nowMs}
             onSelect={setSelectedId}
-            hasMore={hasMore}
+            hasMore={nextCursor !== null}
             isLoadingMore={loadingMore}
+            total={total}
             onLoadMore={() => {
               void loadMore();
             }}

@@ -525,7 +525,7 @@ impl PgRealtimeHub {
                     builder.push_bind(cursor_id);
                     builder.push(")");
                     push_scope_filter(&mut builder, "m.branch_id", &branch_scope);
-                    builder.push(" GROUP BY m.id ORDER BY m.sent_at ASC, m.id ASC LIMIT ");
+                    builder.push(" GROUP BY m.id, sender.display_name ORDER BY m.sent_at ASC, m.id ASC LIMIT ");
                     builder.push_bind(REPLAY_PAGE_SIZE);
                     Ok(builder.build().fetch_all(tx.as_mut()).await?)
                 })
@@ -576,7 +576,7 @@ impl PgRealtimeHub {
                 builder.push_bind(message_uuid);
                 builder.push(" AND m.thread_id = ");
                 builder.push_bind(thread_uuid);
-                builder.push(" GROUP BY m.id");
+                builder.push(" GROUP BY m.id, sender.display_name");
                 let row = builder.build().fetch_one(tx.as_mut()).await?;
                 message_summary_from_row(&row).map_err(|err| RealtimeError::Db(DbError::Sqlx(err)))
             })
@@ -1106,7 +1106,7 @@ fn message_select_builder() -> QueryBuilder<Postgres> {
     QueryBuilder::<Postgres>::new(
         r#"
         SELECT m.id, m.thread_id, m.branch_id, m.sender_id, m.body,
-               m.sent_at, m.created_at,
+               m.sent_at, m.created_at, sender.display_name AS sender_name,
                COALESCE(
                    array_agg(a.evidence_id ORDER BY a.sort_order)
                        FILTER (WHERE a.evidence_id IS NOT NULL),
@@ -1114,6 +1114,9 @@ fn message_select_builder() -> QueryBuilder<Postgres> {
                ) AS attachment_evidence_ids
         FROM messenger_messages m
         LEFT JOIN messenger_message_attachments a ON a.message_id = m.id
+        -- Same-org JOIN: `users` is RLS-scoped to app.current_org like the
+        -- messages, so a sender only resolves within the caller's tenant.
+        LEFT JOIN users sender ON sender.id = m.sender_id
         "#,
     )
 }
@@ -1125,6 +1128,7 @@ fn message_summary_from_row(row: &sqlx::postgres::PgRow) -> Result<MessageSummar
         thread_id: ThreadId::from_uuid(row.try_get("thread_id")?),
         branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
         sender_id: UserId::from_uuid(row.try_get("sender_id")?),
+        sender_name: row.try_get("sender_name")?,
         body: row.try_get("body")?,
         attachment_evidence_ids: attachment_ids
             .into_iter()

@@ -38,6 +38,16 @@ async fn message_send_persists_audit_before_post_commit_notify(pool: PgPool) {
 
         assert_eq!(message.thread_id, thread.id);
         assert_eq!(message.sender_id, seeded.sender);
+        // The same-org LEFT JOIN on users resolves the sender's display name
+        // (seed_user stamps "Sender <uuid>") — no raw-UUID leak to the client.
+        assert!(
+            message
+                .sender_name
+                .as_deref()
+                .is_some_and(|name| name.starts_with("Sender")),
+            "expected sender_name to resolve, got {:?}",
+            message.sender_name
+        );
         assert_eq!(message.body, "지게차 누유 사진 확인했습니다");
 
         let calls = notifier.calls.lock().unwrap().clone();

@@ -10,7 +10,12 @@ import { AuthContext } from "../context/auth";
 import type { AuthContextValue, AuthSession } from "../context/auth";
 import { createConsoleApiClient } from "../api/client";
 import type { InspectionScheduleSummary } from "../api/types";
-import { branchId, equipmentLookup } from "../test/fixtures";
+import {
+  branchId,
+  equipmentLookup,
+  inspectionSchedulePage,
+  userPage,
+} from "../test/fixtures";
 
 const server = setupServer();
 
@@ -35,6 +40,7 @@ const overdueSchedule: InspectionScheduleSummary = {
   branch_id: branchId,
   equipment_id: equipmentId,
   mechanic_id: mechanicId,
+  mechanic_display_name: "홍정비",
   cycle: "MONTHLY",
   interval_days: 30,
   due_date: "2020-01-01",
@@ -87,7 +93,7 @@ describe("InspectionPage", () => {
     const created = vi.fn();
     server.use(
       http.get("*/api/v1/inspections/schedules", () =>
-        HttpResponse.json([overdueSchedule]),
+        HttpResponse.json(inspectionSchedulePage([overdueSchedule])),
       ),
       // Picker option sources for the create form.
       http.get("*/api/v1/branches", () =>
@@ -102,20 +108,22 @@ describe("InspectionPage", () => {
         ]),
       ),
       http.get("*/api/v1/users", () =>
-        HttpResponse.json([
-          {
-            id: mechanicId,
-            display_name: "홍정비",
-            phone: "010-1234-5678",
-            team: "MAINTENANCE",
-            roles: ["MECHANIC"],
-            branch_ids: [branchId],
-            is_active: true,
-            has_passkey: true,
-            account_status: "ACTIVE",
-            created_at: "2026-06-01T00:00:00Z",
-          },
-        ]),
+        HttpResponse.json(
+          userPage([
+            {
+              id: mechanicId,
+              display_name: "홍정비",
+              phone: "010-1234-5678",
+              team: "MAINTENANCE",
+              roles: ["MECHANIC"],
+              branch_ids: [branchId],
+              is_active: true,
+              has_passkey: true,
+              account_status: "ACTIVE",
+              created_at: "2026-06-01T00:00:00Z",
+            },
+          ]),
+        ),
       ),
       http.get("*/api/v1/equipment", () =>
         HttpResponse.json({ items: [equipmentLookup], limit: 8 }),
@@ -134,6 +142,8 @@ describe("InspectionPage", () => {
     // The overdue (past-due, SCHEDULED) row is flagged.
     expect(await screen.findByText("지연")).toBeVisible();
     expect(screen.getByText(/본사현장/)).toBeVisible();
+    // The assigned mechanic renders by display name (never a raw UUID).
+    expect(screen.getByText(/홍정비/)).toBeVisible();
 
     // Branch picker: type to filter, then pick the human-named option.
     await user.type(screen.getByLabelText("지점"), "창원");

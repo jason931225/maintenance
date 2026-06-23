@@ -20,6 +20,7 @@ function ticket(over: Partial<SupportTicketSummary> = {}): SupportTicketSummary 
     requester_user_id: "00000000-0000-4000-8000-0000000000aa",
     requester_name: "태성이엔지",
     assignee_user_id: "00000000-0000-4000-8000-0000000000bb",
+    assignee_name: "김담당",
     due_at: "2026-06-13T11:00:00Z", // already overdue at NOW
     created_at: "2026-06-13T09:00:00Z",
     updated_at: "2026-06-13T09:00:00Z",
@@ -39,6 +40,36 @@ describe("SupportTicketList", () => {
     expect(screen.getByText(ko.support.ticketPriority.HIGH)).toBeVisible();
     expect(screen.getByText(ko.support.ticketStatus.OPEN)).toBeVisible();
     expect(screen.getByText(ko.support.overdue)).toBeVisible();
+  });
+
+  it("renders the assignee by display name and the real total", () => {
+    render(
+      <SupportTicketList
+        tickets={[ticket()]}
+        nowMs={NOW}
+        onSelect={vi.fn()}
+        total={42}
+      />,
+    );
+
+    // The assignee renders by name (never the raw UUID), and the badge shows the
+    // honest server total rather than just the loaded count.
+    expect(screen.getByText(/김담당/)).toBeVisible();
+    expect(
+      screen.queryByText("00000000-0000-4000-8000-0000000000bb"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/42/)).toBeVisible();
+  });
+
+  it("falls back to 미배정 when a ticket has no assignee", () => {
+    render(
+      <SupportTicketList
+        tickets={[ticket({ assignee_user_id: null, assignee_name: null })]}
+        nowMs={NOW}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/미배정/)).toBeVisible();
   });
 
   it("shows the empty state when there are no tickets", () => {

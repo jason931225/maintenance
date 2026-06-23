@@ -603,15 +603,30 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/Date'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 500
+          default: 200
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
       responses:
         '200':
-          description: Inspection schedules due in the requested date range.
+          description: A page of inspection schedules due in the requested range.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/InspectionScheduleSummary'
+                $ref: '#/components/schemas/InspectionSchedulePage'
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -758,13 +773,13 @@ paths:
           $ref: '#/components/schemas/Uuid'
       responses:
         '200':
-          description: Support tickets visible in the principal's branch scope.
+          description: >-
+            A keyset page of support tickets visible in the principal's branch
+            scope, plus the unpaged total for the same filters.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/SupportTicketSummary'
+                $ref: '#/components/schemas/SupportTicketPage'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -3057,15 +3072,21 @@ paths:
           minimum: 1
           maximum: 200
           default: 50
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
       responses:
         '200':
-          description: Users in the principal's branch scope.
+          description: A page of users in the principal's branch scope.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/UserSummary'
+                $ref: '#/components/schemas/UserPage'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -4392,6 +4413,14 @@ components:
       properties:
         scope:
           $ref: '#/components/schemas/KpiRollupScope'
+        scope_display_name:
+          type:
+          - string
+          - 'null'
+          description: >-
+            Human-readable name for the scope (region/branch/mechanic), resolved
+            via a same-org lookup. Null for the company-wide scope or a deleted
+            region/branch/user. Optional; absent on the pure-domain shape.
         approved_report_count:
           type: integer
           format: int32
@@ -4893,6 +4922,7 @@ components:
       - branch_id
       - equipment_id
       - mechanic_id
+      - mechanic_display_name
       - cycle
       - interval_days
       - due_date
@@ -4913,6 +4943,13 @@ components:
           $ref: '#/components/schemas/Uuid'
         mechanic_id:
           $ref: '#/components/schemas/Uuid'
+        mechanic_display_name:
+          type:
+          - string
+          - 'null'
+          description: >-
+            Assigned mechanic's display name, resolved via a same-org LEFT JOIN
+            on users. Null when the mechanic account no longer exists.
         cycle:
           $ref: '#/components/schemas/InspectionCycle'
         interval_days:
@@ -4946,6 +4983,27 @@ components:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
+    InspectionSchedulePage:
+      type: object
+      required:
+      - items
+      - limit
+      - offset
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InspectionScheduleSummary'
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
+        total:
+          type: integer
+          format: int64
     InspectionRoundSummary:
       type: object
       required:
@@ -5104,6 +5162,7 @@ components:
       - requester_user_id
       - requester_name
       - assignee_user_id
+      - assignee_name
       - due_at
       - created_at
       - updated_at
@@ -5132,6 +5191,13 @@ components:
           - 'null'
         assignee_user_id:
           $ref: '#/components/schemas/Uuid'
+        assignee_name:
+          type:
+          - string
+          - 'null'
+          description: >-
+            Assignee display name, resolved via a same-org LEFT JOIN on users.
+            Null when unassigned or the assignee account no longer exists.
         due_at:
           type:
           - string
@@ -5157,6 +5223,7 @@ components:
       - id
       - ticket_id
       - author_user_id
+      - author_name
       - body
       - is_internal_note
       - created_at
@@ -5167,6 +5234,13 @@ components:
           $ref: '#/components/schemas/Uuid'
         author_user_id:
           $ref: '#/components/schemas/Uuid'
+        author_name:
+          type:
+          - string
+          - 'null'
+          description: >-
+            Comment author display name, resolved via a same-org LEFT JOIN on
+            users. Null for an authorless comment or a deleted author.
         body:
           type: string
         is_internal_note:
@@ -5185,6 +5259,27 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SupportTicketComment'
+    SupportTicketPage:
+      type: object
+      required:
+      - items
+      - next_cursor
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SupportTicketSummary'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: >-
+            Id to pass as `cursor` for the next page, or null on the last page.
+        total:
+          type: integer
+          format: int64
     EquipmentAutocompletePage:
       type: object
       required:
@@ -6008,26 +6103,14 @@ components:
       type: object
       required:
       - id
-      - user_id
-      - branch_id
-      - work_order_id
       - work_order_no
-      - site_id
       - site_name
       - kind
       - occurred_at
       properties:
         id:
           type: string
-        user_id:
-          $ref: '#/components/schemas/Uuid'
-        branch_id:
-          $ref: '#/components/schemas/Uuid'
-        work_order_id:
-          type: string
         work_order_no:
-          type: string
-        site_id:
           type: string
         site_name:
           type: string
@@ -6577,6 +6660,7 @@ components:
       - thread_id
       - branch_id
       - sender_id
+      - sender_name
       - body
       - attachment_evidence_ids
       - sent_at
@@ -6590,6 +6674,13 @@ components:
           $ref: '#/components/schemas/Uuid'
         sender_id:
           $ref: '#/components/schemas/Uuid'
+        sender_name:
+          type:
+          - string
+          - 'null'
+          description: >-
+            Sender display name, resolved via a same-org LEFT JOIN on users.
+            Null when the sender account no longer exists.
         body:
           type: string
         attachment_evidence_ids:
@@ -8157,6 +8248,27 @@ components:
           $ref: '#/components/schemas/AccountStatus'
         created_at:
           $ref: '#/components/schemas/Timestamp'
+    UserPage:
+      type: object
+      required:
+      - items
+      - limit
+      - offset
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserSummary'
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
+        total:
+          type: integer
+          format: int64
     RegionSummary:
       type: object
       required:

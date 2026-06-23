@@ -9,6 +9,7 @@ import { AppRouter } from "../AppRouter";
 import { AuthContext } from "../context/auth";
 import type { AuthContextValue, AuthSession } from "../context/auth";
 import { createConsoleApiClient } from "../api/client";
+import { userPage } from "../test/fixtures";
 
 const server = setupServer();
 
@@ -110,7 +111,7 @@ const executiveSession: AuthSession = {
 function mockFindings(findings: unknown[]) {
   server.use(
     http.get("*/api/v1/integrity/findings", () => HttpResponse.json(findings)),
-    http.get("*/api/v1/users", () => HttpResponse.json(users)),
+    http.get("*/api/v1/users", () => HttpResponse.json(userPage(users))),
   );
 }
 
@@ -176,7 +177,7 @@ describe("IntegrityPage listing", () => {
           { status: 500 },
         ),
       ),
-      http.get("*/api/v1/users", () => HttpResponse.json(users)),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage(users))),
     );
     renderApp("/integrity", makeAuthContext(executiveSession));
     expect(
@@ -220,7 +221,7 @@ describe("IntegrityPage listing", () => {
         seen.push(url.searchParams.get("status") ?? "ALL");
         return HttpResponse.json([]);
       }),
-      http.get("*/api/v1/users", () => HttpResponse.json(users)),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage(users))),
     );
     const user = userEvent.setup();
     renderApp("/integrity", makeAuthContext(executiveSession));
@@ -241,7 +242,7 @@ describe("IntegrityPage triage", () => {
       http.get("*/api/v1/integrity/findings", () =>
         HttpResponse.json([selfApprovalFinding]),
       ),
-      http.get("*/api/v1/users", () => HttpResponse.json(users)),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage(users))),
       http.post(
         "*/api/v1/integrity/findings/:id/triage",
         async ({ request, params }) => {
@@ -277,7 +278,7 @@ describe("IntegrityPage triage", () => {
       http.get("*/api/v1/integrity/findings", () =>
         HttpResponse.json([selfApprovalFinding]),
       ),
-      http.get("*/api/v1/users", () => HttpResponse.json(users)),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage(users))),
       http.post("*/api/v1/integrity/findings/:id/triage", () => {
         triaged();
         return HttpResponse.json(selfApprovalFinding);
@@ -316,7 +317,7 @@ describe("IntegrityPage triage", () => {
       http.get("*/api/v1/integrity/findings", () =>
         HttpResponse.json([selfApprovalFinding]),
       ),
-      http.get("*/api/v1/users", () => HttpResponse.json(users)),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage(users))),
       http.post("*/api/v1/integrity/findings/:id/triage", () =>
         HttpResponse.json(
           { error: { code: "conflict", message: "already triaged" } },

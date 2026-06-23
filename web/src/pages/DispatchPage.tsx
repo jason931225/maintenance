@@ -90,7 +90,7 @@ export function DispatchPage() {
       .catch(() => undefined);
     if (response?.data) {
       setMechanics(
-        response.data.filter((user) => user.roles.includes("MECHANIC")),
+        response.data.items.filter((user) => user.roles.includes("MECHANIC")),
       );
     }
   }, [api, isManager]);

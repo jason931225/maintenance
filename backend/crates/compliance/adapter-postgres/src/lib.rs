@@ -497,8 +497,11 @@ impl PgComplianceStore {
         let total = self.count_arrival_events(branch_scope, &query).await?;
         let mut builder = QueryBuilder::<Postgres>::new(
             r#"
-            SELECT l.id, l.user_id, l.branch_id, l.work_order_id,
-                   w.request_no AS work_order_no, l.site_id, s.name AS site_name,
+            -- The user_id/branch_id/work_order_id/site_id columns are still used
+            -- to JOIN and to scope the WHERE filters, but they are no longer
+            -- SELECTed: the slimmed ArrivalEvent wire model ships only the
+            -- human-facing request_no / site_name / kind / time.
+            SELECT l.id, w.request_no AS work_order_no, s.name AS site_name,
                    l.kind, l.occurred_at
             FROM site_attendance_events l
             JOIN work_orders w    ON w.id = l.work_order_id
@@ -520,17 +523,9 @@ impl PgComplianceStore {
         let mut items = Vec::with_capacity(rows.len());
         for row in rows {
             let id: uuid::Uuid = row.try_get("id")?;
-            let user_id: uuid::Uuid = row.try_get("user_id")?;
-            let branch_id: uuid::Uuid = row.try_get("branch_id")?;
-            let work_order_id: uuid::Uuid = row.try_get("work_order_id")?;
-            let site_id: uuid::Uuid = row.try_get("site_id")?;
             items.push(ArrivalEvent {
                 id: id.to_string(),
-                user_id: UserId::from_uuid(user_id),
-                branch_id: BranchId::from_uuid(branch_id),
-                work_order_id: work_order_id.to_string(),
                 work_order_no: row.try_get("work_order_no")?,
-                site_id: site_id.to_string(),
                 site_name: row.try_get("site_name")?,
                 kind: row.try_get("kind")?,
                 occurred_at: row.try_get("occurred_at")?,
