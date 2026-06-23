@@ -1,60 +1,76 @@
 import { test, expect } from "../fixtures/auth";
 
 /**
- * LANDING — the public marketing landing page (GitHub #10).
+ * STOREFRONT — the public KNL marketing surface (#6).
  *
- * Public + unauthenticated: renders the product, the feature showcase, and the
- * FAQ, with a login CTA that hands off to /login. The subscription + contact CTAs
- * route to the existing public inquiry form (/support/new) — the real customer
- * window — so no fabricated phone/email is published.
+ * `/landing` (and `/`, `/home`) now render the redesigned StorefrontHomePage
+ * inside PublicLayout — this supersedes the removed #10 LandingPage. The page is
+ * public + unauthenticated: a one-stop hero with a 정비 접수 CTA into the public
+ * intake (/support/new), a fenced FSM-platform nav link (/platform-fsm), and a
+ * staff 로그인 link that on dev/preview stays same-origin (/login).
+ *
+ * The previous spec asserted the old #10 LandingPage (the "하나의 콘솔로" hero,
+ * 자주 묻는 질문 FAQ, 구독 문의하기 CTA) at /landing — none of which render there
+ * anymore. This rewrite asserts the CURRENT storefront the product actually
+ * ships, plus the /platform-fsm showcase the FSM nav link points to.
  */
-test("LANDING public page renders product, features, FAQ, and CTAs", async ({
+test("STOREFRONT home renders the one-stop hero, FSM-platform nav, login, and intake CTA", async ({
   page,
 }) => {
   await page.goto("/landing");
 
-  // Hero headline + the feature showcase + a feature group + the FAQ all render.
+  // One-stop hero headline (StorefrontHomePage h1 / ko.storefront.home.hero.titleOneStop).
+  await expect(
+    page.getByRole("heading", {
+      name: "물류장비 렌탈부터 정비·운영까지, 하나로 잇는 원스탑 솔루션",
+      level: 1,
+    }),
+  ).toBeVisible();
+
+  // The PublicLayout header carries the fenced FSM 플랫폼 nav link → /platform-fsm.
+  await expect(
+    page.getByRole("link", { name: "FSM 플랫폼" }).first(),
+  ).toHaveAttribute("href", "/platform-fsm");
+
+  // The staff 로그인 link hands off to the console login. consoleHref() resolves
+  // to the same-origin relative /login on the e2e preview origin (localhost).
+  await expect(
+    page.getByRole("link", { name: "로그인" }).first(),
+  ).toHaveAttribute("href", "/login");
+
+  // The dominant amber CTA — 정비 접수 — routes to the public intake form.
+  await expect(
+    page.getByRole("link", { name: "정비 접수" }).first(),
+  ).toHaveAttribute("href", "/support/new");
+
+  await page.screenshot({
+    path: "e2e/.artifacts/storefront-home.png",
+    fullPage: true,
+  });
+});
+
+test("STOREFRONT FSM-platform nav navigates to the public /platform-fsm showcase", async ({
+  page,
+}) => {
+  await page.goto("/landing");
+
+  await page.getByRole("link", { name: "FSM 플랫폼" }).first().click();
+  await expect(page).toHaveURL(/\/platform-fsm/, { timeout: 15_000 });
+
+  // The PlatformFsmPage hero h1 (ko.landing.hero.title) renders.
   await expect(
     page.getByRole("heading", {
       name: "접수부터 배차·현장 정비·정산·KPI까지, 하나의 콘솔로",
       level: 1,
     }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "이 프로그램이 제공하는 기능", level: 2 }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "접수 · 배차" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "자주 묻는 질문", level: 2 }),
-  ).toBeVisible();
-
-  // Unauthenticated: the login CTA hands off to /login (no console CTA).
-  await expect(page.getByRole("link", { name: "로그인" }).first()).toHaveAttribute(
-    "href",
-    "/login",
-  );
-  await expect(
-    page.getByRole("link", { name: "콘솔로 이동" }),
-  ).toHaveCount(0);
-
-  // Subscription + contact CTAs route to the real public inquiry form.
-  await expect(
-    page.getByRole("link", { name: "구독 문의하기" }),
-  ).toHaveAttribute("href", "/support/new");
-  await expect(
-    page.getByRole("link", { name: "문의 양식 작성" }),
-  ).toHaveAttribute("href", "/support/new");
-
-  await page.screenshot({
-    path: "e2e/.artifacts/landing.png",
-    fullPage: true,
-  });
+  ).toBeVisible({ timeout: 8_000 });
 });
 
-test("LANDING login CTA navigates to the login page", async ({ page }) => {
+test("STOREFRONT 정비 접수 CTA navigates to the public intake form", async ({
+  page,
+}) => {
   await page.goto("/landing");
-  await page.getByRole("link", { name: "로그인" }).first().click();
-  await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
+
+  await page.getByRole("link", { name: "정비 접수" }).first().click();
+  await expect(page).toHaveURL(/\/support\/new/, { timeout: 15_000 });
 });
