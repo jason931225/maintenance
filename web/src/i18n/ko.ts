@@ -22,6 +22,7 @@ export const ko = {
     "equipment-manage": "장비 관리",
     catalog: "판매·문의 관리",
     financial: "구매·정산",
+    integrity: "이상 징후 검토",
     location: "GPS 위치 동의",
     security: "보안 설정",
     users: "사용자 관리",
@@ -1270,6 +1271,107 @@ export const ko = {
     empty: "검색 결과가 없습니다.",
     clear: "선택 해제",
     typeToSearch: "검색어를 입력하세요.",
+  },
+  // Integrity engine (#12 / #34). FRAMING: these are "검토 필요" items / 이상 징후
+  // — NOT accusations. The cause may be inadequate research, a genuine price
+  // increase, or wrongdoing; the UI never concludes intent.
+  integrity: {
+    title: "이상 징후 검토",
+    description:
+      "결재·구매 과정에서 사람의 검토가 필요한 기록을 모았습니다. 잘못을 단정하는 것이 아니라, 사유를 확인하고 처리 결과를 남기기 위한 화면입니다.",
+    loadFailed: "검토 항목을 불러오지 못했습니다.",
+    empty: "검토가 필요한 항목이 없습니다.",
+    // Status filter chips.
+    filter: {
+      label: "상태",
+      all: "전체",
+      open: "검토 대기",
+      reviewed: "검토 완료",
+      dismissed: "이상 없음",
+      escalated: "추가 조치",
+    },
+    // GovernanceFinding.status labels.
+    status: {
+      OPEN: "검토 대기",
+      REVIEWED: "검토 완료",
+      DISMISSED: "이상 없음",
+      ESCALATED: "추가 조치",
+    },
+    // GovernanceFinding.severity labels (검토 우선순위, not 위험도 — neutral tone).
+    severity: {
+      INFO: "참고",
+      LOW: "낮음",
+      MEDIUM: "보통",
+      HIGH: "높음",
+      CRITICAL: "매우 높음",
+    },
+    // detector_id → human label. Unknown detectors fall back to the raw id.
+    detector: {
+      selfApproval: "자가 승인 기록",
+      priceOutlier: "단가 이상 징후",
+    },
+    // entity_type → human label.
+    entityType: {
+      purchaseRequest: "구매 요청",
+    },
+    table: {
+      type: "유형",
+      subject: "대상",
+      severity: "검토 우선순위",
+      occurredAt: "발생 시각",
+      status: "상태",
+      detail: "내용",
+    },
+    // Self-approval (anomaly.self_approval) detail copy. Neutral, factual.
+    selfApproval: {
+      summary: "본인이 상신·요청한 건을 본인이 결재한 기록입니다.",
+      approver: "결재자",
+      requestedBy: "요청자",
+      submittedBy: "상신자",
+      action: "결재 단계",
+      exemption: "허용 근거",
+      exemptionOrgLead: "대표 권한 결재 허용",
+      exemptionSuperAdmin: "최고 관리자 권한 결재 허용",
+      note: "대표 또는 최고 관리자는 본인 건을 결재할 수 있으나, 모든 건은 검토를 위해 기록됩니다.",
+    },
+    // Price-outlier (anomaly.price_outlier) detail copy.
+    priceOutlier: {
+      summary:
+        "유사 거래 대비 단가가 통상 범위를 벗어난 구매 건입니다. 시세 상승, 사양 차이, 조사 부족 등 다양한 원인이 있을 수 있습니다.",
+      score: "이상 점수",
+    },
+    // Generic evidence fallback (unknown detector): show the raw bag read-only.
+    evidence: {
+      label: "상세 근거",
+    },
+    reviewed: {
+      by: "검토자",
+      at: "검토 시각",
+      memo: "검토 메모",
+    },
+    // Triage action (Dialog → POST .../triage).
+    triage: {
+      open: "검토 처리",
+      title: "검토 처리",
+      description:
+        "이 항목의 검토 결과를 기록합니다. 처리 내용은 감사 로그에 남습니다.",
+      statusLabel: "처리 결과",
+      reviewed: "검토 완료 (확인함)",
+      dismissed: "이상 없음 (정상 사유 확인)",
+      escalated: "추가 조치 필요",
+      memoLabel: "검토 메모",
+      memoPlaceholder: "확인한 사유나 후속 조치를 적어주세요.",
+      memoHintOptional: "검토 완료 시 메모는 선택 사항입니다.",
+      memoHintRequired: "이상 없음·추가 조치로 처리할 때는 메모가 필요합니다.",
+      submit: "처리 저장",
+      submitting: "저장 중",
+      cancel: "취소",
+      memoRequired: "처리 메모를 입력하세요.",
+      conflict:
+        "이미 처리된 항목입니다. 새로고침 후 다시 확인하세요.",
+      submitFailed: "검토 처리를 저장하지 못했습니다. 다시 시도하세요.",
+      saved: "검토 결과를 저장했습니다.",
+    },
   },
   support: {
     title: "고객지원 티켓",

@@ -8,6 +8,7 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import { RequireAdminRoute } from "./components/RequireAdminRoute";
 import { RequireEquipmentManageRoute } from "./components/RequireEquipmentManageRoute";
 import { RequireDailyPlanRoute } from "./components/RequireDailyPlanRoute";
+import { RequireIntegrityRoute } from "./components/RequireIntegrityRoute";
 import { RequireKpiRoute } from "./components/RequireKpiRoute";
 import { RequirePlatformRoute } from "./components/RequirePlatformRoute";
 import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
@@ -127,6 +128,9 @@ const CatalogAdminPage = lazy(() =>
     default: m.CatalogAdminPage,
   })),
 );
+const IntegrityPage = lazy(() =>
+  import("./pages/IntegrityPage").then((m) => ({ default: m.IntegrityPage })),
+);
 
 export function AppRouter() {
   return (
@@ -202,6 +206,12 @@ export function AppRouter() {
           </Route>
           <Route element={<RequireKpiRoute />}>
             <Route path="/kpi" element={<KpiPage />} />
+          </Route>
+          {/* /integrity: governance findings (#12 / #34). EXECUTIVE/SUPER_ADMIN
+              only — RequireIntegrityRoute mirrors the backend matrix and the
+              `integrity` nav gate; ADMIN is intentionally excluded. */}
+          <Route element={<RequireIntegrityRoute />}>
+            <Route path="/integrity" element={<IntegrityPage />} />
           </Route>
           <Route path="/reporting" element={<ReportingPage />} />
           <Route path="/messenger" element={<MessengerPage />} />

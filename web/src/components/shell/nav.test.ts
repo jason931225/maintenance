@@ -32,6 +32,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "equipment-manage",
     "catalog",
     "financial",
+    "integrity",
     "users",
     "org",
     "sites",
@@ -75,6 +76,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "equipment",
     "equipment-manage",
     "financial",
+    "integrity",
     "profile",
     "location",
   ],
@@ -150,6 +152,15 @@ describe("nav role gating", () => {
     expect(isNavItemVisible("inspection", [ROLES.EXECUTIVE])).toBe(false);
     expect(isNavItemVisible("inspection", [ROLES.MECHANIC])).toBe(false);
     expect(isNavItemVisible("inspection", [ROLES.RECEPTIONIST])).toBe(false);
+  });
+
+  it("shows integrity (IntegrityFindingsRead) only to EXECUTIVE and SUPER_ADMIN", () => {
+    // Labor-law sensitivity: ADMIN is deliberately excluded (matrix [D,D,D,D,A,A]).
+    expect(isNavItemVisible("integrity", [ROLES.EXECUTIVE])).toBe(true);
+    expect(isNavItemVisible("integrity", [ROLES.SUPER_ADMIN])).toBe(true);
+    expect(isNavItemVisible("integrity", [ROLES.ADMIN])).toBe(false);
+    expect(isNavItemVisible("integrity", [ROLES.MECHANIC])).toBe(false);
+    expect(isNavItemVisible("integrity", [ROLES.RECEPTIONIST])).toBe(false);
   });
 
   it("shows daily-plan to DailyPlanRequest holders only", () => {

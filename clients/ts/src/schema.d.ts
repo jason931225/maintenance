@@ -2430,6 +2430,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integrity/findings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List governance findings (anomaly / 검토 필요) for the current org
+         * @description Lists governance findings raised by the integrity engine (#34): records that need human review such as self-approval (자가 승인 기록) and price anomalies (이상 징후). Findings are framed as "검토 필요" — items requiring review, NOT accusations of wrongdoing. Gated to EXECUTIVE and SUPER_ADMIN only (IntegrityFindingsRead); an ADMIN must not read findings about themselves. RLS-armed to the caller's org. Results are ordered by severity (CRITICAL first) then detected_at descending. This endpoint is not paginated.
+         */
+        get: operations["listIntegrityFindings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrity/findings/{id}/triage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Triage (review) a governance finding
+         * @description Transitions an OPEN finding to REVIEWED, DISMISSED, or ESCALATED with an optional reviewer memo. A memo is required when dismissing or escalating. Only OPEN findings can be triaged. The triage itself is audited. Gated to EXECUTIVE and SUPER_ADMIN only (IntegrityFindingTriage).
+         */
+        post: operations["triageIntegrityFinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4111,6 +4151,66 @@ export interface components {
         };
         CreateListingResponse: {
             id: components["schemas"]["Uuid"];
+        };
+        /** @enum {string} */
+        FindingSeverity: "INFO" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+        /**
+         * @description Lifecycle of a governance finding. OPEN findings are triaged to one of REVIEWED, DISMISSED, or ESCALATED.
+         * @enum {string}
+         */
+        FindingStatus: "OPEN" | "REVIEWED" | "DISMISSED" | "ESCALATED";
+        /** @description A governance finding raised by the integrity engine (#34). Findings are "검토 필요" (review needed) — e.g. a self-approval record (detector_id `anomaly.self_approval`) or a price anomaly (`anomaly.price_outlier`) — and are NOT accusations of wrongdoing. */
+        GovernanceFinding: {
+            id: components["schemas"]["Uuid"];
+            org_id: components["schemas"]["Uuid"];
+            /** @description Dot-namespaced detector identity, e.g. `anomaly.self_approval` or `anomaly.price_outlier`. */
+            detector_id: string;
+            /** @description The domain entity the finding concerns, e.g. `financial_purchase_request`. */
+            entity_type: string;
+            /** @description Identifier of the entity the finding concerns. */
+            entity_id: string;
+            /**
+             * Format: uuid
+             * @description Audit event that triggered the finding (OnWrite detectors); may be null.
+             */
+            source_audit_event_id?: string | null;
+            /**
+             * Format: uuid
+             * @description The user whose action was flagged (e.g. the self-approver). Null for non-person findings. A raw id; resolve to a display name in the UI.
+             */
+            subject_user_id?: string | null;
+            /**
+             * Format: double
+             * @description Non-negative detector score; the severity enum is the primary triage signal.
+             */
+            score: number;
+            severity: components["schemas"]["FindingSeverity"];
+            /** @description Detector-specific evidence bag. For `anomaly.self_approval` this includes action, requested_by, submitted_by, approver, and exemption_reason (org_lead_exempt or super_admin_exempt). */
+            evidence: {
+                [key: string]: unknown;
+            };
+            status: components["schemas"]["FindingStatus"];
+            detected_at: components["schemas"]["Timestamp"];
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+            /**
+             * Format: uuid
+             * @description The reviewer who triaged the finding; null until triaged.
+             */
+            reviewed_by?: string | null;
+            reviewed_at?: components["schemas"]["Timestamp"] | null;
+            /** @description Reviewer memo recorded at triage; required when dismissing or escalating. */
+            review_memo?: string | null;
+        };
+        /** @description Triage an OPEN finding. A memo is required when status is DISMISSED or ESCALATED, optional for REVIEWED. Max 2000 characters. */
+        TriageFindingRequest: {
+            /**
+             * @description Target triage status. OPEN is not a valid target.
+             * @enum {string}
+             */
+            status: "REVIEWED" | "DISMISSED" | "ESCALATED";
+            /** @description Reviewer memo. Required when dismissing or escalating. */
+            memo?: string | null;
         };
     };
     responses: {
@@ -7878,6 +7978,62 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+        };
+    };
+    listIntegrityFindings: {
+        parameters: {
+            query?: {
+                /** @description Optional lifecycle filter. Omit to return findings of every status. */
+                status?: components["schemas"]["FindingStatus"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The list of governance findings for the current org. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GovernanceFinding"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    triageIntegrityFinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TriageFindingRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated governance finding after triage. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GovernanceFinding"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
         };
     };
 }

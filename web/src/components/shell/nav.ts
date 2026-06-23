@@ -17,6 +17,7 @@ import {
   MessageSquare,
   Receipt,
   Settings2,
+  ShieldAlert,
   ShieldCheck,
   UserCircle,
   Users,
@@ -74,6 +75,13 @@ const EQUIPMENT_MANAGE_ROLES: readonly Role[] = [
   ROLES.EXECUTIVE,
   ROLES.SUPER_ADMIN,
 ];
+/**
+ * Roles that may read/triage integrity findings (backend `IntegrityFindingsRead`
+ * / `IntegrityFindingTriage`, matrix row [D, D, D, D, A, A]). EXECUTIVE +
+ * SUPER_ADMIN only — ADMIN is deliberately denied (labor-law sensitivity: an
+ * ADMIN must not read findings about themselves). Mirrors RequireIntegrityRoute.
+ */
+const INTEGRITY_ROLES: readonly Role[] = [ROLES.EXECUTIVE, ROLES.SUPER_ADMIN];
 
 /**
  * Per-item role gate. `undefined` (or omitted) means the item is visible to any
@@ -110,6 +118,10 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   // equipment-manage (EquipmentManage): ADMIN/EXECUTIVE/SUPER_ADMIN only,
   // matching the backend matrix and the RequireEquipmentManageRoute guard.
   ["equipment-manage", EQUIPMENT_MANAGE_ROLES],
+  // integrity (IntegrityFindingsRead/Triage): EXECUTIVE/SUPER_ADMIN only,
+  // matching the backend matrix [D, D, D, D, A, A] and RequireIntegrityRoute.
+  // ADMIN is intentionally excluded.
+  ["integrity", INTEGRITY_ROLES],
 ]);
 
 /**
@@ -168,6 +180,10 @@ export const NAV_GROUPS = [
       // other shared pages. Per-action controls inside the page are role-gated
       // to their specific backend Feature.
       { key: "financial", href: "/financial", labelKey: "nav.financial", Icon: Receipt },
+      // integrity (#12 / #34): governance findings (review-needed anomalies).
+      // EXECUTIVE/SUPER_ADMIN only — gated by ITEM_ROLE_GATES("integrity") and
+      // the RequireIntegrityRoute guard on /integrity.
+      { key: "integrity", href: "/integrity", labelKey: "nav.integrity", Icon: ShieldAlert },
     ],
   },
   {

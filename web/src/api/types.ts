@@ -193,6 +193,13 @@ export type BranchSummary = components["schemas"]["BranchSummary"];
 export type CreateBranchRequest = components["schemas"]["CreateBranchRequest"];
 export type UpdateBranchRequest = components["schemas"]["UpdateBranchRequest"];
 
+// Integrity engine (#12 / #34): governance findings (review-needed anomalies).
+export type GovernanceFinding = components["schemas"]["GovernanceFinding"];
+export type FindingStatus = components["schemas"]["FindingStatus"];
+export type FindingSeverity = components["schemas"]["FindingSeverity"];
+export type TriageFindingRequest =
+  components["schemas"]["TriageFindingRequest"];
+
 export interface EquipmentLookupResult {
   managementNo: string;
   model: string;

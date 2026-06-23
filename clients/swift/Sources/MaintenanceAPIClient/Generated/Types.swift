@@ -779,6 +779,20 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `DELETE /api/platform/orgs/{id}`.
     /// - Remark: Generated from `#/paths//api/platform/orgs/{id}/delete(removePlatformOrg)`.
     func removePlatformOrg(_ input: Operations.RemovePlatformOrg.Input) async throws -> Operations.RemovePlatformOrg.Output
+    /// List governance findings (anomaly / 검토 필요) for the current org
+    ///
+    /// Lists governance findings raised by the integrity engine (#34): records that need human review such as self-approval (자가 승인 기록) and price anomalies (이상 징후). Findings are framed as "검토 필요" — items requiring review, NOT accusations of wrongdoing. Gated to EXECUTIVE and SUPER_ADMIN only (IntegrityFindingsRead); an ADMIN must not read findings about themselves. RLS-armed to the caller's org. Results are ordered by severity (CRITICAL first) then detected_at descending. This endpoint is not paginated.
+    ///
+    /// - Remark: HTTP `GET /api/v1/integrity/findings`.
+    /// - Remark: Generated from `#/paths//api/v1/integrity/findings/get(listIntegrityFindings)`.
+    func listIntegrityFindings(_ input: Operations.ListIntegrityFindings.Input) async throws -> Operations.ListIntegrityFindings.Output
+    /// Triage (review) a governance finding
+    ///
+    /// Transitions an OPEN finding to REVIEWED, DISMISSED, or ESCALATED with an optional reviewer memo. A memo is required when dismissing or escalating. Only OPEN findings can be triaged. The triage itself is audited. Gated to EXECUTIVE and SUPER_ADMIN only (IntegrityFindingTriage).
+    ///
+    /// - Remark: HTTP `POST /api/v1/integrity/findings/{id}/triage`.
+    /// - Remark: Generated from `#/paths//api/v1/integrity/findings/{id}/triage/post(triageIntegrityFinding)`.
+    func triageIntegrityFinding(_ input: Operations.TriageIntegrityFinding.Input) async throws -> Operations.TriageIntegrityFinding.Output
 }
 
 /// Convenience overloads for operation inputs.
@@ -2611,6 +2625,38 @@ extension APIProtocol {
         try await removePlatformOrg(Operations.RemovePlatformOrg.Input(
             path: path,
             headers: headers
+        ))
+    }
+    /// List governance findings (anomaly / 검토 필요) for the current org
+    ///
+    /// Lists governance findings raised by the integrity engine (#34): records that need human review such as self-approval (자가 승인 기록) and price anomalies (이상 징후). Findings are framed as "검토 필요" — items requiring review, NOT accusations of wrongdoing. Gated to EXECUTIVE and SUPER_ADMIN only (IntegrityFindingsRead); an ADMIN must not read findings about themselves. RLS-armed to the caller's org. Results are ordered by severity (CRITICAL first) then detected_at descending. This endpoint is not paginated.
+    ///
+    /// - Remark: HTTP `GET /api/v1/integrity/findings`.
+    /// - Remark: Generated from `#/paths//api/v1/integrity/findings/get(listIntegrityFindings)`.
+    public func listIntegrityFindings(
+        query: Operations.ListIntegrityFindings.Input.Query = .init(),
+        headers: Operations.ListIntegrityFindings.Input.Headers = .init()
+    ) async throws -> Operations.ListIntegrityFindings.Output {
+        try await listIntegrityFindings(Operations.ListIntegrityFindings.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Triage (review) a governance finding
+    ///
+    /// Transitions an OPEN finding to REVIEWED, DISMISSED, or ESCALATED with an optional reviewer memo. A memo is required when dismissing or escalating. Only OPEN findings can be triaged. The triage itself is audited. Gated to EXECUTIVE and SUPER_ADMIN only (IntegrityFindingTriage).
+    ///
+    /// - Remark: HTTP `POST /api/v1/integrity/findings/{id}/triage`.
+    /// - Remark: Generated from `#/paths//api/v1/integrity/findings/{id}/triage/post(triageIntegrityFinding)`.
+    public func triageIntegrityFinding(
+        path: Operations.TriageIntegrityFinding.Input.Path,
+        headers: Operations.TriageIntegrityFinding.Input.Headers = .init(),
+        body: Operations.TriageIntegrityFinding.Input.Body
+    ) async throws -> Operations.TriageIntegrityFinding.Output {
+        try await triageIntegrityFinding(Operations.TriageIntegrityFinding.Input(
+            path: path,
+            headers: headers,
+            body: body
         ))
     }
 }
@@ -10527,6 +10573,207 @@ public enum Components {
             }
             public enum CodingKeys: String, CodingKey {
                 case id
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/FindingSeverity`.
+        @frozen public enum FindingSeverity: String, Codable, Hashable, Sendable, CaseIterable {
+            case info = "INFO"
+            case low = "LOW"
+            case medium = "MEDIUM"
+            case high = "HIGH"
+            case critical = "CRITICAL"
+        }
+        /// Lifecycle of a governance finding. OPEN findings are triaged to one of REVIEWED, DISMISSED, or ESCALATED.
+        ///
+        /// - Remark: Generated from `#/components/schemas/FindingStatus`.
+        @frozen public enum FindingStatus: String, Codable, Hashable, Sendable, CaseIterable {
+            case open = "OPEN"
+            case reviewed = "REVIEWED"
+            case dismissed = "DISMISSED"
+            case escalated = "ESCALATED"
+        }
+        /// A governance finding raised by the integrity engine (#34). Findings are "검토 필요" (review needed) — e.g. a self-approval record (detector_id `anomaly.self_approval`) or a price anomaly (`anomaly.price_outlier`) — and are NOT accusations of wrongdoing.
+        ///
+        /// - Remark: Generated from `#/components/schemas/GovernanceFinding`.
+        public struct GovernanceFinding: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/GovernanceFinding/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/GovernanceFinding/org_id`.
+            public var orgId: Components.Schemas.Uuid
+            /// Dot-namespaced detector identity, e.g. `anomaly.self_approval` or `anomaly.price_outlier`.
+            ///
+            /// - Remark: Generated from `#/components/schemas/GovernanceFinding/detector_id`.
+            public var detectorId: Swift.String
+            /// The domain entity the finding concerns, e.g. `financial_purchase_request`.
+            ///
+            /// - Remark: Generated from `#/components/schemas/GovernanceFinding/entity_type`.
+            public var entityType: Swift.String
+            /// Identifier of the entity the finding concerns.
+            ///
+            /// - Remark: Generated from `#/components/schemas/GovernanceFinding/entity_id`.
+            public var entityId: Swift.String
+            /// Audit event that triggered the finding (OnWrite detectors); may be null.
+            ///
+            /// - Remark: Generated from `#/components/schemas/GovernanceFinding/source_audit_event_id`.
+            public var sourceAuditEventId: Swift.String?
+            /// The user whose action was flagged (e.g. the self-approver). Null for non-person findings. A raw id; resolve to a display name in the UI.
+            ///
+            /// - Remark: Generated from `#/components/schemas/GovernanceFinding/subject_user_id`.
+            public var subjectUserId: Swift.String?
+            /// Non-negative detector score; the severity enum is the primary triage signal.
+            ///
+            /// - Remark: Generated from `#/components/schemas/GovernanceFinding/score`.
+            public var score: Swift.Double
+            /// - Remark: Generated from `#/components/schemas/GovernanceFinding/severity`.
+            public var severity: Components.Schemas.FindingSeverity
+            /// Detector-specific evidence bag. For `anomaly.self_approval` this includes action, requested_by, submitted_by, approver, and exemption_reason (org_lead_exempt or super_admin_exempt).
+            ///
+            /// - Remark: Generated from `#/components/schemas/GovernanceFinding/evidence`.
+            public struct EvidencePayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `EvidencePayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// Detector-specific evidence bag. For `anomaly.self_approval` this includes action, requested_by, submitted_by, approver, and exemption_reason (org_lead_exempt or super_admin_exempt).
+            ///
+            /// - Remark: Generated from `#/components/schemas/GovernanceFinding/evidence`.
+            public var evidence: Components.Schemas.GovernanceFinding.EvidencePayload
+            /// - Remark: Generated from `#/components/schemas/GovernanceFinding/status`.
+            public var status: Components.Schemas.FindingStatus
+            /// - Remark: Generated from `#/components/schemas/GovernanceFinding/detected_at`.
+            public var detectedAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/GovernanceFinding/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/GovernanceFinding/updated_at`.
+            public var updatedAt: Components.Schemas.Timestamp
+            /// The reviewer who triaged the finding; null until triaged.
+            ///
+            /// - Remark: Generated from `#/components/schemas/GovernanceFinding/reviewed_by`.
+            public var reviewedBy: Swift.String?
+            /// Reviewer memo recorded at triage; required when dismissing or escalating.
+            ///
+            /// - Remark: Generated from `#/components/schemas/GovernanceFinding/review_memo`.
+            public var reviewMemo: Swift.String?
+            /// Creates a new `GovernanceFinding`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - orgId:
+            ///   - detectorId: Dot-namespaced detector identity, e.g. `anomaly.self_approval` or `anomaly.price_outlier`.
+            ///   - entityType: The domain entity the finding concerns, e.g. `financial_purchase_request`.
+            ///   - entityId: Identifier of the entity the finding concerns.
+            ///   - sourceAuditEventId: Audit event that triggered the finding (OnWrite detectors); may be null.
+            ///   - subjectUserId: The user whose action was flagged (e.g. the self-approver). Null for non-person findings. A raw id; resolve to a display name in the UI.
+            ///   - score: Non-negative detector score; the severity enum is the primary triage signal.
+            ///   - severity:
+            ///   - evidence: Detector-specific evidence bag. For `anomaly.self_approval` this includes action, requested_by, submitted_by, approver, and exemption_reason (org_lead_exempt or super_admin_exempt).
+            ///   - status:
+            ///   - detectedAt:
+            ///   - createdAt:
+            ///   - updatedAt:
+            ///   - reviewedBy: The reviewer who triaged the finding; null until triaged.
+            ///   - reviewMemo: Reviewer memo recorded at triage; required when dismissing or escalating.
+            public init(
+                id: Components.Schemas.Uuid,
+                orgId: Components.Schemas.Uuid,
+                detectorId: Swift.String,
+                entityType: Swift.String,
+                entityId: Swift.String,
+                sourceAuditEventId: Swift.String? = nil,
+                subjectUserId: Swift.String? = nil,
+                score: Swift.Double,
+                severity: Components.Schemas.FindingSeverity,
+                evidence: Components.Schemas.GovernanceFinding.EvidencePayload,
+                status: Components.Schemas.FindingStatus,
+                detectedAt: Components.Schemas.Timestamp,
+                createdAt: Components.Schemas.Timestamp,
+                updatedAt: Components.Schemas.Timestamp,
+                reviewedBy: Swift.String? = nil,
+                reviewMemo: Swift.String? = nil
+            ) {
+                self.id = id
+                self.orgId = orgId
+                self.detectorId = detectorId
+                self.entityType = entityType
+                self.entityId = entityId
+                self.sourceAuditEventId = sourceAuditEventId
+                self.subjectUserId = subjectUserId
+                self.score = score
+                self.severity = severity
+                self.evidence = evidence
+                self.status = status
+                self.detectedAt = detectedAt
+                self.createdAt = createdAt
+                self.updatedAt = updatedAt
+                self.reviewedBy = reviewedBy
+                self.reviewMemo = reviewMemo
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case orgId = "org_id"
+                case detectorId = "detector_id"
+                case entityType = "entity_type"
+                case entityId = "entity_id"
+                case sourceAuditEventId = "source_audit_event_id"
+                case subjectUserId = "subject_user_id"
+                case score
+                case severity
+                case evidence
+                case status
+                case detectedAt = "detected_at"
+                case createdAt = "created_at"
+                case updatedAt = "updated_at"
+                case reviewedBy = "reviewed_by"
+                case reviewMemo = "review_memo"
+            }
+        }
+        /// Triage an OPEN finding. A memo is required when status is DISMISSED or ESCALATED, optional for REVIEWED. Max 2000 characters.
+        ///
+        /// - Remark: Generated from `#/components/schemas/TriageFindingRequest`.
+        public struct TriageFindingRequest: Codable, Hashable, Sendable {
+            /// Target triage status. OPEN is not a valid target.
+            ///
+            /// - Remark: Generated from `#/components/schemas/TriageFindingRequest/status`.
+            @frozen public enum StatusPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case reviewed = "REVIEWED"
+                case dismissed = "DISMISSED"
+                case escalated = "ESCALATED"
+            }
+            /// Target triage status. OPEN is not a valid target.
+            ///
+            /// - Remark: Generated from `#/components/schemas/TriageFindingRequest/status`.
+            public var status: Components.Schemas.TriageFindingRequest.StatusPayload
+            /// Reviewer memo. Required when dismissing or escalating.
+            ///
+            /// - Remark: Generated from `#/components/schemas/TriageFindingRequest/memo`.
+            public var memo: Swift.String?
+            /// Creates a new `TriageFindingRequest`.
+            ///
+            /// - Parameters:
+            ///   - status: Target triage status. OPEN is not a valid target.
+            ///   - memo: Reviewer memo. Required when dismissing or escalating.
+            public init(
+                status: Components.Schemas.TriageFindingRequest.StatusPayload,
+                memo: Swift.String? = nil
+            ) {
+                self.status = status
+                self.memo = memo
+            }
+            public enum CodingKeys: String, CodingKey {
+                case status
+                case memo
             }
         }
     }
@@ -38704,6 +38951,438 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List governance findings (anomaly / 검토 필요) for the current org
+    ///
+    /// Lists governance findings raised by the integrity engine (#34): records that need human review such as self-approval (자가 승인 기록) and price anomalies (이상 징후). Findings are framed as "검토 필요" — items requiring review, NOT accusations of wrongdoing. Gated to EXECUTIVE and SUPER_ADMIN only (IntegrityFindingsRead); an ADMIN must not read findings about themselves. RLS-armed to the caller's org. Results are ordered by severity (CRITICAL first) then detected_at descending. This endpoint is not paginated.
+    ///
+    /// - Remark: HTTP `GET /api/v1/integrity/findings`.
+    /// - Remark: Generated from `#/paths//api/v1/integrity/findings/get(listIntegrityFindings)`.
+    public enum ListIntegrityFindings {
+        public static let id: Swift.String = "listIntegrityFindings"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/integrity/findings/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// Optional lifecycle filter. Omit to return findings of every status.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/integrity/findings/GET/query/status`.
+                public var status: Components.Schemas.FindingStatus?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - status: Optional lifecycle filter. Omit to return findings of every status.
+                public init(status: Components.Schemas.FindingStatus? = nil) {
+                    self.status = status
+                }
+            }
+            public var query: Operations.ListIntegrityFindings.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/integrity/findings/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListIntegrityFindings.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListIntegrityFindings.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListIntegrityFindings.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListIntegrityFindings.Input.Query = .init(),
+                headers: Operations.ListIntegrityFindings.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/integrity/findings/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/integrity/findings/GET/responses/200/content/application\/json`.
+                    case json([Components.Schemas.GovernanceFinding])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.GovernanceFinding] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListIntegrityFindings.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListIntegrityFindings.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The list of governance findings for the current org.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/integrity/findings/get(listIntegrityFindings)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListIntegrityFindings.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListIntegrityFindings.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/integrity/findings/get(listIntegrityFindings)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/integrity/findings/get(listIntegrityFindings)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Triage (review) a governance finding
+    ///
+    /// Transitions an OPEN finding to REVIEWED, DISMISSED, or ESCALATED with an optional reviewer memo. A memo is required when dismissing or escalating. Only OPEN findings can be triaged. The triage itself is audited. Gated to EXECUTIVE and SUPER_ADMIN only (IntegrityFindingTriage).
+    ///
+    /// - Remark: HTTP `POST /api/v1/integrity/findings/{id}/triage`.
+    /// - Remark: Generated from `#/paths//api/v1/integrity/findings/{id}/triage/post(triageIntegrityFinding)`.
+    public enum TriageIntegrityFinding {
+        public static let id: Swift.String = "triageIntegrityFinding"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/integrity/findings/{id}/triage/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/integrity/findings/{id}/triage/POST/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.TriageIntegrityFinding.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/integrity/findings/{id}/triage/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.TriageIntegrityFinding.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.TriageIntegrityFinding.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.TriageIntegrityFinding.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/integrity/findings/{id}/triage/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/integrity/findings/{id}/triage/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.TriageFindingRequest)
+            }
+            public var body: Operations.TriageIntegrityFinding.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.TriageIntegrityFinding.Input.Path,
+                headers: Operations.TriageIntegrityFinding.Input.Headers = .init(),
+                body: Operations.TriageIntegrityFinding.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/integrity/findings/{id}/triage/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/integrity/findings/{id}/triage/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.GovernanceFinding)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.GovernanceFinding {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.TriageIntegrityFinding.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.TriageIntegrityFinding.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The updated governance finding after triage.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/integrity/findings/{id}/triage/post(triageIntegrityFinding)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.TriageIntegrityFinding.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.TriageIntegrityFinding.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/integrity/findings/{id}/triage/post(triageIntegrityFinding)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/integrity/findings/{id}/triage/post(triageIntegrityFinding)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/integrity/findings/{id}/triage/post(triageIntegrityFinding)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/integrity/findings/{id}/triage/post(triageIntegrityFinding)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/integrity/findings/{id}/triage/post(triageIntegrityFinding)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
                             response: self
                         )
                     }
