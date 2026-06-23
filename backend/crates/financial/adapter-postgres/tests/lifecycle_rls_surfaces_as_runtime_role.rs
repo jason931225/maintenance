@@ -204,6 +204,66 @@ async fn seed_equipment(
     EquipmentId::from_uuid(equipment_id)
 }
 
+/// Seed a BARE acquisition-only asset: `acquisition_cost_won` is set but
+/// `vehicle_value` (the depreciation base) is NULL — the #33 regression fixture.
+/// Mirrors `seed_equipment` but binds NULL for `vehicle_value` / `residual_value`
+/// so the lifecycle read must anchor TCO on the acquisition cost alone.
+async fn seed_acquisition_only_equipment(
+    owner_pool: &PgPool,
+    org: Uuid,
+    branch_id: BranchId,
+    management_no: &str,
+    acquisition_cost_won: i64,
+    hours: i64,
+) -> EquipmentId {
+    let customer_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO registry_customers (branch_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(*branch_id.as_uuid())
+    .bind(format!("Customer {}", Uuid::new_v4()))
+    .bind(org)
+    .fetch_one(owner_pool)
+    .await
+    .unwrap();
+    let site_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO registry_sites (branch_id, customer_id, name, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
+    )
+    .bind(*branch_id.as_uuid())
+    .bind(customer_id)
+    .bind(format!("Site {}", Uuid::new_v4()))
+    .bind(org)
+    .fetch_one(owner_pool)
+    .await
+    .unwrap();
+    let equipment_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO registry_equipment (
+            branch_id, customer_id, site_id, equipment_no, management_no,
+            manufacturer_code, kind_code, power_code, status,
+            specification, ton_text, vehicle_value, residual_value,
+            acquisition_cost_won, acquisition_date, hours,
+            asset_registered_on, source_sheet, source_row, org_id
+        )
+        VALUES ($1, $2, $3, $4, $5, 'A', 'B', 'C', '임대',
+                '좌식', '2.5T', NULL, NULL, $6, DATE '2024-06-01', $7,
+                DATE '2024-06-01', 'lifecycle-rls-test', 1, $8)
+        RETURNING id
+        "#,
+    )
+    .bind(*branch_id.as_uuid())
+    .bind(customer_id)
+    .bind(site_id)
+    .bind(unique_equipment_no())
+    .bind(management_no)
+    .bind(acquisition_cost_won)
+    .bind(hours)
+    .bind(org)
+    .fetch_one(owner_pool)
+    .await
+    .unwrap();
+    EquipmentId::from_uuid(equipment_id)
+}
+
 async fn seed_work_order(
     owner_pool: &PgPool,
     org: Uuid,
@@ -467,4 +527,96 @@ async fn lifecycle_read_fails_closed_without_org_as_runtime_role(owner_pool: PgP
         result.is_err(),
         "with no org armed the lifecycle read must fail closed, never leak the asset"
     );
+}
+
+// ===========================================================================
+// (#33 REGRESSION) An acquisition-only asset — acquisition_cost_won set,
+// vehicle_value NULL — must still produce a TCO, not a 422. The REST handler
+// `get_lifecycle_cost` first resolves the branch (equipment_branch, which used
+// to hard-require vehicle_value and 422'd before the read even ran) and then
+// performs the rollup; BOTH legs must succeed as the runtime role `mnt_rt`.
+// ===========================================================================
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn acquisition_only_asset_returns_tco_as_runtime_role(owner_pool: PgPool) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let org_a = OrgId::knl();
+    let org_uuid = *org_a.as_uuid();
+
+    seed_org(&owner_pool, org_uuid, "A").await;
+    let branch_id = seed_branch(&owner_pool, org_uuid).await;
+    let admin = seed_user(&owner_pool, org_uuid, "ADMIN", branch_id).await;
+
+    // Bare asset: acquisition 30M, NO vehicle_value (depreciation base NULL).
+    let equipment_id =
+        seed_acquisition_only_equipment(&owner_pool, org_uuid, branch_id, "33", 30_000_000, 1_200)
+            .await;
+    let work_order_id = seed_work_order(
+        &owner_pool,
+        org_uuid,
+        branch_id,
+        admin,
+        equipment_id,
+        "20260612-033",
+    )
+    .await;
+
+    // One MANUAL_ADMIN repair (1.5M). The wrapped append path recomputes the
+    // depreciation residual, which legitimately still requires vehicle_value, so
+    // for this acquisition-only fixture we insert the ledger row directly to keep
+    // the asset bare (vehicle_value NULL) while still giving the rollup a spend.
+    sqlx::query(
+        r#"
+        INSERT INTO equipment_cost_ledger (
+            id, branch_id, equipment_id, work_order_id, purchase_request_id,
+            source, amount_won, memo, residual_before_won, residual_after_won,
+            entry_at, created_by, org_id
+        )
+        VALUES ($1, $2, $3, $4, NULL, 'MANUAL_ADMIN', 1500000, 'bare-asset repair',
+                0, 0, now(), $5, $6)
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(*branch_id.as_uuid())
+    .bind(*equipment_id.as_uuid())
+    .bind(*work_order_id.as_uuid())
+    .bind(*admin.as_uuid())
+    .bind(org_uuid)
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+
+    // Read everything the REST handler reads, as mnt_rt under org-A's armed GUC.
+    let (branch, summary) = mnt_platform_request_context::scope_org(org_a, async {
+        let store = PgFinancialStore::new(rt_pool.clone());
+        // Leg 1: the branch lookup the handler runs FIRST (was the 422 source).
+        let branch = store
+            .equipment_branch(equipment_id)
+            .await
+            .expect("acquisition-only branch lookup must succeed, not 422 (vehicle_value NULL)");
+        // Leg 2: the lifecycle rollup itself.
+        let summary = store
+            .lifecycle_cost_for_equipment(equipment_id)
+            .await
+            .expect("acquisition-only lifecycle read must return a TCO, not an error");
+        (branch, summary)
+    })
+    .await;
+
+    assert_eq!(
+        branch, branch_id,
+        "branch lookup resolved the asset's branch"
+    );
+
+    // TCO is anchored on the acquisition cost alone: 30M + 1.5M maintenance.
+    assert_eq!(summary.acquisition_cost_won, Some(30_000_000));
+    assert_eq!(summary.acquisition_source, AcquisitionBasis::Explicit);
+    assert_eq!(summary.maintenance_total_won, 1_500_000);
+    assert_eq!(summary.tco_won, 31_500_000);
+
+    // Per-hour intensity still computes off maintenance: 1.5M / 1200h = 1250/h.
+    assert_eq!(summary.cost_per_hour_won, Some(1_250));
+
+    // No sale, no vehicle_value -> gross margin stays None (not an error).
+    assert_eq!(summary.sale_price_won, None);
+    assert_eq!(summary.gross_margin_won, None);
 }

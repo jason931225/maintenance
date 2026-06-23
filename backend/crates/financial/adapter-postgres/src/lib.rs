@@ -75,10 +75,11 @@ impl PgFinancialStore {
             Box::pin(async move {
                 let equipment = equipment_economics_tx(tx, command.equipment_id).await?;
                 ensure_branch(equipment.branch_id, command.branch_id)?;
+                let vehicle_value_won = equipment.require_vehicle_value()?;
                 let cumulative_repair_cost =
                     cumulative_cost_tx(tx, command.equipment_id, None).await?;
                 let quote = compute_rental_quote(RentalQuoteInput {
-                    acquisition_value: MoneyInput::won(equipment.vehicle_value_won),
+                    acquisition_value: MoneyInput::won(vehicle_value_won),
                     current_residual_value: MoneyInput::won(equipment.residual_value_won),
                     cumulative_repair_cost: MoneyInput::won(cumulative_repair_cost),
                     config: command.config.quote_config(),
@@ -90,7 +91,7 @@ impl PgFinancialStore {
                     command.actor,
                     command.branch_id,
                     command.equipment_id,
-                    equipment.vehicle_value_won,
+                    vehicle_value_won,
                     equipment.residual_value_won,
                     cumulative_repair_cost,
                     &command.config,
@@ -631,9 +632,25 @@ impl PgFinancialStore {
 #[derive(Debug, Clone, Copy)]
 struct EquipmentEconomics {
     branch_id: BranchId,
-    vehicle_value_won: i64,
+    /// Depreciation acquisition base. `None` for a bare asset that carries no
+    /// `vehicle_value`; read paths that only need `branch_id` (e.g. the
+    /// lifecycle-cost endpoint's branch lookup) tolerate this, while the
+    /// depreciation/quote write paths demand it via
+    /// [`EquipmentEconomics::require_vehicle_value`].
+    vehicle_value_won: Option<i64>,
     residual_value_won: i64,
     asset_registered_on: Option<Date>,
+}
+
+impl EquipmentEconomics {
+    /// The depreciation acquisition base, required by the quote/residual write
+    /// paths. A bare asset with no `vehicle_value` cannot be depreciated, so this
+    /// is a validation error there — but it is NEVER reached by the read paths
+    /// that only need `branch_id`.
+    fn require_vehicle_value(&self) -> Result<i64, PgFinancialError> {
+        self.vehicle_value_won
+            .ok_or_else(|| KernelError::validation("equipment vehicle value is required").into())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -702,8 +719,10 @@ fn equipment_economics_from_row(
     let residual_value_won: Option<i64> = row.try_get("residual_value")?;
     Ok(EquipmentEconomics {
         branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
-        vehicle_value_won: vehicle_value_won
-            .ok_or_else(|| KernelError::validation("equipment vehicle value is required"))?,
+        // Kept OPTIONAL on purpose: a bare acquisition-only asset (vehicle_value
+        // NULL) must still resolve its branch for the lifecycle-cost read. Only
+        // the depreciation/quote write paths demand it (require_vehicle_value).
+        vehicle_value_won,
         residual_value_won: residual_value_won.unwrap_or(0),
         asset_registered_on: row.try_get("asset_registered_on")?,
     })
@@ -742,11 +761,12 @@ async fn append_cost_ledger_entry_tx(
             .await?;
     }
 
+    let vehicle_value_won = locked.require_vehicle_value()?;
     let previous_cost = cumulative_cost_tx(tx, command.equipment_id, None).await?;
     let cumulative_cost = previous_cost.saturating_add(command.amount_won);
     let months_elapsed = months_elapsed(locked.asset_registered_on, command.occurred_at.date());
     let residual_after = recompute_residual_value(ResidualRecomputeInput {
-        acquisition_value: MoneyInput::won(locked.vehicle_value_won),
+        acquisition_value: MoneyInput::won(vehicle_value_won),
         months_elapsed,
         cumulative_cost: MoneyInput::won(cumulative_cost),
         config: command.config.quote_config(),
