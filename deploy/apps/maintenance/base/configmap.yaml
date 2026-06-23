@@ -49,10 +49,13 @@ data:
   # approved sender is provisioned — the app then logs the OTP via a stub sender
   # instead of relaying it, so it still boots. Setting any member requires all of
   # them. Point the host at the regional OCI Email Delivery endpoint.
-  MNT_EMAIL_SMTP_HOST: "smtp.email.ap-chuncheon-1.oci.oraclecloud.com"
-  MNT_EMAIL_SMTP_PORT: "587"
-  MNT_EMAIL_FROM: "noreply@knllogistic.com"
-  MNT_EMAIL_FROM_NAME: "MNT 정비 콘솔"
+  # ACTIVATION (#43): uncomment these AND create the mnt-secrets SMTP creds
+  # together, then run the deliverability test. Until then the group stays fully
+  # unset so the app uses the stub sender (logs the OTP) and boots cleanly.
+  # MNT_EMAIL_SMTP_HOST: "smtp.email.ap-chuncheon-1.oci.oraclecloud.com"
+  # MNT_EMAIL_SMTP_PORT: "587"
+  # MNT_EMAIL_FROM: "noreply@knllogistic.com"
+  # MNT_EMAIL_FROM_NAME: "MNT 정비 콘솔"
   # OTLP trace export (opt-in). Leave unset to keep tracing as JSON-to-stdout
   # only. Uncommenting enables gRPC OTLP export to an in-cluster collector — the
   # OTel collector MUST be deployed first, otherwise every request will attempt
