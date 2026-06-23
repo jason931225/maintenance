@@ -60,7 +60,7 @@ function makeAuthContext(session: AuthSession): AuthContextValue {
 function renderApp(ctx: AuthContextValue) {
   return render(
     <AuthContext.Provider value={ctx}>
-      <MemoryRouter initialEntries={["/equipment"]}>
+      <MemoryRouter initialEntries={["/equipment/manage"]}>
         <AppRouter />
       </MemoryRouter>
     </AuthContext.Provider>,
@@ -197,20 +197,22 @@ describe("EquipmentManagementPanel", () => {
     expect(await screen.findByText("장비를 폐기 처리했습니다.")).toBeVisible();
   });
 
-  it("hides management controls from a mechanic", async () => {
-    const user = userEvent.setup();
-    server.use(...searchHandlers());
+  it("redirects a mechanic away from /equipment/manage to the browse page", async () => {
+    server.use(
+      ...searchHandlers(),
+      http.get("*/api/v1/equipment/list", () =>
+        HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }),
+      ),
+    );
 
     renderApp(makeAuthContext(mechanicSession));
-    await typeSearch(user);
 
-    // The lookup card renders, but no management surface is shown.
-    await screen.findByLabelText("호기", { exact: true });
+    // RequireEquipmentManageRoute redirects non-holders to the browse page.
+    expect(
+      await screen.findByRole("heading", { name: "장비 조회", level: 1 }),
+    ).toBeVisible();
     expect(
       screen.queryByRole("button", { name: "장비 등록" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "D-25-290 폐기" }),
     ).not.toBeInTheDocument();
   });
 });

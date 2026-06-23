@@ -605,6 +605,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/equipment/list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Paginated, filterable, branch-scoped equipment list
+         * @description Read access (WorkOrderReadAll — all authenticated roles). Non-SUPER_ADMIN principals see only rows in their own branch(es). The `q` parameter is normalized like the 호기-lookup: strips a leading `#` and a trailing `호기` suffix then matches leading-zero-insensitively across management_no, equipment_no, model, maker, customer name, site name, and VIN.
+         */
+        get: operations["listEquipment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/equipment": {
         parameters: {
             query?: never;
@@ -2762,6 +2782,32 @@ export interface components {
             items: components["schemas"]["EquipmentLookupResponse"][];
             /** Format: int64 */
             limit: number;
+        };
+        /** @enum {string} */
+        EquipmentSortBy: "equipment_no" | "model" | "customer" | "updated_at";
+        EquipmentListItem: {
+            equipment_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            equipment_no: string;
+            management_no?: string | null;
+            status: components["schemas"]["EquipmentStatus"];
+            model?: string | null;
+            maker?: string | null;
+            specification: string;
+            ton_text: string;
+            customer_name: string;
+            site_name: string;
+            vin?: string | null;
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        EquipmentListPage: {
+            items: components["schemas"]["EquipmentListItem"][];
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
         };
         AssignmentSummary: {
             id: components["schemas"]["Uuid"];
@@ -5193,6 +5239,46 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listEquipment: {
+        parameters: {
+            query?: {
+                /** @description Free-text search (호기-normalized, leading-zero-insensitive). */
+                q?: string;
+                status?: components["schemas"]["EquipmentStatus"];
+                /** @description Filter to a specific branch (UUID). */
+                branch_id?: string;
+                /** @description Filter to a specific customer (UUID). */
+                customer_id?: string;
+                /** @description Filter to a specific site (UUID). */
+                site_id?: string;
+                /** @description Filter by model name (case-insensitive exact match). */
+                model?: string;
+                /** @description Filter by maker name (case-insensitive exact match). */
+                maker?: string;
+                sort?: components["schemas"]["EquipmentSortBy"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated equipment list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EquipmentListPage"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     autocompleteEquipment: {

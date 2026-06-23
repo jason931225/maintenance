@@ -207,6 +207,14 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/equipment/lookup`.
     /// - Remark: Generated from `#/paths//api/v1/equipment/lookup/get(lookupEquipment)`.
     func lookupEquipment(_ input: Operations.LookupEquipment.Input) async throws -> Operations.LookupEquipment.Output
+    /// Paginated, filterable, branch-scoped equipment list
+    ///
+    /// Read access (WorkOrderReadAll — all authenticated roles). Non-SUPER_ADMIN principals see only rows in their own branch(es). The `q` parameter is normalized like the 호기-lookup: strips a leading `#` and a trailing `호기` suffix then matches leading-zero-insensitively across management_no, equipment_no, model, maker, customer name, site name, and VIN.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment/list`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/list/get(listEquipment)`.
+    func listEquipment(_ input: Operations.ListEquipment.Input) async throws -> Operations.ListEquipment.Output
     /// Autocomplete branch-scoped equipment by management number, equipment number, or model
     ///
     /// - Remark: HTTP `GET /api/v1/equipment`.
@@ -1249,6 +1257,22 @@ extension APIProtocol {
         headers: Operations.LookupEquipment.Input.Headers = .init()
     ) async throws -> Operations.LookupEquipment.Output {
         try await lookupEquipment(Operations.LookupEquipment.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Paginated, filterable, branch-scoped equipment list
+    ///
+    /// Read access (WorkOrderReadAll — all authenticated roles). Non-SUPER_ADMIN principals see only rows in their own branch(es). The `q` parameter is normalized like the 호기-lookup: strips a leading `#` and a trailing `호기` suffix then matches leading-zero-insensitively across management_no, equipment_no, model, maker, customer name, site name, and VIN.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment/list`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/list/get(listEquipment)`.
+    public func listEquipment(
+        query: Operations.ListEquipment.Input.Query = .init(),
+        headers: Operations.ListEquipment.Input.Headers = .init()
+    ) async throws -> Operations.ListEquipment.Output {
+        try await listEquipment(Operations.ListEquipment.Input(
             query: query,
             headers: headers
         ))
@@ -4305,6 +4329,137 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case items
                 case limit
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EquipmentSortBy`.
+        @frozen public enum EquipmentSortBy: String, Codable, Hashable, Sendable, CaseIterable {
+            case equipmentNo = "equipment_no"
+            case model = "model"
+            case customer = "customer"
+            case updatedAt = "updated_at"
+        }
+        /// - Remark: Generated from `#/components/schemas/EquipmentListItem`.
+        public struct EquipmentListItem: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EquipmentListItem/equipment_id`.
+            public var equipmentId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EquipmentListItem/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EquipmentListItem/equipment_no`.
+            public var equipmentNo: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentListItem/management_no`.
+            public var managementNo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EquipmentListItem/status`.
+            public var status: Components.Schemas.EquipmentStatus
+            /// - Remark: Generated from `#/components/schemas/EquipmentListItem/model`.
+            public var model: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EquipmentListItem/maker`.
+            public var maker: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EquipmentListItem/specification`.
+            public var specification: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentListItem/ton_text`.
+            public var tonText: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentListItem/customer_name`.
+            public var customerName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentListItem/site_name`.
+            public var siteName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentListItem/vin`.
+            public var vin: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EquipmentListItem/updated_at`.
+            public var updatedAt: Components.Schemas.Timestamp
+            /// Creates a new `EquipmentListItem`.
+            ///
+            /// - Parameters:
+            ///   - equipmentId:
+            ///   - branchId:
+            ///   - equipmentNo:
+            ///   - managementNo:
+            ///   - status:
+            ///   - model:
+            ///   - maker:
+            ///   - specification:
+            ///   - tonText:
+            ///   - customerName:
+            ///   - siteName:
+            ///   - vin:
+            ///   - updatedAt:
+            public init(
+                equipmentId: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid,
+                equipmentNo: Swift.String,
+                managementNo: Swift.String? = nil,
+                status: Components.Schemas.EquipmentStatus,
+                model: Swift.String? = nil,
+                maker: Swift.String? = nil,
+                specification: Swift.String,
+                tonText: Swift.String,
+                customerName: Swift.String,
+                siteName: Swift.String,
+                vin: Swift.String? = nil,
+                updatedAt: Components.Schemas.Timestamp
+            ) {
+                self.equipmentId = equipmentId
+                self.branchId = branchId
+                self.equipmentNo = equipmentNo
+                self.managementNo = managementNo
+                self.status = status
+                self.model = model
+                self.maker = maker
+                self.specification = specification
+                self.tonText = tonText
+                self.customerName = customerName
+                self.siteName = siteName
+                self.vin = vin
+                self.updatedAt = updatedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case equipmentId = "equipment_id"
+                case branchId = "branch_id"
+                case equipmentNo = "equipment_no"
+                case managementNo = "management_no"
+                case status
+                case model
+                case maker
+                case specification
+                case tonText = "ton_text"
+                case customerName = "customer_name"
+                case siteName = "site_name"
+                case vin
+                case updatedAt = "updated_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EquipmentListPage`.
+        public struct EquipmentListPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EquipmentListPage/items`.
+            public var items: [Components.Schemas.EquipmentListItem]
+            /// - Remark: Generated from `#/components/schemas/EquipmentListPage/total`.
+            public var total: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/EquipmentListPage/limit`.
+            public var limit: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/EquipmentListPage/offset`.
+            public var offset: Swift.Int64
+            /// Creates a new `EquipmentListPage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - total:
+            ///   - limit:
+            ///   - offset:
+            public init(
+                items: [Components.Schemas.EquipmentListItem],
+                total: Swift.Int64,
+                limit: Swift.Int64,
+                offset: Swift.Int64
+            ) {
+                self.items = items
+                self.total = total
+                self.limit = limit
+                self.offset = offset
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case total
+                case limit
+                case offset
             }
         }
         /// - Remark: Generated from `#/components/schemas/AssignmentSummary`.
@@ -17342,6 +17497,265 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Paginated, filterable, branch-scoped equipment list
+    ///
+    /// Read access (WorkOrderReadAll — all authenticated roles). Non-SUPER_ADMIN principals see only rows in their own branch(es). The `q` parameter is normalized like the 호기-lookup: strips a leading `#` and a trailing `호기` suffix then matches leading-zero-insensitively across management_no, equipment_no, model, maker, customer name, site name, and VIN.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment/list`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/list/get(listEquipment)`.
+    public enum ListEquipment {
+        public static let id: Swift.String = "listEquipment"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/equipment/list/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// Free-text search (호기-normalized, leading-zero-insensitive).
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/equipment/list/GET/query/q`.
+                public var q: Swift.String?
+                /// - Remark: Generated from `#/paths/api/v1/equipment/list/GET/query/status`.
+                public var status: Components.Schemas.EquipmentStatus?
+                /// Filter to a specific branch (UUID).
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/equipment/list/GET/query/branch_id`.
+                public var branchId: Swift.String?
+                /// Filter to a specific customer (UUID).
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/equipment/list/GET/query/customer_id`.
+                public var customerId: Swift.String?
+                /// Filter to a specific site (UUID).
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/equipment/list/GET/query/site_id`.
+                public var siteId: Swift.String?
+                /// Filter by model name (case-insensitive exact match).
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/equipment/list/GET/query/model`.
+                public var model: Swift.String?
+                /// Filter by maker name (case-insensitive exact match).
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/equipment/list/GET/query/maker`.
+                public var maker: Swift.String?
+                /// - Remark: Generated from `#/paths/api/v1/equipment/list/GET/query/sort`.
+                public var sort: Components.Schemas.EquipmentSortBy?
+                /// - Remark: Generated from `#/paths/api/v1/equipment/list/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// - Remark: Generated from `#/paths/api/v1/equipment/list/GET/query/offset`.
+                public var offset: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - q: Free-text search (호기-normalized, leading-zero-insensitive).
+                ///   - status:
+                ///   - branchId: Filter to a specific branch (UUID).
+                ///   - customerId: Filter to a specific customer (UUID).
+                ///   - siteId: Filter to a specific site (UUID).
+                ///   - model: Filter by model name (case-insensitive exact match).
+                ///   - maker: Filter by maker name (case-insensitive exact match).
+                ///   - sort:
+                ///   - limit:
+                ///   - offset:
+                public init(
+                    q: Swift.String? = nil,
+                    status: Components.Schemas.EquipmentStatus? = nil,
+                    branchId: Swift.String? = nil,
+                    customerId: Swift.String? = nil,
+                    siteId: Swift.String? = nil,
+                    model: Swift.String? = nil,
+                    maker: Swift.String? = nil,
+                    sort: Components.Schemas.EquipmentSortBy? = nil,
+                    limit: Swift.Int64? = nil,
+                    offset: Swift.Int64? = nil
+                ) {
+                    self.q = q
+                    self.status = status
+                    self.branchId = branchId
+                    self.customerId = customerId
+                    self.siteId = siteId
+                    self.model = model
+                    self.maker = maker
+                    self.sort = sort
+                    self.limit = limit
+                    self.offset = offset
+                }
+            }
+            public var query: Operations.ListEquipment.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/equipment/list/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListEquipment.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListEquipment.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListEquipment.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListEquipment.Input.Query = .init(),
+                headers: Operations.ListEquipment.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment/list/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/equipment/list/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.EquipmentListPage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.EquipmentListPage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListEquipment.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListEquipment.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Paginated equipment list.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/list/get(listEquipment)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListEquipment.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListEquipment.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/list/get(listEquipment)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/list/get(listEquipment)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/list/get(listEquipment)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
                             response: self
                         )
                     }

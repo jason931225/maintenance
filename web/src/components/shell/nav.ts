@@ -11,14 +11,15 @@ import {
   FileSpreadsheet,
   Gauge,
   LifeBuoy,
+  List,
   Map as MapIcon,
   MapPin,
   MessageSquare,
   Receipt,
+  Settings2,
   ShieldCheck,
   UserCircle,
   Users,
-  Wrench,
 } from "lucide-react";
 
 /**
@@ -64,6 +65,15 @@ const KPI_ROLES: readonly Role[] = [
   ROLES.EXECUTIVE,
   ROLES.SUPER_ADMIN,
 ];
+/**
+ * Roles that hold EquipmentManage (backend matrix: ADMIN/EXECUTIVE/SUPER_ADMIN).
+ * Mirrors the EQUIPMENT_MANAGE_ROLES constant used in the equipment pages.
+ */
+const EQUIPMENT_MANAGE_ROLES: readonly Role[] = [
+  ROLES.ADMIN,
+  ROLES.EXECUTIVE,
+  ROLES.SUPER_ADMIN,
+];
 
 /**
  * Per-item role gate. `undefined` (or omitted) means the item is visible to any
@@ -97,6 +107,9 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   // inspection (InspectionScheduleManage): ADMIN/SUPER_ADMIN only, matching the
   // backend matrix row [D, D, A, D, A] and the list-schedules read gate.
   ["inspection", ADMIN_ROLES],
+  // equipment-manage (EquipmentManage): ADMIN/EXECUTIVE/SUPER_ADMIN only,
+  // matching the backend matrix and the RequireEquipmentManageRoute guard.
+  ["equipment-manage", EQUIPMENT_MANAGE_ROLES],
 ]);
 
 /**
@@ -140,7 +153,13 @@ export const NAV_GROUPS = [
       // role may download the work-diary / daily-status workbooks, so the item
       // is ungated like the other shared pages.
       { key: "reporting", href: "/reporting", labelKey: "nav.reporting", Icon: FileSpreadsheet },
-      { key: "equipment", href: "/equipment", labelKey: "nav.equipment", Icon: Wrench },
+      // equipment (browse list): ungated — all authenticated roles may browse
+      // the fleet. The read gate is WorkOrderReadAll (every role).
+      { key: "equipment", href: "/equipment", labelKey: "nav.equipment", Icon: List },
+      // equipment-manage (CRUD): gated to EquipmentManage holders
+      // (ADMIN/EXECUTIVE/SUPER_ADMIN), matching the backend matrix and the
+      // route guard on /equipment/manage.
+      { key: "equipment-manage", href: "/equipment/manage", labelKey: "nav.equipment-manage", Icon: Settings2 },
       // catalog (sales-listing & inquiry admin, #6): ADMIN/SUPER_ADMIN only.
       { key: "catalog", href: "/catalog", labelKey: "nav.catalog", Icon: Store },
       // financial: the page surfaces purchase requests, whose read gate

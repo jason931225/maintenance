@@ -18,14 +18,14 @@ use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_platform_request_context::current_org;
 use mnt_registry_application::{
     CreateCustomerCommand, CreateEquipmentCommand, CreateSiteCommand, CreatedCustomer, CreatedSite,
-    DeleteEquipmentCommand, EquipmentByLocationQuery, ImportSheet, MasterListEquipment,
-    ParsedMasterList, RegistryImportReport, RegistryRowError, SiteLocationGroup,
-    SubstituteAssignment, SubstituteAssignmentCommand, SubstituteCandidate,
-    SubstituteReturnCommand, SubstituteSearch, UpdateEquipmentCommand, UpdateSiteCommand,
-    UpdateSiteFields, customer_create_audit_event, equipment_create_audit_event,
-    equipment_delete_audit_event, equipment_update_audit_event, registry_import_audit_event,
-    site_create_audit_event, site_update_audit_event, substitute_assign_audit_event,
-    substitute_return_audit_event,
+    DeleteEquipmentCommand, EquipmentByLocationQuery, EquipmentListItem, EquipmentListPage,
+    EquipmentListQuery, EquipmentSortBy, ImportSheet, MasterListEquipment, ParsedMasterList,
+    RegistryImportReport, RegistryRowError, SiteLocationGroup, SubstituteAssignment,
+    SubstituteAssignmentCommand, SubstituteCandidate, SubstituteReturnCommand, SubstituteSearch,
+    UpdateEquipmentCommand, UpdateSiteCommand, UpdateSiteFields, customer_create_audit_event,
+    equipment_create_audit_event, equipment_delete_audit_event, equipment_update_audit_event,
+    registry_import_audit_event, site_create_audit_event, site_update_audit_event,
+    substitute_assign_audit_event, substitute_return_audit_event,
 };
 use mnt_registry_domain::{
     EquipmentNo, EquipmentStatus, MoneyWon, SubstituteEquipmentProfile, Ton,
@@ -521,6 +521,139 @@ impl PgRegistryStore {
         })
         .await?;
         rows.iter().map(site_location_group_from_row).collect()
+    }
+
+    /// Paginated, filterable, branch-scoped equipment list. RLS-armed via
+    /// `with_org_conn` so a missing or mismatched `app.current_org` returns zero
+    /// rows (FORCE RLS) rather than leaking cross-tenant data. The branch filter
+    /// mirrors `equipment_by_location` and `substitute_candidates` so non-SUPER_ADMIN
+    /// principals only see rows in their own branches.
+    pub async fn list_equipment(
+        &self,
+        query: EquipmentListQuery,
+    ) -> Result<EquipmentListPage, PgRegistryError> {
+        let org = current_org().map_err(KernelError::from)?;
+
+        // Normalize the free-text search term the same way find_model_by_management_no
+        // does so floor-typed "10호기" / "#010호기" match stored "010".
+        let q_normalized = query.q.as_deref().map(|raw| {
+            raw.trim()
+                .trim_start_matches('#')
+                .trim()
+                .trim_end_matches("호기")
+                .trim()
+                .to_owned()
+        });
+
+        let branch_scope = query.branch_scope.clone();
+        let status = query.status;
+        let branch_id_filter = query.branch_id;
+        let customer_id_filter = query.customer_id;
+        let site_id_filter = query.site_id;
+        let model_filter = query.model.as_deref().map(str::to_lowercase);
+        let maker_filter = query.maker.as_deref().map(str::to_lowercase);
+        let sort = query.sort;
+        let limit = query.limit.clamp(1, 200);
+        let offset = query.offset.max(0);
+
+        let (items, total) = with_org_conn::<_, _, PgRegistryError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                // --- COUNT query ---
+                let mut count_builder = QueryBuilder::<Postgres>::new(
+                    r#"
+                    SELECT COUNT(*) AS total
+                    FROM registry_equipment e
+                    JOIN registry_customers c ON c.id = e.customer_id
+                    JOIN registry_sites s ON s.id = e.site_id
+                    WHERE TRUE
+                    "#,
+                );
+                push_equipment_list_filters(
+                    &mut count_builder,
+                    &branch_scope,
+                    status,
+                    branch_id_filter,
+                    customer_id_filter,
+                    site_id_filter,
+                    &model_filter,
+                    &maker_filter,
+                    &q_normalized,
+                );
+                let total: i64 = count_builder
+                    .build_query_scalar()
+                    .fetch_one(tx.as_mut())
+                    .await?;
+
+                // --- ROWS query ---
+                let mut rows_builder = QueryBuilder::<Postgres>::new(
+                    r#"
+                    SELECT
+                        e.id            AS equipment_id,
+                        e.branch_id     AS branch_id,
+                        e.equipment_no  AS equipment_no,
+                        e.management_no AS management_no,
+                        e.status        AS status,
+                        e.model         AS model,
+                        e.maker         AS maker,
+                        e.specification AS specification,
+                        e.ton_text      AS ton_text,
+                        c.name          AS customer_name,
+                        s.name          AS site_name,
+                        e.vin           AS vin,
+                        e.updated_at    AS updated_at
+                    FROM registry_equipment e
+                    JOIN registry_customers c ON c.id = e.customer_id
+                    JOIN registry_sites s ON s.id = e.site_id
+                    WHERE TRUE
+                    "#,
+                );
+                push_equipment_list_filters(
+                    &mut rows_builder,
+                    &branch_scope,
+                    status,
+                    branch_id_filter,
+                    customer_id_filter,
+                    site_id_filter,
+                    &model_filter,
+                    &maker_filter,
+                    &q_normalized,
+                );
+                match sort {
+                    EquipmentSortBy::EquipmentNo => {
+                        rows_builder.push(" ORDER BY e.equipment_no ASC");
+                    }
+                    EquipmentSortBy::Model => {
+                        rows_builder.push(" ORDER BY e.model ASC NULLS LAST, e.equipment_no ASC");
+                    }
+                    EquipmentSortBy::Customer => {
+                        rows_builder.push(" ORDER BY c.name ASC, s.name ASC, e.equipment_no ASC");
+                    }
+                    EquipmentSortBy::UpdatedAt => {
+                        rows_builder.push(" ORDER BY e.updated_at DESC, e.equipment_no ASC");
+                    }
+                }
+                rows_builder.push(" LIMIT ");
+                rows_builder.push_bind(limit);
+                rows_builder.push(" OFFSET ");
+                rows_builder.push_bind(offset);
+
+                let rows = rows_builder.build().fetch_all(tx.as_mut()).await?;
+                let items = rows
+                    .iter()
+                    .map(equipment_list_item_from_row)
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                Ok((items, total))
+            })
+        })
+        .await?;
+
+        Ok(EquipmentListPage {
+            items,
+            total,
+            limit,
+            offset,
+        })
     }
 
     /// Apply a partial coordinate/address update to one site, audited with
@@ -1031,6 +1164,121 @@ fn push_candidate_branch_filter(
             Ok(())
         }
     }
+}
+
+/// Apply all WHERE-clause filters for the equipment list query onto `builder`.
+/// All filters are combinatorial (AND). The branch-scope filter is always applied
+/// and mirrors the substitute-candidates / by-location guards so a non-SUPER_ADMIN
+/// sees only their branches.
+#[allow(clippy::too_many_arguments)]
+fn push_equipment_list_filters(
+    builder: &mut QueryBuilder<Postgres>,
+    branch_scope: &BranchScope,
+    status: Option<EquipmentStatus>,
+    branch_id_filter: Option<mnt_kernel_core::BranchId>,
+    customer_id_filter: Option<mnt_kernel_core::CustomerId>,
+    site_id_filter: Option<mnt_kernel_core::SiteId>,
+    model_filter: &Option<String>,
+    maker_filter: &Option<String>,
+    q_normalized: &Option<String>,
+) {
+    // Branch-scope guard (always applied — mirrors push_site_branch_filter).
+    match branch_scope {
+        BranchScope::All => {}
+        BranchScope::Branches(branches) if branches.is_empty() => {
+            builder.push(" AND FALSE");
+            return;
+        }
+        BranchScope::Branches(branches) => {
+            let branch_ids = branches.iter().map(|id| *id.as_uuid()).collect::<Vec<_>>();
+            builder.push(" AND e.branch_id = ANY(");
+            builder.push_bind(branch_ids);
+            builder.push(")");
+        }
+    }
+
+    // Explicit branch_id filter (must be within scope — already enforced above).
+    if let Some(bid) = branch_id_filter {
+        builder.push(" AND e.branch_id = ");
+        builder.push_bind(*bid.as_uuid());
+    }
+
+    // Status filter.
+    if let Some(st) = status {
+        builder.push(" AND e.status = ");
+        builder.push_bind(st.as_db_str());
+    }
+
+    // Customer filter.
+    if let Some(cid) = customer_id_filter {
+        builder.push(" AND e.customer_id = ");
+        builder.push_bind(*cid.as_uuid());
+    }
+
+    // Site filter.
+    if let Some(sid) = site_id_filter {
+        builder.push(" AND e.site_id = ");
+        builder.push_bind(*sid.as_uuid());
+    }
+
+    // Model (case-insensitive exact match).
+    if let Some(m) = model_filter {
+        builder.push(" AND lower(e.model) = ");
+        builder.push_bind(m.clone());
+    }
+
+    // Maker (case-insensitive exact match).
+    if let Some(mk) = maker_filter {
+        builder.push(" AND lower(e.maker) = ");
+        builder.push_bind(mk.clone());
+    }
+
+    // Free-text search: management_no (leading-zero-insensitive), equipment_no,
+    // model, maker, customer name, site name, VIN. The normalized q has already
+    // had the 호기 suffix stripped so ltrim('0') comparison works the same way
+    // find_model_by_management_no does.
+    if let Some(q) = q_normalized
+        && !q.is_empty()
+    {
+        let like_q = format!("%{}%", q.to_lowercase());
+        builder.push(" AND (ltrim(e.management_no, '0') = ltrim(");
+        builder.push_bind(q.clone());
+        builder.push(", '0')");
+        builder.push(" OR lower(e.equipment_no) LIKE ");
+        builder.push_bind(like_q.clone());
+        builder.push(" OR lower(e.model) LIKE ");
+        builder.push_bind(like_q.clone());
+        builder.push(" OR lower(e.maker) LIKE ");
+        builder.push_bind(like_q.clone());
+        builder.push(" OR lower(c.name) LIKE ");
+        builder.push_bind(like_q.clone());
+        builder.push(" OR lower(s.name) LIKE ");
+        builder.push_bind(like_q.clone());
+        builder.push(" OR lower(e.vin) LIKE ");
+        builder.push_bind(like_q);
+        builder.push(")");
+    }
+}
+
+fn equipment_list_item_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<EquipmentListItem, PgRegistryError> {
+    let status: String = row.try_get("status")?;
+    Ok(EquipmentListItem {
+        equipment_id: EquipmentId::from_uuid(row.try_get("equipment_id")?),
+        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+        equipment_no: row.try_get("equipment_no")?,
+        management_no: row.try_get("management_no")?,
+        status: EquipmentStatus::parse(&status)?,
+        model: row.try_get("model")?,
+        maker: row.try_get("maker")?,
+        specification: row.try_get("specification")?,
+        ton_text: row.try_get("ton_text")?,
+        customer_name: row.try_get("customer_name")?,
+        site_name: row.try_get("site_name")?,
+        vin: row.try_get("vin")?,
+        updated_at: row.try_get("updated_at")?,
+    })
 }
 
 /// Restrict the by-location aggregation to `scope`'s branches. `s.branch_id` is

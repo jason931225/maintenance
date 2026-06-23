@@ -82,7 +82,7 @@ function makeAuthContext(session: AuthSession): AuthContextValue {
 function renderApp(ctx: AuthContextValue) {
   return render(
     <AuthContext.Provider value={ctx}>
-      <MemoryRouter initialEntries={["/equipment"]}>
+      <MemoryRouter initialEntries={["/equipment/manage"]}>
         <AppRouter />
       </MemoryRouter>
     </AuthContext.Provider>,

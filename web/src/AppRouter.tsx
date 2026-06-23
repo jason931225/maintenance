@@ -6,6 +6,7 @@ import { AppShell } from "./components/shell/AppShell";
 import { PlatformShell } from "./components/shell/PlatformShell";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { RequireAdminRoute } from "./components/RequireAdminRoute";
+import { RequireEquipmentManageRoute } from "./components/RequireEquipmentManageRoute";
 import { RequireDailyPlanRoute } from "./components/RequireDailyPlanRoute";
 import { RequireKpiRoute } from "./components/RequireKpiRoute";
 import { RequirePlatformRoute } from "./components/RequirePlatformRoute";
@@ -70,6 +71,16 @@ const SupportPage = lazy(() =>
 );
 const EquipmentPage = lazy(() =>
   import("./pages/EquipmentPage").then((m) => ({ default: m.EquipmentPage })),
+);
+const EquipmentBrowsePage = lazy(() =>
+  import("./pages/EquipmentBrowsePage").then((m) => ({
+    default: m.EquipmentBrowsePage,
+  })),
+);
+const EquipmentManagePage = lazy(() =>
+  import("./pages/EquipmentManagePage").then((m) => ({
+    default: m.EquipmentManagePage,
+  })),
 );
 const FinancialPage = lazy(() =>
   import("./pages/FinancialPage").then((m) => ({ default: m.FinancialPage })),
@@ -195,7 +206,14 @@ export function AppRouter() {
           <Route path="/reporting" element={<ReportingPage />} />
           <Route path="/messenger" element={<MessengerPage />} />
           <Route path="/support" element={<SupportPage />} />
-          <Route path="/equipment" element={<EquipmentPage />} />
+          {/* /equipment: equipment browse list (all roles) */}
+          <Route path="/equipment" element={<EquipmentBrowsePage />} />
+          {/* /equipment/manage: equipment CRUD (EquipmentManage roles only) */}
+          <Route element={<RequireEquipmentManageRoute />}>
+            <Route path="/equipment/manage" element={<EquipmentManagePage />} />
+          </Route>
+          {/* Legacy equipment page: kept at /equipment/legacy during transition */}
+          <Route path="/equipment/legacy" element={<EquipmentPage />} />
           <Route path="/financial" element={<FinancialPage />} />
           <Route path="/settings" element={<Navigate to="/settings/profile" replace />} />
           <Route path="/settings/profile" element={<ProfilePage />} />

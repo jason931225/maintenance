@@ -25,6 +25,9 @@ export type SubstituteAssignment =
 export type SiteLocationGroup = components["schemas"]["SiteLocationGroup"];
 export type EquipmentByLocationPage =
   components["schemas"]["EquipmentByLocationPage"];
+export type EquipmentListItem = components["schemas"]["EquipmentListItem"];
+export type EquipmentListPage = components["schemas"]["EquipmentListPage"];
+export type EquipmentSortBy = components["schemas"]["EquipmentSortBy"];
 export type UpdateSiteRequest = components["schemas"]["UpdateSiteRequest"];
 export type CreateCustomerRequest =
   components["schemas"]["CreateCustomerRequest"];

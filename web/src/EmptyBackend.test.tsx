@@ -61,6 +61,9 @@ const server = setupServer(
   http.get("*/api/v1/equipment", () =>
     HttpResponse.json({ items: [], limit: 5 }),
   ),
+  http.get("*/api/v1/equipment/list", () =>
+    HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }),
+  ),
   http.get("*/api/v1/equipment/lookup", () =>
     HttpResponse.json({ message: "not found" }, { status: 404 }),
   ),
@@ -201,18 +204,9 @@ describe("every page renders cleanly against an empty backend", () => {
     expect(
       await screen.findByRole("heading", { name: "장비 조회", level: 1 }),
     ).toBeVisible();
-    // Idle lookup prompt is shown before any query.
+    // Empty response → empty-state message rendered.
     expect(
-      await screen.findByText(
-        "호기를 입력하면 장비와 고객 정보를 조회합니다.",
-      ),
-    ).toBeVisible();
-    // The admin site-coordinate panel mounts and loads its (empty) site list;
-    // its select must render and the equipment-by-location fetch must fully
-    // settle within this MSW window so it cannot leak to the real network in a
-    // later test.
-    expect(
-      await screen.findByRole("combobox", { name: "사업장 선택" }),
+      await screen.findByText("조건에 맞는 장비가 없습니다."),
     ).toBeVisible();
     await waitForNetworkIdle();
   });

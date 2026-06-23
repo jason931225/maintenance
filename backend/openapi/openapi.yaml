@@ -1012,6 +1012,98 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/equipment/list:
+    get:
+      operationId: listEquipment
+      summary: Paginated, filterable, branch-scoped equipment list
+      description: >
+        Read access (WorkOrderReadAll — all authenticated roles). Non-SUPER_ADMIN
+        principals see only rows in their own branch(es). The `q` parameter is
+        normalized like the 호기-lookup: strips a leading `#` and a trailing `호기`
+        suffix then matches leading-zero-insensitively across management_no,
+        equipment_no, model, maker, customer name, site name, and VIN.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Free-text search (호기-normalized, leading-zero-insensitive).
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/EquipmentStatus'
+      - name: branch_id
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+        description: Filter to a specific branch (UUID).
+      - name: customer_id
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+        description: Filter to a specific customer (UUID).
+      - name: site_id
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+        description: Filter to a specific site (UUID).
+      - name: model
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Filter by model name (case-insensitive exact match).
+      - name: maker
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Filter by maker name (case-insensitive exact match).
+      - name: sort
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/EquipmentSortBy'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 200
+          default: 50
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Paginated equipment list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EquipmentListPage'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /api/v1/equipment:
     get:
       operationId: autocompleteEquipment
@@ -5028,6 +5120,81 @@ components:
           items:
             $ref: '#/components/schemas/EquipmentLookupResponse'
         limit:
+          type: integer
+          format: int64
+    EquipmentSortBy:
+      type: string
+      enum:
+      - equipment_no
+      - model
+      - customer
+      - updated_at
+    EquipmentListItem:
+      type: object
+      required:
+      - equipment_id
+      - branch_id
+      - equipment_no
+      - status
+      - specification
+      - ton_text
+      - customer_name
+      - site_name
+      - updated_at
+      properties:
+        equipment_id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        equipment_no:
+          type: string
+        management_no:
+          type:
+          - string
+          - 'null'
+        status:
+          $ref: '#/components/schemas/EquipmentStatus'
+        model:
+          type:
+          - string
+          - 'null'
+        maker:
+          type:
+          - string
+          - 'null'
+        specification:
+          type: string
+        ton_text:
+          type: string
+        customer_name:
+          type: string
+        site_name:
+          type: string
+        vin:
+          type:
+          - string
+          - 'null'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    EquipmentListPage:
+      type: object
+      required:
+      - items
+      - total
+      - limit
+      - offset
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EquipmentListItem'
+        total:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+          format: int64
+        offset:
           type: integer
           format: int64
     AssignmentSummary:

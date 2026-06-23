@@ -28,10 +28,10 @@ use mnt_platform_authz::{
 use mnt_registry_adapter_postgres::{PgRegistryError, PgRegistryStore};
 use mnt_registry_application::{
     CreateCustomerCommand, CreateEquipmentCommand, CreateSiteCommand, CreatedCustomer, CreatedSite,
-    DeleteEquipmentCommand, EquipmentByLocationQuery, RegistryImportReport, SiteLocationGroup,
-    SubstituteAssignment, SubstituteAssignmentCommand, SubstituteCandidate,
-    SubstituteReturnCommand, SubstituteSearch, UpdateEquipmentCommand, UpdateEquipmentFields,
-    UpdateSiteCommand, UpdateSiteFields,
+    DeleteEquipmentCommand, EquipmentByLocationQuery, EquipmentListQuery, EquipmentSortBy,
+    RegistryImportReport, SiteLocationGroup, SubstituteAssignment, SubstituteAssignmentCommand,
+    SubstituteCandidate, SubstituteReturnCommand, SubstituteSearch, UpdateEquipmentCommand,
+    UpdateEquipmentFields, UpdateSiteCommand, UpdateSiteFields,
 };
 use mnt_registry_domain::{EquipmentNo, EquipmentStatus, MoneyWon, SubstituteMatchKind, Ton};
 use serde::{Deserialize, Serialize};
@@ -39,6 +39,7 @@ use time::Date;
 use time::OffsetDateTime;
 
 pub const EQUIPMENT_PATH: &str = "/api/v1/equipment";
+pub const EQUIPMENT_LIST_PATH: &str = "/api/v1/equipment/list";
 pub const EQUIPMENT_IMPORT_PATH: &str = "/api/v1/equipment/import";
 pub const EQUIPMENT_ID_PATH_TEMPLATE: &str = "/api/v1/equipment/{id}";
 pub const EQUIPMENT_SUBSTITUTES_PATH_TEMPLATE: &str = "/api/v1/equipment/{id}/substitutes";
@@ -51,6 +52,7 @@ pub const SITES_PATH: &str = "/api/v1/sites";
 pub const SITE_ID_PATH_TEMPLATE: &str = "/api/v1/sites/{id}";
 pub const REGISTRY_ROUTE_PATHS: &[&str] = &[
     EQUIPMENT_PATH,
+    EQUIPMENT_LIST_PATH,
     EQUIPMENT_IMPORT_PATH,
     EQUIPMENT_ID_PATH_TEMPLATE,
     EQUIPMENT_SUBSTITUTES_PATH_TEMPLATE,
@@ -98,6 +100,7 @@ pub fn router(state: RegistryRestState) -> Router {
             EQUIPMENT_SUBSTITUTION_RETURN_PATH_TEMPLATE,
             post(return_equipment_substitute),
         )
+        .route(EQUIPMENT_LIST_PATH, get(list_equipment))
         .route(EQUIPMENT_PATH, post(create_equipment))
         // The import route accepts a workbook upload, so it overrides axum's
         // 2 MiB default body limit up to MAX_IMPORT_BYTES — a tower-level cap
@@ -285,6 +288,108 @@ async fn equipment_by_location(
     let total = items.len();
 
     Ok(Json(EquipmentByLocationPage { items, total }))
+}
+
+// ---------------------------------------------------------------------------
+// Equipment list — paginated browse (read-access, branch-scoped)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct EquipmentListQueryParams {
+    q: Option<String>,
+    status: Option<EquipmentStatus>,
+    branch_id: Option<BranchId>,
+    customer_id: Option<CustomerId>,
+    site_id: Option<SiteId>,
+    model: Option<String>,
+    maker: Option<String>,
+    sort: Option<EquipmentSortBy>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct EquipmentListResponse {
+    items: Vec<EquipmentListItemResponse>,
+    total: i64,
+    limit: i64,
+    offset: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct EquipmentListItemResponse {
+    equipment_id: EquipmentId,
+    branch_id: BranchId,
+    equipment_no: String,
+    management_no: Option<String>,
+    status: EquipmentStatus,
+    model: Option<String>,
+    maker: Option<String>,
+    specification: String,
+    ton_text: String,
+    customer_name: String,
+    site_name: String,
+    vin: Option<String>,
+    updated_at: OffsetDateTime,
+}
+
+/// GET /api/v1/equipment/list — paginated, filterable, branch-scoped equipment
+/// list. Read access (WorkOrderReadAll, all authenticated roles). Non-SUPER_ADMIN
+/// principals see only rows in their own branch(es) — the same scope guard used
+/// by the substitute-search and dispatch-map endpoints. The `q` parameter is
+/// normalized like the 호기-lookup: strips a leading '#' and a trailing '호기'
+/// suffix then matches leading-zero-insensitively, so the floor-typed '10호기'
+/// and the stored '010' resolve to the same row.
+async fn list_equipment(
+    State(state): State<RegistryRestState>,
+    headers: HeaderMap,
+    Query(params): Query<EquipmentListQueryParams>,
+) -> Result<Json<EquipmentListResponse>, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    authorize_read_access(&principal)?;
+
+    let page = state
+        .store
+        .list_equipment(EquipmentListQuery {
+            branch_scope: principal.branch_scope,
+            q: params.q,
+            status: params.status,
+            branch_id: params.branch_id,
+            customer_id: params.customer_id,
+            site_id: params.site_id,
+            model: params.model,
+            maker: params.maker,
+            sort: params.sort.unwrap_or_default(),
+            limit: params.limit.unwrap_or(50),
+            offset: params.offset.unwrap_or(0),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+
+    Ok(Json(EquipmentListResponse {
+        items: page
+            .items
+            .into_iter()
+            .map(|item| EquipmentListItemResponse {
+                equipment_id: item.equipment_id,
+                branch_id: item.branch_id,
+                equipment_no: item.equipment_no,
+                management_no: item.management_no,
+                status: item.status,
+                model: item.model,
+                maker: item.maker,
+                specification: item.specification,
+                ton_text: item.ton_text,
+                customer_name: item.customer_name,
+                site_name: item.site_name,
+                vin: item.vin,
+                updated_at: item.updated_at,
+            })
+            .collect(),
+        total: page.total,
+        limit: page.limit,
+        offset: page.offset,
+    }))
 }
 
 // ---------------------------------------------------------------------------

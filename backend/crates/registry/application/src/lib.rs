@@ -9,7 +9,7 @@ use mnt_kernel_core::{
     EquipmentSubstitutionId, KernelError, SiteId, Timestamp, TraceContext, UserId,
 };
 use mnt_registry_domain::{EquipmentNo, EquipmentStatus, MoneyWon, SubstituteMatchKind, Ton};
-use time::Date;
+use time::{Date, OffsetDateTime};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -336,6 +336,79 @@ pub struct DeleteEquipmentCommand {
     pub equipment_id: EquipmentId,
     pub trace: TraceContext,
     pub occurred_at: Timestamp,
+}
+
+/// Sort column for the paginated equipment list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum EquipmentSortBy {
+    /// 호기 번호 ascending (default).
+    #[default]
+    EquipmentNo,
+    /// Model name ascending.
+    Model,
+    /// Customer name ascending.
+    Customer,
+    /// Most-recently-updated first.
+    UpdatedAt,
+}
+
+/// Paginated, filterable, searchable equipment list query. The branch scope is
+/// always injected from the JWT principal, not from the caller. All other
+/// filters are optional and combinatorial (AND).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EquipmentListQuery {
+    /// Branch scope resolved from the JWT principal (SUPER_ADMIN = All, others =
+    /// their assigned branches). Never caller-supplied.
+    pub branch_scope: BranchScope,
+    /// Free-text search across management_no (호기-normalized, leading-zero-
+    /// insensitive), model, maker, equipment_no, customer name, site name, VIN.
+    pub q: Option<String>,
+    /// Filter to a single status.
+    pub status: Option<EquipmentStatus>,
+    /// Filter to a single branch (must be within the principal's branch_scope).
+    pub branch_id: Option<BranchId>,
+    /// Filter to a single customer.
+    pub customer_id: Option<CustomerId>,
+    /// Filter to a single site.
+    pub site_id: Option<SiteId>,
+    /// Filter by model name (exact, case-insensitive).
+    pub model: Option<String>,
+    /// Filter by maker name (exact, case-insensitive).
+    pub maker: Option<String>,
+    /// Sort column.
+    pub sort: EquipmentSortBy,
+    /// Max rows per page (1–200, default 50).
+    pub limit: i64,
+    /// Zero-based row offset.
+    pub offset: i64,
+}
+
+/// One row in the paginated equipment list.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EquipmentListItem {
+    pub equipment_id: EquipmentId,
+    pub branch_id: BranchId,
+    pub equipment_no: String,
+    pub management_no: Option<String>,
+    pub status: EquipmentStatus,
+    pub model: Option<String>,
+    pub maker: Option<String>,
+    pub specification: String,
+    pub ton_text: String,
+    pub customer_name: String,
+    pub site_name: String,
+    pub vin: Option<String>,
+    pub updated_at: OffsetDateTime,
+}
+
+/// Paginated equipment list result.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EquipmentListPage {
+    pub items: Vec<EquipmentListItem>,
+    pub total: i64,
+    pub limit: i64,
+    pub offset: i64,
 }
 
 /// Branch-scoped read of the dispatch map's per-site equipment aggregation.
