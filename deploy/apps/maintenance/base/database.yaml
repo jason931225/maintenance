@@ -12,6 +12,18 @@ spec:
   resources:
     requests: { cpu: 250m, memory: 512Mi }
     limits: { memory: 1Gi }
+  # boto3 >= 1.36 (bundled in barman-cloud's S3 client) defaults to flexible
+  # checksums sent via AWS *chunked encoding* on PutObject. OCI Object Storage's
+  # S3-compatible API rejects that with "NotImplemented: AWS chunked encoding not
+  # supported", which broke EVERY WAL archive + base backup (continuous archiving
+  # stuck False, daily backup failing). Forcing checksum calc/validation to
+  # when_required disables the default chunked upload so OCI accepts it. The
+  # barman-cloud subprocess runs in the instance container and inherits these.
+  env:
+    - name: AWS_REQUEST_CHECKSUM_CALCULATION
+      value: when_required
+    - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+      value: when_required
   postgresql:
     parameters:
       # Deliberate sizing for the shared A1 node rather than container defaults.
