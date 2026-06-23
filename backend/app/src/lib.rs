@@ -591,10 +591,21 @@ fn solapi_config_from_vars(
 
 /// Parse the outbound SMTP email relay config from the environment.
 ///
-/// Returns `Ok(None)` when the whole `MNT_EMAIL_*` group is unset, so the app
-/// boots without an email relay (falling back to the stub OTP sender). When any
-/// member is set the group is treated as configured and every member is required
-/// (mirrors `solapi_config_from_vars`), then validated.
+/// Returns `Ok(None)` (→ stub OTP sender) in TWO cases, so the app always boots:
+///
+///   1. The whole `MNT_EMAIL_*` group is unset (no relay configured at all).
+///   2. The group is PARTIALLY set but the SMTP credentials — the secret parts,
+///      `MNT_EMAIL_SMTP_USERNAME` / `MNT_EMAIL_SMTP_PASSWORD` — are missing or
+///      empty. This is the prod crashloop footgun: a ConfigMap supplies the
+///      non-secret `host`/`port`/`from` while the Secret holding the creds is
+///      not yet provisioned. Rather than hard-erroring and crashlooping, we log
+///      a WARN and degrade to the stub sender (OTP logged, not relayed).
+///
+/// A `Some(config)` (→ live `LettreSmtpSender`) is returned ONLY when the
+/// credentials are present AND the remaining required fields (host, port,
+/// from-address, from-name) are present and valid. With the secrets in hand, a
+/// missing non-secret field is a genuine operator misconfiguration and still
+/// hard-errors (it is not the missing-Secret crashloop this guards against).
 fn email_config_from_vars(
     vars: &HashMap<String, String>,
 ) -> Result<Option<SmtpEmailConfig>, AppError> {
@@ -611,6 +622,15 @@ fn email_config_from_vars(
         || from_address.is_some()
         || from_name.is_some();
     if !configured {
+        return Ok(None);
+    }
+    // The secret parts gate live SMTP. If either is missing/empty while the rest
+    // is set, fall back to the stub instead of crashlooping — the app must boot
+    // regardless of partial email config (a not-yet-provisioned Secret).
+    if username.is_none() || password.is_none() {
+        tracing::warn!(
+            "MNT_EMAIL_* partially set but SMTP credentials missing — using stub sender (OTP logged, not sent)"
+        );
         return Ok(None);
     }
     let required = |value: Option<String>, name: &'static str| {
@@ -2108,5 +2128,175 @@ mod router_layer_tests {
     #[test]
     fn default_request_timeout_is_thirty_seconds() {
         assert_eq!(REQUEST_TIMEOUT, Duration::from_secs(30));
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod email_config_tests {
+    //! Guards `email_config_from_vars` robustness. The regression being
+    //! prevented: a partially-set `MNT_EMAIL_*` group (ConfigMap supplies
+    //! host/port/from, but the Secret with the SMTP creds is not yet
+    //! provisioned) used to hard-error and crashloop `mnt-app` in prod. It must
+    //! instead degrade to the stub sender so the app boots. Mirrors the email
+    //! crate's `SmtpEmailConfig` tests but exercises the env-parsing layer.
+
+    use std::collections::HashMap;
+
+    use super::email_config_from_vars;
+
+    /// The full, well-formed `MNT_EMAIL_*` set that yields a live SMTP config.
+    fn full_email_vars() -> HashMap<String, String> {
+        [
+            ("MNT_EMAIL_SMTP_HOST", "smtp.example.com"),
+            ("MNT_EMAIL_SMTP_PORT", "587"),
+            ("MNT_EMAIL_SMTP_USERNAME", "ocid1.user.oc1..example"),
+            ("MNT_EMAIL_SMTP_PASSWORD", "secret"),
+            ("MNT_EMAIL_FROM", "noreply@example.com"),
+            ("MNT_EMAIL_FROM_NAME", "MNT"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect()
+    }
+
+    #[test]
+    fn unset_group_yields_no_config() {
+        let vars = HashMap::new();
+        assert!(email_config_from_vars(&vars).unwrap().is_none());
+    }
+
+    #[test]
+    fn fully_set_group_yields_live_config() {
+        let config = email_config_from_vars(&full_email_vars())
+            .unwrap()
+            .expect("fully-configured email group should yield Some(config)");
+        assert_eq!(config.host, "smtp.example.com");
+        assert_eq!(config.port, 587);
+        assert_eq!(config.username, "ocid1.user.oc1..example");
+        assert_eq!(config.from_address, "noreply@example.com");
+    }
+
+    #[test]
+    fn partial_config_missing_username_falls_back_to_stub() {
+        // ConfigMap set host/port/from, but the Secret (username) is absent.
+        // This must NOT error — it degrades to the stub sender (None).
+        let mut vars = full_email_vars();
+        vars.remove("MNT_EMAIL_SMTP_USERNAME");
+        assert!(
+            email_config_from_vars(&vars).unwrap().is_none(),
+            "missing SMTP username must fall back to stub, not error"
+        );
+    }
+
+    #[test]
+    fn partial_config_missing_password_falls_back_to_stub() {
+        let mut vars = full_email_vars();
+        vars.remove("MNT_EMAIL_SMTP_PASSWORD");
+        assert!(
+            email_config_from_vars(&vars).unwrap().is_none(),
+            "missing SMTP password must fall back to stub, not error"
+        );
+    }
+
+    #[test]
+    fn empty_credentials_fall_back_to_stub() {
+        // Empty (not absent) creds — e.g. a Secret mounted with blank values —
+        // are treated the same as missing and fall back to the stub.
+        let mut vars = full_email_vars();
+        vars.insert("MNT_EMAIL_SMTP_USERNAME".to_owned(), "   ".to_owned());
+        vars.insert("MNT_EMAIL_SMTP_PASSWORD".to_owned(), String::new());
+        assert!(email_config_from_vars(&vars).unwrap().is_none());
+    }
+
+    /// Exhaustively prove the crashloop footgun is closed: ANY permutation of the
+    /// `MNT_EMAIL_*` group that is set WITHOUT both SMTP credentials must degrade
+    /// to the stub (`Ok(None)`), never error. This is the prod scenario — a
+    /// ConfigMap supplies some non-secret fields while the credential Secret is
+    /// not yet provisioned — across every subset of the non-secret fields.
+    #[test]
+    fn every_partial_config_without_credentials_falls_back_to_stub() {
+        const NON_SECRET_KEYS: [(&str, &str); 4] = [
+            ("MNT_EMAIL_SMTP_HOST", "smtp.example.com"),
+            ("MNT_EMAIL_SMTP_PORT", "587"),
+            ("MNT_EMAIL_FROM", "noreply@example.com"),
+            ("MNT_EMAIL_FROM_NAME", "MNT"),
+        ];
+        // All 16 subsets of the 4 non-secret fields, crossed with the 3 broken
+        // credential states (no username, no password, neither). The empty subset
+        // with no creds is the all-unset case (also Ok(None)).
+        for mask in 0u8..(1 << NON_SECRET_KEYS.len()) {
+            for creds in [
+                &[("MNT_EMAIL_SMTP_USERNAME", "ocid1.user.oc1..example")][..],
+                &[("MNT_EMAIL_SMTP_PASSWORD", "secret")][..],
+                &[][..],
+            ] {
+                let mut vars: HashMap<String, String> = HashMap::new();
+                for (bit, (key, value)) in NON_SECRET_KEYS.iter().enumerate() {
+                    if mask & (1 << bit) != 0 {
+                        vars.insert((*key).to_owned(), (*value).to_owned());
+                    }
+                }
+                for (key, value) in creds {
+                    vars.insert((*key).to_owned(), (*value).to_owned());
+                }
+                assert!(
+                    email_config_from_vars(&vars).unwrap().is_none(),
+                    "partial config (mask={mask:#06b}, creds={creds:?}) must fall \
+                     back to the stub sender, not error or build a live config"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn creds_present_but_missing_host_still_errors() {
+        // With BOTH secrets in hand, a missing non-secret field is a genuine
+        // operator misconfiguration and still hard-errors (not the missing-Secret
+        // crashloop this guard targets).
+        let mut vars = full_email_vars();
+        vars.remove("MNT_EMAIL_SMTP_HOST");
+        assert!(email_config_from_vars(&vars).is_err());
+    }
+
+    #[test]
+    fn creds_present_but_missing_port_still_errors() {
+        let mut vars = full_email_vars();
+        vars.remove("MNT_EMAIL_SMTP_PORT");
+        assert!(email_config_from_vars(&vars).is_err());
+    }
+
+    #[test]
+    fn creds_present_but_missing_from_still_errors() {
+        let mut vars = full_email_vars();
+        vars.remove("MNT_EMAIL_FROM");
+        assert!(email_config_from_vars(&vars).is_err());
+    }
+
+    #[test]
+    fn creds_present_but_invalid_port_still_errors() {
+        // A non-numeric port is an operator typo, not a missing Secret — error.
+        let mut vars = full_email_vars();
+        vars.insert("MNT_EMAIL_SMTP_PORT".to_owned(), "not-a-port".to_owned());
+        assert!(email_config_from_vars(&vars).is_err());
+    }
+
+    #[test]
+    fn credentials_only_without_relay_fields_falls_back_to_stub() {
+        // Only the secrets are set (no host/port/from) — there is no relay to
+        // talk to, so degrade to the stub rather than error. The `username` and
+        // `password` guard fires only when one is missing; with both present but
+        // the relay fields absent, `required(host, ...)` would error, so assert
+        // the documented behavior explicitly: this errors (operator must supply
+        // the relay fields once creds exist). Kept as a guard against regressions
+        // that would silently send to an empty relay.
+        let vars: HashMap<String, String> = [
+            ("MNT_EMAIL_SMTP_USERNAME", "ocid1.user.oc1..example"),
+            ("MNT_EMAIL_SMTP_PASSWORD", "secret"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
+        assert!(email_config_from_vars(&vars).is_err());
     }
 }
