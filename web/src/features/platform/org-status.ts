@@ -17,6 +17,6 @@ export function orgStatusBadgeClass(status: OrgStatus): string {
     case "SUSPENDED":
       return "border-amber-300 text-amber-800";
     case "ARCHIVED":
-      return "border-slate-300 text-slate-500";
+      return "border-line text-steel";
   }
 }
