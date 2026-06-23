@@ -1,8 +1,13 @@
-import { MapPin } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { MapPin, Plus } from "lucide-react";
+import { useCallback, useEffect, useId, useState } from "react";
 
+import type {
+  CreateCustomerRequest,
+  CreateSiteRequest,
+  SiteLocationGroup,
+  UpdateSiteRequest,
+} from "../../api/types";
 import type { ConsoleApiClient } from "../../api/client";
-import type { SiteLocationGroup, UpdateSiteRequest } from "../../api/types";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
@@ -11,6 +16,7 @@ import { ko } from "../../i18n/ko";
 
 const t = ko.dispatchMap.manage;
 const f = ko.dispatchMap.fields;
+const r = ko.sites.register;
 
 interface SiteGeographyPanelProps {
   api: ConsoleApiClient;
@@ -78,6 +84,7 @@ export function SiteGeographyPanel({ api }: SiteGeographyPanelProps) {
   const [writeState, setWriteState] = useState<WriteState>("idle");
   const [notice, setNotice] = useState<string>();
   const [pairError, setPairError] = useState(false);
+  const [registerOpen, setRegisterOpen] = useState(false);
 
   const loadSites = useCallback(
     async (signal?: AbortSignal) => {
@@ -163,12 +170,42 @@ export function SiteGeographyPanel({ api }: SiteGeographyPanelProps) {
     await loadSites();
   }
 
+  async function handleRegistered(createdSiteId: string) {
+    await loadSites();
+    setRegisterOpen(false);
+    selectSite(createdSiteId);
+    setNotice(r.siteCreated);
+  }
+
   return (
     <Card className="grid gap-4">
-      <div>
-        <h2 className="text-lg font-semibold text-ink">{t.title}</h2>
-        <p className="text-sm text-steel">{t.description}</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-ink">{t.title}</h2>
+          <p className="text-sm text-steel">{t.description}</p>
+        </div>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => {
+            setRegisterOpen(true);
+          }}
+        >
+          <Plus aria-hidden="true" size={16} />
+          {r.open}
+        </Button>
       </div>
+
+      {registerOpen ? (
+        <RegisterDialog
+          api={api}
+          customers={existingCustomers(sites)}
+          onClose={() => {
+            setRegisterOpen(false);
+          }}
+          onRegistered={handleRegistered}
+        />
+      ) : null}
 
       {notice ? (
         <p role="status" className="text-sm font-medium text-brand-teal">
@@ -345,6 +382,305 @@ function Field({ id, label, value, onChange, placeholder, inputMode }: FieldProp
           onChange(event.currentTarget.value);
         }}
       />
+    </div>
+  );
+}
+
+interface CustomerOption {
+  id: string;
+  name: string;
+}
+
+/** Distinct customers (by id) present in the loaded site list, sorted by name, so
+ * the register dialog can offer "add a site to an existing customer". */
+function existingCustomers(sites: SiteLocationGroup[]): CustomerOption[] {
+  const byId = new Map<string, string>();
+  for (const site of sites) {
+    if (!byId.has(site.customer_id)) byId.set(site.customer_id, site.customer_name);
+  }
+  return Array.from(byId, ([id, name]) => ({ id, name })).sort((a, b) =>
+    a.name.localeCompare(b.name, "ko"),
+  );
+}
+
+type CustomerMode = "existing" | "new";
+type DialogState = "idle" | "saving";
+
+interface RegisterDialogProps {
+  api: ConsoleApiClient;
+  customers: CustomerOption[];
+  onClose: () => void;
+  onRegistered: (siteId: string) => Promise<void>;
+}
+
+function nullableTrimValue(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? null : trimmed;
+}
+
+/**
+ * Accessible modal to register a new customer and/or a new site.
+ * Admin-only (EquipmentManage), wired to POST /api/v1/customers and
+ * POST /api/v1/sites. The customer can be an existing one (add a site to it) or a
+ * brand-new one (created first, then the site under it). On success the new site
+ * is returned and the parent refreshes the list and selects it.
+ */
+function RegisterDialog({
+  api,
+  customers,
+  onClose,
+  onRegistered,
+}: RegisterDialogProps) {
+  const titleId = useId();
+  const [mode, setMode] = useState<CustomerMode>(
+    customers.length > 0 ? "existing" : "new",
+  );
+  const [existingCustomerId, setExistingCustomerId] = useState<string>(
+    customers[0]?.id ?? "",
+  );
+  const [newCustomerName, setNewCustomerName] = useState("");
+  const [siteName, setSiteName] = useState("");
+  const [address, setAddress] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [state, setState] = useState<DialogState>("idle");
+  const [error, setError] = useState<string>();
+
+  async function resolveCustomerId(): Promise<string | undefined> {
+    if (mode === "existing") {
+      if (!existingCustomerId) {
+        setError(r.customerRequired);
+        return undefined;
+      }
+      return existingCustomerId;
+    }
+    const name = newCustomerName.trim();
+    if (name.length === 0) {
+      setError(r.customerRequired);
+      return undefined;
+    }
+    const body: CreateCustomerRequest = { name };
+    const response = await api.POST("/api/v1/customers", { body });
+    if (response.error || !response.data) {
+      setError(
+        response.response.status === 409 ? r.duplicateCustomer : r.failed,
+      );
+      return undefined;
+    }
+    return response.data.id;
+  }
+
+  async function handleSubmit() {
+    setError(undefined);
+    const trimmedSite = siteName.trim();
+    if (trimmedSite.length === 0) {
+      setError(r.nameRequired);
+      return;
+    }
+    setState("saving");
+    const customerId = await resolveCustomerId();
+    if (customerId === undefined) {
+      setState("idle");
+      return;
+    }
+
+    const body: CreateSiteRequest = {
+      customer_id: customerId,
+      name: trimmedSite,
+      address: nullableTrimValue(address),
+      contact_name: nullableTrimValue(contactName),
+      contact_phone: nullableTrimValue(contactPhone),
+    };
+    const response = await api.POST("/api/v1/sites", { body });
+    if (response.error || !response.data) {
+      const status = response.response.status;
+      setError(
+        status === 409
+          ? r.duplicateSite
+          : status === 404
+            ? r.customerNotFound
+            : r.failed,
+      );
+      setState("idle");
+      return;
+    }
+    await onRegistered(response.data.id);
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") onClose();
+      }}
+    >
+      <Card className="grid w-full max-w-lg gap-4">
+        <div>
+          <h3 id={titleId} className="text-lg font-semibold text-ink">
+            {r.title}
+          </h3>
+          <p className="text-sm text-steel">{r.description}</p>
+        </div>
+
+        <form
+          className="grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleSubmit();
+          }}
+        >
+          <fieldset className="grid gap-3">
+            <legend className="text-sm font-semibold text-steel">
+              {r.customerSection}
+            </legend>
+            {customers.length > 0 ? (
+              <div
+                className="flex flex-wrap gap-4"
+                role="radiogroup"
+                aria-label={r.customerMode}
+              >
+                <label className="flex items-center gap-2 text-sm text-ink">
+                  <input
+                    type="radio"
+                    name="customer-mode"
+                    value="existing"
+                    checked={mode === "existing"}
+                    onChange={() => {
+                      setMode("existing");
+                    }}
+                  />
+                  {r.customerModeExisting}
+                </label>
+                <label className="flex items-center gap-2 text-sm text-ink">
+                  <input
+                    type="radio"
+                    name="customer-mode"
+                    value="new"
+                    checked={mode === "new"}
+                    onChange={() => {
+                      setMode("new");
+                    }}
+                  />
+                  {r.customerModeNew}
+                </label>
+              </div>
+            ) : null}
+
+            {mode === "existing" && customers.length > 0 ? (
+              <div className="grid gap-2">
+                <label
+                  className="text-sm font-medium text-steel"
+                  htmlFor="register-existing-customer"
+                >
+                  {r.existingCustomer}
+                </label>
+                <Select
+                  id="register-existing-customer"
+                  autoFocus
+                  value={existingCustomerId}
+                  onChange={(event) => {
+                    setExistingCustomerId(event.currentTarget.value);
+                  }}
+                >
+                  <option value="">{r.existingCustomerPlaceholder}</option>
+                  {customers.map((customer) => (
+                    <option key={customer.id} value={customer.id}>
+                      {customer.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            ) : (
+              <div className="grid gap-2">
+                <label
+                  className="text-sm font-medium text-steel"
+                  htmlFor="register-new-customer"
+                >
+                  {r.customerName}
+                </label>
+                <Input
+                  id="register-new-customer"
+                  autoFocus={mode === "new"}
+                  value={newCustomerName}
+                  placeholder={r.customerNamePlaceholder}
+                  maxLength={200}
+                  onChange={(event) => {
+                    setNewCustomerName(event.currentTarget.value);
+                  }}
+                />
+              </div>
+            )}
+          </fieldset>
+
+          <fieldset className="grid gap-3">
+            <legend className="text-sm font-semibold text-steel">
+              {r.siteSection}
+            </legend>
+            <div className="grid gap-2">
+              <label
+                className="text-sm font-medium text-steel"
+                htmlFor="register-site-name"
+              >
+                {r.siteName}
+              </label>
+              <Input
+                id="register-site-name"
+                value={siteName}
+                placeholder={r.siteNamePlaceholder}
+                maxLength={200}
+                onChange={(event) => {
+                  setSiteName(event.currentTarget.value);
+                }}
+              />
+            </div>
+            <Field
+              id="register-site-address"
+              label={f.address}
+              value={address}
+              onChange={setAddress}
+            />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field
+                id="register-site-contact-name"
+                label={f.contactName}
+                value={contactName}
+                onChange={setContactName}
+              />
+              <Field
+                id="register-site-contact-phone"
+                label={f.contactPhone}
+                value={contactPhone}
+                placeholder={t.contactPhonePlaceholder}
+                onChange={setContactPhone}
+              />
+            </div>
+          </fieldset>
+
+          {error ? (
+            <p role="alert" className="text-sm font-semibold text-red-700">
+              {error}
+            </p>
+          ) : null}
+
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onClose}
+              disabled={state === "saving"}
+            >
+              {r.cancel}
+            </Button>
+            <Button type="submit" disabled={state === "saving"}>
+              <Plus aria-hidden="true" size={16} />
+              {state === "saving" ? r.submitting : r.submit}
+            </Button>
+          </div>
+        </form>
+      </Card>
     </div>
   );
 }

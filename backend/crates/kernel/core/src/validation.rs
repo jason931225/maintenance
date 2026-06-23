@@ -96,6 +96,13 @@ pub const CONTACT_PHONE_MAX_CHARS: usize = 40;
 /// `registry_sites_contact_email_max_chars` CHECK in migration 0040.
 pub const CONTACT_EMAIL_MAX_CHARS: usize = 320;
 
+/// Max code points for a customer or site name (고객명 / 현장명). Matches the
+/// `registry_customers_name_max_chars` / `registry_sites_name_max_chars` CHECKs
+/// in migration 0047. The base `name <> ''` CHECK (migration 0007) already
+/// rejects an empty name; this only bounds the upper length so an over-long
+/// value is a 422 at the edge rather than a raw DB CHECK error.
+pub const CUSTOMER_SITE_NAME_MAX_CHARS: usize = 200;
+
 /// Max code points for a site street address. Matches the address CHECK in
 /// migration 0039 (`char_length(address) <= 500`).
 pub const ADDRESS_MAX_CHARS: usize = 500;
@@ -213,6 +220,16 @@ mod tests {
         assert!(validate_bounded_text(&exactly, CONTACT_NAME_MAX_CHARS, "contact_name").is_ok());
         let too_long: String = "가".repeat(CONTACT_NAME_MAX_CHARS + 1);
         assert!(validate_bounded_text(&too_long, CONTACT_NAME_MAX_CHARS, "contact_name").is_err());
+    }
+
+    #[test]
+    fn customer_site_name_bound_matches_db_check() {
+        // The migration-0047 CHECK caps the name at 200 code points; the shared
+        // bound must agree so an over-long name is a 422 at the edge, not a 500.
+        let exactly: String = "현".repeat(CUSTOMER_SITE_NAME_MAX_CHARS);
+        assert!(validate_bounded_text(&exactly, CUSTOMER_SITE_NAME_MAX_CHARS, "name").is_ok());
+        let too_long: String = "현".repeat(CUSTOMER_SITE_NAME_MAX_CHARS + 1);
+        assert!(validate_bounded_text(&too_long, CUSTOMER_SITE_NAME_MAX_CHARS, "name").is_err());
     }
 
     #[test]

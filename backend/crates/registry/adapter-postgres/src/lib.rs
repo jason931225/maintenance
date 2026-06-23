@@ -11,19 +11,21 @@ use std::path::Path;
 
 use calamine::{Data, DataType, Range, Reader, open_workbook_auto};
 use mnt_kernel_core::{
-    BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId, KernelError, SiteId, TraceContext,
-    UserId,
+    BranchId, BranchScope, CustomerId, EquipmentId, EquipmentSubstitutionId, KernelError, SiteId,
+    TraceContext, UserId,
 };
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_platform_request_context::current_org;
 use mnt_registry_application::{
-    CreateEquipmentCommand, DeleteEquipmentCommand, EquipmentByLocationQuery, ImportSheet,
-    MasterListEquipment, ParsedMasterList, RegistryImportReport, RegistryRowError,
-    SiteLocationGroup, SubstituteAssignment, SubstituteAssignmentCommand, SubstituteCandidate,
+    CreateCustomerCommand, CreateEquipmentCommand, CreateSiteCommand, CreatedCustomer, CreatedSite,
+    DeleteEquipmentCommand, EquipmentByLocationQuery, ImportSheet, MasterListEquipment,
+    ParsedMasterList, RegistryImportReport, RegistryRowError, SiteLocationGroup,
+    SubstituteAssignment, SubstituteAssignmentCommand, SubstituteCandidate,
     SubstituteReturnCommand, SubstituteSearch, UpdateEquipmentCommand, UpdateSiteCommand,
-    UpdateSiteFields, equipment_create_audit_event, equipment_delete_audit_event,
-    equipment_update_audit_event, registry_import_audit_event, site_update_audit_event,
-    substitute_assign_audit_event, substitute_return_audit_event,
+    UpdateSiteFields, customer_create_audit_event, equipment_create_audit_event,
+    equipment_delete_audit_event, equipment_update_audit_event, registry_import_audit_event,
+    site_create_audit_event, site_update_audit_event, substitute_assign_audit_event,
+    substitute_return_audit_event,
 };
 use mnt_registry_domain::{
     EquipmentNo, EquipmentStatus, MoneyWon, SubstituteEquipmentProfile, Ton,
@@ -167,6 +169,190 @@ impl PgRegistryStore {
         .await
     }
 
+    /// Create one customer (고객) directly on the default HQ branch, audited.
+    ///
+    /// Unlike the importer's `upsert_customer` (idempotent ON CONFLICT DO UPDATE so
+    /// a re-import never duplicates), an explicit admin create is a distinct intent:
+    /// a same-name customer already on the HQ branch is a `conflict` (→ 409), not a
+    /// silent merge into the existing row. The duplicate is detected inside the
+    /// armed transaction (mirroring `create_equipment`'s equipment-no check) so the
+    /// conflict surfaces as a domain error; the `registry_customers (branch_id, name)`
+    /// UNIQUE key is the backstop for a TOCTOU race.
+    // mnt-gate: state-changing-handler
+    pub async fn create_customer(
+        &self,
+        command: CreateCustomerCommand,
+    ) -> Result<CreatedCustomer, PgRegistryError> {
+        let name = command.name;
+        let actor = command.actor;
+        let trace = command.trace;
+        let occurred_at = command.occurred_at;
+        let requested_branch = command.branch_id;
+
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+
+        with_audits::<_, CreatedCustomer, PgRegistryError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                // Land on the caller's branch when supplied (so a branch-scoped
+                // admin sees the new customer in its own branch-scoped reads), else
+                // on the org's default HQ. Either way the branch lookup/upsert runs
+                // on the armed tx so it passes FORCE-RLS WITH CHECK as `mnt_rt`.
+                let branch_uuid = resolve_create_branch(tx, requested_branch, org_uuid).await?;
+                let branch_id = BranchId::from_uuid(branch_uuid);
+                let existing: Option<uuid::Uuid> = sqlx::query_scalar(
+                    "SELECT id FROM registry_customers WHERE branch_id = $1 AND name = $2",
+                )
+                .bind(branch_uuid)
+                .bind(&name)
+                .fetch_optional(tx.as_mut())
+                .await?;
+                if existing.is_some() {
+                    return Err(
+                        KernelError::conflict(format!("customer {name:?} already exists")).into(),
+                    );
+                }
+                let id: uuid::Uuid = sqlx::query_scalar(
+                    r#"
+                    INSERT INTO registry_customers (branch_id, name, org_id)
+                    VALUES ($1, $2, $3)
+                    RETURNING id
+                    "#,
+                )
+                .bind(branch_uuid)
+                .bind(&name)
+                .bind(org_uuid)
+                .fetch_one(tx.as_mut())
+                .await?;
+                let customer = CreatedCustomer {
+                    id: CustomerId::from_uuid(id),
+                    branch_id,
+                    name,
+                };
+                let event =
+                    customer_create_audit_event(actor, branch_id, &customer, trace, occurred_at)?;
+                Ok((customer, vec![event]))
+            })
+        })
+        .await
+    }
+
+    /// Create one site (현장) under an existing customer, directly, audited.
+    ///
+    /// The customer must belong to the caller's org: the in-transaction lookup runs
+    /// under the armed `app.current_org`, so RLS already hides another tenant's
+    /// customer — a foreign-org (or unknown) `customer_id` returns `not_found`
+    /// (→ 404), never a leak and never a cross-tenant write. The site lands on the
+    /// customer's own branch. A same-name site under the same customer is a
+    /// `conflict` (→ 409); the optional location/contact fields are written in the
+    /// same INSERT so a site can be onboarded with its address in one step.
+    // mnt-gate: state-changing-handler
+    pub async fn create_site(
+        &self,
+        command: CreateSiteCommand,
+    ) -> Result<CreatedSite, PgRegistryError> {
+        let customer_id = command.customer_id;
+        let customer_uuid = *customer_id.as_uuid();
+        let name = command.name;
+        let actor = command.actor;
+        let trace = command.trace;
+        let occurred_at = command.occurred_at;
+        let address = command.address;
+        let province = command.province;
+        let city = command.city;
+        let postal_code = command.postal_code;
+        let latitude = command.latitude;
+        let longitude = command.longitude;
+        let geofence_radius_m = command.geofence_radius_m;
+        let contact_name = command.contact_name;
+        let contact_phone = command.contact_phone;
+        let contact_email = command.contact_email;
+
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+
+        with_audits::<_, CreatedSite, PgRegistryError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                // The customer must exist in the caller's org. RLS scopes this read
+                // to app.current_org, so a foreign-org customer is invisible and
+                // resolves to not_found — the explicit ownership check the spec
+                // requires, enforced by the policy rather than trusted from input.
+                let branch_uuid: uuid::Uuid = sqlx::query_scalar(
+                    "SELECT branch_id FROM registry_customers WHERE id = $1",
+                )
+                .bind(customer_uuid)
+                .fetch_optional(tx.as_mut())
+                .await?
+                .ok_or_else(|| KernelError::not_found("customer was not found"))?;
+
+                let existing: Option<uuid::Uuid> = sqlx::query_scalar(
+                    "SELECT id FROM registry_sites WHERE branch_id = $1 AND customer_id = $2 AND name = $3",
+                )
+                .bind(branch_uuid)
+                .bind(customer_uuid)
+                .bind(&name)
+                .fetch_optional(tx.as_mut())
+                .await?;
+                if existing.is_some() {
+                    return Err(KernelError::conflict(format!(
+                        "site {name:?} already exists for this customer"
+                    ))
+                    .into());
+                }
+
+                let id: uuid::Uuid = sqlx::query_scalar(
+                    r#"
+                    INSERT INTO registry_sites (
+                        branch_id, customer_id, name, org_id,
+                        address, province, city, postal_code,
+                        latitude, longitude, geofence_radius_m,
+                        contact_name, contact_phone, contact_email
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    RETURNING id
+                    "#,
+                )
+                .bind(branch_uuid)
+                .bind(customer_uuid)
+                .bind(&name)
+                .bind(org_uuid)
+                .bind(&address)
+                .bind(&province)
+                .bind(&city)
+                .bind(&postal_code)
+                .bind(latitude)
+                .bind(longitude)
+                .bind(geofence_radius_m)
+                .bind(&contact_name)
+                .bind(&contact_phone)
+                .bind(&contact_email)
+                .fetch_one(tx.as_mut())
+                .await?;
+
+                let branch_id = BranchId::from_uuid(branch_uuid);
+                let site = CreatedSite {
+                    id: SiteId::from_uuid(id),
+                    customer_id,
+                    branch_id,
+                    name,
+                    address,
+                    province,
+                    city,
+                    postal_code,
+                    latitude,
+                    longitude,
+                    geofence_radius_m,
+                    contact_name,
+                    contact_phone,
+                    contact_email,
+                };
+                let event = site_create_audit_event(actor, branch_id, &site, trace, occurred_at)?;
+                Ok((site, vec![event]))
+            })
+        })
+        .await
+    }
+
     /// Apply a partial update to one equipment row, audited with before/after.
     // mnt-gate: state-changing-handler
     pub async fn update_equipment(
@@ -294,6 +480,7 @@ impl PgRegistryStore {
         SELECT
             s.id            AS site_id,
             s.name          AS site_name,
+            c.id            AS customer_id,
             c.name          AS customer_name,
             s.branch_id     AS branch_id,
             s.address       AS address,
@@ -321,9 +508,9 @@ impl PgRegistryStore {
         push_site_branch_filter(&mut builder, &query.branch_scope)?;
         builder.push(
             r#"
-        GROUP BY s.id, s.name, c.name, s.branch_id, s.address, s.postal_code, s.province, s.city,
-                 s.latitude, s.longitude, s.geofence_radius_m, s.contact_name, s.contact_phone,
-                 s.contact_email
+        GROUP BY s.id, s.name, c.id, c.name, s.branch_id, s.address, s.postal_code, s.province,
+                 s.city, s.latitude, s.longitude, s.geofence_radius_m, s.contact_name,
+                 s.contact_phone, s.contact_email
         ORDER BY s.province NULLS LAST, s.city NULLS LAST, s.name ASC
         "#,
         );
@@ -879,6 +1066,7 @@ fn site_location_group_from_row(
     Ok(SiteLocationGroup {
         site_id: SiteId::from_uuid(row.try_get("site_id")?),
         site_name: row.try_get("site_name")?,
+        customer_id: CustomerId::from_uuid(row.try_get("customer_id")?),
         customer_name: row.try_get("customer_name")?,
         branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
         address: row.try_get("address")?,
@@ -1284,6 +1472,65 @@ async fn upsert_equipment(
         Ok(UpsertOutcome::Unchanged)
     } else {
         Ok(UpsertOutcome::Updated)
+    }
+}
+
+/// Resolve the default HQ branch for `org_uuid` on an ALREADY-ARMED transaction
+/// (one where `app.current_org` is set, e.g. inside a `with_audits` closure).
+///
+/// This mirrors `ensure_default_hq_branch` but runs on the caller's armed tx
+/// instead of an unscoped standalone transaction, so the `regions`/`branches`
+/// upserts satisfy the FORCE-RLS `WITH CHECK` as the runtime role `mnt_rt`. The
+/// direct customer/site creates use this so the whole create — branch resolution
+/// plus the row INSERT plus the audit row — is one atomic, org-scoped unit.
+async fn ensure_hq_branch_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+) -> Result<uuid::Uuid, PgRegistryError> {
+    let region_id: uuid::Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO regions (name, org_id)
+        VALUES ('HQ', $1)
+        ON CONFLICT (org_id, name) DO UPDATE SET name = EXCLUDED.name
+        RETURNING id
+        "#,
+    )
+    .bind(org_uuid)
+    .fetch_one(tx.as_mut())
+    .await?;
+
+    let branch_id: uuid::Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO branches (region_id, name, org_id)
+        VALUES ($1, 'HQ', $2)
+        ON CONFLICT (region_id, name) DO UPDATE SET name = EXCLUDED.name
+        RETURNING id
+        "#,
+    )
+    .bind(region_id)
+    .bind(org_uuid)
+    .fetch_one(tx.as_mut())
+    .await?;
+
+    Ok(branch_id)
+}
+
+/// Resolve the branch a direct create lands on, on an ALREADY-ARMED transaction.
+///
+/// A `requested` branch is the caller's own branch, taken from the server-resolved
+/// principal (a branch-scoped admin); it is used directly. Org membership is
+/// enforced by the row's composite FK `(branch_id, org_id) REFERENCES
+/// branches(id, org_id)` and FORCE-RLS WITH CHECK, so an out-of-org branch fails
+/// the insert rather than silently landing elsewhere. With no requested branch (an
+/// org-wide SUPER_ADMIN/EXECUTIVE principal) the org's default HQ branch is used.
+async fn resolve_create_branch(
+    tx: &mut Transaction<'_, Postgres>,
+    requested: Option<BranchId>,
+    org_uuid: uuid::Uuid,
+) -> Result<uuid::Uuid, PgRegistryError> {
+    match requested {
+        Some(branch_id) => Ok(*branch_id.as_uuid()),
+        None => ensure_hq_branch_in_tx(tx, org_uuid).await,
     }
 }
 

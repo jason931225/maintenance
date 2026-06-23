@@ -352,6 +352,165 @@ async fn substitute_assign_rejects_non_admin(pool: PgPool) {
     .await;
 }
 
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn create_customer_and_site_appear_in_location_list_and_are_audited(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let harness = Harness::new(&pool, "ADMIN").await;
+
+        // Create a customer.
+        let (status, body) = harness
+            .send(
+                "POST",
+                "/api/v1/customers",
+                Some(json_body(&json!({ "name": "한울로지스" }))),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{body:?}");
+        let customer_id = body["id"].as_str().unwrap().to_owned();
+        assert_eq!(body["name"].as_str().unwrap(), "한울로지스");
+
+        // A same-name customer is a 409 conflict (explicit create, not a merge).
+        let (status, _) = harness
+            .send(
+                "POST",
+                "/api/v1/customers",
+                Some(json_body(&json!({ "name": "한울로지스" }))),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+
+        // Create a site under that customer, with address + coordinates + contact.
+        let site_body = json!({
+            "customer_id": customer_id,
+            "name": "안산1공장",
+            "address": "경기도 안산시 단원구 1로 1",
+            "province": "경기도",
+            "city": "안산시",
+            "postal_code": "15433",
+            "latitude": 37.3219,
+            "longitude": 126.8309,
+            "geofence_radius_m": 200.0,
+            "contact_name": "김현장",
+            "contact_phone": "010-2625-0987",
+            "contact_email": "site@example.com"
+        });
+        let (status, body) = harness
+            .send("POST", "/api/v1/sites", Some(json_body(&site_body)))
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{body:?}");
+        let site_id = body["id"].as_str().unwrap().to_owned();
+        assert_eq!(body["customer_id"].as_str().unwrap(), customer_id);
+        assert_eq!(body["name"].as_str().unwrap(), "안산1공장");
+        assert_eq!(body["latitude"].as_f64().unwrap(), 37.3219);
+        assert_eq!(body["contact_name"].as_str().unwrap(), "김현장");
+
+        // A duplicate site name under the same customer is a 409 conflict.
+        let (status, _) = harness
+            .send("POST", "/api/v1/sites", Some(json_body(&site_body)))
+            .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+
+        // The new site is immediately visible in the by-location list.
+        let (status, body) = harness
+            .send("GET", "/api/v1/equipment-by-location", None)
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body:?}");
+        let found = body["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["site_id"].as_str() == Some(site_id.as_str()));
+        assert!(found, "newly created site must appear in the location list");
+
+        // Both creates were audited exactly once.
+        assert_eq!(audit_count(&pool, "customer.create").await, 1);
+        assert_eq!(audit_count(&pool, "site.create").await, 1);
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn create_customer_rejects_non_admin(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let harness = Harness::new(&pool, "MECHANIC").await;
+        let (status, _) = harness
+            .send(
+                "POST",
+                "/api/v1/customers",
+                Some(json_body(&json!({ "name": "거부고객" }))),
+            )
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn create_customer_rejects_blank_name(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let harness = Harness::new(&pool, "ADMIN").await;
+        let (status, _) = harness
+            .send(
+                "POST",
+                "/api/v1/customers",
+                Some(json_body(&json!({ "name": "   " }))),
+            )
+            .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn create_site_under_unknown_customer_is_not_found(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let harness = Harness::new(&pool, "ADMIN").await;
+        let (status, _) = harness
+            .send(
+                "POST",
+                "/api/v1/sites",
+                Some(json_body(&json!({
+                    "customer_id": "00000000-0000-4000-8000-000000000099",
+                    "name": "유령현장"
+                }))),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn create_site_rejects_one_sided_coordinate(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let harness = Harness::new(&pool, "ADMIN").await;
+        let (status, body) = harness
+            .send(
+                "POST",
+                "/api/v1/customers",
+                Some(json_body(&json!({ "name": "좌표고객" }))),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{body:?}");
+        let customer_id = body["id"].as_str().unwrap().to_owned();
+
+        // Latitude without longitude is rejected before the write (422).
+        let (status, _) = harness
+            .send(
+                "POST",
+                "/api/v1/sites",
+                Some(json_body(&json!({
+                    "customer_id": customer_id,
+                    "name": "반쪽좌표현장",
+                    "latitude": 37.5
+                }))),
+            )
+            .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    })
+    .await;
+}
+
 async fn create_equipment(harness: &Harness, equipment_no: &str, management_no: &str) -> String {
     let body = json!({
         "equipment_no": equipment_no,

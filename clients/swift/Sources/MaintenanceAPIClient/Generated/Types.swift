@@ -421,6 +421,20 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/equipment-by-location`.
     /// - Remark: Generated from `#/paths//api/v1/equipment-by-location/get(listEquipmentByLocation)`.
     func listEquipmentByLocation(_ input: Operations.ListEquipmentByLocation.Input) async throws -> Operations.ListEquipmentByLocation.Output
+    /// Create a customer (고객) directly
+    ///
+    /// Admin-gated (EquipmentManage, the same feature as the site PATCH). Creates a customer in the caller's org on the caller's branch (an org-wide SUPER_ADMIN/EXECUTIVE lands it on the default HQ branch). The name is required, trimmed, and bounded (≤ 200 characters). A same-name customer on that branch is a 409 conflict — an explicit create is a distinct intent from the importer's idempotent upsert, so it is surfaced, not merged.
+    ///
+    /// - Remark: HTTP `POST /api/v1/customers`.
+    /// - Remark: Generated from `#/paths//api/v1/customers/post(createCustomer)`.
+    func createCustomer(_ input: Operations.CreateCustomer.Input) async throws -> Operations.CreateCustomer.Output
+    /// Create a site (현장) under an existing customer
+    ///
+    /// Admin-gated (EquipmentManage). Creates a site under a customer in the caller's org; the customer must belong to the caller's org or the request is a 404 (RLS hides another tenant's customer). The name is required and bounded; optional address / WGS84 coordinates / contact fields follow the same ranges and length bounds as PATCH /api/v1/sites/{id} (a one-sided coordinate or an over-long value is a 422). A duplicate site name under the same customer is a 409. The created site is returned so it appears in the 고객·현장 list immediately.
+    ///
+    /// - Remark: HTTP `POST /api/v1/sites`.
+    /// - Remark: Generated from `#/paths//api/v1/sites/post(createSite)`.
+    func createSite(_ input: Operations.CreateSite.Input) async throws -> Operations.CreateSite.Output
     /// Update a site's coordinates and administrative address
     ///
     /// Admin-gated (EquipmentManage). The only coordinate entry point: a site is pinnable on the dispatch map only once an admin writes a valid lat/lon pair here. Latitude/longitude must be updated together and fall within WGS84 ranges; supplying one without the other is a 422. Only supplied fields are written; nullable fields explicitly set to null are cleared.
@@ -1712,6 +1726,36 @@ extension APIProtocol {
     /// - Remark: Generated from `#/paths//api/v1/equipment-by-location/get(listEquipmentByLocation)`.
     public func listEquipmentByLocation(headers: Operations.ListEquipmentByLocation.Input.Headers = .init()) async throws -> Operations.ListEquipmentByLocation.Output {
         try await listEquipmentByLocation(Operations.ListEquipmentByLocation.Input(headers: headers))
+    }
+    /// Create a customer (고객) directly
+    ///
+    /// Admin-gated (EquipmentManage, the same feature as the site PATCH). Creates a customer in the caller's org on the caller's branch (an org-wide SUPER_ADMIN/EXECUTIVE lands it on the default HQ branch). The name is required, trimmed, and bounded (≤ 200 characters). A same-name customer on that branch is a 409 conflict — an explicit create is a distinct intent from the importer's idempotent upsert, so it is surfaced, not merged.
+    ///
+    /// - Remark: HTTP `POST /api/v1/customers`.
+    /// - Remark: Generated from `#/paths//api/v1/customers/post(createCustomer)`.
+    public func createCustomer(
+        headers: Operations.CreateCustomer.Input.Headers = .init(),
+        body: Operations.CreateCustomer.Input.Body
+    ) async throws -> Operations.CreateCustomer.Output {
+        try await createCustomer(Operations.CreateCustomer.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Create a site (현장) under an existing customer
+    ///
+    /// Admin-gated (EquipmentManage). Creates a site under a customer in the caller's org; the customer must belong to the caller's org or the request is a 404 (RLS hides another tenant's customer). The name is required and bounded; optional address / WGS84 coordinates / contact fields follow the same ranges and length bounds as PATCH /api/v1/sites/{id} (a one-sided coordinate or an over-long value is a 422). A duplicate site name under the same customer is a 409. The created site is returned so it appears in the 고객·현장 list immediately.
+    ///
+    /// - Remark: HTTP `POST /api/v1/sites`.
+    /// - Remark: Generated from `#/paths//api/v1/sites/post(createSite)`.
+    public func createSite(
+        headers: Operations.CreateSite.Input.Headers = .init(),
+        body: Operations.CreateSite.Input.Body
+    ) async throws -> Operations.CreateSite.Output {
+        try await createSite(Operations.CreateSite.Input(
+            headers: headers,
+            body: body
+        ))
     }
     /// Update a site's coordinates and administrative address
     ///
@@ -6809,6 +6853,8 @@ public enum Components {
             public var siteId: Components.Schemas.Uuid
             /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/site_name`.
             public var siteName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/customer_id`.
+            public var customerId: Components.Schemas.Uuid
             /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/customer_name`.
             public var customerName: Swift.String
             /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/branch_id`.
@@ -6854,6 +6900,7 @@ public enum Components {
             /// - Parameters:
             ///   - siteId:
             ///   - siteName:
+            ///   - customerId:
             ///   - customerName:
             ///   - branchId:
             ///   - address:
@@ -6873,6 +6920,7 @@ public enum Components {
             public init(
                 siteId: Components.Schemas.Uuid,
                 siteName: Swift.String,
+                customerId: Components.Schemas.Uuid,
                 customerName: Swift.String,
                 branchId: Components.Schemas.Uuid,
                 address: Swift.String? = nil,
@@ -6892,6 +6940,7 @@ public enum Components {
             ) {
                 self.siteId = siteId
                 self.siteName = siteName
+                self.customerId = customerId
                 self.customerName = customerName
                 self.branchId = branchId
                 self.address = address
@@ -6912,6 +6961,7 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case siteId = "site_id"
                 case siteName = "site_name"
+                case customerId = "customer_id"
                 case customerName = "customer_name"
                 case branchId = "branch_id"
                 case address
@@ -6951,6 +7001,242 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case items
                 case total
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CreateCustomerRequest`.
+        public struct CreateCustomerRequest: Codable, Hashable, Sendable {
+            /// Customer name (고객명). Required, trimmed, ≤ 200 characters.
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateCustomerRequest/name`.
+            public var name: Swift.String
+            /// Creates a new `CreateCustomerRequest`.
+            ///
+            /// - Parameters:
+            ///   - name: Customer name (고객명). Required, trimmed, ≤ 200 characters.
+            public init(name: Swift.String) {
+                self.name = name
+            }
+            public enum CodingKeys: String, CodingKey {
+                case name
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CreatedCustomer`.
+        public struct CreatedCustomer: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CreatedCustomer/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CreatedCustomer/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CreatedCustomer/name`.
+            public var name: Swift.String
+            /// Creates a new `CreatedCustomer`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - branchId:
+            ///   - name:
+            public init(
+                id: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid,
+                name: Swift.String
+            ) {
+                self.id = id
+                self.branchId = branchId
+                self.name = name
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case branchId = "branch_id"
+                case name
+            }
+        }
+        /// Create a site under an existing customer. Optional location/contact fields follow the same WGS84 ranges and length bounds as UpdateSiteRequest; latitude and longitude must be supplied together.
+        ///
+        /// - Remark: Generated from `#/components/schemas/CreateSiteRequest`.
+        public struct CreateSiteRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CreateSiteRequest/customer_id`.
+            public var customerId: Components.Schemas.Uuid
+            /// Site name (현장명). Required, trimmed, ≤ 200 characters.
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateSiteRequest/name`.
+            public var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CreateSiteRequest/address`.
+            public var address: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateSiteRequest/province`.
+            public var province: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateSiteRequest/city`.
+            public var city: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateSiteRequest/postal_code`.
+            public var postalCode: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateSiteRequest/latitude`.
+            public var latitude: Swift.Double?
+            /// - Remark: Generated from `#/components/schemas/CreateSiteRequest/longitude`.
+            public var longitude: Swift.Double?
+            /// Per-site geofence radius in metres (> 0, ≤ 100000). Null uses the system default (150 m).
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateSiteRequest/geofence_radius_m`.
+            public var geofenceRadiusM: Swift.Double?
+            /// On-site representative contact name (담당자명).
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateSiteRequest/contact_name`.
+            public var contactName: Swift.String?
+            /// On-site contact phone (연락처).
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateSiteRequest/contact_phone`.
+            public var contactPhone: Swift.String?
+            /// Optional contact email (이메일).
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateSiteRequest/contact_email`.
+            public var contactEmail: Swift.String?
+            /// Creates a new `CreateSiteRequest`.
+            ///
+            /// - Parameters:
+            ///   - customerId:
+            ///   - name: Site name (현장명). Required, trimmed, ≤ 200 characters.
+            ///   - address:
+            ///   - province:
+            ///   - city:
+            ///   - postalCode:
+            ///   - latitude:
+            ///   - longitude:
+            ///   - geofenceRadiusM: Per-site geofence radius in metres (> 0, ≤ 100000). Null uses the system default (150 m).
+            ///   - contactName: On-site representative contact name (담당자명).
+            ///   - contactPhone: On-site contact phone (연락처).
+            ///   - contactEmail: Optional contact email (이메일).
+            public init(
+                customerId: Components.Schemas.Uuid,
+                name: Swift.String,
+                address: Swift.String? = nil,
+                province: Swift.String? = nil,
+                city: Swift.String? = nil,
+                postalCode: Swift.String? = nil,
+                latitude: Swift.Double? = nil,
+                longitude: Swift.Double? = nil,
+                geofenceRadiusM: Swift.Double? = nil,
+                contactName: Swift.String? = nil,
+                contactPhone: Swift.String? = nil,
+                contactEmail: Swift.String? = nil
+            ) {
+                self.customerId = customerId
+                self.name = name
+                self.address = address
+                self.province = province
+                self.city = city
+                self.postalCode = postalCode
+                self.latitude = latitude
+                self.longitude = longitude
+                self.geofenceRadiusM = geofenceRadiusM
+                self.contactName = contactName
+                self.contactPhone = contactPhone
+                self.contactEmail = contactEmail
+            }
+            public enum CodingKeys: String, CodingKey {
+                case customerId = "customer_id"
+                case name
+                case address
+                case province
+                case city
+                case postalCode = "postal_code"
+                case latitude
+                case longitude
+                case geofenceRadiusM = "geofence_radius_m"
+                case contactName = "contact_name"
+                case contactPhone = "contact_phone"
+                case contactEmail = "contact_email"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CreatedSite`.
+        public struct CreatedSite: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CreatedSite/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CreatedSite/customer_id`.
+            public var customerId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CreatedSite/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/CreatedSite/name`.
+            public var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CreatedSite/address`.
+            public var address: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreatedSite/province`.
+            public var province: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreatedSite/city`.
+            public var city: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreatedSite/postal_code`.
+            public var postalCode: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreatedSite/latitude`.
+            public var latitude: Swift.Double?
+            /// - Remark: Generated from `#/components/schemas/CreatedSite/longitude`.
+            public var longitude: Swift.Double?
+            /// - Remark: Generated from `#/components/schemas/CreatedSite/geofence_radius_m`.
+            public var geofenceRadiusM: Swift.Double?
+            /// - Remark: Generated from `#/components/schemas/CreatedSite/contact_name`.
+            public var contactName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreatedSite/contact_phone`.
+            public var contactPhone: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreatedSite/contact_email`.
+            public var contactEmail: Swift.String?
+            /// Creates a new `CreatedSite`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - customerId:
+            ///   - branchId:
+            ///   - name:
+            ///   - address:
+            ///   - province:
+            ///   - city:
+            ///   - postalCode:
+            ///   - latitude:
+            ///   - longitude:
+            ///   - geofenceRadiusM:
+            ///   - contactName:
+            ///   - contactPhone:
+            ///   - contactEmail:
+            public init(
+                id: Components.Schemas.Uuid,
+                customerId: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid,
+                name: Swift.String,
+                address: Swift.String? = nil,
+                province: Swift.String? = nil,
+                city: Swift.String? = nil,
+                postalCode: Swift.String? = nil,
+                latitude: Swift.Double? = nil,
+                longitude: Swift.Double? = nil,
+                geofenceRadiusM: Swift.Double? = nil,
+                contactName: Swift.String? = nil,
+                contactPhone: Swift.String? = nil,
+                contactEmail: Swift.String? = nil
+            ) {
+                self.id = id
+                self.customerId = customerId
+                self.branchId = branchId
+                self.name = name
+                self.address = address
+                self.province = province
+                self.city = city
+                self.postalCode = postalCode
+                self.latitude = latitude
+                self.longitude = longitude
+                self.geofenceRadiusM = geofenceRadiusM
+                self.contactName = contactName
+                self.contactPhone = contactPhone
+                self.contactEmail = contactEmail
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case customerId = "customer_id"
+                case branchId = "branch_id"
+                case name
+                case address
+                case province
+                case city
+                case postalCode = "postal_code"
+                case latitude
+                case longitude
+                case geofenceRadiusM = "geofence_radius_m"
+                case contactName = "contact_name"
+                case contactPhone = "contact_phone"
+                case contactEmail = "contact_email"
             }
         }
         /// Partial site update. Absent keys are left unchanged; nullable keys set to null clear the column. Latitude and longitude must be supplied together and within WGS84 ranges.
@@ -24129,6 +24415,529 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.serviceUnavailable`.
             /// - SeeAlso: `.serviceUnavailable`.
             public var serviceUnavailable: Operations.ListEquipmentByLocation.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Create a customer (고객) directly
+    ///
+    /// Admin-gated (EquipmentManage, the same feature as the site PATCH). Creates a customer in the caller's org on the caller's branch (an org-wide SUPER_ADMIN/EXECUTIVE lands it on the default HQ branch). The name is required, trimmed, and bounded (≤ 200 characters). A same-name customer on that branch is a 409 conflict — an explicit create is a distinct intent from the importer's idempotent upsert, so it is surfaced, not merged.
+    ///
+    /// - Remark: HTTP `POST /api/v1/customers`.
+    /// - Remark: Generated from `#/paths//api/v1/customers/post(createCustomer)`.
+    public enum CreateCustomer {
+        public static let id: Swift.String = "createCustomer"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/customers/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateCustomer.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateCustomer.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CreateCustomer.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/customers/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/customers/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.CreateCustomerRequest)
+            }
+            public var body: Operations.CreateCustomer.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.CreateCustomer.Input.Headers = .init(),
+                body: Operations.CreateCustomer.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/customers/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/customers/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.CreatedCustomer)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.CreatedCustomer {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreateCustomer.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreateCustomer.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Customer created.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/customers/post(createCustomer)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.CreateCustomer.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.CreateCustomer.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/customers/post(createCustomer)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/customers/post(createCustomer)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/customers/post(createCustomer)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/customers/post(createCustomer)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/customers/post(createCustomer)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.CreateCustomer.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/customers/post(createCustomer)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.CreateCustomer.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Create a site (현장) under an existing customer
+    ///
+    /// Admin-gated (EquipmentManage). Creates a site under a customer in the caller's org; the customer must belong to the caller's org or the request is a 404 (RLS hides another tenant's customer). The name is required and bounded; optional address / WGS84 coordinates / contact fields follow the same ranges and length bounds as PATCH /api/v1/sites/{id} (a one-sided coordinate or an over-long value is a 422). A duplicate site name under the same customer is a 409. The created site is returned so it appears in the 고객·현장 list immediately.
+    ///
+    /// - Remark: HTTP `POST /api/v1/sites`.
+    /// - Remark: Generated from `#/paths//api/v1/sites/post(createSite)`.
+    public enum CreateSite {
+        public static let id: Swift.String = "createSite"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/sites/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateSite.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateSite.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CreateSite.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/sites/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/sites/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.CreateSiteRequest)
+            }
+            public var body: Operations.CreateSite.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.CreateSite.Input.Headers = .init(),
+                body: Operations.CreateSite.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/sites/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/sites/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.CreatedSite)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.CreatedSite {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreateSite.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreateSite.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Site created.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sites/post(createSite)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.CreateSite.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.CreateSite.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sites/post(createSite)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sites/post(createSite)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sites/post(createSite)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sites/post(createSite)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sites/post(createSite)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sites/post(createSite)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.CreateSite.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/sites/post(createSite)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.CreateSite.Output.ServiceUnavailable {
                 get throws {
                     switch self {
                     case let .serviceUnavailable(response):
