@@ -55,6 +55,12 @@ export const COST_LEDGER_READ_ROLES = [
   ROLES.SUPER_ADMIN,
 ] as const;
 
+/** EquipmentCostLedgerWrite `[D, D, A, D, A]` — manual admin cost entry. */
+export const COST_LEDGER_WRITE_ROLES = [
+  ROLES.ADMIN,
+  ROLES.SUPER_ADMIN,
+] as const;
+
 /**
  * Tenant financial parameters supplied with every quote/purchase command. The
  * backend takes these as a per-request snapshot rather than reading a config

@@ -459,6 +459,10 @@ pub struct TargetChangeRequestSummary {
     pub id: uuid::Uuid,
     pub work_order_id: WorkOrderId,
     pub branch_id: BranchId,
+    // The OpenAPI contract types this as an rfc3339 `string` (format: date-time).
+    // Without this the bare `OffsetDateTime` serializes as a serde numeric array,
+    // breaking the contract and any client that parses it as a string.
+    #[serde(with = "time::serde::rfc3339")]
     pub requested_target_due_at: Timestamp,
     pub status: TargetChangeStatus,
 }

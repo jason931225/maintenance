@@ -2,8 +2,10 @@ import { CalendarPlus, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import type {
+  CompleteInspectionRoundRequest,
   CreateInspectionScheduleRequest,
   InspectionCycle,
+  InspectionRoundOutcome,
   InspectionScheduleSummary,
 } from "../api/types";
 import { useAuth } from "../context/auth";
@@ -14,8 +16,14 @@ import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
+import { Textarea } from "../components/ui/textarea";
 import { ko } from "../i18n/ko";
 import { todayInSeoul } from "../lib/utils";
+
+const ROUND_OUTCOMES: InspectionRoundOutcome[] = [
+  "COMPLETED",
+  "FOLLOW_UP_REQUIRED",
+];
 
 const CYCLES: InspectionCycle[] = [
   "DAILY",
@@ -70,6 +78,10 @@ export function InspectionPage() {
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState<string>();
   const [createError, setCreateError] = useState<string>();
+  // The schedule whose "complete round" form is open, plus the last-completed
+  // notice. There is one open round form at a time so the list stays compact.
+  const [completingId, setCompletingId] = useState<string>();
+  const [roundNotice, setRoundNotice] = useState<string>();
 
   const load = useCallback(async () => {
     setLoadError(false);
@@ -121,6 +133,33 @@ export function InspectionPage() {
       setCreateError(ko.inspection.createFailed);
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function completeRound(
+    scheduleId: string,
+    outcome: InspectionRoundOutcome,
+    findings: string,
+    note: string,
+  ): Promise<boolean> {
+    setRoundNotice(undefined);
+    try {
+      const body: CompleteInspectionRoundRequest = {
+        outcome,
+        findings,
+        note: note.trim() || null,
+      };
+      const response = await api.POST(
+        "/api/v1/inspections/schedules/{schedule_id}/rounds",
+        { params: { path: { schedule_id: scheduleId } }, body },
+      );
+      if (!response.data) return false;
+      setRoundNotice(ko.inspection.round.done);
+      setCompletingId(undefined);
+      await load();
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -185,6 +224,11 @@ export function InspectionPage() {
           </div>
 
           {loadError ? <PageError message={ko.inspection.loadFailed} /> : null}
+          {roundNotice ? (
+            <p role="status" className="text-sm font-medium text-brand-teal">
+              {roundNotice}
+            </p>
+          ) : null}
           {schedules && schedules.length === 0 ? (
             <p className="rounded-md border border-dashed border-line bg-muted-panel p-3 text-sm text-steel">
               {ko.inspection.empty}
@@ -199,27 +243,60 @@ export function InspectionPage() {
                 {schedules.map((schedule) => (
                   <li
                     key={schedule.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-line p-3"
+                    className="grid gap-3 rounded-md border border-line p-3"
                   >
-                    <div className="grid gap-1">
-                      <span className="font-medium text-ink">
-                        {schedule.management_no ?? schedule.equipment_id}
-                        {schedule.model ? ` · ${schedule.model}` : ""}
-                      </span>
-                      <span className="text-sm text-steel">
-                        {schedule.site_name} ·{" "}
-                        {ko.inspection.cycles[schedule.cycle]} ·{" "}
-                        {schedule.due_date}
-                      </span>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="grid gap-1">
+                        <span className="font-medium text-ink">
+                          {schedule.management_no ?? schedule.equipment_id}
+                          {schedule.model ? ` · ${schedule.model}` : ""}
+                        </span>
+                        <span className="text-sm text-steel">
+                          {schedule.site_name} ·{" "}
+                          {ko.inspection.cycles[schedule.cycle]} ·{" "}
+                          {schedule.due_date}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {schedule.status === "SCHEDULED" &&
+                        schedule.due_date < today() ? (
+                          <Badge className="border-red-300 bg-red-50 text-red-800">
+                            {ko.inspection.overdue}
+                          </Badge>
+                        ) : (
+                          <Badge>
+                            {ko.inspection.statuses[schedule.status]}
+                          </Badge>
+                        )}
+                        {schedule.status === "SCHEDULED" ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            aria-label={`${schedule.management_no ?? schedule.equipment_id} ${ko.inspection.round.complete}`}
+                            onClick={() => {
+                              setRoundNotice(undefined);
+                              setCompletingId((current) =>
+                                current === schedule.id
+                                  ? undefined
+                                  : schedule.id,
+                              );
+                            }}
+                          >
+                            {ko.inspection.round.complete}
+                          </Button>
+                        ) : null}
+                      </div>
                     </div>
-                    {schedule.status === "SCHEDULED" &&
-                    schedule.due_date < today() ? (
-                      <Badge className="border-red-300 bg-red-50 text-red-800">
-                        {ko.inspection.overdue}
-                      </Badge>
-                    ) : (
-                      <Badge>{ko.inspection.statuses[schedule.status]}</Badge>
-                    )}
+                    {completingId === schedule.id ? (
+                      <InspectionRoundForm
+                        scheduleId={schedule.id}
+                        onComplete={completeRound}
+                        onCancel={() => {
+                          setCompletingId(undefined);
+                        }}
+                      />
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -356,5 +433,121 @@ function Field({ id, label, value, onChange, type = "text" }: FieldProps) {
         }}
       />
     </div>
+  );
+}
+
+interface InspectionRoundFormProps {
+  scheduleId: string;
+  onComplete: (
+    scheduleId: string,
+    outcome: InspectionRoundOutcome,
+    findings: string,
+    note: string,
+  ) => Promise<boolean>;
+  onCancel: () => void;
+}
+
+function InspectionRoundForm({
+  scheduleId,
+  onComplete,
+  onCancel,
+}: InspectionRoundFormProps) {
+  const t = ko.inspection.round;
+  const [outcome, setOutcome] = useState<InspectionRoundOutcome>("COMPLETED");
+  const [findings, setFindings] = useState("");
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string>();
+
+  async function submit() {
+    if (!findings.trim()) return;
+    setSubmitting(true);
+    setError(undefined);
+    const ok = await onComplete(scheduleId, outcome, findings.trim(), note);
+    setSubmitting(false);
+    if (!ok) setError(t.failed);
+  }
+
+  return (
+    <form
+      className="grid gap-3 rounded-md border border-line bg-muted-panel p-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+    >
+      <p className="text-sm font-semibold text-ink">{t.title}</p>
+      <div className="grid gap-2">
+        <label
+          className="text-sm font-medium text-steel"
+          htmlFor={`round-outcome-${scheduleId}`}
+        >
+          {t.outcomeLabel}
+        </label>
+        <Select
+          id={`round-outcome-${scheduleId}`}
+          value={outcome}
+          onChange={(event) => {
+            setOutcome(event.currentTarget.value as InspectionRoundOutcome);
+          }}
+        >
+          {ROUND_OUTCOMES.map((value) => (
+            <option key={value} value={value}>
+              {t.outcomes[value]}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <div className="grid gap-2">
+        <label
+          className="text-sm font-medium text-steel"
+          htmlFor={`round-findings-${scheduleId}`}
+        >
+          {t.findingsLabel}
+        </label>
+        <Textarea
+          id={`round-findings-${scheduleId}`}
+          placeholder={t.findingsPlaceholder}
+          value={findings}
+          onChange={(event) => {
+            setFindings(event.currentTarget.value);
+          }}
+        />
+      </div>
+      <div className="grid gap-2">
+        <label
+          className="text-sm font-medium text-steel"
+          htmlFor={`round-note-${scheduleId}`}
+        >
+          {t.noteLabel}
+        </label>
+        <Input
+          id={`round-note-${scheduleId}`}
+          placeholder={t.notePlaceholder}
+          value={note}
+          onChange={(event) => {
+            setNote(event.currentTarget.value);
+          }}
+        />
+      </div>
+      {error ? (
+        <p role="alert" className="text-sm font-semibold text-red-700">
+          {error}
+        </p>
+      ) : null}
+      <div className="flex items-center justify-end gap-2">
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={submitting}
+          onClick={onCancel}
+        >
+          {t.cancel}
+        </Button>
+        <Button type="submit" disabled={submitting || !findings.trim()}>
+          {submitting ? t.submitting : t.submit}
+        </Button>
+      </div>
+    </form>
   );
 }

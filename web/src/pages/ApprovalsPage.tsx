@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 
-import type { WorkOrderListItem } from "../api/types";
+import type {
+  TargetChangeDecision,
+  TargetChangeRequestSummary,
+  WorkOrderListItem,
+} from "../api/types";
 import { useAuth } from "../context/auth";
 import { Badge } from "../components/ui/badge";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { PageError } from "../components/states/PageError";
 import { ApprovalQueue } from "../features/approvals/ApprovalQueue";
+import { TargetChangeReviewQueue } from "../features/approvals/TargetChangeReviewQueue";
 import { ko } from "../i18n/ko";
 
 const approvalStatuses: WorkOrderListItem["status"][] = [
@@ -79,6 +84,31 @@ export function ApprovalsPage() {
     }
   }
 
+  async function reviewTargetChange(
+    requestId: string,
+    decision: TargetChangeDecision,
+    memo: string,
+  ): Promise<TargetChangeRequestSummary | undefined> {
+    setWriteState("idle");
+    try {
+      const response = await api.POST(
+        "/api/target-change-requests/{requestId}/review",
+        {
+          params: { path: { requestId } },
+          body: { decision, memo: memo || undefined },
+        },
+      );
+      if (!response.data) {
+        setWriteState("error");
+        return undefined;
+      }
+      return response.data;
+    } catch {
+      setWriteState("error");
+      return undefined;
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -102,6 +132,7 @@ export function ApprovalsPage() {
           onApprove={approveWorkOrder}
           onReject={rejectWorkOrder}
         />
+        <TargetChangeReviewQueue onReview={reviewTargetChange} />
       </div>
     </>
   );

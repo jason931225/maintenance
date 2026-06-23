@@ -5,6 +5,7 @@ import { useAuth } from "../context/auth";
 import { hasAnyRole, ROLES } from "../components/shell/nav";
 import { PageHeader } from "../components/shell/PageHeader";
 import { PageError } from "../components/states/PageError";
+import { EquipmentImportPanel } from "../features/equipment/EquipmentImportPanel";
 import { EquipmentManagementPanel } from "../features/equipment/EquipmentManagementPanel";
 import { SiteGeographyPanel } from "../features/equipment/SiteGeographyPanel";
 import { SubstitutionPanel } from "../features/equipment/SubstitutionPanel";
@@ -21,9 +22,13 @@ const EQUIPMENT_MANAGE_ROLES = [
   ROLES.SUPER_ADMIN,
 ] as const;
 
+/** MasterListImport holders (backend matrix: ADMIN/SUPER_ADMIN). */
+const MASTER_IMPORT_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN] as const;
+
 export function EquipmentPage() {
   const { api, session } = useAuth();
   const canManage = hasAnyRole(session?.roles, EQUIPMENT_MANAGE_ROLES);
+  const canImport = hasAnyRole(session?.roles, MASTER_IMPORT_ROLES);
   const [managementNo, setManagementNo] = useState("");
   const [suggestions, setSuggestions] = useState<EquipmentLookupResponse[]>([]);
   const [lookupState, setLookupState] = useState<EquipmentLookupState>({ status: "idle" });
@@ -179,6 +184,10 @@ export function EquipmentPage() {
             results={suggestions}
             onMutated={refreshSearch}
           />
+        ) : null}
+        {/* Master-list bulk .xlsx import (MasterListImport: ADMIN/SUPER_ADMIN). */}
+        {canImport ? (
+          <EquipmentImportPanel api={api} onImported={refreshSearch} />
         ) : null}
         {/* Site coordinate entry feeds the dispatch map; coordinates are
             admin-entered (EquipmentManage) and exist only once saved here. */}
