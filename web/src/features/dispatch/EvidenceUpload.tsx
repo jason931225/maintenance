@@ -103,7 +103,7 @@ export function EvidenceUpload({ workOrderId }: EvidenceUploadProps) {
       const isImage = ALLOWED_IMAGE.includes(mediaType);
       const isVideo = ALLOWED_VIDEO.includes(mediaType);
       nextLocalId.current += 1;
-      const localId = `evidence-${nextLocalId.current}`;
+      const localId = `evidence-${String(nextLocalId.current)}`;
 
       if (!isImage && !isVideo) {
         setItems((prev) => [
