@@ -2,11 +2,13 @@
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 
 use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode, header};
 use mnt_kernel_core::{BranchId, OrgId, UserId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
+use mnt_platform_jobs::{BoxFuture, JobId, JobQueue, JobQueueError, JobRequest};
 use mnt_platform_storage::{
     CopyObjectRequest, EvidenceService, ObjectHead, PresignPutRequest, PresignedUpload,
     RetentionInfo, S3ObjectStore, StorageError, StorageFuture,
@@ -78,6 +80,32 @@ impl S3ObjectStore for StaticObjectStore {
                 retain_until: Some("2026-06-13T00:00:00Z".to_owned()),
             })
         })
+    }
+
+    fn get_object(
+        &self,
+        _bucket: String,
+        _key: String,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, StorageError>> + Send + '_>> {
+        Box::pin(async { Ok(b"original".to_vec()) })
+    }
+
+    fn put_object(
+        &self,
+        _bucket: String,
+        _key: String,
+        _content_type: String,
+        _body: Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), StorageError>> + Send + '_>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn delete_object(
+        &self,
+        _bucket: String,
+        _key: String,
+    ) -> Pin<Box<dyn Future<Output = Result<(), StorageError>> + Send + '_>> {
+        Box::pin(async { Ok(()) })
     }
 }
 
@@ -320,4 +348,235 @@ fn issue_token(
         read_only: false,
         issued_at: OffsetDateTime::now_utc(),
     })?)
+}
+
+async fn get_json(service: axum::Router, uri: &str, token: &str) -> JsonResponse {
+    let response = service
+        .oneshot(
+            Request::builder()
+                .uri(uri)
+                .method("GET")
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json = serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({}));
+    JsonResponse { status, json }
+}
+
+/// Records the jobs the staging-presign handler enqueues so the test can assert
+/// a transcode job is scheduled for the right evidence id.
+#[derive(Clone, Default)]
+struct RecordingQueue {
+    enqueued: Arc<Mutex<Vec<JobRequest>>>,
+}
+
+impl JobQueue for RecordingQueue {
+    fn enqueue<'a>(&'a self, request: JobRequest) -> BoxFuture<'a, Result<JobId, JobQueueError>> {
+        let enqueued = self.enqueued.clone();
+        Box::pin(async move {
+            let key = request.idempotency_key.as_str().to_owned();
+            enqueued.lock().unwrap().push(request);
+            Ok(JobId::from_key(key))
+        })
+    }
+
+    fn schedule_at<'a>(
+        &'a self,
+        request: JobRequest,
+        _scheduled_at: mnt_kernel_core::Timestamp,
+    ) -> BoxFuture<'a, Result<JobId, JobQueueError>> {
+        self.enqueue(request)
+    }
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn evidence_staging_presign_creates_processing_row_and_enqueues_transcode(pool: PgPool) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let signing_key = SigningKey::random(&mut OsRng);
+        let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+        let public_key_pem = signing_key
+            .verifying_key()
+            .to_public_key_pem(LineEnding::LF)
+            .unwrap();
+        let branch_id = seed_branch(&pool, "Staging Region", "Staging Branch").await;
+        let mechanic = UserId::new();
+        let outsider = UserId::new();
+        let receptionist = UserId::new();
+        seed_user_with_branch(&pool, mechanic, "MECHANIC", branch_id).await;
+        seed_user_with_branch(&pool, outsider, "MECHANIC", branch_id).await;
+        seed_user_with_branch(&pool, receptionist, "RECEPTIONIST", branch_id).await;
+        let equipment_id = seed_equipment(&pool, branch_id, "292").await;
+        let work_order_id =
+            seed_assigned_work_order(&pool, branch_id, equipment_id, receptionist, mechanic).await;
+        let token = issue_token(
+            private_pem.as_bytes(),
+            public_key_pem.as_bytes(),
+            mechanic,
+            vec!["MECHANIC".to_owned()],
+            vec![branch_id],
+        )
+        .unwrap();
+        // A different mechanic, NOT assigned to this work order.
+        let outsider_token = issue_token(
+            private_pem.as_bytes(),
+            public_key_pem.as_bytes(),
+            outsider,
+            vec!["MECHANIC".to_owned()],
+            vec![branch_id],
+        )
+        .unwrap();
+        let verifier = JwtVerifier::from_es256_public_pem(
+            JwtSettings {
+                issuer: TEST_ISSUER.to_owned(),
+                audience: TEST_AUDIENCE.to_owned(),
+                access_token_ttl: Duration::minutes(15),
+            },
+            public_key_pem.as_bytes(),
+        )
+        .unwrap();
+        let evidence = EvidenceService::new(
+            pool.clone(),
+            StaticObjectStore,
+            "primary".to_owned(),
+            "replica".to_owned(),
+        );
+        let queue = RecordingQueue::default();
+        let service = mobile_router(
+            MobileRestState::new(
+                pool.clone(),
+                PgWorkOrderStore::new(pool.clone()),
+                Some(verifier),
+                Some(evidence),
+            )
+            .with_job_queue(Some(Arc::new(queue.clone()))),
+        );
+
+        // A non-assigned mechanic is FORBIDDEN.
+        let forbidden = post_json(
+            service.clone(),
+            "/api/v1/evidence/staging-presign",
+            &outsider_token,
+            json!({
+                "work_order_id": work_order_id,
+                "stage": "DURING",
+                "content_type": "video/quicktime",
+                "size_bytes": 5_000_000
+            }),
+        )
+        .await;
+        assert_eq!(
+            forbidden.status,
+            StatusCode::FORBIDDEN,
+            "{:?}",
+            forbidden.json
+        );
+
+        // A disallowed MIME (pdf) is rejected before any presign.
+        let bad_mime = post_json(
+            service.clone(),
+            "/api/v1/evidence/staging-presign",
+            &token,
+            json!({
+                "work_order_id": work_order_id,
+                "stage": "DURING",
+                "content_type": "application/pdf",
+                "size_bytes": 1024
+            }),
+        )
+        .await;
+        assert_eq!(
+            bad_mime.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{:?}",
+            bad_mime.json
+        );
+
+        // An oversize video (> 200 MiB) is rejected before any presign.
+        let oversize = post_json(
+            service.clone(),
+            "/api/v1/evidence/staging-presign",
+            &token,
+            json!({
+                "work_order_id": work_order_id,
+                "stage": "DURING",
+                "content_type": "video/mp4",
+                "size_bytes": 300_000_000_i64
+            }),
+        )
+        .await;
+        assert_eq!(
+            oversize.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{:?}",
+            oversize.json
+        );
+
+        // The assigned mechanic gets a staging presign + a PROCESSING row.
+        let presign = post_json(
+            service.clone(),
+            "/api/v1/evidence/staging-presign",
+            &token,
+            json!({
+                "work_order_id": work_order_id,
+                "stage": "DURING",
+                "content_type": "video/quicktime",
+                "size_bytes": 5_000_000
+            }),
+        )
+        .await;
+        assert_eq!(presign.status, StatusCode::OK, "{:?}", presign.json);
+        assert_eq!(presign.json["media_kind"], "VIDEO");
+        assert_eq!(presign.json["processing_status"], "PROCESSING");
+        assert_eq!(presign.json["upload"]["method"], "PUT");
+        let evidence_id = presign.json["id"].as_str().unwrap().to_owned();
+        // The presigned URL is TENANT-PREFIXED.
+        let org_prefix = format!("orgs/{}/", OrgId::knl().as_uuid());
+        assert!(
+            presign.json["upload"]["url"]
+                .as_str()
+                .unwrap()
+                .contains(&org_prefix),
+            "presigned staging URL must be org-prefixed: {}",
+            presign.json["upload"]["url"]
+        );
+
+        // A transcode job was enqueued for this evidence id. Snapshot the keys
+        // inside a tight scope so the mutex guard is released before any await.
+        let enqueued_keys: Vec<String> = {
+            let enqueued = queue.enqueued.lock().unwrap();
+            enqueued
+                .iter()
+                .map(|req| req.idempotency_key.as_str().to_owned())
+                .collect()
+        };
+        assert_eq!(enqueued_keys.len(), 1);
+        assert_eq!(enqueued_keys[0], format!("evidence-transcode:{evidence_id}"));
+
+        // The status endpoint reports PROCESSING for the assigned mechanic.
+        let status = get_json(
+            service.clone(),
+            &format!("/api/v1/evidence/{evidence_id}/status"),
+            &token,
+        )
+        .await;
+        assert_eq!(status.status, StatusCode::OK, "{:?}", status.json);
+        assert_eq!(status.json["processing_status"], "PROCESSING");
+
+        // The audit trail recorded the staging presign.
+        let actions: Vec<String> = sqlx::query_scalar(
+            "SELECT action FROM audit_events WHERE target_id = $1 ORDER BY occurred_at, created_at",
+        )
+        .bind(&evidence_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert!(actions.contains(&"evidence.staging".to_owned()));
+        assert!(actions.contains(&"evidence.staging.presign".to_owned()));
+    })
+    .await;
 }

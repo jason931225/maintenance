@@ -11,7 +11,7 @@ use apalis::prelude::{BoxDynError, Data, TaskSink, WorkerBuilder, WorkerContext}
 use apalis_postgres::{Config, PgPool as ApalisPgPool, PostgresStorage};
 use apalis_sql::ext::TaskBuilderExt as _;
 use apalis_sqlx::{Connection as _, Executor as _, Row as _};
-use mnt_kernel_core::{Clock, OrgId, P1DispatchId, Timestamp};
+use mnt_kernel_core::{Clock, EvidenceId, OrgId, P1DispatchId, Timestamp};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -41,6 +41,13 @@ impl IdempotencyKey {
 pub struct JobId(String);
 
 impl JobId {
+    /// Build a [`JobId`] from a key string. Used by alternate [`JobQueue`]
+    /// implementations (e.g. test stubs) that don't go through apalis.
+    #[must_use]
+    pub fn from_key(key: impl Into<String>) -> Self {
+        Self(key.into())
+    }
+
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
@@ -54,6 +61,19 @@ pub enum PlatformJob {
     DispatchAcceptWindowExpired(DispatchTimerJob),
     DispatchAlimtalkNoAck(DispatchTimerJob),
     DispatchManualCallRequired(DispatchTimerJob),
+    /// Transcode/optimize a staged evidence original into the final 1080p/
+    /// recompressed deliverable. Carries the owning tenant so the worker arms
+    /// `app.current_org` to the right org for its RLS-gated reads/writes.
+    EvidenceTranscode(EvidenceTranscodeJob),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EvidenceTranscodeJob {
+    /// The tenant that owns the evidence row. Carried on the payload so the
+    /// background worker arms `app.current_org` to the RIGHT tenant for its
+    /// RLS-gated staging read + status write — never a hardcoded tenant.
+    pub org_id: OrgId,
+    pub evidence_id: EvidenceId,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -150,6 +170,22 @@ impl JobRequest {
                 "p1-dispatch:{}:manual-call-required",
                 dispatch_id
             ))?,
+        })
+    }
+
+    /// Enqueue a media transcode/optimize job for a staged evidence original.
+    /// Idempotency keys on the evidence id, so a re-issued presign for the same
+    /// row coalesces to a single transcode.
+    pub fn evidence_transcode(
+        org_id: OrgId,
+        evidence_id: EvidenceId,
+    ) -> Result<Self, JobQueueError> {
+        Ok(Self {
+            job: PlatformJob::EvidenceTranscode(EvidenceTranscodeJob {
+                org_id,
+                evidence_id,
+            }),
+            idempotency_key: IdempotencyKey::new(format!("evidence-transcode:{evidence_id}"))?,
         })
     }
 }

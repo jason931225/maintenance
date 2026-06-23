@@ -79,6 +79,14 @@ export type EvidencePresignRequest =
   components["schemas"]["EvidencePresignRequest"];
 export type EvidencePresignResponse =
   components["schemas"]["EvidencePresignResponse"];
+export type EvidenceStagingPresignRequest =
+  components["schemas"]["EvidenceStagingPresignRequest"];
+export type EvidenceStagingPresignResponse =
+  components["schemas"]["EvidenceStagingPresignResponse"];
+export type EvidenceStatusResponse =
+  components["schemas"]["EvidenceStatusResponse"];
+export type ProcessingStatus = components["schemas"]["ProcessingStatus"];
+export type MediaKind = components["schemas"]["MediaKind"];
 export type LocationConsentLedgerPage =
   components["schemas"]["LocationConsentLedgerPage"];
 export type LocationConsentState =

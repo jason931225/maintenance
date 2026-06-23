@@ -95,7 +95,9 @@ impl DispatchWorker {
                 self.handle_manual_call_required(job).await?;
                 Ok(())
             }
-            PlatformJob::EscalationTimer(_) => Err(DispatchWorkerError::UnsupportedJob),
+            PlatformJob::EscalationTimer(_) | PlatformJob::EvidenceTranscode(_) => {
+                Err(DispatchWorkerError::UnsupportedJob)
+            }
         }
     }
 
@@ -353,6 +355,7 @@ fn job_org(job: &PlatformJob) -> OrgId {
         PlatformJob::DispatchAcceptWindowExpired(j)
         | PlatformJob::DispatchAlimtalkNoAck(j)
         | PlatformJob::DispatchManualCallRequired(j) => j.org_id,
+        PlatformJob::EvidenceTranscode(j) => j.org_id,
         PlatformJob::EscalationTimer(_) => OrgId::knl(),
     }
 }

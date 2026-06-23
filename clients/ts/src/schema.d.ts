@@ -721,6 +721,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/evidence/staging-presign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Issue a presigned STAGING upload ticket for mechanic evidence and begin server-side media processing (transcode/optimize before storage) */
+        post: operations["presignEvidenceStagingUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/evidence/{evidenceId}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Poll the server-side processing status of an evidence row */
+        get: operations["getEvidenceProcessingStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/devices": {
         parameters: {
             query?: never;
@@ -2889,6 +2923,36 @@ export interface components {
             /** Format: int32 */
             retry_count: number;
             verified_at?: components["schemas"]["Timestamp"];
+        };
+        /** @enum {string} */
+        ProcessingStatus: "PROCESSING" | "READY" | "FAILED";
+        /** @enum {string} */
+        MediaKind: "IMAGE" | "VIDEO";
+        EvidenceStagingPresignRequest: {
+            work_order_id: components["schemas"]["Uuid"];
+            stage: components["schemas"]["AttachmentStage"];
+            content_type: string;
+            /** Format: int64 */
+            size_bytes: number;
+            checksum_sha256?: string;
+        };
+        EvidenceStagingPresignResponse: {
+            id: components["schemas"]["Uuid"];
+            work_order_id: components["schemas"]["Uuid"];
+            stage: components["schemas"]["AttachmentStage"];
+            media_kind: components["schemas"]["MediaKind"];
+            processing_status: components["schemas"]["ProcessingStatus"];
+            upload: components["schemas"]["PresignedUpload"];
+        };
+        EvidenceStatusResponse: {
+            id: components["schemas"]["Uuid"];
+            work_order_id: components["schemas"]["Uuid"];
+            stage: components["schemas"]["AttachmentStage"];
+            processing_status: components["schemas"]["ProcessingStatus"];
+            content_type: string;
+            thumbnail_s3_key?: string;
+            processing_error?: string;
+            processed_at?: components["schemas"]["Timestamp"];
         };
         DeviceRegistrationRequest: {
             platform: components["schemas"]["DevicePlatform"];
@@ -5386,6 +5450,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EvidenceConfirmResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Evidence storage is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    presignEvidenceStagingUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvidenceStagingPresignRequest"];
+            };
+        };
+        responses: {
+            /** @description Presigned staging upload ticket; the evidence row is created in PROCESSING and an async transcode job is enqueued. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceStagingPresignResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description Evidence storage or processing is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getEvidenceProcessingStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evidenceId: components["parameters"]["EvidenceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Evidence processing status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceStatusResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];

@@ -5,6 +5,7 @@ import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { ko } from "../../i18n/ko";
 import type { WorkOrderListItem } from "../../api/types";
+import { EvidenceUpload } from "./EvidenceUpload";
 
 type WorkResultType = components["schemas"]["WorkResultType"];
 
@@ -189,6 +190,9 @@ export function WorkOrderActions({
                 {ko.workOrder.submitReportFailed}
               </p>
             )}
+            <div className="w-full">
+              <EvidenceUpload workOrderId={wo.id} />
+            </div>
           </div>
         ))}
       </div>

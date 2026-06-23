@@ -82,6 +82,24 @@ impl S3ObjectStore for StaticObjectStore {
             })
         })
     }
+
+    fn get_object(&self, _bucket: String, _key: String) -> StorageFuture<'_, Vec<u8>> {
+        Box::pin(async { Ok(b"original".to_vec()) })
+    }
+
+    fn put_object(
+        &self,
+        _bucket: String,
+        _key: String,
+        _content_type: String,
+        _body: Vec<u8>,
+    ) -> StorageFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn delete_object(&self, _bucket: String, _key: String) -> StorageFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 struct Harness {

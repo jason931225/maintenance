@@ -35,8 +35,8 @@ use mnt_inspection_adapter_postgres::PgInspectionStore;
 use mnt_inspection_rest::InspectionRestState;
 use mnt_integrity::{IntegrityRestState, PgIntegrityStore};
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, OrgId, TraceContext,
-    UserId,
+    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, EvidenceId, KernelError, OrgId,
+    TraceContext, UserId,
 };
 use mnt_messenger_adapter_postgres::PgMessengerStore;
 use mnt_messenger_rest::MessengerRestState;
@@ -49,7 +49,10 @@ use mnt_platform_auth_rest::{AuthRestConfig, AuthRestState};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
 use mnt_platform_db::{DbError, with_audit};
 use mnt_platform_email::{EmailSender, LettreSmtpSender, SmtpEmailConfig, StubEmailSender};
-use mnt_platform_jobs::{ApalisPostgresJobQueue, JobQueue, run_apalis_worker_until_shutdown};
+use mnt_platform_jobs::{
+    ApalisPostgresJobQueue, BoxFuture, JobQueue, JobQueueError, PlatformJob, PlatformJobHandler,
+    run_apalis_worker_until_shutdown,
+};
 use mnt_platform_provisioning::{BootstrapCredentialStore, PlatformProvisioner};
 use mnt_platform_push::{
     FcmConfig, FcmHttpV1Client, ProviderPushNotifier, PushNotifier, SolapiAlimtalkClient,
@@ -59,7 +62,9 @@ use mnt_platform_realtime::{
     PgRealtimeHub, PostgresBridgeHandle, PostgresMessageNotifier, RealtimeRestState,
 };
 use mnt_platform_rest::PlatformRestState;
-use mnt_platform_storage::{EvidenceService, S3StorageConfig, SeaweedS3Storage, StorageError};
+use mnt_platform_storage::{
+    EvidenceService, FfmpegMediaProcessor, S3StorageConfig, SeaweedS3Storage, StorageError,
+};
 use mnt_registry_adapter_postgres::PgRegistryStore;
 use mnt_registry_rest::RegistryRestState;
 use mnt_reporting_adapter_postgres::PgKpiRepository;
@@ -89,6 +94,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 const DEFAULT_HTTP_ADDR: &str = "0.0.0.0:8080";
 const DEFAULT_SERVICE_NAME: &str = "mnt-app";
 const DEFAULT_SHUTDOWN_TIMEOUT_SECS: u64 = 10;
+const DEFAULT_EVIDENCE_TRANSCODE_CONCURRENCY: usize = 2;
 const DEFAULT_JWT_ISSUER: &str = "mnt-platform-auth";
 const DEFAULT_JWT_AUDIENCE: &str = "mnt-api";
 const DEFAULT_WEBAUTHN_RP_NAME: &str = "MNT Maintenance";
@@ -174,6 +180,10 @@ pub struct AppConfig {
     pub storage: Option<S3StorageConfig>,
     pub dispatch_timers: DispatchTimerConfig,
     pub dispatch_jobs_enabled: bool,
+    /// Max concurrent evidence transcodes the worker runs at once
+    /// (`MNT_EVIDENCE_TRANSCODE_CONCURRENCY`, default 2). Backpressure cap so a
+    /// burst of mechanic uploads can't exhaust the worker's CPU/disk.
+    pub evidence_transcode_concurrency: usize,
     pub fcm: Option<FcmConfig>,
     pub solapi: Option<SolapiConfig>,
     pub solapi_disabled_reason: Option<String>,
@@ -326,6 +336,15 @@ impl AppConfig {
             })?,
             None => true,
         };
+        let evidence_transcode_concurrency = match vars.get("MNT_EVIDENCE_TRANSCODE_CONCURRENCY") {
+            Some(raw) => raw
+                .parse::<usize>()
+                .map_err(|err| {
+                    AppError::Config(format!("invalid MNT_EVIDENCE_TRANSCODE_CONCURRENCY: {err}"))
+                })
+                .map(|value| value.max(1))?,
+            None => DEFAULT_EVIDENCE_TRANSCODE_CONCURRENCY,
+        };
         let fcm = fcm_config_from_vars(&vars)?;
         let (solapi, solapi_disabled_reason) = solapi_config_from_vars(&vars)?;
         let email = email_config_from_vars(&vars)?;
@@ -361,6 +380,7 @@ impl AppConfig {
             storage,
             dispatch_timers,
             dispatch_jobs_enabled,
+            evidence_transcode_concurrency,
             fcm,
             solapi,
             solapi_disabled_reason,
@@ -1234,12 +1254,15 @@ pub fn build_router(state: AppState) -> Router {
                     work_order_store.clone(),
                     state.jwt_verifier.clone(),
                 )))
-                .merge(mnt_workorder_rest::mobile_router(MobileRestState::new(
-                    pool.clone(),
-                    work_order_store,
-                    state.jwt_verifier.clone(),
-                    state.evidence_storage.clone(),
-                )))
+                .merge(mnt_workorder_rest::mobile_router(
+                    MobileRestState::new(
+                        pool.clone(),
+                        work_order_store,
+                        state.jwt_verifier.clone(),
+                        state.evidence_storage.clone(),
+                    )
+                    .with_job_queue(state.dispatch_job_queue.clone()),
+                ))
                 .merge(mnt_messenger_rest::router(MessengerRestState::new(
                     messenger_store,
                     state.jwt_verifier.clone(),
@@ -1997,11 +2020,28 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
     } else {
         AlimtalkEscalationPolicy::disabled()
     };
-    let worker = DispatchWorker::new(
+    let dispatch_worker = DispatchWorker::new(
         PgDispatchStore::new(pool),
         state.push_notifier.clone(),
         alimtalk_policy,
     );
+    // Compose the dispatch-timer worker with the evidence-transcode handler so a
+    // SINGLE apalis worker on the `mnt.dispatch` queue services both job
+    // families. EvidenceTranscode is routed to the transcode handler (which owns
+    // the EvidenceService + ffmpeg processor + a concurrency cap); everything
+    // else falls through to the dispatch worker.
+    let evidence_worker = state.evidence_storage.clone().map(|service| {
+        EvidenceTranscodeWorker::new(service, config.evidence_transcode_concurrency)
+    });
+    if evidence_worker.is_none() {
+        tracing::warn!(
+            "evidence storage is not configured; evidence transcode jobs will be rejected"
+        );
+    }
+    let worker = CompositeJobHandler {
+        dispatch: dispatch_worker,
+        evidence: evidence_worker,
+    };
 
     // The worker exposes no API surface, but orchestrators (Compose/K8s) still
     // need a liveness/readiness probe. Serve /healthz + /readyz on the same
@@ -2035,6 +2075,99 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
 
     health_server.abort();
     result
+}
+
+/// Routes apalis jobs on the shared `mnt.dispatch` queue: `EvidenceTranscode`
+/// goes to the evidence handler, everything else to the dispatch-timer worker.
+struct CompositeJobHandler {
+    dispatch: DispatchWorker,
+    evidence: Option<EvidenceTranscodeWorker>,
+}
+
+impl PlatformJobHandler for CompositeJobHandler {
+    fn handle<'a>(&'a self, job: PlatformJob) -> BoxFuture<'a, Result<(), JobQueueError>> {
+        Box::pin(async move {
+            match job {
+                PlatformJob::EvidenceTranscode(evidence_job) => match &self.evidence {
+                    Some(worker) => {
+                        worker
+                            .handle(evidence_job.org_id, evidence_job.evidence_id)
+                            .await
+                    }
+                    None => Err(JobQueueError::Worker(
+                        "evidence storage is not configured for transcode jobs".to_owned(),
+                    )),
+                },
+                // Delegate via the PlatformJobHandler impl so the dispatch
+                // worker's error is mapped into JobQueueError.
+                other => PlatformJobHandler::handle(&self.dispatch, other).await,
+            }
+        })
+    }
+}
+
+/// Background handler that transcodes/optimizes a staged evidence original into
+/// the final 1080p/recompressed deliverable. Arms `app.current_org` to the job's
+/// tenant (RLS), claims the pending row, runs ffmpeg/image processing behind a
+/// concurrency cap (backpressure), and transitions PROCESSING → READY/FAILED.
+struct EvidenceTranscodeWorker {
+    service: EvidenceService<SeaweedS3Storage>,
+    processor: FfmpegMediaProcessor,
+    permits: Arc<tokio::sync::Semaphore>,
+}
+
+impl EvidenceTranscodeWorker {
+    fn new(service: EvidenceService<SeaweedS3Storage>, concurrency: usize) -> Self {
+        let concurrency = concurrency.max(1);
+        Self {
+            service,
+            processor: FfmpegMediaProcessor::default(),
+            permits: Arc::new(tokio::sync::Semaphore::new(concurrency)),
+        }
+    }
+
+    async fn handle(&self, org: OrgId, evidence_id: EvidenceId) -> Result<(), JobQueueError> {
+        // Backpressure: cap the number of concurrent transcodes regardless of how
+        // many jobs apalis hands us, so a burst of uploads can't exhaust CPU/disk.
+        let _permit = self
+            .permits
+            .acquire()
+            .await
+            .map_err(|err| JobQueueError::Worker(err.to_string()))?;
+        // Arm the tenant from the job payload BEFORE any RLS-gated work; the
+        // EvidenceService reads/writes the staging + status rows under this org.
+        mnt_platform_request_context::scope_org(org, async { self.process(evidence_id).await })
+            .await
+            .map_err(|err| JobQueueError::Worker(err.to_string()))
+    }
+
+    async fn process(&self, evidence_id: EvidenceId) -> Result<(), StorageError> {
+        let Some(job) = self.service.claim_processing_job().await? else {
+            // Already processed (READY/FAILED) or claimed by another worker —
+            // idempotent no-op.
+            tracing::info!(
+                %evidence_id,
+                "evidence transcode: no pending row to claim (already processed)"
+            );
+            return Ok(());
+        };
+        let status = self
+            .service
+            .process_job(
+                &self.processor,
+                &job,
+                TraceContext::generate(),
+                time::OffsetDateTime::now_utc(),
+            )
+            .await?;
+        tracing::info!(
+            media_id = %job.media_id,
+            work_order_id = %job.work_order_id,
+            status = status.as_db_str(),
+            "evidence transcode complete"
+        );
+        Ok(())
+    }
 }
 
 async fn shutdown_signal(timeout: Duration, state: AppState) {

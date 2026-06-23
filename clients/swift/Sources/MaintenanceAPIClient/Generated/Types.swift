@@ -255,6 +255,16 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/evidence/{evidenceId}/confirm`.
     /// - Remark: Generated from `#/paths//api/v1/evidence/{evidenceId}/confirm/post(confirmEvidenceUpload)`.
     func confirmEvidenceUpload(_ input: Operations.ConfirmEvidenceUpload.Input) async throws -> Operations.ConfirmEvidenceUpload.Output
+    /// Issue a presigned STAGING upload ticket for mechanic evidence and begin server-side media processing (transcode/optimize before storage)
+    ///
+    /// - Remark: HTTP `POST /api/v1/evidence/staging-presign`.
+    /// - Remark: Generated from `#/paths//api/v1/evidence/staging-presign/post(presignEvidenceStagingUpload)`.
+    func presignEvidenceStagingUpload(_ input: Operations.PresignEvidenceStagingUpload.Input) async throws -> Operations.PresignEvidenceStagingUpload.Output
+    /// Poll the server-side processing status of an evidence row
+    ///
+    /// - Remark: HTTP `GET /api/v1/evidence/{evidenceId}/status`.
+    /// - Remark: Generated from `#/paths//api/v1/evidence/{evidenceId}/status/get(getEvidenceProcessingStatus)`.
+    func getEvidenceProcessingStatus(_ input: Operations.GetEvidenceProcessingStatus.Input) async throws -> Operations.GetEvidenceProcessingStatus.Output
     /// Register or refresh a mobile device binding
     ///
     /// - Remark: HTTP `POST /api/v1/devices`.
@@ -1353,6 +1363,32 @@ extension APIProtocol {
         headers: Operations.ConfirmEvidenceUpload.Input.Headers = .init()
     ) async throws -> Operations.ConfirmEvidenceUpload.Output {
         try await confirmEvidenceUpload(Operations.ConfirmEvidenceUpload.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Issue a presigned STAGING upload ticket for mechanic evidence and begin server-side media processing (transcode/optimize before storage)
+    ///
+    /// - Remark: HTTP `POST /api/v1/evidence/staging-presign`.
+    /// - Remark: Generated from `#/paths//api/v1/evidence/staging-presign/post(presignEvidenceStagingUpload)`.
+    public func presignEvidenceStagingUpload(
+        headers: Operations.PresignEvidenceStagingUpload.Input.Headers = .init(),
+        body: Operations.PresignEvidenceStagingUpload.Input.Body
+    ) async throws -> Operations.PresignEvidenceStagingUpload.Output {
+        try await presignEvidenceStagingUpload(Operations.PresignEvidenceStagingUpload.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Poll the server-side processing status of an evidence row
+    ///
+    /// - Remark: HTTP `GET /api/v1/evidence/{evidenceId}/status`.
+    /// - Remark: Generated from `#/paths//api/v1/evidence/{evidenceId}/status/get(getEvidenceProcessingStatus)`.
+    public func getEvidenceProcessingStatus(
+        path: Operations.GetEvidenceProcessingStatus.Input.Path,
+        headers: Operations.GetEvidenceProcessingStatus.Input.Headers = .init()
+    ) async throws -> Operations.GetEvidenceProcessingStatus.Output {
+        try await getEvidenceProcessingStatus(Operations.GetEvidenceProcessingStatus.Input(
             path: path,
             headers: headers
         ))
@@ -5125,6 +5161,164 @@ public enum Components {
                 case wormReplicaStatus = "worm_replica_status"
                 case retryCount = "retry_count"
                 case verifiedAt = "verified_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ProcessingStatus`.
+        @frozen public enum ProcessingStatus: String, Codable, Hashable, Sendable, CaseIterable {
+            case processing = "PROCESSING"
+            case ready = "READY"
+            case failed = "FAILED"
+        }
+        /// - Remark: Generated from `#/components/schemas/MediaKind`.
+        @frozen public enum MediaKind: String, Codable, Hashable, Sendable, CaseIterable {
+            case image = "IMAGE"
+            case video = "VIDEO"
+        }
+        /// - Remark: Generated from `#/components/schemas/EvidenceStagingPresignRequest`.
+        public struct EvidenceStagingPresignRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EvidenceStagingPresignRequest/work_order_id`.
+            public var workOrderId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EvidenceStagingPresignRequest/stage`.
+            public var stage: Components.Schemas.AttachmentStage
+            /// - Remark: Generated from `#/components/schemas/EvidenceStagingPresignRequest/content_type`.
+            public var contentType: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EvidenceStagingPresignRequest/size_bytes`.
+            public var sizeBytes: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/EvidenceStagingPresignRequest/checksum_sha256`.
+            public var checksumSha256: Swift.String?
+            /// Creates a new `EvidenceStagingPresignRequest`.
+            ///
+            /// - Parameters:
+            ///   - workOrderId:
+            ///   - stage:
+            ///   - contentType:
+            ///   - sizeBytes:
+            ///   - checksumSha256:
+            public init(
+                workOrderId: Components.Schemas.Uuid,
+                stage: Components.Schemas.AttachmentStage,
+                contentType: Swift.String,
+                sizeBytes: Swift.Int64,
+                checksumSha256: Swift.String? = nil
+            ) {
+                self.workOrderId = workOrderId
+                self.stage = stage
+                self.contentType = contentType
+                self.sizeBytes = sizeBytes
+                self.checksumSha256 = checksumSha256
+            }
+            public enum CodingKeys: String, CodingKey {
+                case workOrderId = "work_order_id"
+                case stage
+                case contentType = "content_type"
+                case sizeBytes = "size_bytes"
+                case checksumSha256 = "checksum_sha256"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EvidenceStagingPresignResponse`.
+        public struct EvidenceStagingPresignResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EvidenceStagingPresignResponse/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EvidenceStagingPresignResponse/work_order_id`.
+            public var workOrderId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EvidenceStagingPresignResponse/stage`.
+            public var stage: Components.Schemas.AttachmentStage
+            /// - Remark: Generated from `#/components/schemas/EvidenceStagingPresignResponse/media_kind`.
+            public var mediaKind: Components.Schemas.MediaKind
+            /// - Remark: Generated from `#/components/schemas/EvidenceStagingPresignResponse/processing_status`.
+            public var processingStatus: Components.Schemas.ProcessingStatus
+            /// - Remark: Generated from `#/components/schemas/EvidenceStagingPresignResponse/upload`.
+            public var upload: Components.Schemas.PresignedUpload
+            /// Creates a new `EvidenceStagingPresignResponse`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - workOrderId:
+            ///   - stage:
+            ///   - mediaKind:
+            ///   - processingStatus:
+            ///   - upload:
+            public init(
+                id: Components.Schemas.Uuid,
+                workOrderId: Components.Schemas.Uuid,
+                stage: Components.Schemas.AttachmentStage,
+                mediaKind: Components.Schemas.MediaKind,
+                processingStatus: Components.Schemas.ProcessingStatus,
+                upload: Components.Schemas.PresignedUpload
+            ) {
+                self.id = id
+                self.workOrderId = workOrderId
+                self.stage = stage
+                self.mediaKind = mediaKind
+                self.processingStatus = processingStatus
+                self.upload = upload
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case workOrderId = "work_order_id"
+                case stage
+                case mediaKind = "media_kind"
+                case processingStatus = "processing_status"
+                case upload
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EvidenceStatusResponse`.
+        public struct EvidenceStatusResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EvidenceStatusResponse/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EvidenceStatusResponse/work_order_id`.
+            public var workOrderId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EvidenceStatusResponse/stage`.
+            public var stage: Components.Schemas.AttachmentStage
+            /// - Remark: Generated from `#/components/schemas/EvidenceStatusResponse/processing_status`.
+            public var processingStatus: Components.Schemas.ProcessingStatus
+            /// - Remark: Generated from `#/components/schemas/EvidenceStatusResponse/content_type`.
+            public var contentType: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EvidenceStatusResponse/thumbnail_s3_key`.
+            public var thumbnailS3Key: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EvidenceStatusResponse/processing_error`.
+            public var processingError: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EvidenceStatusResponse/processed_at`.
+            public var processedAt: Components.Schemas.Timestamp?
+            /// Creates a new `EvidenceStatusResponse`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - workOrderId:
+            ///   - stage:
+            ///   - processingStatus:
+            ///   - contentType:
+            ///   - thumbnailS3Key:
+            ///   - processingError:
+            ///   - processedAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                workOrderId: Components.Schemas.Uuid,
+                stage: Components.Schemas.AttachmentStage,
+                processingStatus: Components.Schemas.ProcessingStatus,
+                contentType: Swift.String,
+                thumbnailS3Key: Swift.String? = nil,
+                processingError: Swift.String? = nil,
+                processedAt: Components.Schemas.Timestamp? = nil
+            ) {
+                self.id = id
+                self.workOrderId = workOrderId
+                self.stage = stage
+                self.processingStatus = processingStatus
+                self.contentType = contentType
+                self.thumbnailS3Key = thumbnailS3Key
+                self.processingError = processingError
+                self.processedAt = processedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case workOrderId = "work_order_id"
+                case stage
+                case processingStatus = "processing_status"
+                case contentType = "content_type"
+                case thumbnailS3Key = "thumbnail_s3_key"
+                case processingError = "processing_error"
+                case processedAt = "processed_at"
             }
         }
         /// - Remark: Generated from `#/components/schemas/DeviceRegistrationRequest`.
@@ -19043,6 +19237,541 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.serviceUnavailable`.
             /// - SeeAlso: `.serviceUnavailable`.
             public var serviceUnavailable: Operations.ConfirmEvidenceUpload.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Issue a presigned STAGING upload ticket for mechanic evidence and begin server-side media processing (transcode/optimize before storage)
+    ///
+    /// - Remark: HTTP `POST /api/v1/evidence/staging-presign`.
+    /// - Remark: Generated from `#/paths//api/v1/evidence/staging-presign/post(presignEvidenceStagingUpload)`.
+    public enum PresignEvidenceStagingUpload {
+        public static let id: Swift.String = "presignEvidenceStagingUpload"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/evidence/staging-presign/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PresignEvidenceStagingUpload.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PresignEvidenceStagingUpload.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.PresignEvidenceStagingUpload.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/evidence/staging-presign/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/evidence/staging-presign/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.EvidenceStagingPresignRequest)
+            }
+            public var body: Operations.PresignEvidenceStagingUpload.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.PresignEvidenceStagingUpload.Input.Headers = .init(),
+                body: Operations.PresignEvidenceStagingUpload.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/evidence/staging-presign/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/evidence/staging-presign/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.EvidenceStagingPresignResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.EvidenceStagingPresignResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PresignEvidenceStagingUpload.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PresignEvidenceStagingUpload.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Presigned staging upload ticket; the evidence row is created in PROCESSING and an async transcode job is enqueued.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/staging-presign/post(presignEvidenceStagingUpload)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.PresignEvidenceStagingUpload.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.PresignEvidenceStagingUpload.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/staging-presign/post(presignEvidenceStagingUpload)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/staging-presign/post(presignEvidenceStagingUpload)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/staging-presign/post(presignEvidenceStagingUpload)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/staging-presign/post(presignEvidenceStagingUpload)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/staging-presign/post(presignEvidenceStagingUpload)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/evidence/staging-presign/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/evidence/staging-presign/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PresignEvidenceStagingUpload.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PresignEvidenceStagingUpload.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// Evidence storage or processing is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/staging-presign/post(presignEvidenceStagingUpload)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.PresignEvidenceStagingUpload.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.PresignEvidenceStagingUpload.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Poll the server-side processing status of an evidence row
+    ///
+    /// - Remark: HTTP `GET /api/v1/evidence/{evidenceId}/status`.
+    /// - Remark: Generated from `#/paths//api/v1/evidence/{evidenceId}/status/get(getEvidenceProcessingStatus)`.
+    public enum GetEvidenceProcessingStatus {
+        public static let id: Swift.String = "getEvidenceProcessingStatus"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/evidence/{evidenceId}/status/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/evidence/{evidenceId}/status/GET/path/evidenceId`.
+                public var evidenceId: Components.Parameters.EvidenceId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - evidenceId:
+                public init(evidenceId: Components.Parameters.EvidenceId) {
+                    self.evidenceId = evidenceId
+                }
+            }
+            public var path: Operations.GetEvidenceProcessingStatus.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/evidence/{evidenceId}/status/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetEvidenceProcessingStatus.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetEvidenceProcessingStatus.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetEvidenceProcessingStatus.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.GetEvidenceProcessingStatus.Input.Path,
+                headers: Operations.GetEvidenceProcessingStatus.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/evidence/{evidenceId}/status/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/evidence/{evidenceId}/status/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.EvidenceStatusResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.EvidenceStatusResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetEvidenceProcessingStatus.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetEvidenceProcessingStatus.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Evidence processing status.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/{evidenceId}/status/get(getEvidenceProcessingStatus)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetEvidenceProcessingStatus.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetEvidenceProcessingStatus.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/{evidenceId}/status/get(getEvidenceProcessingStatus)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/{evidenceId}/status/get(getEvidenceProcessingStatus)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/{evidenceId}/status/get(getEvidenceProcessingStatus)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/evidence/{evidenceId}/status/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/evidence/{evidenceId}/status/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetEvidenceProcessingStatus.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetEvidenceProcessingStatus.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// Evidence storage is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/evidence/{evidenceId}/status/get(getEvidenceProcessingStatus)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetEvidenceProcessingStatus.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.GetEvidenceProcessingStatus.Output.ServiceUnavailable {
                 get throws {
                     switch self {
                     case let .serviceUnavailable(response):

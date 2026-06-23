@@ -1249,6 +1249,72 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /api/v1/evidence/staging-presign:
+    post:
+      operationId: presignEvidenceStagingUpload
+      summary: >-
+        Issue a presigned STAGING upload ticket for mechanic evidence and begin
+        server-side media processing (transcode/optimize before storage)
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvidenceStagingPresignRequest'
+      responses:
+        '200':
+          description: >-
+            Presigned staging upload ticket; the evidence row is created in
+            PROCESSING and an async transcode job is enqueued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceStagingPresignResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: Evidence storage or processing is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/evidence/{evidenceId}/status:
+    get:
+      operationId: getEvidenceProcessingStatus
+      summary: Poll the server-side processing status of an evidence row
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/EvidenceId'
+      responses:
+        '200':
+          description: Evidence processing status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceStatusResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: Evidence storage is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
   /api/v1/devices:
     post:
       operationId: registerMobileDevice
@@ -5420,6 +5486,84 @@ components:
           type: integer
           format: int32
         verified_at:
+          $ref: '#/components/schemas/Timestamp'
+    ProcessingStatus:
+      type: string
+      enum:
+      - PROCESSING
+      - READY
+      - FAILED
+    MediaKind:
+      type: string
+      enum:
+      - IMAGE
+      - VIDEO
+    EvidenceStagingPresignRequest:
+      type: object
+      required:
+      - work_order_id
+      - stage
+      - content_type
+      - size_bytes
+      properties:
+        work_order_id:
+          $ref: '#/components/schemas/Uuid'
+        stage:
+          $ref: '#/components/schemas/AttachmentStage'
+        content_type:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        checksum_sha256:
+          type: string
+    EvidenceStagingPresignResponse:
+      type: object
+      required:
+      - id
+      - work_order_id
+      - stage
+      - media_kind
+      - processing_status
+      - upload
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        work_order_id:
+          $ref: '#/components/schemas/Uuid'
+        stage:
+          $ref: '#/components/schemas/AttachmentStage'
+        media_kind:
+          $ref: '#/components/schemas/MediaKind'
+        processing_status:
+          $ref: '#/components/schemas/ProcessingStatus'
+        upload:
+          $ref: '#/components/schemas/PresignedUpload'
+    EvidenceStatusResponse:
+      type: object
+      required:
+      - id
+      - work_order_id
+      - stage
+      - processing_status
+      - content_type
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        work_order_id:
+          $ref: '#/components/schemas/Uuid'
+        stage:
+          $ref: '#/components/schemas/AttachmentStage'
+        processing_status:
+          $ref: '#/components/schemas/ProcessingStatus'
+        content_type:
+          type: string
+        thumbnail_s3_key:
+          type: string
+        processing_error:
+          type: string
+        processed_at:
           $ref: '#/components/schemas/Timestamp'
     DeviceRegistrationRequest:
       type: object

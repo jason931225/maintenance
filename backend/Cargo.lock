@@ -2980,6 +2980,7 @@ dependencies = [
  "mnt-platform-auth",
  "mnt-platform-authz",
  "mnt-platform-db",
+ "mnt-platform-jobs",
  "mnt-platform-request-context",
  "mnt-platform-storage",
  "mnt-workorder-adapter-postgres",

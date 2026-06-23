@@ -20,10 +20,11 @@ use mnt_kernel_core::{
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, BranchColumn, Feature, Principal, Role, authorize};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
+use mnt_platform_jobs::{JobQueue, JobRequest};
 use mnt_platform_request_context::current_org;
 use mnt_platform_storage::{
-    EvidenceService, EvidenceUploadCommand, EvidenceUploadTicket, PresignedUpload, S3ObjectStore,
-    StorageError, WormReplicaStatus,
+    EvidenceService, EvidenceUploadCommand, EvidenceUploadTicket, MediaKind, PresignedUpload,
+    ProcessingStatus, S3ObjectStore, StagingUploadCommand, StorageError, WormReplicaStatus,
 };
 use mnt_workorder_adapter_postgres::{PgWorkOrderError, PgWorkOrderStore};
 use mnt_workorder_application::{
@@ -39,6 +40,7 @@ use mnt_workorder_domain::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
+use std::sync::Arc;
 use time::format_description::well_known::Rfc3339;
 
 // ISO calendar-date (`YYYY-MM-DD`) serde for `time::Date` request fields. The
@@ -50,11 +52,18 @@ time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
 pub const SYNC_PATH: &str = "/api/v1/sync";
 pub const EVIDENCE_PRESIGN_PATH: &str = "/api/v1/evidence/presign";
 pub const EVIDENCE_CONFIRM_PATH_TEMPLATE: &str = "/api/v1/evidence/{evidenceId}/confirm";
+/// Media-processing staging-upload presign: the mechanic PUTs the ORIGINAL to a
+/// tenant-scoped staging key and a PROCESSING row + transcode job are created.
+pub const EVIDENCE_STAGING_PRESIGN_PATH: &str = "/api/v1/evidence/staging-presign";
+/// Per-row processing-status poll (처리 중 → 완료 / 실패) for the web UI.
+pub const EVIDENCE_STATUS_PATH_TEMPLATE: &str = "/api/v1/evidence/{evidenceId}/status";
 pub const DEVICES_PATH: &str = "/api/v1/devices";
 pub const MOBILE_ROUTE_PATHS: &[&str] = &[
     SYNC_PATH,
     EVIDENCE_PRESIGN_PATH,
     EVIDENCE_CONFIRM_PATH_TEMPLATE,
+    EVIDENCE_STAGING_PRESIGN_PATH,
+    EVIDENCE_STATUS_PATH_TEMPLATE,
     DEVICES_PATH,
 ];
 
@@ -80,12 +89,16 @@ impl WorkOrderRestState {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MobileRestState<S> {
     pool: PgPool,
     store: PgWorkOrderStore,
     jwt_verifier: Option<JwtVerifier>,
     evidence_service: Option<EvidenceService<S>>,
+    /// Job queue used to enqueue the async evidence transcode after a staging
+    /// upload presign. `None` disables the media-processing path (the staging
+    /// presign endpoint then returns 503).
+    job_queue: Option<Arc<dyn JobQueue>>,
 }
 
 impl<S> MobileRestState<S> {
@@ -101,7 +114,15 @@ impl<S> MobileRestState<S> {
             store,
             jwt_verifier,
             evidence_service,
+            job_queue: None,
         }
+    }
+
+    /// Attach the job queue that backs the async evidence-transcode pipeline.
+    #[must_use]
+    pub fn with_job_queue(mut self, job_queue: Option<Arc<dyn JobQueue>>) -> Self {
+        self.job_queue = job_queue;
+        self
     }
 }
 
@@ -182,6 +203,14 @@ where
         .route(
             "/api/v1/evidence/{evidence_id}/confirm",
             post(confirm_evidence::<S>),
+        )
+        .route(
+            EVIDENCE_STAGING_PRESIGN_PATH,
+            post(presign_evidence_staging::<S>),
+        )
+        .route(
+            "/api/v1/evidence/{evidence_id}/status",
+            get(evidence_status::<S>),
         )
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
@@ -613,6 +642,39 @@ struct EvidenceConfirmResponse {
     verified_at: Option<time::OffsetDateTime>,
 }
 
+#[derive(Debug, Deserialize)]
+struct EvidenceStagingPresignRequest {
+    work_order_id: WorkOrderId,
+    stage: AttachmentStage,
+    /// The ORIGINAL upload's content type (image/* or video/*); validated and
+    /// classified server-side.
+    content_type: String,
+    size_bytes: i64,
+    checksum_sha256: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct EvidenceStagingPresignResponse {
+    id: EvidenceId,
+    work_order_id: WorkOrderId,
+    stage: AttachmentStage,
+    media_kind: MediaKind,
+    processing_status: ProcessingStatus,
+    upload: PresignedUpload,
+}
+
+#[derive(Debug, Serialize)]
+struct EvidenceStatusResponse {
+    id: EvidenceId,
+    work_order_id: WorkOrderId,
+    stage: AttachmentStage,
+    processing_status: ProcessingStatus,
+    content_type: String,
+    thumbnail_s3_key: Option<String>,
+    processing_error: Option<String>,
+    processed_at: Option<time::OffsetDateTime>,
+}
+
 #[derive(Debug, Serialize)]
 struct ErrorBody {
     error: ErrorPayload,
@@ -685,7 +747,8 @@ impl RestError {
             StorageError::Db(error) => Self::from_db(error),
             StorageError::S3(message)
             | StorageError::Presign(message)
-            | StorageError::Verification(message) => Self::internal(message),
+            | StorageError::Verification(message)
+            | StorageError::Processing(message) => Self::internal(message),
         }
     }
 
@@ -1479,6 +1542,130 @@ where
     }))
 }
 
+/// Media-processing staging-upload presign. The mechanic PUTs the ORIGINAL to a
+/// tenant-scoped staging key; a PROCESSING evidence row is created and an async
+/// transcode job is enqueued. The optimized 1080p/recompressed artifact replaces
+/// the original at the FINAL key before the row becomes READY. Same authz as the
+/// direct presign: only an ASSIGNED mechanic (or admin) on the work order.
+async fn presign_evidence_staging<S>(
+    State(state): State<MobileRestState<S>>,
+    headers: HeaderMap,
+    Json(body): Json<EvidenceStagingPresignRequest>,
+) -> Result<Json<EvidenceStagingPresignResponse>, RestError>
+where
+    S: S3ObjectStore + Clone + Send + Sync + 'static,
+{
+    let principal = mobile_principal_from_headers(&state, &headers)?;
+    let work_order = state
+        .store
+        .work_order(body.work_order_id)
+        .await
+        .map_err(RestError::from_store)?;
+    authorize_evidence_access(&state, &principal, body.work_order_id, work_order.branch_id).await?;
+    if matches!(body.stage, AttachmentStage::After | AttachmentStage::Report)
+        && is_terminal_work_order_status(work_order.status)
+    {
+        return Err(RestError::from_kernel(KernelError::conflict(format!(
+            "cannot attach {} evidence to a work order in terminal status {}",
+            body.stage.as_db_str(),
+            work_order.status.as_db_str()
+        ))));
+    }
+    let service = state.evidence_service.as_ref().ok_or_else(|| {
+        RestError::unavailable("evidence storage is not configured for mobile API")
+    })?;
+    let job_queue = state.job_queue.as_ref().ok_or_else(|| {
+        RestError::unavailable("evidence processing is not configured for mobile API")
+    })?;
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+    let ticket = service
+        .issue_staging_upload(StagingUploadCommand {
+            actor: principal.user_id,
+            work_order_id: body.work_order_id,
+            stage: body.stage,
+            content_type: body.content_type,
+            size_bytes: body.size_bytes,
+            checksum_sha256: body.checksum_sha256,
+            trace: TraceContext::generate(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_storage)?;
+    // Enqueue the async transcode carrying the owning tenant so the worker arms
+    // app.current_org correctly. Enqueue AFTER the PROCESSING row commits so the
+    // worker can always find the row to claim.
+    let request = JobRequest::evidence_transcode(org, ticket.media.id)
+        .map_err(|err| RestError::internal(err.to_string()))?;
+    job_queue
+        .enqueue(request)
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
+    record_evidence_presign_audit_named(
+        &state.pool,
+        &principal,
+        work_order.branch_id,
+        ticket.media.id,
+        ticket.media.stage,
+        "evidence.staging.presign",
+    )
+    .await?;
+
+    Ok(Json(EvidenceStagingPresignResponse {
+        id: ticket.media.id,
+        work_order_id: ticket.media.work_order_id,
+        stage: ticket.media.stage,
+        media_kind: ticket.media_kind,
+        processing_status: ticket.media.processing_status,
+        upload: ticket.upload,
+    }))
+}
+
+/// Poll the server-side processing status of an evidence row (처리 중 → 완료 /
+/// 실패). Same assigned-mechanic/admin authz as the upload path.
+async fn evidence_status<S>(
+    State(state): State<MobileRestState<S>>,
+    headers: HeaderMap,
+    Path(evidence_id): Path<uuid::Uuid>,
+) -> Result<Json<EvidenceStatusResponse>, RestError>
+where
+    S: S3ObjectStore + Clone + Send + Sync + 'static,
+{
+    let principal = mobile_principal_from_headers(&state, &headers)?;
+    let media_id = EvidenceId::from_uuid(evidence_id);
+    let service = state.evidence_service.as_ref().ok_or_else(|| {
+        RestError::unavailable("evidence storage is not configured for mobile API")
+    })?;
+    let media = service
+        .evidence_media(media_id)
+        .await
+        .map_err(RestError::from_storage)?;
+    let work_order = state
+        .store
+        .work_order(media.work_order_id)
+        .await
+        .map_err(RestError::from_store)?;
+    authorize_evidence_access(
+        &state,
+        &principal,
+        media.work_order_id,
+        work_order.branch_id,
+    )
+    .await?;
+
+    Ok(Json(EvidenceStatusResponse {
+        id: media.id,
+        work_order_id: media.work_order_id,
+        stage: media.stage,
+        processing_status: media.processing_status,
+        content_type: media.content_type,
+        thumbnail_s3_key: media.thumbnail_s3_key,
+        processing_error: media.processing_error,
+        processed_at: media.processed_at,
+    }))
+}
+
 async fn authorize_evidence_access<S>(
     state: &MobileRestState<S>,
     principal: &Principal,
@@ -1567,6 +1754,40 @@ async fn record_evidence_presign_audit(
             "work_order_id": ticket.media.work_order_id,
             "stage": ticket.media.stage,
             "s3_key": ticket.media.s3_key,
+        })),
+    );
+    with_audit::<_, (), RestError>(pool, event, |_tx| Box::pin(async move { Ok(()) })).await
+}
+
+/// Audit a media-processing staging presign under an explicit action name.
+/// Mirrors [`record_evidence_presign_audit`]; the org is armed by `with_audit`
+/// via the event's org stamp so the audit insert is RLS-correct as `mnt_rt`.
+async fn record_evidence_presign_audit_named(
+    pool: &PgPool,
+    principal: &Principal,
+    branch_id: BranchId,
+    media_id: EvidenceId,
+    stage: AttachmentStage,
+    action: &str,
+) -> Result<(), RestError> {
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+    let event: AuditEvent = AuditEvent::new(
+        Some(principal.user_id),
+        AuditAction::new(action).map_err(RestError::from_kernel)?,
+        "evidence_media",
+        media_id.to_string(),
+        TraceContext::generate(),
+        time::OffsetDateTime::now_utc(),
+    )
+    .with_branch(branch_id)
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(serde_json::json!({
+            "stage": stage,
+            "processing_status": "PROCESSING",
         })),
     );
     with_audit::<_, (), RestError>(pool, event, |_tx| Box::pin(async move { Ok(()) })).await

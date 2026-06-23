@@ -66,7 +66,7 @@ serde_json = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
-tokio = { workspace = true, features = ["net", "signal", "time"] }
+tokio = { workspace = true, features = ["net", "signal", "sync", "time"] }
 tower-http = { workspace = true, features = ["timeout", "trace"] }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
