@@ -33,6 +33,7 @@ use mnt_identity_adapter_postgres::PgOrgStore;
 use mnt_identity_rest::IdentityRestState;
 use mnt_inspection_adapter_postgres::PgInspectionStore;
 use mnt_inspection_rest::InspectionRestState;
+use mnt_integrity::{IntegrityRestState, PgIntegrityStore};
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, OrgId, TraceContext,
     UserId,
@@ -1122,6 +1123,7 @@ pub fn build_router(state: AppState) -> Router {
             let financial_store = PgFinancialStore::new(pool.clone());
             let inspection_store = PgInspectionStore::new(pool.clone());
             let compliance_store = PgComplianceStore::new(pool.clone());
+            let integrity_store = PgIntegrityStore::new(pool.clone());
             let dispatch_store = PgDispatchStore::new(pool.clone());
             let support_store = PgSupportStore::new(pool.clone());
             let sales_store = PgSalesStore::new(pool.clone());
@@ -1170,6 +1172,10 @@ pub fn build_router(state: AppState) -> Router {
                 )))
                 .merge(mnt_compliance_rest::router(ComplianceRestState::new(
                     compliance_store,
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_integrity::router(IntegrityRestState::new(
+                    integrity_store,
                     state.jwt_verifier.clone(),
                 )))
                 .merge(mnt_registry_rest::router(RegistryRestState::new(

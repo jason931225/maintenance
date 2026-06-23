@@ -139,10 +139,17 @@ pub enum Feature {
     /// Permission metadata for the future AI assistant seam. T0.6 requires the
     /// 22-feature matrix; this does not implement an AI adapter or demo mode.
     AiAssist,
+    /// Read governance findings from the integrity engine.
+    /// EXECUTIVE + SUPER_ADMIN only — labor-law sensitivity; an ADMIN must NOT
+    /// read findings about themselves or their subordinates.
+    IntegrityFindingsRead,
+    /// Triage (OPEN → REVIEWED / DISMISSED / ESCALATED) a governance finding.
+    /// Gated identically to read; triage is itself audited via `with_audit`.
+    IntegrityFindingTriage,
 }
 
 impl Feature {
-    pub const ALL: [Self; 37] = [
+    pub const ALL: [Self; 39] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -180,6 +187,8 @@ impl Feature {
         Self::OpsDashboardRead,
         Self::SalesManage,
         Self::AiAssist,
+        Self::IntegrityFindingsRead,
+        Self::IntegrityFindingTriage,
     ];
 
     const fn matrix_row(self) -> [PermissionLevel; 6] {
@@ -228,6 +237,10 @@ impl Feature {
             Self::OpsDashboardRead => [D, D, D, A, D, A],
             Self::SalesManage => [D, D, D, A, A, A],
             Self::AiAssist => [D, A, A, A, A, A],
+            // Integrity findings are labor-law sensitive: ADMIN must not read
+            // findings about themselves. EXECUTIVE + SUPER_ADMIN only.
+            Self::IntegrityFindingsRead => [D, D, D, D, A, A],
+            Self::IntegrityFindingTriage => [D, D, D, D, A, A],
         }
     }
 }

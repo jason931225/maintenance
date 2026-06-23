@@ -20,6 +20,7 @@ axum = { workspace = true }
 http = { workspace = true }
 mnt-compliance-adapter-postgres = { workspace = true }
 mnt-compliance-rest = { workspace = true }
+mnt-integrity = { workspace = true }
 mnt-financial-adapter-postgres = { workspace = true }
 mnt-financial-rest = { workspace = true }
 mnt-identity-adapter-postgres = { workspace = true }
