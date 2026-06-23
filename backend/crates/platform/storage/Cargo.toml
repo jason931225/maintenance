@@ -11,6 +11,7 @@ publish.workspace = true
 bytes = { workspace = true }
 hex = { workspace = true }
 hmac = { workspace = true }
+infer = { workspace = true }
 mnt-kernel-core = { workspace = true }
 mnt-platform-db = { workspace = true }
 mnt-platform-request-context = { workspace = true }

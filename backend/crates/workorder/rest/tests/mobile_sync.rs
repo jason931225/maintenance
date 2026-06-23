@@ -5,8 +5,8 @@ use http::{Request, StatusCode, header};
 use mnt_kernel_core::{BranchId, OrgId, UserId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
 use mnt_platform_storage::{
-    CopyObjectRequest, EvidenceService, ObjectHead, PresignPutRequest, PresignedUpload,
-    RetentionInfo, S3ObjectStore, StorageFuture,
+    CopyObjectRequest, EvidenceService, ObjectHead, PresignGetRequest, PresignPutRequest,
+    PresignedUpload, RetentionInfo, S3ObjectStore, StorageFuture,
 };
 use mnt_workorder_adapter_postgres::PgWorkOrderStore;
 use mnt_workorder_rest::{MobileRestState, mobile_router};
@@ -51,6 +51,15 @@ impl S3ObjectStore for StaticObjectStore {
                 headers: vec![],
                 expires_in_secs: request.expires_in.as_secs(),
             })
+        })
+    }
+
+    fn presign_get(&self, request: PresignGetRequest) -> StorageFuture<'_, String> {
+        Box::pin(async move {
+            Ok(format!(
+                "http://storage.local/{}/{}?X-Amz-Signature=test",
+                request.bucket, request.key
+            ))
         })
     }
 

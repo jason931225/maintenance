@@ -5559,8 +5559,14 @@ components:
           $ref: '#/components/schemas/ProcessingStatus'
         content_type:
           type: string
-        thumbnail_s3_key:
+        thumbnail_url:
           type: string
+          format: uri
+          description: >-
+            Short-lived presigned GET URL for the generated thumbnail (absent
+            until the row is READY). Replaces the previous thumbnail_s3_key,
+            which exposed the internal object key; clients render this URL
+            directly.
         processing_error:
           type: string
         processed_at:

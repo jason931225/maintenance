@@ -10,8 +10,8 @@ use mnt_kernel_core::{BranchId, OrgId, UserId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
 use mnt_platform_jobs::{BoxFuture, JobId, JobQueue, JobQueueError, JobRequest};
 use mnt_platform_storage::{
-    CopyObjectRequest, EvidenceService, ObjectHead, PresignPutRequest, PresignedUpload,
-    RetentionInfo, S3ObjectStore, StorageError, StorageFuture,
+    CopyObjectRequest, EvidenceService, ObjectHead, PresignGetRequest, PresignPutRequest,
+    PresignedUpload, RetentionInfo, S3ObjectStore, StorageError, StorageFuture,
 };
 use mnt_workorder_adapter_postgres::PgWorkOrderStore;
 use mnt_workorder_rest::{MobileRestState, mobile_router};
@@ -50,6 +50,15 @@ impl S3ObjectStore for StaticObjectStore {
                 ],
                 expires_in_secs: request.expires_in.as_secs(),
             })
+        })
+    }
+
+    fn presign_get(&self, request: PresignGetRequest) -> StorageFuture<'_, String> {
+        Box::pin(async move {
+            Ok(format!(
+                "http://storage.local/{}/{}?X-Amz-Signature=test",
+                request.bucket, request.key
+            ))
         })
     }
 
@@ -555,7 +564,10 @@ async fn evidence_staging_presign_creates_processing_row_and_enqueues_transcode(
                 .collect()
         };
         assert_eq!(enqueued_keys.len(), 1);
-        assert_eq!(enqueued_keys[0], format!("evidence-transcode:{evidence_id}"));
+        assert_eq!(
+            enqueued_keys[0],
+            format!("evidence-transcode:{evidence_id}")
+        );
 
         // The status endpoint reports PROCESSING for the assigned mechanic.
         let status = get_json(

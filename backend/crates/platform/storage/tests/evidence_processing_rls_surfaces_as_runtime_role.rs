@@ -23,9 +23,9 @@ use std::sync::{Arc, Mutex};
 
 use mnt_kernel_core::{EvidenceId, OrgId, TraceContext, WorkOrderId};
 use mnt_platform_storage::{
-    CopyObjectRequest, EvidenceService, MediaKind, MediaProcessor, ObjectHead, PresignPutRequest,
-    PresignedUpload, ProcessedMedia, ProcessingStatus, RetentionInfo, S3ObjectStore,
-    StagingUploadCommand, StorageFuture,
+    CopyObjectRequest, EvidenceService, MediaKind, MediaProcessor, ObjectHead, PresignGetRequest,
+    PresignPutRequest, PresignedUpload, ProcessedMedia, ProcessingStatus, RetentionInfo,
+    S3ObjectStore, StagingUploadCommand, StorageFuture,
 };
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
@@ -194,6 +194,19 @@ struct RecordingStore {
     deletes: Arc<Mutex<Vec<String>>>,
 }
 
+/// Minimal `infer`-recognizable QuickTime (`video/quicktime`) header so the
+/// post-download content re-validation accepts the staging bytes for the
+/// declared VIDEO kind and the lifecycle still reaches READY.
+fn quicktime_magic_bytes() -> Vec<u8> {
+    vec![
+        0x00, 0x00, 0x00, 0x14, // box size = 20
+        0x66, 0x74, 0x79, 0x70, // "ftyp"
+        0x71, 0x74, 0x20, 0x20, // major brand "qt  "
+        0x00, 0x00, 0x00, 0x00, // minor version
+        0x71, 0x74, 0x20, 0x20, // compatible brand "qt  "
+    ]
+}
+
 impl S3ObjectStore for RecordingStore {
     fn presign_put(&self, request: PresignPutRequest) -> StorageFuture<'_, PresignedUpload> {
         Box::pin(async move {
@@ -203,6 +216,14 @@ impl S3ObjectStore for RecordingStore {
                 headers: vec![],
                 expires_in_secs: request.expires_in.as_secs(),
             })
+        })
+    }
+    fn presign_get(&self, request: PresignGetRequest) -> StorageFuture<'_, String> {
+        Box::pin(async move {
+            Ok(format!(
+                "http://storage.local/{}/{}?X-Amz-Signature=test",
+                request.bucket, request.key
+            ))
         })
     }
     fn copy_object(&self, _request: CopyObjectRequest) -> StorageFuture<'_, ()> {
@@ -232,7 +253,7 @@ impl S3ObjectStore for RecordingStore {
         })
     }
     fn get_object(&self, _bucket: String, _key: String) -> StorageFuture<'_, Vec<u8>> {
-        Box::pin(async { Ok(b"raw".to_vec()) })
+        Box::pin(async { Ok(quicktime_magic_bytes()) })
     }
     fn put_object(
         &self,

@@ -670,7 +670,10 @@ struct EvidenceStatusResponse {
     stage: AttachmentStage,
     processing_status: ProcessingStatus,
     content_type: String,
-    thumbnail_s3_key: Option<String>,
+    /// Short-lived presigned GET URL for the generated thumbnail (null until the
+    /// row is READY). Replaces the raw `thumbnail_s3_key`, which leaked the
+    /// internal object key; the client renders this URL directly.
+    thumbnail_url: Option<String>,
     processing_error: Option<String>,
     processed_at: Option<time::OffsetDateTime>,
 }
@@ -1654,13 +1657,21 @@ where
     )
     .await?;
 
+    // Hand the client a short-lived presigned GET URL for the thumbnail instead
+    // of the raw object key (which leaked internal storage layout). Null until
+    // the row is READY and a thumbnail exists.
+    let thumbnail_url = service
+        .presigned_thumbnail_url(&media)
+        .await
+        .map_err(RestError::from_storage)?;
+
     Ok(Json(EvidenceStatusResponse {
         id: media.id,
         work_order_id: media.work_order_id,
         stage: media.stage,
         processing_status: media.processing_status,
         content_type: media.content_type,
-        thumbnail_s3_key: media.thumbnail_s3_key,
+        thumbnail_url,
         processing_error: media.processing_error,
         processed_at: media.processed_at,
     }))

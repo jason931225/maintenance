@@ -183,6 +183,15 @@ pub struct PresignedUpload {
     pub expires_in_secs: u64,
 }
 
+/// Inputs for a short-lived presigned GET URL. Used to hand the web UI a
+/// time-boxed link to a thumbnail without ever exposing the raw object key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresignGetRequest {
+    pub bucket: String,
+    pub key: String,
+    pub expires_in: StdDuration,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PutObjectResult {
     pub version_id: Option<String>,
@@ -214,6 +223,10 @@ pub struct RetentionInfo {
 
 pub trait S3ObjectStore: Send + Sync {
     fn presign_put(&self, request: PresignPutRequest) -> StorageFuture<'_, PresignedUpload>;
+
+    /// Issue a short-lived presigned GET URL (used to serve a thumbnail to the
+    /// web UI without exposing the raw object key).
+    fn presign_get(&self, request: PresignGetRequest) -> StorageFuture<'_, String>;
 
     fn copy_object(&self, request: CopyObjectRequest) -> StorageFuture<'_, ()>;
 
@@ -516,6 +529,57 @@ impl SeaweedS3Storage {
         })
     }
 
+    /// SigV4-presign a GET for `request.key`. Only `host` is signed (a GET has
+    /// no body / content headers), so the returned URL is directly fetchable by
+    /// a browser within the expiry window. Used to serve evidence thumbnails
+    /// without ever exposing the raw object key to the client.
+    fn presign_get_url(&self, request: PresignGetRequest) -> Result<String, StorageError> {
+        let expires_in_secs = request.expires_in.as_secs();
+        let mut url = self.object_url(&request.bucket, &request.key)?;
+        let host = host_header(&url)?;
+        let now = OffsetDateTime::now_utc();
+        let date = sigv4_date(now);
+        let amz_date = sigv4_timestamp(now);
+        let credential_scope = format!("{}/{}/s3/aws4_request", date, self.region);
+        let credential = format!("{}/{}", self.access_key_id, credential_scope);
+
+        let signed_header_names = "host";
+
+        {
+            let mut query = url.query_pairs_mut();
+            query.append_pair("X-Amz-Algorithm", "AWS4-HMAC-SHA256");
+            query.append_pair("X-Amz-Credential", &credential);
+            query.append_pair("X-Amz-Date", &amz_date);
+            query.append_pair("X-Amz-Expires", &expires_in_secs.to_string());
+            query.append_pair("X-Amz-SignedHeaders", signed_header_names);
+        }
+
+        let canonical_headers = format!("host:{}\n", host.trim());
+        let canonical_request = format!(
+            "GET\n{}\n{}\n{}\n{}\nUNSIGNED-PAYLOAD",
+            url.path(),
+            url.query().unwrap_or_default(),
+            canonical_headers,
+            signed_header_names
+        );
+        let string_to_sign = format!(
+            "AWS4-HMAC-SHA256\n{}\n{}\n{}",
+            amz_date,
+            credential_scope,
+            sha256_hex(canonical_request.as_bytes())
+        );
+        let signature = sigv4_signature(
+            &self.secret_access_key,
+            &date,
+            &self.region,
+            "s3",
+            &string_to_sign,
+        )?;
+        url.query_pairs_mut()
+            .append_pair("X-Amz-Signature", &signature);
+        Ok(url.to_string())
+    }
+
     fn bucket_url(&self, bucket: &str) -> Result<Url, StorageError> {
         self.path_style_url(bucket, None)
     }
@@ -604,6 +668,10 @@ impl SeaweedS3Storage {
 impl S3ObjectStore for SeaweedS3Storage {
     fn presign_put(&self, request: PresignPutRequest) -> StorageFuture<'_, PresignedUpload> {
         Box::pin(async move { self.presign_put_url(request) })
+    }
+
+    fn presign_get(&self, request: PresignGetRequest) -> StorageFuture<'_, String> {
+        Box::pin(async move { self.presign_get_url(request) })
     }
 
     fn copy_object(&self, request: CopyObjectRequest) -> StorageFuture<'_, ()> {
@@ -1095,10 +1163,40 @@ where
         processor: &P,
         job: &ProcessingJob,
     ) -> Result<String, StorageError> {
+        // FIX (LOW): defensive size check BEFORE the in-memory download. Don't
+        // trust the gateway to have honored the signed content-length: re-HEAD
+        // the staging object and reject if it exceeds the per-kind cap (or the
+        // declared row size). Caps memory the worker allocates for one job.
+        let max_bytes = job.media_kind.max_upload_bytes();
+        let declared = job.size_bytes;
+        let head = self
+            .object_store
+            .head_object(self.primary_bucket.clone(), job.staging_key.clone())
+            .await?;
+        if head.size_bytes > max_bytes {
+            return Err(StorageError::Processing(format!(
+                "staging object is {} bytes, exceeding the {:?} maximum of {} bytes",
+                head.size_bytes, job.media_kind, max_bytes
+            )));
+        }
+        if declared >= 0 && head.size_bytes > declared {
+            return Err(StorageError::Processing(format!(
+                "staging object is {} bytes, exceeding the declared upload size of {} bytes",
+                head.size_bytes, declared
+            )));
+        }
+
         let original = self
             .object_store
             .get_object(self.primary_bucket.clone(), job.staging_key.clone())
             .await?;
+
+        // FIX (MEDIUM): the declared content_type is advisory — the real bytes
+        // are authoritative. Sniff the magic number and reject anything whose
+        // detected container/codec does not match the declared media kind (or is
+        // outside the evidence allowlist) BEFORE handing it to ffmpeg.
+        validate_sniffed_kind(&original, job.media_kind)?;
+
         let processed = processor.process(job.media_kind, original).await?;
         self.object_store
             .put_object(
@@ -1216,6 +1314,28 @@ where
         media_id: EvidenceId,
     ) -> Result<EvidenceMedia, StorageError> {
         evidence_media_by_id(&self.pool, media_id).await
+    }
+
+    /// Issue a short-lived presigned GET URL for an evidence row's generated
+    /// thumbnail, served from the PRIMARY bucket. Returns `None` when the row has
+    /// no thumbnail yet (still PROCESSING / FAILED). The raw object key is never
+    /// returned to the client — only this time-boxed URL.
+    pub async fn presigned_thumbnail_url(
+        &self,
+        media: &EvidenceMedia,
+    ) -> Result<Option<String>, StorageError> {
+        let Some(key) = media.thumbnail_s3_key.as_deref() else {
+            return Ok(None);
+        };
+        let url = self
+            .object_store
+            .presign_get(PresignGetRequest {
+                bucket: self.primary_bucket.clone(),
+                key: key.to_owned(),
+                expires_in: self.presign_expires_in,
+            })
+            .await?;
+        Ok(Some(url))
     }
 
     pub async fn confirm_upload(
@@ -1671,6 +1791,46 @@ fn validate_staging_command(command: &StagingUploadCommand) -> Result<MediaKind,
 // the worker logic + status transitions can be tested with a stub.
 // ===========================================================================
 
+/// Magic-number re-validation of the downloaded staging bytes against the
+/// declared [`MediaKind`]. The declared `content_type` is advisory; these bytes
+/// are authoritative. Detects the real container via [`infer`] and rejects
+/// (a) bytes that are neither a recognized image nor a recognized video and
+/// (b) a kind mismatch (image declared but video bytes, or vice versa) so a
+/// disguised payload is never fed to the transcoder.
+///
+/// We gate on `infer`'s coarse `MatcherType` (Image vs Video) rather than the
+/// exact MIME: `infer` reports e.g. HEIC as `image/heif` (not the `image/heic`
+/// allowlist spelling), and ffmpeg ultimately re-derives the precise codec.
+/// What matters here is that an IMAGE upload is image bytes and a VIDEO upload
+/// is video bytes — anything else (PDF, audio, archive, executable, garbage) is
+/// rejected before transcoding.
+fn validate_sniffed_kind(bytes: &[u8], declared: MediaKind) -> Result<(), StorageError> {
+    use infer::MatcherType;
+
+    let detected = infer::get(bytes).ok_or_else(|| {
+        StorageError::Processing(
+            "uploaded content does not match declared type: unrecognized container".to_owned(),
+        )
+    })?;
+    let detected_kind = match detected.matcher_type() {
+        MatcherType::Image => MediaKind::Image,
+        MatcherType::Video => MediaKind::Video,
+        other => {
+            return Err(StorageError::Processing(format!(
+                "uploaded content does not match declared type: detected {:?} ({other:?}) is not an allowed evidence image/video",
+                detected.mime_type()
+            )));
+        }
+    };
+    if detected_kind != declared {
+        return Err(StorageError::Processing(format!(
+            "uploaded content does not match declared type: detected {:?} ({detected_kind:?}) but row declares {declared:?}",
+            detected.mime_type()
+        )));
+    }
+    Ok(())
+}
+
 /// Long-edge cap for both video (height) and image processing.
 pub const EVIDENCE_MAX_LONG_EDGE: u32 = 1920;
 /// Video vertical cap (1080p); paired with [`EVIDENCE_MAX_LONG_EDGE`] width.
@@ -1681,6 +1841,54 @@ pub const EVIDENCE_VIDEO_CRF: u32 = 23;
 pub const EVIDENCE_IMAGE_QUALITY: u32 = 80;
 /// ffmpeg `-q:v` scale (2 best … 31 worst) corresponding to quality ~80.
 pub const EVIDENCE_IMAGE_QSCALE: u32 = 4;
+
+/// Env var overriding the per-job ffmpeg wall-clock timeout (whole seconds). A
+/// transcode that exceeds it is KILLED and the row marked FAILED, bounding the
+/// CPU/wall-clock a single adversarial upload can consume.
+pub const FFMPEG_TIMEOUT_ENV: &str = "MNT_EVIDENCE_FFMPEG_TIMEOUT_SECS";
+/// Default per-job video transcode timeout (5 min). H.264 of a 200 MiB original
+/// at `-preset medium` is comfortably faster than this on the worker node.
+pub const FFMPEG_VIDEO_TIMEOUT_SECS: u64 = 300;
+/// Default per-job image recompress timeout (30 s). A single recompress should
+/// complete in well under a second; a longer run signals a bomb/hang.
+pub const FFMPEG_IMAGE_TIMEOUT_SECS: u64 = 30;
+
+/// Output filesize cap (ffmpeg `-fs <bytes>`) for the transcoded VIDEO. ffmpeg
+/// stops writing once the muxed output reaches this size, bounding a
+/// decompression-bomb output independently of the input size. Set to the video
+/// per-kind upload cap: a faithful 1080p/CRF-23 transcode is always far smaller,
+/// so this only ever trips on pathological inputs.
+#[must_use]
+pub const fn evidence_video_output_cap_bytes() -> i64 {
+    MediaKind::Video.max_upload_bytes()
+}
+
+/// Output filesize cap (ffmpeg `-fs <bytes>`) for the recompressed IMAGE / any
+/// generated thumbnail. A recompressed <=1920px JPEG at q~80 is well under the
+/// image upload cap, so this only trips on a decompression bomb.
+#[must_use]
+pub const fn evidence_image_output_cap_bytes() -> i64 {
+    MediaKind::Image.max_upload_bytes()
+}
+
+/// Resolve the per-job ffmpeg wall-clock timeout for `kind`, honoring
+/// [`FFMPEG_TIMEOUT_ENV`] when set to a positive integer (applied to both
+/// pipelines); otherwise the per-kind default.
+#[must_use]
+pub fn evidence_ffmpeg_timeout(kind: MediaKind) -> StdDuration {
+    if let Some(secs) = std::env::var(FFMPEG_TIMEOUT_ENV)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+    {
+        return StdDuration::from_secs(secs);
+    }
+    let default = match kind {
+        MediaKind::Image => FFMPEG_IMAGE_TIMEOUT_SECS,
+        MediaKind::Video => FFMPEG_VIDEO_TIMEOUT_SECS,
+    };
+    StdDuration::from_secs(default)
+}
 
 /// The optimized artifact a [`MediaProcessor`] produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1728,6 +1936,10 @@ pub fn ffmpeg_video_args(input: &str, output: &str) -> Vec<String> {
         "+faststart".to_owned(),
         "-map_metadata".to_owned(),
         "-1".to_owned(),
+        // Bound the muxed output so a decompression-bomb input cannot produce an
+        // unbounded artifact (ffmpeg stops writing at this size).
+        "-fs".to_owned(),
+        evidence_video_output_cap_bytes().to_string(),
         output.to_owned(),
     ]
 }
@@ -1752,6 +1964,9 @@ pub fn ffmpeg_video_thumbnail_args(input: &str, output: &str) -> Vec<String> {
         EVIDENCE_IMAGE_QSCALE.to_string(),
         "-map_metadata".to_owned(),
         "-1".to_owned(),
+        // Bound the thumbnail JPEG output against a decompression-bomb frame.
+        "-fs".to_owned(),
+        evidence_image_output_cap_bytes().to_string(),
         output.to_owned(),
     ]
 }
@@ -1774,6 +1989,9 @@ pub fn ffmpeg_image_args(input: &str, output: &str) -> Vec<String> {
         EVIDENCE_IMAGE_QSCALE.to_string(),
         "-map_metadata".to_owned(),
         "-1".to_owned(),
+        // Bound the recompressed JPEG output against a decompression-bomb input.
+        "-fs".to_owned(),
+        evidence_image_output_cap_bytes().to_string(),
         output.to_owned(),
     ]
 }
@@ -1813,17 +2031,68 @@ impl FfmpegMediaProcessor {
         }
     }
 
-    async fn run_ffmpeg(&self, args: &[String]) -> Result<(), StorageError> {
-        let output = tokio::process::Command::new(&self.ffmpeg_path)
+    /// Run ffmpeg with a per-job wall-clock `timeout`. On elapse the child is
+    /// KILLED (so it cannot keep burning CPU after we give up) and a "transcode
+    /// timed out" error is returned, which `process_job` surfaces via
+    /// `mark_failed`. Bounds the wall-clock/CPU a single adversarial upload can
+    /// consume regardless of the `-fs` output cap.
+    async fn run_ffmpeg(&self, args: &[String], timeout: StdDuration) -> Result<(), StorageError> {
+        use tokio::io::AsyncReadExt;
+
+        let mut child = tokio::process::Command::new(&self.ffmpeg_path)
             .args(args)
-            .output()
-            .await
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
             .map_err(|err| StorageError::Processing(format!("failed to spawn ffmpeg: {err}")))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+
+        // Drain stderr CONCURRENTLY with the wait. ffmpeg can emit more than a
+        // pipe buffer's worth of progress/log output on a long transcode; if we
+        // waited on the child WITHOUT draining stderr, a full pipe would block
+        // ffmpeg's writes while we block on `wait()` — a deadlock that only the
+        // timeout would break. Reading stderr to end here also avoids `kill_on_drop`
+        // racing the reaper. `child.wait()` keeps `child` owned so we can KILL it.
+        let mut stderr_pipe = child.stderr.take();
+        let drain = async {
+            let mut buf = Vec::new();
+            if let Some(pipe) = stderr_pipe.as_mut() {
+                let _ = pipe.read_to_end(&mut buf).await;
+            }
+            buf
+        };
+
+        let waited = tokio::time::timeout(timeout, async {
+            let (status, stderr) = tokio::join!(child.wait(), drain);
+            (status, stderr)
+        })
+        .await;
+
+        let (status, stderr) = match waited {
+            Ok((status, stderr)) => (
+                status.map_err(|err| {
+                    StorageError::Processing(format!("failed to wait for ffmpeg: {err}"))
+                })?,
+                stderr,
+            ),
+            Err(_elapsed) => {
+                // Wall-clock budget exhausted: KILL the child so it stops burning
+                // CPU, reap it, and surface a clear timeout error.
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+                return Err(StorageError::Processing(format!(
+                    "transcode timed out after {}s",
+                    timeout.as_secs()
+                )));
+            }
+        };
+
+        if !status.success() {
+            let stderr = String::from_utf8_lossy(&stderr);
             return Err(StorageError::Processing(format!(
                 "ffmpeg exited with {}: {}",
-                output.status,
+                status,
                 stderr.lines().last().unwrap_or("").trim()
             )));
         }
@@ -1851,19 +2120,22 @@ impl MediaProcessor for FfmpegMediaProcessor {
             let input_s = path_str(&input)?;
             let artifact_s = path_str(&artifact)?;
             let thumb_s = path_str(&thumb)?;
+            // Per-job wall-clock budget (env-overridable) applied to EACH ffmpeg
+            // invocation so neither the transcode nor the thumbnail step can hang.
+            let timeout = evidence_ffmpeg_timeout(kind);
 
             match kind {
                 MediaKind::Image => {
-                    self.run_ffmpeg(&ffmpeg_image_args(&input_s, &artifact_s))
+                    self.run_ffmpeg(&ffmpeg_image_args(&input_s, &artifact_s), timeout)
                         .await?;
                     // The recompressed JPEG doubles as the thumbnail source.
-                    self.run_ffmpeg(&ffmpeg_image_args(&artifact_s, &thumb_s))
+                    self.run_ffmpeg(&ffmpeg_image_args(&artifact_s, &thumb_s), timeout)
                         .await?;
                 }
                 MediaKind::Video => {
-                    self.run_ffmpeg(&ffmpeg_video_args(&input_s, &artifact_s))
+                    self.run_ffmpeg(&ffmpeg_video_args(&input_s, &artifact_s), timeout)
                         .await?;
-                    self.run_ffmpeg(&ffmpeg_video_thumbnail_args(&input_s, &thumb_s))
+                    self.run_ffmpeg(&ffmpeg_video_thumbnail_args(&input_s, &thumb_s), timeout)
                         .await?;
                 }
             }
@@ -2339,6 +2611,15 @@ mod tests {
                     headers: vec![("content-type".to_owned(), request.content_type)],
                     expires_in_secs: request.expires_in.as_secs(),
                 })
+            })
+        }
+
+        fn presign_get(&self, request: PresignGetRequest) -> StorageFuture<'_, String> {
+            Box::pin(async move {
+                Ok(format!(
+                    "http://storage.local/{}/{}?X-Amz-Signature=test",
+                    request.bucket, request.key
+                ))
             })
         }
 
@@ -2906,6 +3187,11 @@ mod tests {
         assert!(args.windows(2).any(|w| w == ["-movflags", "+faststart"]));
         // STRIP all metadata/EXIF/GPS (PII).
         assert!(args.windows(2).any(|w| w == ["-map_metadata", "-1"]));
+        // Output filesize cap bounds a decompression-bomb output (video cap).
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "-fs" && w[1] == MediaKind::Video.max_upload_bytes().to_string())
+        );
         assert_eq!(args.last().unwrap(), "/out.mp4");
     }
 
@@ -2919,6 +3205,55 @@ mod tests {
         assert!(args.windows(2).any(|w| w == ["-q:v", "4"]));
         // STRIP metadata.
         assert!(args.windows(2).any(|w| w == ["-map_metadata", "-1"]));
+        // Output filesize cap bounds a decompression-bomb output (image cap).
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "-fs" && w[1] == MediaKind::Image.max_upload_bytes().to_string())
+        );
+        assert_eq!(args.last().unwrap(), "/out.jpg");
+    }
+
+    #[test]
+    fn ffmpeg_video_thumbnail_args_carry_output_filesize_cap() {
+        let args = ffmpeg_video_thumbnail_args("/in", "/thumb.jpg");
+        // The poster-frame JPEG is bounded by the image output cap.
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "-fs" && w[1] == MediaKind::Image.max_upload_bytes().to_string())
+        );
+        assert!(args.windows(2).any(|w| w == ["-map_metadata", "-1"]));
+        assert_eq!(args.last().unwrap(), "/thumb.jpg");
+    }
+
+    #[test]
+    fn ffmpeg_timeout_defaults_per_kind() {
+        // With no env override, the per-kind defaults apply (video gets the
+        // generous 5 min budget; image the tight 30 s one). The env-override
+        // branch is intentionally not exercised here: mutating process env races
+        // with other parallel tests, and this is the value the worker uses.
+        if std::env::var(FFMPEG_TIMEOUT_ENV).is_err() {
+            assert_eq!(
+                evidence_ffmpeg_timeout(MediaKind::Video),
+                StdDuration::from_secs(FFMPEG_VIDEO_TIMEOUT_SECS)
+            );
+            assert_eq!(
+                evidence_ffmpeg_timeout(MediaKind::Image),
+                StdDuration::from_secs(FFMPEG_IMAGE_TIMEOUT_SECS)
+            );
+        }
+    }
+
+    #[test]
+    fn validate_sniffed_kind_accepts_matching_and_rejects_mismatch_and_garbage() {
+        // A real QuickTime header passes for the declared VIDEO kind.
+        let qt = quicktime_magic_bytes();
+        assert!(validate_sniffed_kind(&qt, MediaKind::Video).is_ok());
+        // ...but the SAME video bytes declared as an IMAGE are rejected.
+        let err = validate_sniffed_kind(&qt, MediaKind::Image).unwrap_err();
+        assert!(err.to_string().contains("does not match declared type"));
+        // Unrecognizable/garbage bytes are rejected for any declared kind.
+        let err = validate_sniffed_kind(b"raw-original", MediaKind::Image).unwrap_err();
+        assert!(err.to_string().contains("does not match declared type"));
     }
 
     // ===================================================================
@@ -2927,11 +3262,30 @@ mod tests {
     // ffmpeg is never invoked.
     // ===================================================================
 
+    /// Minimal but `infer`-recognizable QuickTime (`video/quicktime`) header: a
+    /// 0x14-byte `ftyp` box with the `qt  ` major brand. Lets the processing
+    /// tests exercise the post-download content re-validation with bytes that
+    /// pass the magic-number sniff for the declared VIDEO kind.
+    fn quicktime_magic_bytes() -> Vec<u8> {
+        vec![
+            0x00, 0x00, 0x00, 0x14, // box size = 20
+            0x66, 0x74, 0x79, 0x70, // "ftyp"
+            0x71, 0x74, 0x20, 0x20, // major brand "qt  "
+            0x00, 0x00, 0x00, 0x00, // minor version
+            0x71, 0x74, 0x20, 0x20, // compatible brand "qt  "
+        ]
+    }
+
     #[derive(Debug, Clone, Default)]
     struct RecordingStore {
         puts: Arc<Mutex<Vec<String>>>,
         deletes: Arc<Mutex<Vec<String>>>,
         fail_get: bool,
+        /// Bytes `get_object` returns for the staging download. `None` yields a
+        /// valid QuickTime header so the content re-validation passes.
+        staging_bytes: Option<Vec<u8>>,
+        /// `size_bytes` the `head_object` stub reports (defaults to 1).
+        head_size_bytes: Option<i64>,
     }
 
     impl S3ObjectStore for RecordingStore {
@@ -2945,13 +3299,22 @@ mod tests {
                 })
             })
         }
+        fn presign_get(&self, request: PresignGetRequest) -> StorageFuture<'_, String> {
+            Box::pin(async move {
+                Ok(format!(
+                    "http://storage.local/{}/{}?X-Amz-Signature=test",
+                    request.bucket, request.key
+                ))
+            })
+        }
         fn copy_object(&self, _request: CopyObjectRequest) -> StorageFuture<'_, ()> {
             Box::pin(async { Ok(()) })
         }
         fn head_object(&self, _bucket: String, _key: String) -> StorageFuture<'_, ObjectHead> {
-            Box::pin(async {
+            let size_bytes = self.head_size_bytes.unwrap_or(1);
+            Box::pin(async move {
                 Ok(ObjectHead {
-                    size_bytes: 1,
+                    size_bytes,
                     e_tag: None,
                     checksum_sha256: None,
                     object_lock_mode: None,
@@ -2973,11 +3336,15 @@ mod tests {
         }
         fn get_object(&self, _bucket: String, key: String) -> StorageFuture<'_, Vec<u8>> {
             let fail = self.fail_get;
+            let bytes = self
+                .staging_bytes
+                .clone()
+                .unwrap_or_else(quicktime_magic_bytes);
             Box::pin(async move {
                 if fail {
                     Err(StorageError::S3(format!("missing staging object {key}")))
                 } else {
-                    Ok(b"raw-original".to_vec())
+                    Ok(bytes)
                 }
             })
         }
@@ -3087,6 +3454,13 @@ mod tests {
             assert!(media.staging_s3_key.is_none());
             assert!(media.processed_at.is_some());
 
+            // FIX (LOW): the status response serves a presigned GET URL for the
+            // thumbnail, never the raw object key. The URL is time-boxed (signed).
+            let thumb_url = service.presigned_thumbnail_url(&media).await.unwrap();
+            let thumb_url = thumb_url.expect("READY row has a thumbnail URL");
+            assert!(thumb_url.contains("X-Amz-Signature"));
+            assert!(thumb_url.contains(media.thumbnail_s3_key.as_deref().unwrap()));
+
             // Final artifact + thumbnail were uploaded under the tenant prefix,
             // and the staging original was deleted.
             let puts = store.puts.lock().unwrap().clone();
@@ -3148,6 +3522,128 @@ mod tests {
             // Staging original is RETAINED on failure for retry.
             assert!(media.staging_s3_key.is_some());
             assert!(store.deletes.lock().unwrap().is_empty());
+        })
+        .await;
+    }
+
+    #[sqlx::test(migrations = "../db/migrations")]
+    async fn process_rejects_content_type_mismatch_before_transcode(pool: PgPool) {
+        mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+            let seeded = seed_work_order(&pool).await;
+            // Declared an IMAGE, but the staging bytes are a QuickTime VIDEO: the
+            // post-download magic-number re-validation must reject this and mark
+            // the row FAILED WITHOUT invoking the transcoder.
+            let store = RecordingStore {
+                staging_bytes: Some(quicktime_magic_bytes()),
+                ..Default::default()
+            };
+            let service = EvidenceService::new(
+                pool.clone(),
+                store.clone(),
+                "primary".to_owned(),
+                "replica".to_owned(),
+            );
+
+            let ticket = service
+                .issue_staging_upload(StagingUploadCommand {
+                    actor: seeded.uploaded_by,
+                    work_order_id: seeded.work_order_id,
+                    stage: AttachmentStage::Before,
+                    content_type: "image/jpeg".to_owned(),
+                    size_bytes: 1024,
+                    checksum_sha256: None,
+                    trace: TraceContext::generate(),
+                    occurred_at: OffsetDateTime::now_utc(),
+                })
+                .await
+                .unwrap();
+            assert_eq!(ticket.media_kind, MediaKind::Image);
+
+            let job = service.claim_processing_job().await.unwrap().unwrap();
+            let status = service
+                .process_job(
+                    &StubProcessor,
+                    &job,
+                    TraceContext::generate(),
+                    OffsetDateTime::now_utc(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(status, ProcessingStatus::Failed);
+
+            let media = service.evidence_media(ticket.media.id).await.unwrap();
+            assert_eq!(media.processing_status, ProcessingStatus::Failed);
+            assert!(
+                media
+                    .processing_error
+                    .as_deref()
+                    .unwrap()
+                    .contains("does not match declared type")
+            );
+            // No artifact/thumbnail was ever uploaded and the staging original is
+            // retained: the transcode never ran.
+            assert!(store.puts.lock().unwrap().is_empty());
+            assert!(media.staging_s3_key.is_some());
+            assert!(store.deletes.lock().unwrap().is_empty());
+        })
+        .await;
+    }
+
+    #[sqlx::test(migrations = "../db/migrations")]
+    async fn process_rejects_staging_object_over_size_cap(pool: PgPool) {
+        mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+            let seeded = seed_work_order(&pool).await;
+            // The gateway "lied": the actual staging object HEADs larger than the
+            // per-kind image cap. The defensive size check must reject it before
+            // the in-memory download and mark the row FAILED.
+            let store = RecordingStore {
+                head_size_bytes: Some(MediaKind::Image.max_upload_bytes() + 1),
+                ..Default::default()
+            };
+            let service = EvidenceService::new(
+                pool.clone(),
+                store.clone(),
+                "primary".to_owned(),
+                "replica".to_owned(),
+            );
+
+            let ticket = service
+                .issue_staging_upload(StagingUploadCommand {
+                    actor: seeded.uploaded_by,
+                    work_order_id: seeded.work_order_id,
+                    stage: AttachmentStage::Before,
+                    content_type: "image/jpeg".to_owned(),
+                    size_bytes: 1024,
+                    checksum_sha256: None,
+                    trace: TraceContext::generate(),
+                    occurred_at: OffsetDateTime::now_utc(),
+                })
+                .await
+                .unwrap();
+
+            let job = service.claim_processing_job().await.unwrap().unwrap();
+            let status = service
+                .process_job(
+                    &StubProcessor,
+                    &job,
+                    TraceContext::generate(),
+                    OffsetDateTime::now_utc(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(status, ProcessingStatus::Failed);
+
+            let media = service.evidence_media(ticket.media.id).await.unwrap();
+            assert_eq!(media.processing_status, ProcessingStatus::Failed);
+            assert!(
+                media
+                    .processing_error
+                    .as_deref()
+                    .unwrap()
+                    .contains("exceeding")
+            );
+            assert!(store.puts.lock().unwrap().is_empty());
+            assert!(media.staging_s3_key.is_some());
         })
         .await;
     }

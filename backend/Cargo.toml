@@ -65,6 +65,11 @@ apalis-postgres = { version = "=1.0.0-rc.8" }
 apalis-sql = { version = "=1.0.0-rc.9" }
 # Version verified live against crates.io 2026-06-12: calamine 0.35.0
 calamine = { version = "0.35.0", features = ["dates"] }
+# Magic-number file-type sniffing for evidence content re-validation (the
+# downloaded staging bytes are authoritative; the declared content_type is
+# advisory). Pure-Rust, no extra runtime binary. Version verified live against
+# crates.io 2026-06-23: infer 0.19.0.
+infer = { version = "0.19.0", default-features = false, features = ["std"] }
 # Versions verified live against crates.io 2026-06-12:
 # axum 0.8.9, tower-http 0.7.0, tower 0.5.3, http 1.4.2,
 # tracing 0.1.44, tracing-subscriber 0.3.23,

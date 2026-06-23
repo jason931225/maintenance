@@ -2950,7 +2950,11 @@ export interface components {
             stage: components["schemas"]["AttachmentStage"];
             processing_status: components["schemas"]["ProcessingStatus"];
             content_type: string;
-            thumbnail_s3_key?: string;
+            /**
+             * Format: uri
+             * @description Short-lived presigned GET URL for the generated thumbnail (absent until the row is READY). Replaces the previous thumbnail_s3_key, which exposed the internal object key; clients render this URL directly.
+             */
+            thumbnail_url?: string;
             processing_error?: string;
             processed_at?: components["schemas"]["Timestamp"];
         };

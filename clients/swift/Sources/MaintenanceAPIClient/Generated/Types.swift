@@ -5274,8 +5274,10 @@ public enum Components {
             public var processingStatus: Components.Schemas.ProcessingStatus
             /// - Remark: Generated from `#/components/schemas/EvidenceStatusResponse/content_type`.
             public var contentType: Swift.String
-            /// - Remark: Generated from `#/components/schemas/EvidenceStatusResponse/thumbnail_s3_key`.
-            public var thumbnailS3Key: Swift.String?
+            /// Short-lived presigned GET URL for the generated thumbnail (absent until the row is READY). Replaces the previous thumbnail_s3_key, which exposed the internal object key; clients render this URL directly.
+            ///
+            /// - Remark: Generated from `#/components/schemas/EvidenceStatusResponse/thumbnail_url`.
+            public var thumbnailUrl: Swift.String?
             /// - Remark: Generated from `#/components/schemas/EvidenceStatusResponse/processing_error`.
             public var processingError: Swift.String?
             /// - Remark: Generated from `#/components/schemas/EvidenceStatusResponse/processed_at`.
@@ -5288,7 +5290,7 @@ public enum Components {
             ///   - stage:
             ///   - processingStatus:
             ///   - contentType:
-            ///   - thumbnailS3Key:
+            ///   - thumbnailUrl: Short-lived presigned GET URL for the generated thumbnail (absent until the row is READY). Replaces the previous thumbnail_s3_key, which exposed the internal object key; clients render this URL directly.
             ///   - processingError:
             ///   - processedAt:
             public init(
@@ -5297,7 +5299,7 @@ public enum Components {
                 stage: Components.Schemas.AttachmentStage,
                 processingStatus: Components.Schemas.ProcessingStatus,
                 contentType: Swift.String,
-                thumbnailS3Key: Swift.String? = nil,
+                thumbnailUrl: Swift.String? = nil,
                 processingError: Swift.String? = nil,
                 processedAt: Components.Schemas.Timestamp? = nil
             ) {
@@ -5306,7 +5308,7 @@ public enum Components {
                 self.stage = stage
                 self.processingStatus = processingStatus
                 self.contentType = contentType
-                self.thumbnailS3Key = thumbnailS3Key
+                self.thumbnailUrl = thumbnailUrl
                 self.processingError = processingError
                 self.processedAt = processedAt
             }
@@ -5316,7 +5318,7 @@ public enum Components {
                 case stage
                 case processingStatus = "processing_status"
                 case contentType = "content_type"
-                case thumbnailS3Key = "thumbnail_s3_key"
+                case thumbnailUrl = "thumbnail_url"
                 case processingError = "processing_error"
                 case processedAt = "processed_at"
             }
