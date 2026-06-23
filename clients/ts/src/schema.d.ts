@@ -2070,6 +2070,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/storefront/listings/{id}/media/{media_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Serve one public sales-listing photo (#6)
+         * @description Public, unauthenticated serve of one listing photo's bytes, streamed from the object store. The media must belong to the listing and the listing must be storefront-visible (published/reserved); otherwise 404. The response body is the raw image with its stored content type.
+         */
+        get: operations["storefrontGetListingMedia"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/storefront/inquiries": {
         parameters: {
             query?: never;
@@ -3541,6 +3561,11 @@ export interface components {
          */
         ListingKind: "ELECTRIC" | "DIESEL" | "LPG" | "REACH";
         /**
+         * @description Whether a listed unit is used (중고) or brand-new (신차).
+         * @enum {string}
+         */
+        ListingCondition: "USED" | "NEW";
+        /**
          * @description Whether a listing is offered for sale, rental, or both.
          * @enum {string}
          */
@@ -3563,6 +3588,7 @@ export interface components {
         /** @description One photo attached to a sales listing. */
         ListingMediaView: {
             id: string;
+            url: string;
             content_type: string;
             alt_text: string | null;
             /** Format: int32 */
@@ -3573,6 +3599,7 @@ export interface components {
             id: components["schemas"]["Uuid"];
             equipment_id: components["schemas"]["Uuid"] | null;
             kind: components["schemas"]["ListingKind"];
+            condition: components["schemas"]["ListingCondition"];
             model_name: string;
             /** Format: int64 */
             capacity_milli: number | null;
@@ -3642,6 +3669,7 @@ export interface components {
         /** @description Full editable field set for creating a sales listing. */
         CreateListingRequest: {
             kind: components["schemas"]["ListingKind"];
+            condition: components["schemas"]["ListingCondition"];
             model_name: string;
             /** Format: int64 */
             capacity_milli?: number | null;
@@ -3666,6 +3694,7 @@ export interface components {
         /** @description Partial update. Absent keys are left unchanged; nullable keys explicitly set to null clear the column. At least one field must be supplied. */
         UpdateListingRequest: {
             kind?: components["schemas"]["ListingKind"];
+            condition?: components["schemas"]["ListingCondition"];
             model_name?: string;
             /** Format: int64 */
             capacity_milli?: number | null;
@@ -6865,6 +6894,7 @@ export interface operations {
         parameters: {
             query?: {
                 kind?: components["schemas"]["ListingKind"];
+                condition?: components["schemas"]["ListingCondition"];
                 listing_type?: components["schemas"]["ListingType"];
                 limit?: number;
                 offset?: number;
@@ -6909,6 +6939,30 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    storefrontGetListingMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+                media_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The listing photo bytes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/*": string;
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
     submitInquiry: {
         parameters: {
             query?: never;
@@ -6938,6 +6992,7 @@ export interface operations {
         parameters: {
             query?: {
                 kind?: components["schemas"]["ListingKind"];
+                condition?: components["schemas"]["ListingCondition"];
                 listing_type?: components["schemas"]["ListingType"];
                 limit?: number;
                 offset?: number;

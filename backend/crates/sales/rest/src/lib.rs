@@ -30,13 +30,16 @@ use mnt_kernel_core::{
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
+use mnt_platform_storage::SeaweedS3Storage;
 use mnt_sales_adapter_postgres::{PgSalesError, PgSalesStore};
 use mnt_sales_application::{
     CatalogQuery, CreateListingCommand, CustomerInquiryPage, DeleteListingCommand,
     InquiryInboxQuery, ListingInput, SalesListingPage, SalesListingView, SubmitInquiryCommand,
     UpdateInquiryStatusCommand, UpdateListingCommand, UpdateListingFields,
 };
-use mnt_sales_domain::{InquiryStatus, InquiryTopic, ListingKind, ListingStatus, ListingType};
+use mnt_sales_domain::{
+    InquiryStatus, InquiryTopic, ListingCondition, ListingKind, ListingStatus, ListingType,
+};
 use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
 
@@ -46,6 +49,8 @@ use time::{Duration, OffsetDateTime};
 
 pub const STOREFRONT_LISTINGS_PATH: &str = "/api/v1/storefront/listings";
 pub const STOREFRONT_LISTING_PATH_TEMPLATE: &str = "/api/v1/storefront/listings/{id}";
+pub const STOREFRONT_LISTING_MEDIA_PATH_TEMPLATE: &str =
+    "/api/v1/storefront/listings/{id}/media/{media_id}";
 pub const STOREFRONT_INQUIRIES_PATH: &str = "/api/v1/storefront/inquiries";
 pub const SALES_LISTINGS_PATH: &str = "/api/v1/sales/listings";
 pub const SALES_LISTING_PATH_TEMPLATE: &str = "/api/v1/sales/listings/{id}";
@@ -54,6 +59,7 @@ pub const SALES_INQUIRY_PATH_TEMPLATE: &str = "/api/v1/sales/inquiries/{id}";
 pub const SALES_ROUTE_PATHS: &[&str] = &[
     STOREFRONT_LISTINGS_PATH,
     STOREFRONT_LISTING_PATH_TEMPLATE,
+    STOREFRONT_LISTING_MEDIA_PATH_TEMPLATE,
     STOREFRONT_INQUIRIES_PATH,
     SALES_LISTINGS_PATH,
     SALES_LISTING_PATH_TEMPLATE,
@@ -109,11 +115,23 @@ const RATE_LIMIT_ENDPOINT: &str = "sales_inquiry";
 pub struct SalesRestState {
     store: PgSalesStore,
     jwt_verifier: Option<JwtVerifier>,
+    /// Object store + bucket backing the public storefront media-serve route.
+    /// `None` when S3 storage is unconfigured (e.g. a DB-only test app): the
+    /// media route then 404s rather than serving, exactly as the listing URL is
+    /// still emitted but resolves to a missing object.
+    media_storage: Option<MediaStorage>,
     /// Number of trusted reverse proxies in front of this service. Drives the
     /// `X-Forwarded-For` client-IP derivation in the inquiry rate limiter: the
     /// real client is the Nth-from-the-right XFF entry. Clamped to at least 1 so
     /// the spoofable left-most entry is never blindly trusted.
     trusted_proxy_count: usize,
+}
+
+/// Object store handle + bucket for the storefront media-serve route.
+#[derive(Clone)]
+struct MediaStorage {
+    storage: SeaweedS3Storage,
+    bucket: String,
 }
 
 impl SalesRestState {
@@ -125,6 +143,7 @@ impl SalesRestState {
         Self {
             store,
             jwt_verifier,
+            media_storage: None,
             trusted_proxy_count: 1,
         }
     }
@@ -134,6 +153,15 @@ impl SalesRestState {
     #[must_use]
     pub fn with_trusted_proxy_count(mut self, trusted_proxy_count: usize) -> Self {
         self.trusted_proxy_count = trusted_proxy_count.max(1);
+        self
+    }
+
+    /// Wire the object store + bucket that backs the public storefront
+    /// media-serve route. Without it the route 404s (the storefront then renders
+    /// its neutral fallback image client-side).
+    #[must_use]
+    pub fn with_media_storage(mut self, storage: SeaweedS3Storage, bucket: String) -> Self {
+        self.media_storage = Some(MediaStorage { storage, bucket });
         self
     }
 }
@@ -162,6 +190,10 @@ pub fn router(state: SalesRestState) -> Router {
             STOREFRONT_LISTING_PATH_TEMPLATE,
             get(storefront_get_listing),
         )
+        .route(
+            STOREFRONT_LISTING_MEDIA_PATH_TEMPLATE,
+            get(storefront_get_listing_media),
+        )
         .route(STOREFRONT_INQUIRIES_PATH, post(submit_inquiry))
         .with_state(state)
         .layer(axum::middleware::from_fn(
@@ -180,6 +212,7 @@ pub fn router(state: SalesRestState) -> Router {
 #[derive(Debug, Deserialize)]
 struct CatalogFilter {
     kind: Option<ListingKind>,
+    condition: Option<ListingCondition>,
     listing_type: Option<ListingType>,
     limit: Option<i64>,
     offset: Option<i64>,
@@ -208,6 +241,7 @@ struct SubmitInquiryRequest {
 #[derive(Debug, Deserialize)]
 struct CreateListingRequest {
     kind: ListingKind,
+    condition: ListingCondition,
     model_name: String,
     #[serde(default)]
     capacity_milli: Option<i64>,
@@ -240,6 +274,8 @@ struct CreateListingRequest {
 struct UpdateListingRequest {
     #[serde(default)]
     kind: Option<ListingKind>,
+    #[serde(default)]
+    condition: Option<ListingCondition>,
     #[serde(default)]
     model_name: Option<String>,
     #[serde(default, deserialize_with = "double_option")]
@@ -337,6 +373,47 @@ async fn storefront_get_listing(
         .map_err(RestError::from_store)?
         .ok_or_else(|| RestError::from_kernel(KernelError::not_found("listing was not found")))?;
     Ok(Json(listing))
+}
+
+/// GET /api/v1/storefront/listings/{id}/media/{media_id} — stream one public
+/// listing photo's bytes from the object store. The store query re-checks that
+/// the media belongs to the listing AND the listing is storefront-visible
+/// (RLS-armed), so a draft/foreign id 404s rather than leaking bytes. Returns
+/// 404 when storage is unconfigured or the object is missing.
+async fn storefront_get_listing_media(
+    State(state): State<SalesRestState>,
+    Path((listing_id, media_id)): Path<(SalesListingId, uuid::Uuid)>,
+) -> Result<Response, RestError> {
+    let Some(media_storage) = state.media_storage.as_ref() else {
+        return Err(RestError::from_kernel(KernelError::not_found(
+            "listing media was not found",
+        )));
+    };
+    let Some((s3_key, content_type)) = state
+        .store
+        .public_media_object(listing_id, media_id)
+        .await
+        .map_err(RestError::from_store)?
+    else {
+        return Err(RestError::from_kernel(KernelError::not_found(
+            "listing media was not found",
+        )));
+    };
+    let (bytes, stored_content_type) = media_storage
+        .storage
+        .get_bytes(&media_storage.bucket, &s3_key)
+        .await
+        .map_err(|_| RestError::internal("listing media could not be served"))?;
+    let content_type = stored_content_type.unwrap_or(content_type);
+    Ok((
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::CACHE_CONTROL, "public, max-age=3600".to_owned()),
+        ],
+        bytes,
+    )
+        .into_response())
 }
 
 /// POST /api/v1/storefront/inquiries — public lead intake. Generic validation
@@ -447,6 +524,7 @@ async fn create(
     let listing_id = SalesListingId::new();
     let input = ListingInput {
         kind: body.kind,
+        condition: body.condition,
         model_name: body.model_name,
         capacity_milli: body.capacity_milli,
         model_year: body.model_year,
@@ -493,6 +571,7 @@ async fn update(
 
     let fields = UpdateListingFields {
         kind: body.kind,
+        condition: body.condition,
         model_name: body.model_name,
         capacity_milli: body.capacity_milli,
         model_year: body.model_year,
@@ -594,6 +673,7 @@ async fn update_inquiry_status(
 fn catalog_query(filter: CatalogFilter, include_non_public: bool) -> CatalogQuery {
     CatalogQuery {
         kind: filter.kind,
+        condition: filter.condition,
         listing_type: filter.listing_type,
         include_non_public,
         limit: filter

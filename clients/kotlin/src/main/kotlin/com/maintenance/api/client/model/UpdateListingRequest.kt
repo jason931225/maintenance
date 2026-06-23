@@ -23,6 +23,7 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.ListingCondition
 import com.maintenance.api.client.model.ListingKind
 import com.maintenance.api.client.model.ListingStatus
 import com.maintenance.api.client.model.ListingType
@@ -35,6 +36,7 @@ import kotlinx.serialization.Contextual
  * Partial update. Absent keys are left unchanged; nullable keys explicitly set to null clear the column. At least one field must be supplied.
  *
  * @param kind
+ * @param condition
  * @param modelName
  * @param capacityMilli
  * @param modelYear
@@ -57,6 +59,9 @@ data class UpdateListingRequest (
 
     @Contextual @SerialName(value = "kind")
     val kind: ListingKind? = null,
+
+    @Contextual @SerialName(value = "condition")
+    val condition: ListingCondition? = null,
 
     @SerialName(value = "model_name")
     val modelName: kotlin.String? = null,

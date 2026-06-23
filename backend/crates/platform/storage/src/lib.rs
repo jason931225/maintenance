@@ -296,6 +296,29 @@ impl SeaweedS3Storage {
         ensure_success("put object retention", response).await
     }
 
+    /// Fetch an object's bytes and content type. Used by the public storefront
+    /// media-serve route to stream a listing photo straight from the object
+    /// store (the bytes are public-by-design product photography, gated upstream
+    /// by the listing's storefront visibility).
+    pub async fn get_bytes(
+        &self,
+        bucket: &str,
+        key: &str,
+    ) -> Result<(Vec<u8>, Option<String>), StorageError> {
+        let response = self
+            .client
+            .get(self.object_url(bucket, key)?)
+            .send()
+            .await
+            .map_err(reqwest_error)?;
+        if !response.status().is_success() {
+            return Err(s3_response_error("get object", response).await);
+        }
+        let content_type = header_string(response.headers(), "content-type");
+        let bytes = response.bytes().await.map_err(reqwest_error)?;
+        Ok((bytes.to_vec(), content_type))
+    }
+
     pub async fn delete_object(&self, bucket: &str, key: &str) -> Result<(), StorageError> {
         let response = self
             .client

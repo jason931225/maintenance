@@ -5,7 +5,11 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
 import { cn } from "../lib/utils";
-import type { ListingKind, SalesListingView } from "../api/types";
+import type {
+  ListingCondition,
+  ListingKind,
+  SalesListingView,
+} from "../api/types";
 
 /**
  * Used-sales catalog page (#6 KNL). Routed child of PublicLayout — returns only
@@ -14,6 +18,18 @@ import type { ListingKind, SalesListingView } from "../api/types";
  * that deep-links into the online intake (/support/new?listing={id}&topic=USED_SALES).
  * All copy comes from ko.storefront.used.*.
  */
+
+// Used/new sub-category tabs for the Sales category split.
+// `condition: null` is the "all" tab; drives the storefront `condition` filter.
+const CONDITIONS: ReadonlyArray<{
+  key: string;
+  label: string;
+  condition: ListingCondition | null;
+}> = [
+  { key: "all", label: ko.storefront.used.filters.all, condition: null },
+  { key: "used", label: ko.storefront.used.conditions.used, condition: "USED" },
+  { key: "new", label: ko.storefront.used.conditions.new, condition: "NEW" },
+];
 
 // Kind filter buttons. `kind: null` is the "all" filter (no query filter). The
 // other map to the static site's electric / diesel / lpg / reach-truck filters.
@@ -28,20 +44,10 @@ const FILTERS: ReadonlyArray<{ key: string; label: string; kind: ListingKind | n
 // Online intake deep-link with the topic preselected (the dominant CTA target).
 const INTAKE_USED = "/support/new?topic=USED_SALES";
 
-// The static site fell back to asset-17..20 photography for every card. We have
-// no media-serving endpoint (ListingMediaView carries no URL — only id /
-// content_type / alt_text / sort_order), so cards always render a deterministic
-// placeholder keyed by listing index to vary the grid.
-const PLACEHOLDER_IMAGES = [
-  "/sales/asset-17.jpg",
-  "/sales/asset-18.jpg",
-  "/sales/asset-19.jpg",
-  "/sales/asset-20.jpg",
-] as const;
-
-function placeholderFor(index: number): string {
-  return PLACEHOLDER_IMAGES[index % PLACEHOLDER_IMAGES.length];
-}
+// Single neutral fallback shown ONLY when a listing genuinely has no photo of
+// its own. Real listing photos are served per-media from the object store via
+// each media row's `url`.
+const FALLBACK_IMAGE = "/sales/asset-06.jpg";
 
 // capacity_milli is the load capacity in milli-tons (2.5 t = 2500). To a human
 // tonnage value: capacity_milli / 1_000 → tonnes. Trim trailing ".0".
@@ -67,12 +73,15 @@ type LoadState = "loading" | "ready" | "error";
 
 export default function UsedSalesPage() {
   const { api } = useAuth();
+  const [activeCondition, setActiveCondition] = useState<string>("all");
   const [activeFilter, setActiveFilter] = useState<string>("all");
   const [listings, setListings] = useState<SalesListingView[]>([]);
   const [state, setState] = useState<LoadState>("loading");
 
   const load = useCallback(
-    async (filterKey: string) => {
+    async (conditionKey: string, filterKey: string) => {
+      const condition =
+        CONDITIONS.find((c) => c.key === conditionKey) ?? CONDITIONS[0];
       const filter = FILTERS.find((f) => f.key === filterKey) ?? FILTERS[0];
       setState("loading");
       const { data } = await api
@@ -80,6 +89,7 @@ export default function UsedSalesPage() {
           params: {
             query: {
               limit: 24,
+              ...(condition.condition ? { condition: condition.condition } : {}),
               ...(filter.kind ? { kind: filter.kind } : {}),
             },
           },
@@ -97,8 +107,8 @@ export default function UsedSalesPage() {
   );
 
   useEffect(() => {
-    void Promise.resolve().then(() => load(activeFilter));
-  }, [load, activeFilter]);
+    void Promise.resolve().then(() => load(activeCondition, activeFilter));
+  }, [load, activeCondition, activeFilter]);
 
   // Keep the grid mounted on refetch — dim it rather than blanking to a spinner.
   const refetching = state === "loading" && listings.length > 0;
@@ -172,11 +182,40 @@ export default function UsedSalesPage() {
             </p>
           </div>
 
+          {/* Used/new sub-category tabs (the Sales category split). */}
+          <div
+            role="group"
+            aria-label={ko.storefront.used.conditions.aria}
+            className="mt-8 flex flex-wrap gap-2"
+          >
+            {CONDITIONS.map((condition) => {
+              const isActive = condition.key === activeCondition;
+              return (
+                <button
+                  key={condition.key}
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() => {
+                    setActiveCondition(condition.key);
+                  }}
+                  className={cn(
+                    "min-h-[44px] rounded-full border px-5 text-sm font-black transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-teal",
+                    isActive
+                      ? "border-brand-teal bg-brand-teal text-white"
+                      : "border-line bg-white text-steel hover:border-brand-teal hover:text-brand-teal",
+                  )}
+                >
+                  {condition.label}
+                </button>
+              );
+            })}
+          </div>
+
           {/* Kind filter buttons (plain button group with aria-pressed). */}
           <div
             role="group"
             aria-label={ko.storefront.used.filters.aria}
-            className="mt-8 flex flex-wrap gap-2"
+            className="mt-4 flex flex-wrap gap-2"
           >
             {FILTERS.map((filter) => {
               const isActive = filter.key === activeFilter;
@@ -231,7 +270,7 @@ export default function UsedSalesPage() {
               </p>
               <button
                 type="button"
-                onClick={() => void load(activeFilter)}
+                onClick={() => void load(activeCondition, activeFilter)}
                 className={SECONDARY_BTN}
               >
                 <RotateCw aria-hidden="true" size={16} />
@@ -243,7 +282,11 @@ export default function UsedSalesPage() {
           {state === "ready" && listings.length === 0 ? (
             <div className="mt-12 flex flex-col items-center gap-3 rounded-xl border border-line bg-white py-16 text-center">
               <h3 className="text-lg font-extrabold text-ink">
-                {ko.storefront.used.empty.title}
+                {activeCondition === "used"
+                  ? ko.storefront.used.empty.usedTitle
+                  : activeCondition === "new"
+                    ? ko.storefront.used.empty.newTitle
+                    : ko.storefront.used.empty.title}
               </h3>
               <p className="max-w-md text-[15px] leading-[1.7] text-steel">
                 {ko.storefront.used.empty.copy}
@@ -263,8 +306,8 @@ export default function UsedSalesPage() {
               )}
               aria-busy={refetching}
             >
-              {listings.map((listing, index) => (
-                <EquipmentCard key={listing.id} listing={listing} index={index} />
+              {listings.map((listing) => (
+                <EquipmentCard key={listing.id} listing={listing} />
               ))}
             </div>
           ) : null}
@@ -346,15 +389,14 @@ export default function UsedSalesPage() {
 }
 
 /** A single inventory card: image, badge, model, spec rows, and an inquiry CTA. */
-function EquipmentCard({
-  listing,
-  index,
-}: {
-  listing: SalesListingView;
-  index: number;
-}) {
+function EquipmentCard({ listing }: { listing: SalesListingView }) {
   const cardCopy = ko.storefront.used.card;
-  const imageAlt = listing.media[0]?.alt_text ?? listing.model_name;
+  // Render the listing's OWN first photo when it has one; a single neutral
+  // fallback otherwise (never a fabricated stock-photo grid). `media` may be
+  // empty, so guard the first element rather than index it unconditionally.
+  const primaryMedia = listing.media.length > 0 ? listing.media[0] : null;
+  const imageSrc = primaryMedia ? primaryMedia.url : FALLBACK_IMAGE;
+  const imageAlt = primaryMedia ? primaryMedia.alt_text ?? listing.model_name : listing.model_name;
   const capacity = formatCapacity(listing.capacity_milli);
 
   // Spec rows surfaced only when the backend provides them.
@@ -390,8 +432,9 @@ function EquipmentCard({
     <article className="flex flex-col overflow-hidden rounded-xl border border-line bg-white">
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-muted-panel">
         <img
-          src={placeholderFor(index)}
+          src={imageSrc}
           alt={imageAlt}
+          loading="lazy"
           className="h-full w-full object-cover"
         />
         {capacity ? (

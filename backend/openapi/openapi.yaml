@@ -3189,6 +3189,11 @@ paths:
         required: false
         schema:
           $ref: '#/components/schemas/ListingKind'
+      - name: condition
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/ListingCondition'
       - name: listing_type
         in: query
         required: false
@@ -3240,6 +3245,36 @@ paths:
                 $ref: '#/components/schemas/SalesListingView'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/storefront/listings/{id}/media/{media_id}:
+    get:
+      operationId: storefrontGetListingMedia
+      summary: Serve one public sales-listing photo (#6)
+      description: >-
+        Public, unauthenticated serve of one listing photo's bytes, streamed from
+        the object store. The media must belong to the listing and the listing
+        must be storefront-visible (published/reserved); otherwise 404. The
+        response body is the raw image with its stored content type.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: media_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The listing photo bytes.
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/v1/storefront/inquiries:
     post:
       operationId: submitInquiry
@@ -3279,6 +3314,11 @@ paths:
         required: false
         schema:
           $ref: '#/components/schemas/ListingKind'
+      - name: condition
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/ListingCondition'
       - name: listing_type
         in: query
         required: false
@@ -7312,6 +7352,12 @@ components:
       - DIESEL
       - LPG
       - REACH
+    ListingCondition:
+      type: string
+      description: Whether a listed unit is used (중고) or brand-new (신차).
+      enum:
+      - USED
+      - NEW
     ListingType:
       type: string
       description: Whether a listing is offered for sale, rental, or both.
@@ -7348,11 +7394,14 @@ components:
       description: One photo attached to a sales listing.
       required:
       - id
+      - url
       - content_type
       - alt_text
       - sort_order
       properties:
         id:
+          type: string
+        url:
           type: string
         content_type:
           type: string
@@ -7370,6 +7419,7 @@ components:
       - id
       - equipment_id
       - kind
+      - condition
       - model_name
       - capacity_milli
       - model_year
@@ -7396,6 +7446,8 @@ components:
           - type: 'null'
         kind:
           $ref: '#/components/schemas/ListingKind'
+        condition:
+          $ref: '#/components/schemas/ListingCondition'
         model_name:
           type: string
         capacity_milli:
@@ -7581,6 +7633,7 @@ components:
       description: Full editable field set for creating a sales listing.
       required:
       - kind
+      - condition
       - model_name
       - listing_type
       - status
@@ -7588,6 +7641,8 @@ components:
       properties:
         kind:
           $ref: '#/components/schemas/ListingKind'
+        condition:
+          $ref: '#/components/schemas/ListingCondition'
         model_name:
           type: string
         capacity_milli:
@@ -7653,6 +7708,8 @@ components:
       properties:
         kind:
           $ref: '#/components/schemas/ListingKind'
+        condition:
+          $ref: '#/components/schemas/ListingCondition'
         model_name:
           type: string
         capacity_milli:

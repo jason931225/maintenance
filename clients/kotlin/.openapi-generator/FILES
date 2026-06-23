@@ -112,6 +112,7 @@ src/main/kotlin/com/maintenance/api/client/model/KpiReport.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiRollup.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiRollupScope.kt
 src/main/kotlin/com/maintenance/api/client/model/KpiScope.kt
+src/main/kotlin/com/maintenance/api/client/model/ListingCondition.kt
 src/main/kotlin/com/maintenance/api/client/model/ListingKind.kt
 src/main/kotlin/com/maintenance/api/client/model/ListingMediaView.kt
 src/main/kotlin/com/maintenance/api/client/model/ListingStatus.kt

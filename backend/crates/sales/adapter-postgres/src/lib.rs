@@ -18,7 +18,9 @@ use mnt_sales_application::{
     inquiry_status_audit_event, inquiry_submit_audit_event, listing_create_audit_event,
     listing_delete_audit_event, listing_update_audit_event,
 };
-use mnt_sales_domain::{InquiryStatus, InquiryTopic, ListingKind, ListingStatus, ListingType};
+use mnt_sales_domain::{
+    InquiryStatus, InquiryTopic, ListingCondition, ListingKind, ListingStatus, ListingType,
+};
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use time::OffsetDateTime;
 
@@ -41,9 +43,9 @@ pub struct PgSalesStore {
     pool: PgPool,
 }
 
-const LISTING_COLUMNS: &str = "id, equipment_id, kind, model_name, capacity_milli, model_year, \
-     usage_hours, price_won, badge, usage_label, condition_label, availability, location, \
-     description, listing_type, status, sort_weight, created_at, updated_at";
+const LISTING_COLUMNS: &str = "id, equipment_id, kind, condition, model_name, capacity_milli, \
+     model_year, usage_hours, price_won, badge, usage_label, condition_label, availability, \
+     location, description, listing_type, status, sort_weight, created_at, updated_at";
 
 impl PgSalesStore {
     #[must_use]
@@ -169,12 +171,44 @@ impl PgSalesStore {
             let id: uuid::Uuid = row.try_get("id")?;
             out.entry(listing_id).or_default().push(ListingMediaView {
                 id: id.to_string(),
+                url: storefront_media_url(listing_id, id),
                 content_type: row.try_get("content_type")?,
                 alt_text: row.try_get("alt_text")?,
                 sort_order: row.try_get("sort_order")?,
             });
         }
         Ok(out)
+    }
+
+    /// Resolve one public listing's media object location for the storefront
+    /// serve route: returns `(s3_key, content_type)` for `media_id` only when it
+    /// belongs to `listing_id` AND that listing is storefront-visible
+    /// (published/reserved). Tenant-scoped via `with_org_conn`, so RLS is armed.
+    pub async fn public_media_object(
+        &self,
+        listing_id: SalesListingId,
+        media_id: uuid::Uuid,
+    ) -> Result<Option<(String, String)>, PgSalesError> {
+        let listing_uuid = *listing_id.as_uuid();
+        let org = current_org().map_err(KernelError::from)?;
+        let row = with_org_conn::<_, _, PgSalesError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query(
+                    "SELECT m.s3_key, m.content_type \
+                     FROM sales_listing_media m \
+                     JOIN sales_listings l ON l.id = m.listing_id AND l.org_id = m.org_id \
+                     WHERE m.id = $1 AND m.listing_id = $2 \
+                       AND l.status IN ('PUBLISHED', 'RESERVED')",
+                )
+                .bind(media_id)
+                .bind(listing_uuid)
+                .fetch_optional(tx.as_mut())
+                .await?)
+            })
+        })
+        .await?;
+        let Some(row) = row else { return Ok(None) };
+        Ok(Some((row.try_get("s3_key")?, row.try_get("content_type")?)))
     }
 
     // ── Admin listing writes (audited) ────────────────────────────────────────
@@ -199,16 +233,17 @@ impl PgSalesStore {
         with_audit::<_, (), PgSalesError>(&self.pool, event, move |tx| {
             Box::pin(async move {
                 let mut b = QueryBuilder::<Postgres>::new(
-                    "INSERT INTO sales_listings (id, org_id, equipment_id, kind, model_name, \
-                     capacity_milli, model_year, usage_hours, price_won, badge, usage_label, \
-                     condition_label, availability, location, description, listing_type, status, \
-                     sort_weight) VALUES (",
+                    "INSERT INTO sales_listings (id, org_id, equipment_id, kind, condition, \
+                     model_name, capacity_milli, model_year, usage_hours, price_won, badge, \
+                     usage_label, condition_label, availability, location, description, \
+                     listing_type, status, sort_weight) VALUES (",
                 );
                 let mut sep = b.separated(", ");
                 sep.push_bind(listing_uuid);
                 sep.push_bind(org_uuid);
                 sep.push_bind(input.equipment_id.map(|e| *e.as_uuid()));
                 sep.push_bind(input.kind.as_db_str());
+                sep.push_bind(input.condition.as_db_str());
                 sep.push_bind(input.model_name);
                 sep.push_bind(input.capacity_milli);
                 sep.push_bind(input.model_year);
@@ -490,10 +525,18 @@ impl PgSalesStore {
     }
 }
 
+/// Build the public storefront serve path for one listing photo. Stable and
+/// id-based so it can be cached/CDN-fronted; the route streams the object bytes
+/// from the store after re-checking the listing's storefront visibility.
+fn storefront_media_url(listing_id: uuid::Uuid, media_id: uuid::Uuid) -> String {
+    format!("/api/v1/storefront/listings/{listing_id}/media/{media_id}")
+}
+
 // ── Row mapping + filters ────────────────────────────────────────────────────
 
 fn listing_from_row(row: &sqlx::postgres::PgRow) -> Result<SalesListingView, PgSalesError> {
     let kind: String = row.try_get("kind")?;
+    let condition: String = row.try_get("condition")?;
     let listing_type: String = row.try_get("listing_type")?;
     let status: String = row.try_get("status")?;
     let equipment_id: Option<uuid::Uuid> = row.try_get("equipment_id")?;
@@ -501,6 +544,7 @@ fn listing_from_row(row: &sqlx::postgres::PgRow) -> Result<SalesListingView, PgS
         id: SalesListingId::from_uuid(row.try_get("id")?),
         equipment_id: equipment_id.map(EquipmentId::from_uuid),
         kind: ListingKind::parse(&kind)?,
+        condition: ListingCondition::parse(&condition)?,
         model_name: row.try_get("model_name")?,
         capacity_milli: row.try_get("capacity_milli")?,
         model_year: row.try_get("model_year")?,
@@ -549,6 +593,10 @@ fn push_listing_filters(builder: &mut QueryBuilder<Postgres>, query: &CatalogQue
         builder.push(" AND kind = ");
         builder.push_bind(kind.as_db_str());
     }
+    if let Some(condition) = query.condition {
+        builder.push(" AND condition = ");
+        builder.push_bind(condition.as_db_str());
+    }
     if let Some(listing_type) = query.listing_type {
         builder.push(" AND listing_type = ");
         builder.push_bind(listing_type.as_db_str());
@@ -570,6 +618,10 @@ fn push_listing_assignments(
     if let Some(kind) = fields.kind {
         sep.push("kind = ");
         sep.push_bind_unseparated(kind.as_db_str());
+    }
+    if let Some(condition) = fields.condition {
+        sep.push("condition = ");
+        sep.push_bind_unseparated(condition.as_db_str());
     }
     if let Some(model_name) = &fields.model_name {
         sep.push("model_name = ");
@@ -641,6 +693,7 @@ fn push_opt_i32(
 fn listing_input_snapshot(input: &mnt_sales_application::ListingInput) -> serde_json::Value {
     serde_json::json!({
         "kind": input.kind.as_db_str(),
+        "condition": input.condition.as_db_str(),
         "model_name": input.model_name,
         "capacity_milli": input.capacity_milli,
         "model_year": input.model_year,
@@ -655,6 +708,7 @@ fn listing_input_snapshot(input: &mnt_sales_application::ListingInput) -> serde_
 fn listing_view_snapshot(view: &SalesListingView) -> serde_json::Value {
     serde_json::json!({
         "kind": view.kind.as_db_str(),
+        "condition": view.condition.as_db_str(),
         "model_name": view.model_name,
         "capacity_milli": view.capacity_milli,
         "model_year": view.model_year,
@@ -674,6 +728,9 @@ fn listing_after_snapshot(
     if let Some(obj) = snap.as_object_mut() {
         if let Some(kind) = fields.kind {
             obj.insert("kind".into(), kind.as_db_str().into());
+        }
+        if let Some(condition) = fields.condition {
+            obj.insert("condition".into(), condition.as_db_str().into());
         }
         if let Some(model_name) = &fields.model_name {
             obj.insert("model_name".into(), model_name.clone().into());

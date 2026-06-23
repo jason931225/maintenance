@@ -32,6 +32,7 @@ import kotlinx.serialization.Contextual
  * One photo attached to a sales listing.
  *
  * @param id
+ * @param url
  * @param contentType
  * @param altText
  * @param sortOrder
@@ -42,6 +43,9 @@ data class ListingMediaView (
 
     @SerialName(value = "id")
     val id: kotlin.String,
+
+    @SerialName(value = "url")
+    val url: kotlin.String,
 
     @SerialName(value = "content_type")
     val contentType: kotlin.String,

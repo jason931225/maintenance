@@ -23,6 +23,7 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.ListingCondition
 import com.maintenance.api.client.model.ListingKind
 import com.maintenance.api.client.model.ListingMediaView
 import com.maintenance.api.client.model.ListingStatus
@@ -38,6 +39,7 @@ import kotlinx.serialization.Contextual
  * @param id
  * @param equipmentId
  * @param kind
+ * @param condition
  * @param modelName
  * @param capacityMilli
  * @param modelYear
@@ -68,6 +70,9 @@ data class SalesListingView (
 
     @Contextual @SerialName(value = "kind")
     val kind: ListingKind,
+
+    @Contextual @SerialName(value = "condition")
+    val condition: ListingCondition,
 
     @SerialName(value = "model_name")
     val modelName: kotlin.String,

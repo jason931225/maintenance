@@ -1437,7 +1437,7 @@ export const ko = {
     nav: {
       home: "홈",
       rental: "렌탈",
-      used: "중고 판매",
+      used: "판매",
       maintenance: "정비",
       about: "회사소개",
       contact: "고객센터",
@@ -1485,7 +1485,7 @@ export const ko = {
         title: "원하는 업무를 고르면 바로 해당 페이지로 이동합니다.",
         shortcutsAria: "주요 페이지 바로가기",
         rental: "렌탈·임대",
-        used: "중고 판매",
+        used: "판매",
         maintenance: "정비 지원",
         maintenanceRequest: "정비 접수",
       },
@@ -1502,8 +1502,8 @@ export const ko = {
             imageAlt: "지게차 렌탈 장비",
           },
           used: {
-            tag: "Used Sales",
-            title: "중고 판매",
+            tag: "Sales",
+            title: "판매",
             copy: "검수된 장비 카드, 필터, 구매 체크포인트를 한 곳에 배치했습니다.",
             imageAlt: "중고 지게차 상담",
           },
@@ -1650,6 +1650,11 @@ export const ko = {
         error: "장비 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.",
         retry: "다시 시도",
       },
+      conditions: {
+        aria: "판매 구분",
+        used: "중고",
+        new: "신차",
+      },
       filters: {
         aria: "장비 필터",
         all: "전체",
@@ -1682,13 +1687,15 @@ export const ko = {
       },
       empty: {
         title: "현재 등록된 장비가 없습니다.",
+        usedTitle: "현재 등록된 중고 장비가 없습니다.",
+        newTitle: "현재 등록된 신차가 없습니다.",
         copy: "원하시는 조건을 남겨 주시면 입고 시 가장 먼저 안내해 드립니다.",
         cta: "구매 상담 접수",
       },
       contactBand: {
-        eyebrow: "Used Sales",
+        eyebrow: "Sales",
         title: "예산과 용도를 알려주시면 후보 장비를 비교해드립니다.",
-        numberLabel: "중고 판매 문의",
+        numberLabel: "판매 문의",
         number: "070.4443.0319",
         cta: "온라인 접수하기",
         phone: "전화 상담",
@@ -1834,7 +1841,7 @@ export const ko = {
         topicLabel: "문의 유형",
         topicOptions: {
           RENTAL: "렌탈·임대 문의",
-          USED_SALES: "중고 판매 문의",
+          USED_SALES: "판매 문의",
           MAINTENANCE: "정비 문의",
           OTHER: "기타 문의",
         },
@@ -1905,6 +1912,7 @@ export const ko = {
       columns: {
         model: "모델명",
         kind: "유형",
+        condition: "판매 구분",
         listingType: "판매 형태",
         capacity: "톤수",
         year: "연식",
@@ -1924,6 +1932,7 @@ export const ko = {
       createTitle: "매물 등록",
       editTitle: "매물 수정",
       kindLabel: "장비 유형",
+      conditionLabel: "판매 구분",
       modelNameLabel: "모델명",
       capacityLabel: "적재 톤수(톤)",
       modelYearLabel: "연식",
@@ -1949,6 +1958,10 @@ export const ko = {
       DIESEL: "디젤",
       LPG: "LPG",
       REACH: "리치트럭",
+    },
+    conditionLabels: {
+      USED: "중고",
+      NEW: "신차",
     },
     listingTypeLabels: {
       SALE: "판매",
@@ -1979,7 +1992,7 @@ export const ko = {
       },
       topicLabels: {
         RENTAL: "렌탈·임대",
-        USED_SALES: "중고 판매",
+        USED_SALES: "판매",
         MAINTENANCE: "정비",
         OTHER: "기타",
       },
