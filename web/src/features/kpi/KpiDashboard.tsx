@@ -103,16 +103,11 @@ export function KpiDashboard({
   return (
     <section className="grid gap-4 rounded-lg border border-line bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-ink">
-            {ko.kpi.title}
-          </h2>
-          <p className="mt-1 text-sm text-steel">
-            {selectedRollup
-              ? `${ko.kpi.approvedReports} ${formatCount(selectedRollup.approved_report_count)} · ${ko.kpi.weightedPoints} ${formatPoints(selectedRollup.weighted_completed_points)}`
-              : ko.kpi.noReport}
-          </p>
-        </div>
+        <p className="text-sm text-steel">
+          {selectedRollup
+            ? `${ko.kpi.approvedReports} ${formatCount(selectedRollup.approved_report_count)} · ${ko.kpi.weightedPoints} ${formatPoints(selectedRollup.weighted_completed_points)}`
+            : ko.kpi.noReport}
+        </p>
         {isLoading ? (
           <Badge role="status" className="bg-muted-panel">
             {ko.common.loading}

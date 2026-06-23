@@ -259,7 +259,7 @@ describe("routing", () => {
   it("renders /intake page", async () => {
     renderAt("/intake");
     expect(
-      await screen.findByRole("heading", { name: "접수 입력", level: 2 }),
+      await screen.findByRole("heading", { name: "접수 입력", level: 1 }),
     ).toBeVisible();
   });
 
@@ -267,7 +267,7 @@ describe("routing", () => {
     // /approvals is admin-only (RequireAdminRoute) — render with an admin session.
     renderAt("/approvals", adminSession);
     expect(
-      await screen.findByRole("heading", { name: "승인 대기", level: 2 }),
+      await screen.findByRole("heading", { name: "승인 대기", level: 1 }),
     ).toBeVisible();
   });
 
@@ -275,14 +275,14 @@ describe("routing", () => {
     // /kpi is KpiRead-gated (RequireKpiRoute) — render with a KpiRead role.
     renderAt("/kpi", adminSession);
     expect(
-      await screen.findByRole("heading", { name: "임원 KPI 대시보드", level: 2 }),
+      await screen.findByRole("heading", { name: "임원 KPI 대시보드", level: 1 }),
     ).toBeVisible();
   });
 
   it("renders /messenger page", async () => {
     renderAt("/messenger");
     expect(
-      await screen.findByRole("heading", { name: "메신저", level: 2 }),
+      await screen.findByRole("heading", { name: "메신저", level: 1 }),
     ).toBeVisible();
   });
 

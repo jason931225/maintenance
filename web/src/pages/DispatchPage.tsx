@@ -24,11 +24,17 @@ type WriteState = "idle" | "error";
 
 const ADMIN_ROLES = ["ADMIN", "SUPER_ADMIN"];
 
+const WORK_ORDER_PAGE_SIZE = 100;
+
 export function DispatchPage() {
   const { api, session } = useAuth();
   const [workOrders, setWorkOrders] = useState<WorkOrderListItem[]>([]);
+  const [workOrderTotal, setWorkOrderTotal] = useState<number | undefined>(
+    undefined,
+  );
   const [mechanics, setMechanics] = useState<UserSummary[]>([]);
   const [readState, setReadState] = useState<ReadState>("loading");
+  const [loadingMore, setLoadingMore] = useState(false);
   const [writeState, setWriteState] = useState<WriteState>("idle");
   const [selectedWorkOrderId, setSelectedWorkOrderId] = useState<
     string | undefined
@@ -47,7 +53,7 @@ export function DispatchPage() {
     setReadState("loading");
     const response = await api
       .GET("/api/v1/work-orders", {
-        params: { query: { limit: 100, offset: 0 } },
+        params: { query: { limit: WORK_ORDER_PAGE_SIZE, offset: 0 } },
       })
       .catch(() => undefined);
     if (!response?.data) {
@@ -55,8 +61,25 @@ export function DispatchPage() {
       return;
     }
     setWorkOrders(response.data.items);
+    setWorkOrderTotal(response.data.total);
     setReadState("idle");
   }, [api]);
+
+  const loadMoreWorkOrders = useCallback(async () => {
+    setLoadingMore(true);
+    const response = await api
+      .GET("/api/v1/work-orders", {
+        params: {
+          query: { limit: WORK_ORDER_PAGE_SIZE, offset: workOrders.length },
+        },
+      })
+      .catch(() => undefined);
+    if (response?.data) {
+      setWorkOrders((current) => [...current, ...response.data.items]);
+      setWorkOrderTotal(response.data.total);
+    }
+    setLoadingMore(false);
+  }, [api, workOrders.length]);
 
   const loadMechanics = useCallback(async () => {
     // Managers pick a specific mechanic to assign; only they can read the roster
@@ -370,7 +393,15 @@ export function DispatchPage() {
         {writeState === "error" ? (
           <PageError message={ko.common.writeFailed} />
         ) : null}
-        <WorkOrderList workOrders={workOrders} isLoading={readState === "loading"} />
+        <WorkOrderList
+          workOrders={workOrders}
+          isLoading={readState === "loading"}
+          total={workOrderTotal}
+          onLoadMore={() => {
+            void loadMoreWorkOrders();
+          }}
+          isLoadingMore={loadingMore}
+        />
         <DispatchBoard
           workOrders={workOrders}
           selectedMechanicId={session?.user_id ?? ""}

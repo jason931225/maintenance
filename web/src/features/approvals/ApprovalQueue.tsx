@@ -76,7 +76,6 @@ export function ApprovalQueue({
 
   return (
     <Card className="grid gap-4">
-      <h2 className="text-lg font-semibold text-ink">{ko.approvals.title}</h2>
       <div className="grid gap-2">
         <label className="text-sm font-medium text-steel" htmlFor="approval-memo">
           {ko.approvals.memo}

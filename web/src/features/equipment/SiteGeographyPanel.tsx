@@ -240,7 +240,7 @@ export function SiteGeographyPanel({ api }: SiteGeographyPanelProps) {
           {sites.map((site) => (
             <option key={site.site_id} value={site.site_id}>
               {site.site_name} · {site.customer_name}
-              {site.latitude !== null ? " 📍" : ""}
+              {site.latitude !== null ? ` · ${t.coordinatesSetSuffix}` : ""}
             </option>
           ))}
         </Select>

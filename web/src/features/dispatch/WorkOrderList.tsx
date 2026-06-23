@@ -1,27 +1,37 @@
 import type { WorkOrderListItem } from "../../api/types";
 import { Badge } from "../../components/ui/badge";
 import { Card } from "../../components/ui/card";
+import { LoadMoreButton } from "../../components/shell/LoadMoreButton";
 import { ko } from "../../i18n/ko";
 import { formatKoreanDateTime } from "../../lib/datetime";
-import { priorityClass, priorityLabel } from "../../lib/utils";
+import { formatListCount, priorityClass, priorityLabel } from "../../lib/utils";
 import { SlaBadge } from "./SlaBadge";
 
 interface WorkOrderListProps {
   workOrders: WorkOrderListItem[];
   isLoading?: boolean;
+  /** Total work orders available; the badge shows loaded-of-total when set. */
+  total?: number;
+  /** Fetches and appends the next page (omitted when not paginated). */
+  onLoadMore?: () => void;
+  isLoadingMore?: boolean;
 }
 
 export function WorkOrderList({
   workOrders,
   isLoading = false,
+  total,
+  onLoadMore,
+  isLoadingMore = false,
 }: WorkOrderListProps) {
+  const hasMore = total !== undefined && workOrders.length < total;
   return (
     <Card className="grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-ink">
           {ko.dispatch.listTitle}
         </h2>
-        <Badge>{workOrders.length}</Badge>
+        <Badge>{formatListCount(workOrders.length, { total })}</Badge>
       </div>
       {workOrders.length === 0 ? (
         isLoading ? (
@@ -86,6 +96,14 @@ export function WorkOrderList({
           ))}
         </div>
       )}
+      {hasMore && onLoadMore ? (
+        <LoadMoreButton
+          onClick={onLoadMore}
+          isLoading={isLoadingMore}
+          loaded={workOrders.length}
+          total={total}
+        />
+      ) : null}
     </Card>
   );
 }

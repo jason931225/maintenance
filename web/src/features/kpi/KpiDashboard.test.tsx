@@ -19,9 +19,12 @@ describe("KpiDashboard", () => {
       />,
     );
 
+    // The page-level <h1> owns the title now (PageHeader on KpiPage); the panel
+    // renders only the live summary line, so the heading is no longer duplicated.
     expect(
-      screen.getByRole("heading", { name: "임원 KPI 대시보드" }),
-    ).toBeVisible();
+      screen.queryByRole("heading", { name: "임원 KPI 대시보드" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/승인 보고/)).toBeVisible();
     expect(screen.getByText("18건")).toBeVisible();
     expect(screen.getByText("정기검사 계획 이행률")).toBeVisible();
     expect(screen.getAllByText("데이터 수집 전")[0]).toBeVisible();

@@ -27,7 +27,7 @@ import { Select } from "../components/ui/select";
 import { Textarea } from "../components/ui/textarea";
 import { ko } from "../i18n/ko";
 import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../lib/useAutoDismiss";
-import { safeLabel, todayInSeoul } from "../lib/utils";
+import { formatListCount, safeLabel, todayInSeoul } from "../lib/utils";
 
 const ROUND_OUTCOMES: InspectionRoundOutcome[] = [
   "COMPLETED",
@@ -325,9 +325,12 @@ export function InspectionPage() {
           ) : null}
           {schedules && schedules.length > 0 ? (
             <div className="grid gap-2">
-              <h2 className="text-base font-semibold text-ink">
-                {ko.inspection.listTitle}
-              </h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-base font-semibold text-ink">
+                  {ko.inspection.listTitle}
+                </h2>
+                <Badge>{formatListCount(schedules.length)}</Badge>
+              </div>
               <ul className="grid gap-2">
                 {schedules.map((schedule) => (
                   <li

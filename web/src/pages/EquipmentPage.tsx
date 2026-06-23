@@ -7,10 +7,10 @@ import { PageHeader } from "../components/shell/PageHeader";
 import { PageError } from "../components/states/PageError";
 import { EquipmentImportPanel } from "../features/equipment/EquipmentImportPanel";
 import { EquipmentManagementPanel } from "../features/equipment/EquipmentManagementPanel";
+import { ManagementNoCombobox } from "../features/equipment/ManagementNoCombobox";
 import { SiteGeographyPanel } from "../features/equipment/SiteGeographyPanel";
 import { SubstitutionPanel } from "../features/equipment/SubstitutionPanel";
 import { Card } from "../components/ui/card";
-import { Input } from "../components/ui/input";
 import { ko } from "../i18n/ko";
 
 const equipmentDebounceMs = 300;
@@ -119,24 +119,13 @@ export function EquipmentPage() {
             <label className="text-sm font-medium text-steel" htmlFor="equipment-search">
               {ko.intake.managementNo}
             </label>
-            <Input
+            <ManagementNoCombobox
               id="equipment-search"
               value={managementNo}
+              onChange={handleChange}
+              suggestions={suggestions}
               placeholder={ko.intake.managementNoPlaceholder}
-              list="equipment-search-suggestions"
-              onChange={(e) => { handleChange(e.currentTarget.value); }}
             />
-            {suggestions.length > 0 ? (
-              <datalist id="equipment-search-suggestions">
-                {suggestions.map((eq) => (
-                  <option
-                    key={eq.id}
-                    value={eq.management_no ?? eq.equipment_no}
-                    label={`${eq.model ?? ko.common.unknown} / ${eq.customer.name}`}
-                  />
-                ))}
-              </datalist>
-            ) : null}
           </div>
 
           {lookupState.status === "loading" ? (

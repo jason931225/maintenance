@@ -72,6 +72,34 @@ export function todayInSeoul(): string {
 }
 
 /**
+ * Honest count-badge text for a paginated list.
+ *
+ * - When the API reports a `total`, show "loaded / total" so a truncated page
+ *   reads "30 / 120" instead of a fake "30".
+ * - When there is no `total` but a full page came back (so more may exist), show
+ *   the loaded count with a trailing "+" to signal the set is incomplete.
+ * - Otherwise (everything loaded, no total) show the plain loaded count.
+ */
+export function formatListCount(
+  loaded: number,
+  options: { total?: number; mayHaveMore?: boolean } = {},
+): string {
+  const { total, mayHaveMore } = options;
+  if (total !== undefined) {
+    if (loaded >= total) return String(total);
+    return ko.common.countOfTotal
+      .replace("{loaded}", String(loaded))
+      .replace("{total}", String(total));
+  }
+  if (mayHaveMore) {
+    return ko.common.countWithMore
+      .replace("{loaded}", String(loaded))
+      .replace("{unit}", ko.common.countUnit);
+  }
+  return String(loaded);
+}
+
+/**
  * Korean label for a work-order priority code. `ko.priority` maps every code
  * (`P1`/`P2`/`P3`/`OUTSOURCE`/`UNSET`) exhaustively, so this never leaks a raw
  * code into the UI.

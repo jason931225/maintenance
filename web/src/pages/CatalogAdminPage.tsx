@@ -14,6 +14,7 @@ import type {
   UpdateListingRequest,
 } from "../api/types";
 import { useAuth } from "../context/auth";
+import { LoadMoreButton } from "../components/shell/LoadMoreButton";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { PageError } from "../components/states/PageError";
@@ -30,11 +31,14 @@ import {
 import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { Textarea } from "../components/ui/textarea";
-import { cn, safeLabel } from "../lib/utils";
+import { cn, formatListCount, safeLabel } from "../lib/utils";
 import { ko } from "../i18n/ko";
 
 type Tab = "listings" | "inquiries";
 type ReadState = "idle" | "loading" | "error";
+
+/** Page size for the listings/inquiries lists; load-more fetches the next page. */
+const CATALOG_PAGE_SIZE = 100;
 
 const KIND_OPTIONS: ListingKind[] = ["ELECTRIC", "DIESEL", "LPG", "REACH"];
 const CONDITION_OPTIONS: ListingCondition[] = ["USED", "NEW"];
@@ -236,6 +240,10 @@ export function CatalogAdminPage() {
 
   // ----- Listings -----
   const [listings, setListings] = useState<SalesListingView[]>([]);
+  const [listingsTotal, setListingsTotal] = useState<number | undefined>(
+    undefined,
+  );
+  const [listingsLoadingMore, setListingsLoadingMore] = useState(false);
   const [listingsState, setListingsState] = useState<ReadState>("loading");
   const [editing, setEditing] = useState<SalesListingView | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -247,6 +255,10 @@ export function CatalogAdminPage() {
 
   // ----- Inquiries -----
   const [inquiries, setInquiries] = useState<CustomerInquiryView[]>([]);
+  const [inquiriesTotal, setInquiriesTotal] = useState<number | undefined>(
+    undefined,
+  );
+  const [inquiriesLoadingMore, setInquiriesLoadingMore] = useState(false);
   const [inquiriesState, setInquiriesState] = useState<ReadState>("loading");
   const [inquiryFilter, setInquiryFilter] = useState<InquiryStatus | "ALL">("ALL");
   const [inquiryError, setInquiryError] = useState(false);
@@ -256,7 +268,7 @@ export function CatalogAdminPage() {
     setListingsState("loading");
     const { data } = await api
       .GET("/api/v1/sales/listings", {
-        params: { query: { limit: 100, offset: 0 } },
+        params: { query: { limit: CATALOG_PAGE_SIZE, offset: 0 } },
       })
       .catch(() => ({ data: undefined, error: true }) as const);
     if (!data) {
@@ -264,8 +276,23 @@ export function CatalogAdminPage() {
       return;
     }
     setListings(data.items);
+    setListingsTotal(data.total);
     setListingsState("idle");
   }, [api]);
+
+  const loadMoreListings = useCallback(async () => {
+    setListingsLoadingMore(true);
+    const { data } = await api
+      .GET("/api/v1/sales/listings", {
+        params: { query: { limit: CATALOG_PAGE_SIZE, offset: listings.length } },
+      })
+      .catch(() => ({ data: undefined }) as const);
+    if (data) {
+      setListings((current) => [...current, ...data.items]);
+      setListingsTotal(data.total);
+    }
+    setListingsLoadingMore(false);
+  }, [api, listings.length]);
 
   const loadInquiries = useCallback(async () => {
     setInquiriesState("loading");
@@ -274,7 +301,7 @@ export function CatalogAdminPage() {
         params: {
           query: {
             status: inquiryFilter === "ALL" ? undefined : inquiryFilter,
-            limit: 100,
+            limit: CATALOG_PAGE_SIZE,
             offset: 0,
           },
         },
@@ -285,8 +312,29 @@ export function CatalogAdminPage() {
       return;
     }
     setInquiries(data.items);
+    setInquiriesTotal(data.total);
     setInquiriesState("idle");
   }, [api, inquiryFilter]);
+
+  const loadMoreInquiries = useCallback(async () => {
+    setInquiriesLoadingMore(true);
+    const { data } = await api
+      .GET("/api/v1/sales/inquiries", {
+        params: {
+          query: {
+            status: inquiryFilter === "ALL" ? undefined : inquiryFilter,
+            limit: CATALOG_PAGE_SIZE,
+            offset: inquiries.length,
+          },
+        },
+      })
+      .catch(() => ({ data: undefined }) as const);
+    if (data) {
+      setInquiries((current) => [...current, ...data.items]);
+      setInquiriesTotal(data.total);
+    }
+    setInquiriesLoadingMore(false);
+  }, [api, inquiryFilter, inquiries.length]);
 
   useEffect(() => {
     void Promise.resolve().then(loadListings);
@@ -442,6 +490,9 @@ export function CatalogAdminPage() {
         <ListingsTab
           listings={listings}
           state={listingsState}
+          total={listingsTotal}
+          onLoadMore={() => void loadMoreListings()}
+          isLoadingMore={listingsLoadingMore}
           deletingId={deletingId}
           rowBusyId={rowBusyId}
           onRetry={() => void loadListings()}
@@ -456,6 +507,9 @@ export function CatalogAdminPage() {
         <InquiriesTab
           inquiries={inquiries}
           state={inquiriesState}
+          total={inquiriesTotal}
+          onLoadMore={() => void loadMoreInquiries()}
+          isLoadingMore={inquiriesLoadingMore}
           filter={inquiryFilter}
           showError={inquiryError}
           busyId={inquiryBusyId}
@@ -519,6 +573,9 @@ function TabButton({
 function ListingsTab({
   listings,
   state,
+  total,
+  onLoadMore,
+  isLoadingMore,
   deletingId,
   rowBusyId,
   onRetry,
@@ -529,6 +586,9 @@ function ListingsTab({
 }: {
   listings: SalesListingView[];
   state: ReadState;
+  total?: number;
+  onLoadMore: () => void;
+  isLoadingMore: boolean;
   deletingId: string | null;
   rowBusyId: string | null;
   onRetry: () => void;
@@ -545,9 +605,12 @@ function ListingsTab({
   return (
     <Card className="p-0">
       <header className="flex items-center justify-between gap-4 border-b border-line px-4 py-3">
-        <h2 className="text-base font-semibold text-ink">
-          {ko.catalog.listings.heading}
-        </h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-base font-semibold text-ink">
+            {ko.catalog.listings.heading}
+          </h2>
+          <Badge>{formatListCount(listings.length, { total })}</Badge>
+        </div>
         <Button type="button" size="sm" onClick={onCreate}>
           <Plus size={16} aria-hidden="true" />
           {ko.catalog.listings.newButton}
@@ -702,6 +765,17 @@ function ListingsTab({
         </div>
       ) : null}
 
+      {state === "idle" && total !== undefined && listings.length < total ? (
+        <div className="border-t border-line px-4 py-3">
+          <LoadMoreButton
+            onClick={onLoadMore}
+            isLoading={isLoadingMore}
+            loaded={listings.length}
+            total={total}
+          />
+        </div>
+      ) : null}
+
       <ConfirmDialog
         open={deleteTarget !== null}
         title={ko.catalog.listings.actions.deleteTitle}
@@ -737,6 +811,9 @@ function ListingsTab({
 function InquiriesTab({
   inquiries,
   state,
+  total,
+  onLoadMore,
+  isLoadingMore,
   filter,
   showError,
   busyId,
@@ -746,6 +823,9 @@ function InquiriesTab({
 }: {
   inquiries: CustomerInquiryView[];
   state: ReadState;
+  total?: number;
+  onLoadMore: () => void;
+  isLoadingMore: boolean;
   filter: InquiryStatus | "ALL";
   showError: boolean;
   busyId: string | null;
@@ -756,9 +836,12 @@ function InquiriesTab({
   return (
     <Card className="p-0">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-line px-4 py-3">
-        <h2 className="text-base font-semibold text-ink">
-          {ko.catalog.inquiries.heading}
-        </h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-base font-semibold text-ink">
+            {ko.catalog.inquiries.heading}
+          </h2>
+          <Badge>{formatListCount(inquiries.length, { total })}</Badge>
+        </div>
         <Select
           aria-label={ko.catalog.inquiries.columns.status}
           className="min-h-9 w-40 px-2 py-1 text-sm"
@@ -900,6 +983,17 @@ function InquiriesTab({
               })}
             </tbody>
           </table>
+        </div>
+      ) : null}
+
+      {state === "idle" && total !== undefined && inquiries.length < total ? (
+        <div className="border-t border-line px-4 py-3">
+          <LoadMoreButton
+            onClick={onLoadMore}
+            isLoading={isLoadingMore}
+            loaded={inquiries.length}
+            total={total}
+          />
         </div>
       ) : null}
     </Card>

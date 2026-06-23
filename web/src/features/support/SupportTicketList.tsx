@@ -1,8 +1,9 @@
 import type { SupportTicketSummary } from "../../api/types";
 import { Badge } from "../../components/ui/badge";
-import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import { LoadMoreButton } from "../../components/shell/LoadMoreButton";
 import { ko } from "../../i18n/ko";
+import { formatListCount } from "../../lib/utils";
 import {
   categoryLabel,
   formatDateTime,
@@ -43,7 +44,9 @@ export function SupportTicketList({
         <h2 className="text-lg font-semibold text-ink">
           {ko.support.listTitle}
         </h2>
-        <Badge>{tickets.length}</Badge>
+        <Badge>
+          {formatListCount(tickets.length, { mayHaveMore: hasMore })}
+        </Badge>
       </div>
 
       {tickets.length === 0 ? (
@@ -107,15 +110,11 @@ export function SupportTicketList({
       )}
 
       {hasMore && onLoadMore ? (
-        <Button
-          type="button"
-          variant="secondary"
-          className="justify-self-center"
-          disabled={isLoadingMore}
+        <LoadMoreButton
           onClick={onLoadMore}
-        >
-          {isLoadingMore ? ko.support.loadingMore : ko.support.loadMore}
-        </Button>
+          isLoading={isLoadingMore}
+          loaded={tickets.length}
+        />
       ) : null}
     </Card>
   );

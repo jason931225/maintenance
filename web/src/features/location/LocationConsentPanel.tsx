@@ -140,25 +140,16 @@ export function LocationConsentPanel({
   }
 
   return (
-    <Card aria-labelledby="location-consent-title" className="grid gap-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="grid gap-1">
-          <h2
-            id="location-consent-title"
-            className="text-base font-bold text-ink"
-          >
-            {ko.location.title}
-          </h2>
-          <p className="text-sm text-steel">{ko.location.subtitle}</p>
-        </div>
-        {hasStatus ? (
+    <Card aria-label={ko.location.title} className="grid gap-4">
+      {hasStatus ? (
+        <div className="flex items-start justify-end gap-3">
           <span
             className={`shrink-0 rounded-md border px-2 py-1 text-xs font-bold ${statusTone}`}
           >
             {stateLabels[state]}
           </span>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {isLoading ? (
         <p role="status" className="text-sm font-medium text-steel">

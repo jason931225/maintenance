@@ -364,23 +364,15 @@ export function MessengerPanel({
 
   return (
     <Card className="grid gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-ink">
-            {ko.messenger.title}
-          </h2>
-          <p className="text-sm text-steel">{ko.messenger.messages}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" onClick={() => void openThreadComposer()}>
-            <Plus aria-hidden="true" size={16} />
-            {ko.messenger.newThread}
-          </Button>
-          <Button type="button" variant="secondary" onClick={() => void loadThreads()}>
-            <RefreshCw aria-hidden="true" size={16} />
-            {ko.messenger.refresh}
-          </Button>
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button type="button" onClick={() => void openThreadComposer()}>
+          <Plus aria-hidden="true" size={16} />
+          {ko.messenger.newThread}
+        </Button>
+        <Button type="button" variant="secondary" onClick={() => void loadThreads()}>
+          <RefreshCw aria-hidden="true" size={16} />
+          {ko.messenger.refresh}
+        </Button>
       </div>
 
       {loadState === "error" ? (

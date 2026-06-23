@@ -15,15 +15,31 @@ export function WallBoardPage() {
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [listResponse, kpiResponse] = await Promise.all([
-        anonApi.GET("/api/v1/work-orders", {
-          params: { query: { limit: 100, offset: 0 } },
-        }),
+      // The wallboard is a passive display, so a "load more" button makes no
+      // sense — instead fetch every page so the exception/SLA counts reflect the
+      // whole queue, not just the first 100 (which silently undercounts).
+      const collectAllWorkOrders = async () => {
+        const pageSize = 200;
+        const collected: WorkOrderListItem[] = [];
+        for (let offset = 0; ; offset += pageSize) {
+          const response = await anonApi.GET("/api/v1/work-orders", {
+            params: { query: { limit: pageSize, offset } },
+          });
+          const items = response.data?.items ?? [];
+          collected.push(...items);
+          const total = response.data?.total ?? collected.length;
+          if (collected.length >= total || items.length === 0) break;
+        }
+        return collected;
+      };
+
+      const [allWorkOrders, kpiResponse] = await Promise.all([
+        collectAllWorkOrders(),
         anonApi.GET("/api/v1/kpi", {
           params: { query: { period: getDefaultKpiPeriod() } },
         }),
       ]);
-      if (listResponse.data) setWorkOrders(listResponse.data.items);
+      setWorkOrders(allWorkOrders);
       if (kpiResponse.data) setKpiReport(kpiResponse.data);
     } finally {
       setIsLoading(false);

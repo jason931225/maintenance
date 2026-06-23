@@ -1,3 +1,10 @@
+import {
+  REPAIR_PHONE_DISPLAY,
+  REPAIR_PHONE_HREF,
+  SALES_PHONE_DISPLAY,
+  SALES_PHONE_HREF,
+} from "../lib/contact";
+
 export const ko = {
   nav: {
     dispatch: "배차",
@@ -536,6 +543,7 @@ export const ko = {
     description: "호기를 조회하고 새 작업지시를 접수합니다.",
     managementNo: "호기",
     managementNoPlaceholder: "#290",
+    managementNoSuggestions: "호기 추천 목록",
     symptom: "고장내용",
     symptomPlaceholder: "현장 증상과 고객 요청을 입력",
     customerRequest: "고객 요청사항",
@@ -875,6 +883,7 @@ export const ko = {
         "사업장을 선택해 위치(주소·좌표)와 대표 담당자 연락처를 입력합니다. 좌표를 입력하면 배차 지도에 핀으로 표시됩니다.",
       selectSite: "사업장 선택",
       selectSitePlaceholder: "정보를 입력할 사업장을 선택하세요.",
+      coordinatesSetSuffix: "좌표 입력됨",
       locationSection: "위치",
       contactSection: "대표 담당자 연락처",
       save: "정보 저장",
@@ -1220,6 +1229,15 @@ export const ko = {
     secondUnit: "초",
     minuteUnit: "분",
     hourUnit: "시간",
+    /** Load-more action that fetches and appends the next page. */
+    loadMore: "더 보기",
+    loadingMore: "불러오는 중",
+    /** aria-label for a load-more button: "더 보기 (현재 30건 / 전체 120건)". */
+    loadMoreAria: "더 보기 (현재 {loaded}{unit} / 전체 {total}{unit})",
+    /** Count badge when more records may exist beyond the loaded page. */
+    countWithMore: "{loaded}{unit}+",
+    /** Count badge showing loaded-of-total: "30 / 120". */
+    countOfTotal: "{loaded} / {total}",
   },
   combobox: {
     empty: "검색 결과가 없습니다.",
@@ -1326,8 +1344,8 @@ export const ko = {
       submittedDetail: "담당자가 확인 후 빠르게 연락드리겠습니다. 접수 내용은 등록하신 연락처로 안내됩니다.",
       another: "새 접수 작성",
       phoneFallbackLabel: "급한 경우 전화 상담",
-      phoneFallback: "070.4443.0319",
-      phoneFallbackHref: "tel:07044430319",
+      phoneFallback: SALES_PHONE_DISPLAY,
+      phoneFallbackHref: SALES_PHONE_HREF,
     },
     ticketStatus: {
       OPEN: "접수",
@@ -1713,7 +1731,7 @@ export const ko = {
       about: "회사소개",
       contact: "고객센터",
       phoneLabel: "사업 문의",
-      phoneHref: "tel:07044430319",
+      phoneHref: SALES_PHONE_HREF,
       openMenu: "메뉴 열기",
       closeMenu: "메뉴 닫기",
       menuAria: "주요 메뉴",
@@ -1796,7 +1814,7 @@ export const ko = {
         eyebrow: "Customer Center",
         title: "어떤 장비가 맞는지 모르겠다면, 여기서 시작하세요.",
         numberLabel: "사업 문의",
-        number: "070.4443.0319",
+        number: SALES_PHONE_DISPLAY,
         cta: "온라인 접수",
       },
       credibility: {
@@ -1900,7 +1918,7 @@ export const ko = {
         eyebrow: "Rental Quote",
         title: "조건을 알려주시면 장비 후보부터 좁혀드립니다.",
         numberLabel: "렌탈 문의",
-        number: "070.4443.0319",
+        number: SALES_PHONE_DISPLAY,
         cta: "온라인 접수하기",
         phone: "전화 상담",
       },
@@ -1967,7 +1985,7 @@ export const ko = {
         eyebrow: "Sales",
         title: "예산과 용도를 알려주시면 후보를 비교해드립니다.",
         numberLabel: "판매 문의",
-        number: "070.4443.0319",
+        number: SALES_PHONE_DISPLAY,
         cta: "온라인 접수하기",
         phone: "전화 상담",
       },
@@ -2026,8 +2044,8 @@ export const ko = {
         eyebrow: "Repair Contact",
         title: "증상과 장비 모델을 알려주시면 상담이 빨라집니다.",
         numberLabel: "고장 문의",
-        number: "070.4443.0320",
-        numberHref: "tel:07044430320",
+        number: REPAIR_PHONE_DISPLAY,
+        numberHref: REPAIR_PHONE_HREF,
         cta: "온라인 접수하기",
         phone: "전화 상담",
       },
@@ -2090,14 +2108,14 @@ export const ko = {
       cards: {
         sales: {
           label: "사업 문의",
-          number: "070.4443.0319",
-          numberHref: "tel:07044430319",
+          number: SALES_PHONE_DISPLAY,
+          numberHref: SALES_PHONE_HREF,
           copy: "렌탈, 임대, 중고 판매 상담",
         },
         repair: {
           label: "고장 문의",
-          number: "070.4443.0320",
-          numberHref: "tel:07044430320",
+          number: REPAIR_PHONE_DISPLAY,
+          numberHref: REPAIR_PHONE_HREF,
           copy: "정비, 장애 접수, 긴급 점검 상담",
         },
       },

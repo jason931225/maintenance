@@ -40,9 +40,15 @@ import {
   SUCCESS_DISMISS_MS,
   useAutoDismiss,
 } from "../lib/useAutoDismiss";
-import { safeLabel } from "../lib/utils";
+import { formatListCount, safeLabel } from "../lib/utils";
 
 type ReadState = "idle" | "loading" | "error";
+
+// The /api/v1/users endpoint caps at `limit` (default 50, max 200) and reports
+// NO total or offset, so true pagination is impossible client-side. Request the
+// max so the table is not silently truncated at 50; an honest "loaded+" badge
+// warns when the cap is hit. A backend `total` + offset is the proper follow-up.
+const USERS_PAGE_LIMIT = 200;
 
 interface IssuedOtp {
   otp: string;
@@ -86,7 +92,12 @@ export function UsersPage() {
     setListState("loading");
     const response = await api
       .GET("/api/v1/users", {
-        params: { query: { include_inactive: includeInactive } },
+        params: {
+          query: {
+            include_inactive: includeInactive,
+            limit: USERS_PAGE_LIMIT,
+          },
+        },
       })
       .catch(() => undefined);
     if (!response?.data) {
@@ -211,17 +222,26 @@ export function UsersPage() {
       ) : null}
 
       <div className="grid gap-4">
-        <label className="flex items-center gap-2 text-sm text-steel">
-          <input
-            type="checkbox"
-            className="size-4 rounded border-line"
-            checked={includeInactive}
-            onChange={(event) => {
-              setIncludeInactive(event.currentTarget.checked);
-            }}
-          />
-          {ko.users.includeInactive}
-        </label>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <label className="flex items-center gap-2 text-sm text-steel">
+            <input
+              type="checkbox"
+              className="size-4 rounded border-line"
+              checked={includeInactive}
+              onChange={(event) => {
+                setIncludeInactive(event.currentTarget.checked);
+              }}
+            />
+            {ko.users.includeInactive}
+          </label>
+          {listState === "idle" && users.length > 0 ? (
+            <Badge>
+              {formatListCount(users.length, {
+                mayHaveMore: users.length >= USERS_PAGE_LIMIT,
+              })}
+            </Badge>
+          ) : null}
+        </div>
 
         {listState === "error" ? (
           <PageError

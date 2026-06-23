@@ -13,6 +13,7 @@ import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
+import { ManagementNoCombobox } from "../equipment/ManagementNoCombobox";
 import { ko } from "../../i18n/ko";
 import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../../lib/useAutoDismiss";
 import { todayInSeoul } from "../../lib/utils";
@@ -165,42 +166,26 @@ export function IntakeForm({
           void handleSubmit(event);
         }}
       >
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-ink">{ko.intake.title}</h2>
-        </div>
-
         <div className="grid gap-2">
           <label className="text-sm font-medium text-steel" htmlFor="management-no">
             {ko.intake.managementNo}
             <RequiredMark />
           </label>
-          <Input
+          <ManagementNoCombobox
             id="management-no"
-            aria-required="true"
             value={managementNo}
-            placeholder={ko.intake.managementNoPlaceholder}
-            onChange={(event) => {
-              const nextManagementNo = event.currentTarget.value;
+            onChange={(nextManagementNo) => {
               setManagementNo(nextManagementNo);
               onManagementNoChange?.(nextManagementNo);
             }}
-            list="equipment-suggestions"
-            aria-invalid={Boolean(errors.managementNo)}
-            aria-describedby={
+            suggestions={equipmentSuggestions}
+            placeholder={ko.intake.managementNoPlaceholder}
+            ariaRequired
+            ariaInvalid={Boolean(errors.managementNo)}
+            ariaDescribedBy={
               errors.managementNo ? "management-no-error" : undefined
             }
           />
-          {equipmentSuggestions.length > 0 ? (
-            <datalist id="equipment-suggestions">
-              {equipmentSuggestions.map((equipment) => (
-                <option
-                  key={equipment.id}
-                  value={equipment.management_no ?? equipment.equipment_no}
-                  label={`${equipment.model ?? ko.common.unknown} / ${equipment.customer.name}`}
-                />
-              ))}
-            </datalist>
-          ) : null}
           {errors.managementNo ? (
             <p
               id="management-no-error"

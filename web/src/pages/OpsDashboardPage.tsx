@@ -2,12 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 
 import type { ArrivalEvent, OpsSummary } from "../api/types";
 import { useAuth } from "../context/auth";
+import { LoadMoreButton } from "../components/shell/LoadMoreButton";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { PageError } from "../components/states/PageError";
 import { SkeletonCards } from "../components/states/Skeleton";
+import { Badge } from "../components/ui/badge";
 import { Card } from "../components/ui/card";
 import { ko } from "../i18n/ko";
+import { formatListCount } from "../lib/utils";
 
 type ReadState = "idle" | "loading" | "error";
 
@@ -70,24 +73,45 @@ export function OpsDashboardPage() {
   );
 }
 
+const ARRIVALS_PAGE_SIZE = 20;
+
 /** Site arrival/departure feed (#13), fetched independently of the ops summary. */
 function ArrivalEventsCard() {
   const { api } = useAuth();
   const [events, setEvents] = useState<ArrivalEvent[]>([]);
+  const [total, setTotal] = useState<number | undefined>(undefined);
   const [state, setState] = useState<ReadState>("loading");
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const load = useCallback(async () => {
     setState("loading");
     const response = await api
-      .GET("/api/v1/location/arrival-events", { params: { query: { limit: 20 } } })
+      .GET("/api/v1/location/arrival-events", {
+        params: { query: { limit: ARRIVALS_PAGE_SIZE, offset: 0 } },
+      })
       .catch(() => undefined);
     if (!response?.data) {
       setState("error");
       return;
     }
     setEvents(response.data.items);
+    setTotal(response.data.total);
     setState("idle");
   }, [api]);
+
+  const loadMore = useCallback(async () => {
+    setLoadingMore(true);
+    const response = await api
+      .GET("/api/v1/location/arrival-events", {
+        params: { query: { limit: ARRIVALS_PAGE_SIZE, offset: events.length } },
+      })
+      .catch(() => undefined);
+    if (response?.data) {
+      setEvents((current) => [...current, ...response.data.items]);
+      setTotal(response.data.total);
+    }
+    setLoadingMore(false);
+  }, [api, events.length]);
 
   useEffect(() => {
     void Promise.resolve().then(load);
@@ -95,9 +119,14 @@ function ArrivalEventsCard() {
 
   return (
     <Card>
-      <h2 className="mb-3 text-sm font-semibold text-steel">
-        {ko.ops.arrivals.title}
-      </h2>
+      <div className="mb-3 flex items-center gap-2">
+        <h2 className="text-sm font-semibold text-steel">
+          {ko.ops.arrivals.title}
+        </h2>
+        {state === "idle" && events.length > 0 ? (
+          <Badge>{formatListCount(events.length, { total })}</Badge>
+        ) : null}
+      </div>
       {state === "loading" ? (
         <SkeletonCards count={3} lines={1} />
       ) : state === "error" ? (
@@ -140,6 +169,18 @@ function ArrivalEventsCard() {
           ))}
         </ul>
       )}
+      {state === "idle" && total !== undefined && events.length < total ? (
+        <div className="mt-3">
+          <LoadMoreButton
+            onClick={() => {
+              void loadMore();
+            }}
+            isLoading={loadingMore}
+            loaded={events.length}
+            total={total}
+          />
+        </div>
+      ) : null}
     </Card>
   );
 }
