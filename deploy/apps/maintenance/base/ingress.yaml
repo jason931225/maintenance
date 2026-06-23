@@ -19,7 +19,8 @@ spec:
     - host: console.example.com
       http:
         paths:
-          # API (incl. the unauthenticated /api/v1/support/intake) → server.
+          # API (incl. the unauthenticated /api/v1/support/intake, and the vendor
+          # platform-admin API at /api/platform/*) → server.
           - path: /api
             pathType: Prefix
             backend:
@@ -27,6 +28,16 @@ spec:
                 name: mnt-app
                 port: { number: 8080 }
           # Everything else → the SPA (which does client-side routing).
+          # Native app-link association docs (Apple AASA + Android assetlinks) are
+          # served by the backend at the fixed /.well-known/* path (Apple/Google
+          # require this exact location, so it cannot move under /api). Longest-
+          # prefix match means this wins over the `/` →SPA rule below.
+          - path: /.well-known
+            pathType: Prefix
+            backend:
+              service:
+                name: mnt-app
+                port: { number: 8080 }
           - path: /
             pathType: Prefix
             backend:
@@ -40,6 +51,16 @@ spec:
       http:
         paths:
           - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: mnt-app
+                port: { number: 8080 }
+          # Native app-link association docs (Apple AASA + Android assetlinks) are
+          # served by the backend at the fixed /.well-known/* path (Apple/Google
+          # require this exact location, so it cannot move under /api). Longest-
+          # prefix match means this wins over the `/` →SPA rule below.
+          - path: /.well-known
             pathType: Prefix
             backend:
               service:
@@ -62,6 +83,16 @@ spec:
               service:
                 name: mnt-app
                 port: { number: 8080 }
+          # Native app-link association docs (Apple AASA + Android assetlinks) are
+          # served by the backend at the fixed /.well-known/* path (Apple/Google
+          # require this exact location, so it cannot move under /api). Longest-
+          # prefix match means this wins over the `/` →SPA rule below.
+          - path: /.well-known
+            pathType: Prefix
+            backend:
+              service:
+                name: mnt-app
+                port: { number: 8080 }
           - path: /
             pathType: Prefix
             backend:
@@ -78,6 +109,16 @@ spec:
       http:
         paths:
           - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: mnt-app
+                port: { number: 8080 }
+          # Native app-link association docs (Apple AASA + Android assetlinks) are
+          # served by the backend at the fixed /.well-known/* path (Apple/Google
+          # require this exact location, so it cannot move under /api). Longest-
+          # prefix match means this wins over the `/` →SPA rule below.
+          - path: /.well-known
             pathType: Prefix
             backend:
               service:

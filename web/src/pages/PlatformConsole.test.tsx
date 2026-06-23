@@ -77,7 +77,7 @@ const tenantSession: AuthSession = {
 describe("Platform console routing", () => {
   it("routes a platform session to the tenant console list", async () => {
     server.use(
-      http.get("*/platform/orgs", () => HttpResponse.json(orgs)),
+      http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
     );
 
     renderApp("/platform", makeAuthContext(platformSession));
@@ -101,7 +101,7 @@ describe("Platform console routing", () => {
 
   it("redirects a platform session away from a tenant route to /platform", async () => {
     server.use(
-      http.get("*/platform/orgs", () => HttpResponse.json(orgs)),
+      http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
     );
 
     renderApp("/dispatch", makeAuthContext(platformSession));
@@ -116,7 +116,7 @@ describe("Platform console routing", () => {
 describe("Platform tenant list", () => {
   it("renders rows with status badges", async () => {
     server.use(
-      http.get("*/platform/orgs", () => HttpResponse.json(orgs)),
+      http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
     );
 
     renderApp("/platform/tenants", makeAuthContext(platformSession));
@@ -130,7 +130,7 @@ describe("Platform tenant list", () => {
 
   it("shows the empty state when there are no tenants", async () => {
     server.use(
-      http.get("*/platform/orgs", () => HttpResponse.json([])),
+      http.get("*/api/platform/orgs", () => HttpResponse.json([])),
     );
 
     renderApp("/platform/tenants", makeAuthContext(platformSession));
@@ -142,7 +142,7 @@ describe("Platform tenant list", () => {
 
   it("shows the error state when the list request fails", async () => {
     server.use(
-      http.get("*/platform/orgs", () =>
+      http.get("*/api/platform/orgs", () =>
         HttpResponse.json({ error: "boom" }, { status: 500 }),
       ),
     );
@@ -184,7 +184,7 @@ const opsTenants = {
 
 describe("Platform ops dashboard", () => {
   it("renders the cross-tenant health table for a platform session", async () => {
-    server.use(http.get("*/platform/ops", () => HttpResponse.json(opsTenants)));
+    server.use(http.get("*/api/platform/ops", () => HttpResponse.json(opsTenants)));
 
     renderApp("/platform/ops", makeAuthContext(platformSession));
 
@@ -207,7 +207,7 @@ describe("Platform ops dashboard", () => {
 
   it("shows the empty state when no tenants are returned", async () => {
     server.use(
-      http.get("*/platform/ops", () => HttpResponse.json({ tenants: [] })),
+      http.get("*/api/platform/ops", () => HttpResponse.json({ tenants: [] })),
     );
 
     renderApp("/platform/ops", makeAuthContext(platformSession));
@@ -219,7 +219,7 @@ describe("Platform ops dashboard", () => {
 
   it("shows the error state when the ops request fails", async () => {
     server.use(
-      http.get("*/platform/ops", () =>
+      http.get("*/api/platform/ops", () =>
         HttpResponse.json({ error: "boom" }, { status: 500 }),
       ),
     );
@@ -247,7 +247,7 @@ describe("Platform onboard", () => {
     const user = userEvent.setup();
     const posted = vi.fn();
     server.use(
-      http.post("*/platform/orgs", async ({ request }) => {
+      http.post("*/api/platform/orgs", async ({ request }) => {
         posted(await request.json());
         return HttpResponse.json(
           {
@@ -293,7 +293,7 @@ describe("Platform onboard", () => {
   it("surfaces a duplicate-slug conflict", async () => {
     const user = userEvent.setup();
     server.use(
-      http.post("*/platform/orgs", () =>
+      http.post("*/api/platform/orgs", () =>
         HttpResponse.json({ error: "duplicate_slug" }, { status: 409 }),
       ),
     );

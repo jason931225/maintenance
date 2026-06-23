@@ -4,13 +4,13 @@
 //! as in production).
 //!
 //! Assertions (definition of done):
-//!   1. A PLATFORM token can POST /platform/orgs to onboard tenant "acme",
+//!   1. A PLATFORM token can POST /api/platform/orgs to onboard tenant "acme",
 //!      creating the org + its first SUPER_ADMIN + a one-time OTP.
 //!   2. TENANT ISOLATION: a JWT scoped to acme reading /api/v1/users sees ONLY
 //!      acme's users (never KNL's), and a KNL-scoped JWT sees only KNL's — under
 //!      `mnt_rt`, so RLS is the gate.
-//!   3. A TENANT token is REJECTED on /platform/* (403).
-//!   4. A PLATFORM token is REJECTED on a tenant /api/* route (403).
+//!   3. A TENANT token is REJECTED on /api/platform/* (403).
+//!   4. A PLATFORM token is REJECTED on a tenant /api/v1/* route (403).
 
 use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode, header};
@@ -73,7 +73,7 @@ async fn platform_onboards_tenant_and_rls_isolates(super_pool: PgPool) {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/platform/orgs")
+                .uri("/api/platform/orgs")
                 .header(header::AUTHORIZATION, format!("Bearer {platform_token}"))
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(r#"{"slug":"acme","name":"Acme Inc"}"#))
@@ -138,12 +138,12 @@ async fn platform_onboards_tenant_and_rls_isolates(super_pool: PgPool) {
         "KNL must NOT see acme's admin (cross-tenant leak): {knl_users:?}"
     );
 
-    // --- (3) TENANT token REJECTED on /platform/* ------------------------------
+    // --- (3) TENANT token REJECTED on /api/platform/* --------------------------
     let response = service
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/platform/orgs")
+                .uri("/api/platform/orgs")
                 .header(header::AUTHORIZATION, format!("Bearer {knl_token}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -153,10 +153,10 @@ async fn platform_onboards_tenant_and_rls_isolates(super_pool: PgPool) {
     assert_eq!(
         response.status(),
         StatusCode::FORBIDDEN,
-        "a tenant token must be rejected on /platform/* (tier crossing)"
+        "a tenant token must be rejected on /api/platform/* (tier crossing)"
     );
 
-    // --- (4) PLATFORM token REJECTED on a tenant /api/* route ------------------
+    // --- (4) PLATFORM token REJECTED on a tenant /api/v1/* route ---------------
     let response = service
         .clone()
         .oneshot(
@@ -174,12 +174,12 @@ async fn platform_onboards_tenant_and_rls_isolates(super_pool: PgPool) {
         "a platform token must be rejected on tenant /api/* routes (tier crossing)"
     );
 
-    // --- (5) GET /platform/orgs lists acme + knl (cross-tenant read) -----------
+    // --- (5) GET /api/platform/orgs lists acme + knl (cross-tenant read) -------
     let response = service
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/platform/orgs")
+                .uri("/api/platform/orgs")
                 .header(header::AUTHORIZATION, format!("Bearer {platform_token}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -202,13 +202,13 @@ async fn platform_onboards_tenant_and_rls_isolates(super_pool: PgPool) {
         "list must NOT include the platform sentinel: {slugs:?}"
     );
 
-    // --- (6) PATCH /platform/orgs/{id} suspends acme ---------------------------
+    // --- (6) PATCH /api/platform/orgs/{id} suspends acme -----------------------
     let response = service
         .clone()
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/platform/orgs/{acme_id}"))
+                .uri(format!("/api/platform/orgs/{acme_id}"))
                 .header(header::AUTHORIZATION, format!("Bearer {platform_token}"))
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(r#"{"status":"SUSPENDED"}"#))

@@ -13,7 +13,7 @@ import { attachConsoleGuard, auditPage } from "../fixtures/ux";
  * Onboards a fresh tenant in-spec (unique slug, order-independent), then drives
  * the consequential status-change flow through its confirm dialog:
  *   ACTIVE → (정지) SUSPENDED → (활성화) ACTIVE.
- * Each transition's badge update proves the PATCH /platform/orgs/{id} round-trips
+ * Each transition's badge update proves the PATCH /api/platform/orgs/{id} round-trips
  * and the list refreshes from the server.
  */
 

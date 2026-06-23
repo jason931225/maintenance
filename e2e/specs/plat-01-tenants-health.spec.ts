@@ -12,8 +12,8 @@ import { attachConsoleGuard, auditPage } from "../fixtures/ux";
  *
  * The cold-start admin is a PLATFORM-tier SUPER_ADMIN (sentinel org). After the
  * real OTP→onboard→enroll ceremony it lands in the platform console
- * (/platform/tenants). GET /platform/orgs returns a bare array of tenants with
- * rfc3339 `created_at`; GET /platform/ops returns the cross-tenant health rollup.
+ * (/platform/tenants). GET /api/platform/orgs returns a bare array of tenants with
+ * rfc3339 `created_at`; GET /api/platform/ops returns the cross-tenant health rollup.
  *
  * This is the spec that proves the platform DTO serde fix: a tenant row's 생성일
  * (created_at) renders as a real ko-KR date, NOT "Invalid Date" (which is what an

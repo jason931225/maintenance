@@ -23,7 +23,7 @@ function formatActivity(value: string | null): string {
 
 /**
  * Platform ops dashboard: a cross-tenant health/usage table. Reads the audited
- * `GET /platform/ops` endpoint (platform token only) and lists every tenant
+ * `GET /api/platform/ops` endpoint (platform token only) and lists every tenant
  * with its user counts, active/open work-order counts, and last activity.
  */
 export function PlatformOpsPage() {

@@ -2,11 +2,15 @@ import { getDeviceId } from "./device";
 import { isAuthPath, singleFlightRefresh } from "./refresh";
 
 /**
- * Vendor platform-admin (multi-tenant) API. These `/platform/*` routes are an
- * internal vendor API and are intentionally NOT in the served OpenAPI, so they
+ * Vendor platform-admin (multi-tenant) API. These `/api/platform/*` routes are
+ * an internal vendor API and are intentionally NOT in the served OpenAPI, so they
  * are NOT on the generated `ConsoleApiClient`. We call them with a small raw
  * `fetch` wrapper that mirrors the auth/transport behavior of the generated
  * client (bearer header, cookie transport opt-in, X-Device-Id, credentials).
+ *
+ * They live under `/api` so the ingress `/api`→backend rule reaches them, with no
+ * path collision with the SPA's own `/platform/*` browser routes (which the
+ * client-side router owns).
  */
 
 export type OrgStatus = "ACTIVE" | "SUSPENDED" | "ARCHIVED";
@@ -128,16 +132,16 @@ export interface PlatformTenantHealth {
   last_activity_at: string | null;
 }
 
-/** Response shape of GET /platform/ops. */
+/** Response shape of GET /api/platform/ops. */
 export interface PlatformOpsResponse {
   tenants: PlatformTenantHealth[];
 }
 
-/** GET /platform/ops — cross-tenant ops health rollup (audited). */
+/** GET /platform/ops â cross-tenant ops health rollup (audited). */
 export async function getPlatformOps(
   bearerToken: string | undefined,
 ): Promise<PlatformTenantHealth[]> {
-  const response = await platformFetch(bearerToken, "/platform/ops", {
+  const response = await platformFetch(bearerToken, "/api/platform/ops", {
     method: "GET",
   });
   if (!response.ok) throw await parseError(response);
@@ -145,23 +149,23 @@ export async function getPlatformOps(
   return body.tenants;
 }
 
-/** GET /platform/orgs — list every tenant organization. */
+/** GET /platform/orgs â list every tenant organization. */
 export async function listPlatformOrgs(
   bearerToken: string | undefined,
 ): Promise<PlatformOrg[]> {
-  const response = await platformFetch(bearerToken, "/platform/orgs", {
+  const response = await platformFetch(bearerToken, "/api/platform/orgs", {
     method: "GET",
   });
   if (!response.ok) throw await parseError(response);
   return (await response.json()) as PlatformOrg[];
 }
 
-/** POST /platform/orgs — onboard a tenant; returns the org + a one-time OTP. */
+/** POST /platform/orgs â onboard a tenant; returns the org + a one-time OTP. */
 export async function onboardPlatformOrg(
   bearerToken: string | undefined,
   body: OnboardOrgRequest,
 ): Promise<OnboardOrgResponse> {
-  const response = await platformFetch(bearerToken, "/platform/orgs", {
+  const response = await platformFetch(bearerToken, "/api/platform/orgs", {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -169,7 +173,7 @@ export async function onboardPlatformOrg(
   return (await response.json()) as OnboardOrgResponse;
 }
 
-/** PATCH /platform/orgs/{id} — set a tenant's lifecycle status. */
+/** PATCH /platform/orgs/{id} â set a tenant's lifecycle status. */
 export async function setPlatformOrgStatus(
   bearerToken: string | undefined,
   id: string,
@@ -177,7 +181,7 @@ export async function setPlatformOrgStatus(
 ): Promise<PlatformOrg> {
   const response = await platformFetch(
     bearerToken,
-    `/platform/orgs/${encodeURIComponent(id)}`,
+    `/api/platform/orgs/${encodeURIComponent(id)}`,
     {
       method: "PATCH",
       body: JSON.stringify({ status }),

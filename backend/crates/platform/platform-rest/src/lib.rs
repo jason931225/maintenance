@@ -1,10 +1,14 @@
-//! PLATFORM tier REST API — tenant onboarding and lifecycle.
+//! PLATFORM tier REST API â tenant onboarding and lifecycle.
 //!
-//! These routes live under `/platform/*` and are mounted behind the PLATFORM
+//! These routes live under `/api/platform/*` and are mounted behind the PLATFORM
 //! extractor ([`mnt_platform_request_context::with_platform_context`]), NOT the
 //! tenant org middleware. A TENANT token is rejected here (403) and a PLATFORM
-//! token is rejected on the tenant `/api/*` routes — the two tiers are strictly
+//! token is rejected on the tenant `/api/v1/*` routes â the two tiers are strictly
 //! separated, so a tenant admin can never reach a platform endpoint.
+//!
+//! They sit under the `/api` prefix so the ingress `/api`→backend rule reaches
+//! them (the SPA owns the bare browser routes `/platform/*`); the `/api/platform`
+//! namespace keeps the vendor data API collision-free with those client routes.
 //!
 //! Every write is cross-tenant and audited to the TARGET org (so the action
 //! shows in both the platform and the tenant's audit trail).
@@ -25,9 +29,9 @@ use sqlx::PgPool;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-pub const PLATFORM_ORGS_PATH: &str = "/platform/orgs";
-pub const PLATFORM_ORG_PATH_TEMPLATE: &str = "/platform/orgs/{id}";
-pub const PLATFORM_OPS_PATH: &str = "/platform/ops";
+pub const PLATFORM_ORGS_PATH: &str = "/api/platform/orgs";
+pub const PLATFORM_ORG_PATH_TEMPLATE: &str = "/api/platform/orgs/{id}";
+pub const PLATFORM_OPS_PATH: &str = "/api/platform/ops";
 
 #[derive(Clone)]
 pub struct PlatformRestState {
@@ -51,7 +55,7 @@ impl PlatformRestState {
     }
 }
 
-/// Build the `/platform/*` router behind the PLATFORM extractor.
+/// Build the `/api/platform/*` router behind the PLATFORM extractor.
 pub fn router(state: PlatformRestState) -> Router {
     let verifier = state.jwt_verifier.clone();
     let router = Router::new()
@@ -60,7 +64,7 @@ pub fn router(state: PlatformRestState) -> Router {
         .route(PLATFORM_OPS_PATH, get(ops_dashboard))
         .with_state(state);
     // PLATFORM extractor: resolves the PlatformPrincipal and REJECTS any tenant
-    // token. Deliberately NOT the tenant org middleware — the platform tier is
+    // token. Deliberately NOT the tenant org middleware â the platform tier is
     // not tenant-scoped, and each handler arms the TARGET org per action.
     mnt_platform_request_context::with_platform_context(router, verifier)
 }
@@ -172,7 +176,7 @@ struct PlatformOpsResponse {
 // Handlers
 // ---------------------------------------------------------------------------
 
-/// POST /platform/orgs — onboard a NEW tenant (the only place org rows are
+/// POST /platform/orgs â onboard a NEW tenant (the only place org rows are
 /// created by the app), seed its first SUPER_ADMIN, and return a one-time OTP.
 async fn create_org(
     State(state): State<PlatformRestState>,
@@ -202,7 +206,7 @@ async fn create_org(
         .into_response())
 }
 
-/// GET /platform/orgs — list all tenants (cross-tenant, audited read).
+/// GET /platform/orgs â list all tenants (cross-tenant, audited read).
 async fn list_orgs(
     State(state): State<PlatformRestState>,
     Extension(principal): Extension<PlatformPrincipal>,
@@ -227,10 +231,10 @@ async fn list_orgs(
     Ok(Json(items).into_response())
 }
 
-/// GET /platform/ops — cross-tenant ops health rollup (audited platform read).
+/// GET /platform/ops â cross-tenant ops health rollup (audited platform read).
 ///
 /// Aggregates per-tenant health/usage numbers for EVERY tenant via the
-/// SECURITY DEFINER `platform_org_health()` function — the only sanctioned
+/// SECURITY DEFINER `platform_org_health()` function â the only sanctioned
 /// cross-tenant path. The read is audited (`platform.tenant.health`); a tenant
 /// token is rejected with 403 by the platform extractor before this runs.
 async fn ops_dashboard(
@@ -255,7 +259,7 @@ async fn ops_dashboard(
     Ok(Json(PlatformOpsResponse { tenants }).into_response())
 }
 
-/// PATCH /platform/orgs/{id} — suspend / reactivate a tenant (audited).
+/// PATCH /platform/orgs/{id} â suspend / reactivate a tenant (audited).
 async fn update_org(
     State(state): State<PlatformRestState>,
     Extension(principal): Extension<PlatformPrincipal>,

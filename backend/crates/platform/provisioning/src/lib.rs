@@ -553,7 +553,7 @@ impl BootstrapCredentialStore {
     /// user is re-homed to the platform sentinel org [`OrgId::platform`] by
     /// migration 0036, so this arms that sentinel as the GUC; the seeded
     /// bootstrap credential carries the sentinel org_id. KNL's own tenant admin
-    /// is created via the per-org onboarding flow (POST /platform/orgs), not here.
+    /// is created via the per-org onboarding flow (POST /api/platform/orgs), not here.
     ///
     /// ONLY IF that admin has neither a registered passkey nor an already-open
     /// bootstrap credential, this inserts a single bootstrap credential whose

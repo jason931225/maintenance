@@ -130,7 +130,7 @@ pub enum AppRole {
     Api,
     Worker,
     /// One-shot schema-migration mode. Connects to `DATABASE_URL` as the table
-    /// OWNER, runs the embedded migrations, then exits — it never serves HTTP.
+    /// OWNER, runs the embedded migrations, then exits â it never serves HTTP.
     /// Invoked out of band (an Argo CD PreSync Job) before the api/worker
     /// Deployments roll, so the runtime `mnt_rt` role never needs DDL.
     Migrate,
@@ -189,7 +189,7 @@ pub struct AppConfig {
     pub request_timeout: Duration,
     /// Deploy-time cold-start OTP for the cold-start SUPER_ADMIN, supplied
     /// out-of-band via `MNT_COLDSTART_OTP`. `None` (or empty) means no
-    /// cold-start OTP is seeded at boot — the normal state once an admin exists.
+    /// cold-start OTP is seeded at boot â the normal state once an admin exists.
     pub coldstart_otp: Option<String>,
     /// Lifetime of a boot-seeded cold-start OTP (`MNT_COLDSTART_OTP_TTL_SECS`,
     /// default 3600s).
@@ -955,7 +955,7 @@ pub fn install_metrics_recorder() -> Result<PrometheusHandle, AppError> {
     {
         Ok(handle) => Ok(METRICS_HANDLE.get_or_init(|| handle).clone()),
         // Lost the install race (another caller already set the global recorder)
-        // → adopt the winner's handle; only a genuine absence is an error.
+        // â adopt the winner's handle; only a genuine absence is an error.
         Err(err) => METRICS_HANDLE
             .get()
             .cloned()
@@ -985,7 +985,7 @@ async fn track_http_metrics(
     response
 }
 
-/// `GET /metrics` — Prometheus exposition. Internal-only: the ingress routes
+/// `GET /metrics` â Prometheus exposition. Internal-only: the ingress routes
 /// `/api` to this server and everything else to the SPA, so `/metrics` is
 /// reachable only in-cluster (e.g. by a ServiceMonitor scrape), never via the
 /// public host.
@@ -1035,7 +1035,7 @@ fn http_trace_layer() -> TraceLayer<
             tracing::info_span!(
                 "http.request",
                 method = %request.method(),
-                // Path ONLY — never the query string. A query can carry PII (a
+                // Path ONLY â never the query string. A query can carry PII (a
                 // search term, a name, a phone), and the pii-no-logs gate is a
                 // literal scanner that cannot catch a runtime query value, so we
                 // drop it at the source. The path identifies the route, which is
@@ -1051,7 +1051,7 @@ fn http_trace_layer() -> TraceLayer<
             tracing::info!(
                 trace_id = %trace_id,
                 method = %request.method(),
-                // Path only — drop the query string (potential PII); see make_span_with.
+                // Path only â drop the query string (potential PII); see make_span_with.
                 path = %request.uri().path(),
                 "http request started"
             );
@@ -1072,7 +1072,7 @@ fn http_trace_layer() -> TraceLayer<
 pub fn build_router(state: AppState) -> Router {
     // The base router carries NO cross-cutting layers here. Per axum's `merge`
     // semantics, any layer applied to a router *before* it is merged with the
-    // domain routers wraps only the base routes, not the merged-in ones — which
+    // domain routers wraps only the base routes, not the merged-in ones â which
     // is exactly the bug this composition avoids. The trace layer, timeout, and
     // body limit are applied to the FULLY-merged router below so every route
     // (base + domains) is covered, with the realtime route deliberately merged
@@ -1187,10 +1187,16 @@ pub fn build_router(state: AppState) -> Router {
             // intentionally NOT under the org middleware: a login request has no
             // tenant yet, and the WS handler runs its own auth over the socket
             // lifetime (a task-local would not survive the upgrade anyway).
-            // PLATFORM tier (`/platform/*`). Mounted at the APP level behind the
-            // PLATFORM extractor — deliberately NOT under the tenant org
-            // middleware: a platform token is rejected on `/api/*` and a tenant
-            // token is rejected here. This is the only path that creates org rows.
+            // PLATFORM tier (`/api/platform/*`). Mounted at the APP level (merged,
+            // not nested) behind the PLATFORM extractor â deliberately NOT under
+            // the tenant org middleware: the PLATFORM extractor rejects a tenant
+            // token here (403), and the per-router tenant org middleware rejects a
+            // platform token on the tenant `/api/v1/*` routes (403). There is NO
+            // blanket `/api/*` platform-token rejection, so `/api/platform/*` is
+            // reached untouched by tenant middleware. Living under `/api` lets the
+            // ingress `/api`→backend rule route it while the SPA keeps the bare
+            // browser routes `/platform/*`. This is the only path that creates org
+            // rows.
             let platform_router = mnt_platform_rest::router(PlatformRestState::new(
                 pool.clone(),
                 state.jwt_verifier.clone(),
@@ -1209,7 +1215,7 @@ pub fn build_router(state: AppState) -> Router {
                 // Defense-in-depth: shed any request that hangs on a slow
                 // upstream or DB so a stuck handler cannot pin a worker. Applied
                 // BEFORE the realtime router is merged so the long-lived WS
-                // connection below is never severed by this 30s budget — this is
+                // connection below is never severed by this 30s budget â this is
                 // the #1 regression to prevent (live wallboard/dispatch SSE/WS).
                 timed.layer(TimeoutLayer::with_status_code(
                     StatusCode::REQUEST_TIMEOUT,
@@ -1229,12 +1235,12 @@ pub fn build_router(state: AppState) -> Router {
     };
     // Cross-cutting layers on the FULLY-merged router (base + every domain +
     // platform + realtime + auth), so they actually cover the merged routes:
-    //   * DefaultBodyLimit (2 MiB) — bounds every request body. Applied here
+    //   * DefaultBodyLimit (2 MiB) â bounds every request body. Applied here
     //     (innermost of these), so a per-route `DefaultBodyLimit::max(N)` set
     //     deeper in a domain router (e.g. the 16 MiB equipment import) still
     //     wins. The realtime WS upgrade carries no body, so this is a no-op for
     //     it. Overridable per-route, unlike an outermost RequestBodyLimitLayer.
-    //   * TraceLayer — emits a request span for EVERY route, realtime included
+    //   * TraceLayer â emits a request span for EVERY route, realtime included
     //     (tracing a long-lived WS only logs its start/end, so it is safe).
     let router = router
         .layer(axum::extract::DefaultBodyLimit::max(MAX_REQUEST_BODY_BYTES))
@@ -1751,7 +1757,7 @@ pub async fn serve(config: AppConfig, state: AppState) -> Result<(), AppError> {
 ///
 /// This is the `migrate` run-mode (an Argo CD PreSync Job). It is deliberately
 /// lean: it needs ONLY `DATABASE_URL` (the OWNER `mnt_app` connection that can
-/// run DDL) — no JWT keys, S3 creds, or any other app config — so a migration
+/// run DDL) â no JWT keys, S3 creds, or any other app config â so a migration
 /// Job can run with a minimal environment. It opens a tiny single-connection
 /// pool, runs the migrator (idempotent: sqlx skips versions already recorded in
 /// `_sqlx_migrations`), logs how many were applied, then returns so the process
@@ -1841,7 +1847,7 @@ async fn serve_api(config: AppConfig, state: AppState) -> Result<(), AppError> {
 /// Runs only for the API role with a configured `MNT_COLDSTART_OTP` and a live
 /// database. The seeding itself is idempotent and race-safe in the provisioning
 /// crate: it inserts a credential only when the cold-start admin has neither a
-/// passkey nor an open credential. The OTP value is NEVER logged — only whether a
+/// passkey nor an open credential. The OTP value is NEVER logged â only whether a
 /// credential was seeded or skipped.
 async fn seed_cold_start_otp(config: &AppConfig, state: &AppState) -> Result<(), AppError> {
     let Some(otp) = config.coldstart_otp.as_deref() else {
@@ -2020,7 +2026,7 @@ mod router_layer_tests {
     //! These tests assert the *merge-order semantics* the fix relies on, using
     //! the same `TimeoutLayer` and `.merge()` ordering as `build_router`. A
     //! route merged INSIDE the timeout 408s when its handler is slow; a route
-    //! merged AFTER (outside) the timeout is never severed — which is exactly
+    //! merged AFTER (outside) the timeout is never severed â which is exactly
     //! how the realtime WS/SSE route is composed. (Note: tower-http 0.7's
     //! `TimeoutLayer` times out the *response future*, so it cannot abort an
     //! already-streaming SSE body or an upgraded WS in the first place; merging
@@ -2080,7 +2086,7 @@ mod router_layer_tests {
     async fn realtime_route_merged_outside_timeout_is_never_shed() {
         // Same short timeout, but the realtime-equivalent route is merged
         // outside it: a handler that runs well past the timeout still completes
-        // 200 and is never severed. This is the #1 regression guard — a 30s
+        // 200 and is never severed. This is the #1 regression guard â a 30s
         // timeout must never cut a live realtime/SSE connection.
         let app = compose(Duration::from_millis(200));
         let response = app

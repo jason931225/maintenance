@@ -1,4 +1,4 @@
-//! Platform ops dashboard (`GET /platform/ops`) integration tests.
+//! Platform ops dashboard (`GET /api/platform/ops`) integration tests.
 //!
 //! Verifies the two security invariants the cross-tenant dashboard depends on:
 //! 1. a TENANT token is rejected with 403 (the platform extractor refuses any
@@ -157,7 +157,7 @@ async fn tenant_token_is_rejected_with_403(pool: PgPool) {
     assert_eq!(
         status,
         StatusCode::FORBIDDEN,
-        "a tenant token must never reach /platform/ops"
+        "a tenant token must never reach /api/platform/ops"
     );
 }
 

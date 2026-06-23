@@ -75,7 +75,10 @@ export async function singleFlightRefresh(): Promise<string> {
 export function isAuthPath(url: string): boolean {
   try {
     const pathname = new URL(url).pathname;
-    return pathname.startsWith("/api/v1/auth/") || pathname.startsWith("/platform/auth/");
+    return (
+      pathname.startsWith("/api/v1/auth/") ||
+      pathname.startsWith("/api/platform/auth/")
+    );
   } catch {
     return false;
   }
