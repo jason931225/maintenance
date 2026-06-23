@@ -175,17 +175,21 @@ describe("OrgPage", () => {
     const regionMatches = await screen.findAllByText("수도권");
     const regionRow = regionMatches
       .map((el) => el.closest("li"))
-      .find((li): li is HTMLLIElement => li !== null)!;
-    await user.click(within(regionRow).getByRole("button", { name: "수정" }));
+      .find((li): li is HTMLLIElement => li !== null);
+    expect(regionRow).toBeDefined();
+    await user.click(
+      within(regionRow as HTMLLIElement).getByRole("button", { name: "수정" }),
+    );
 
     // The inline edit form replaces the row in place. "지역명" labels both the
     // create form input (#region-name) and the inline edit input — pick the edit
     // one (the input without the create form's id).
     const nameInput = (await screen.findAllByLabelText("지역명")).find(
       (el) => el.id !== "region-name",
-    )!;
-    await user.clear(nameInput);
-    await user.type(nameInput, "경기권");
+    );
+    expect(nameInput).toBeDefined();
+    await user.clear(nameInput as HTMLElement);
+    await user.type(nameInput as HTMLElement, "경기권");
     await user.click(screen.getByRole("button", { name: "저장" }));
 
     await waitFor(() => {
@@ -220,8 +224,11 @@ describe("OrgPage", () => {
     renderApp("/settings/org", makeAuthContext(adminSession));
 
     // The branch row (owns "강남지점") exposes a 삭제 (delete) affordance.
-    const branchRow = (await screen.findByText("강남지점")).closest("li")!;
-    await user.click(within(branchRow).getByRole("button", { name: "삭제" }));
+    const branchRow = (await screen.findByText("강남지점")).closest("li");
+    expect(branchRow).not.toBeNull();
+    await user.click(
+      within(branchRow as HTMLLIElement).getByRole("button", { name: "삭제" }),
+    );
 
     // A confirm dialog appears; confirming issues the DELETE.
     const dialog = await screen.findByRole("dialog", { name: "지점 삭제" });
@@ -253,8 +260,11 @@ describe("OrgPage", () => {
 
     renderApp("/settings/org", makeAuthContext(adminSession));
 
-    const branchRow = (await screen.findByText("강남지점")).closest("li")!;
-    await user.click(within(branchRow).getByRole("button", { name: "삭제" }));
+    const branchRow = (await screen.findByText("강남지점")).closest("li");
+    expect(branchRow).not.toBeNull();
+    await user.click(
+      within(branchRow as HTMLLIElement).getByRole("button", { name: "삭제" }),
+    );
     const dialog = await screen.findByRole("dialog", { name: "지점 삭제" });
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
 
