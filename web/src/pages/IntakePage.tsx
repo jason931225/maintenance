@@ -10,7 +10,8 @@ import { useActiveBranchId, useAuth } from "../context/auth";
 import { PageHeader } from "../components/shell/PageHeader";
 import { PageEmpty } from "../components/states/PageEmpty";
 import { ROLES, hasAnyRole, type Role } from "../components/shell/nav";
-import { IntakeForm, WorkOrderCreateError } from "../features/intake/IntakeForm";
+import { IntakeForm } from "../features/intake/IntakeForm";
+import { WorkOrderCreateError } from "../features/intake/work-order-create-error";
 import { ko } from "../i18n/ko";
 
 const equipmentDebounceMs = 300;

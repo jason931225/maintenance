@@ -187,7 +187,10 @@ export function InspectionPage() {
   }, [api, rangeStart, rangeEnd, schedules]);
 
   useEffect(() => {
-    void Promise.resolve().then(load);
+    // Defer to a microtask so the initial fetch's setState isn't called
+    // synchronously inside the effect body (react-hooks/set-state-in-effect);
+    // the arrow drops the `.then` value so `load()`'s optional range stays unset.
+    void Promise.resolve().then(() => load());
   }, [load]);
 
   // Load the branch + mechanic option sources once for the create-form pickers.

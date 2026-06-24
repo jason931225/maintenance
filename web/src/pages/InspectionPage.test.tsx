@@ -166,7 +166,7 @@ describe("InspectionPage", () => {
           equipment_id: equipmentId,
           mechanic_id: mechanicId,
           cycle: "MONTHLY",
-          interval_days: 30,
+          interval_days: 31,
         }),
       );
     });

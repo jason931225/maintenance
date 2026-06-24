@@ -18,6 +18,7 @@ import { ManagementNoCombobox } from "../equipment/ManagementNoCombobox";
 import { ko } from "../../i18n/ko";
 import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../../lib/useAutoDismiss";
 import { todayInSeoul } from "../../lib/utils";
+import { WorkOrderCreateError } from "./work-order-create-error";
 
 /**
  * Intake-time maintenance classification. The work-order backend has no
@@ -30,18 +31,6 @@ type ServiceCategory = keyof typeof ko.intake.serviceCategories;
 const SERVICE_CATEGORIES = Object.keys(
   ko.intake.serviceCategories,
 ) as ServiceCategory[];
-
-/**
- * Thrown by the create caller when the POST fails, carrying the HTTP status so
- * the form can distinguish the equipment-not-found 404 (the only 404 the create
- * path raises) from a generic save failure.
- */
-export class WorkOrderCreateError extends Error {
-  constructor(readonly status: number) {
-    super(`work-order create failed with status ${status}`);
-    this.name = "WorkOrderCreateError";
-  }
-}
 
 interface IntakeFormProps {
   branchId: string;

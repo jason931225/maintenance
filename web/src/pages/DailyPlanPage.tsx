@@ -103,7 +103,7 @@ export function DailyPlanPage() {
   }, [api]);
 
   useEffect(() => {
-    void loadPlans();
+    void Promise.resolve().then(() => loadPlans());
   }, [loadPlans]);
 
   // Deep-link load: when arriving with ?planId=… (e.g. a reviewer re-opening a
