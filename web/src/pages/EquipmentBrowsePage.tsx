@@ -1,6 +1,5 @@
 import { Search } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 import type { EquipmentListItem, EquipmentSortBy, EquipmentStatus } from "../api/types";
 import { Badge } from "../components/ui/badge";
@@ -11,6 +10,7 @@ import { PageError } from "../components/states/PageError";
 import { SkeletonTable } from "../components/states/Skeleton";
 import { PageHeader } from "../components/shell/PageHeader";
 import { LoadMoreButton } from "../components/shell/LoadMoreButton";
+import { EquipmentDetailDialog } from "../features/equipment/EquipmentDetailDialog";
 import { useAuth } from "../context/auth";
 import { hasAnyRole, ROLES } from "../components/shell/nav";
 import { formatKoreanDate } from "../lib/datetime";
@@ -73,8 +73,12 @@ function resetPagination(
 
 export function EquipmentBrowsePage() {
   const { api, session } = useAuth();
-  const navigate = useNavigate();
   const canManage = hasAnyRole(session?.roles, EQUIPMENT_MANAGE_ROLES);
+
+  // The equipment row whose detail popup is open, if any.
+  const [detailItem, setDetailItem] = useState<EquipmentListItem | undefined>(
+    undefined,
+  );
 
   // Filter / sort state
   const [q, setQ] = useState("");
@@ -159,8 +163,19 @@ export function EquipmentBrowsePage() {
     void fetchPage(0, false);
   }
 
-  function handleEditClick(equipmentId: string) {
-    void navigate(`/equipment/manage?id=${equipmentId}`);
+  function handleRowOpen(item: EquipmentListItem) {
+    setDetailItem(item);
+  }
+
+  // Reflect an in-dialog edit onto the list row without a full refetch, and keep
+  // the dialog open on the freshly-updated row.
+  function handleRowUpdated(updated: EquipmentListItem) {
+    setItems((prev) =>
+      prev.map((row) =>
+        row.equipment_id === updated.equipment_id ? updated : row,
+      ),
+    );
+    setDetailItem(updated);
   }
 
   const hasMore = total !== undefined && items.length < total;
@@ -224,7 +239,7 @@ export function EquipmentBrowsePage() {
       {readState === "error" ? (
         <PageError message={ko.equipment.browse.loadFailed} onRetry={handleRetry} />
       ) : readState === "loading" ? (
-        <SkeletonTable rows={8} cols={canManage ? 7 : 6} />
+        <SkeletonTable rows={8} cols={7} />
       ) : items.length === 0 ? (
         <PageEmpty message={ko.equipment.browse.empty} />
       ) : (
@@ -251,18 +266,28 @@ export function EquipmentBrowsePage() {
                   <th className="px-4 py-3 font-medium">
                     {ko.equipment.browse.colUpdatedAt}
                   </th>
-                  {canManage ? (
-                    <th className="px-4 py-3 font-medium">
-                      <span className="sr-only">{ko.equipment.browse.editAction}</span>
-                    </th>
-                  ) : null}
+                  <th className="px-4 py-3 font-medium">
+                    <span className="sr-only">
+                      {ko.equipment.browse.rowAction}
+                    </span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
                 {items.map((item) => (
                   <tr
                     key={item.equipment_id}
-                    className="hover:bg-muted-panel/30"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${ko.equipment.browse.rowAction}: ${item.equipment_no}`}
+                    className="cursor-pointer hover:bg-muted-panel/30 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-signal"
+                    onClick={() => { handleRowOpen(item); }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        handleRowOpen(item);
+                      }
+                    }}
                   >
                     <td className="px-4 py-3 font-mono text-xs font-medium text-ink">
                       {item.equipment_no}
@@ -290,18 +315,27 @@ export function EquipmentBrowsePage() {
                     <td className="px-4 py-3 text-steel">
                       {formatKoreanDate(item.updated_at)}
                     </td>
-                    {canManage ? (
-                      <td className="px-4 py-3">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => { handleEditClick(item.equipment_id); }}
-                          aria-label={`${ko.equipment.browse.editAction}: ${item.equipment_no}`}
-                        >
-                          {ko.equipment.browse.editAction}
-                        </Button>
-                      </td>
-                    ) : null}
+                    <td className="px-4 py-3">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(event) => {
+                          // The row already opens the popup; stop the bubble so
+                          // we don't fire the row handler a second time.
+                          event.stopPropagation();
+                          handleRowOpen(item);
+                        }}
+                        aria-label={`${
+                          canManage
+                            ? ko.equipment.browse.editAction
+                            : ko.equipment.browse.viewAction
+                        }: ${item.equipment_no}`}
+                      >
+                        {canManage
+                          ? ko.equipment.browse.editAction
+                          : ko.equipment.browse.viewAction}
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -320,6 +354,17 @@ export function EquipmentBrowsePage() {
           ) : null}
         </div>
       )}
+
+      <EquipmentDetailDialog
+        // Remount per row so the dialog always opens on the read-only view with
+        // form fields freshly seeded from the selected equipment.
+        key={detailItem?.equipment_id ?? "closed"}
+        item={detailItem}
+        canManage={canManage}
+        api={api}
+        onClose={() => { setDetailItem(undefined); }}
+        onUpdated={handleRowUpdated}
+      />
     </>
   );
 }

@@ -6,7 +6,8 @@ import { useActiveBranchId, useAuth } from "../../context/auth";
 import { useCurrentTitle } from "../../context/title";
 import { roleLabel } from "../../features/org/org-format";
 import { ko } from "../../i18n/ko";
-import { cn, identityLabel } from "../../lib/utils";
+import { useActiveBranchName } from "../../lib/useActiveBranchName";
+import { cn, identityLabel, safeLabel } from "../../lib/utils";
 import { isPendingMember } from "./nav";
 
 interface TopbarProps {
@@ -43,12 +44,16 @@ export function Topbar({ onOpenMobileSidebar }: TopbarProps) {
   );
 }
 
-function BranchChip() {
+export function BranchChip() {
   const branchId = useActiveBranchId();
+  const branchName = useActiveBranchName();
   if (!branchId) return null;
+  // Show the resolved branch NAME, never the raw UUID. While the name is still
+  // loading, fall back to a neutral label; safeLabel guarantees a UUID-shaped
+  // value can never reach the chip.
   return (
     <span className="hidden sm:inline-flex items-center rounded-md border border-line bg-muted-panel px-2 py-1 text-xs font-medium text-steel">
-      {ko.shell.branch}: {branchId.slice(-4)}
+      {ko.shell.branch}: {safeLabel(branchName, ko.shell.branchUnknown)}
     </span>
   );
 }
