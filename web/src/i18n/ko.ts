@@ -24,6 +24,7 @@ export const ko = {
     financial: "구매·정산",
     integrity: "이상 징후 검토",
     location: "GPS 위치 동의",
+    email: "메일 서버",
     security: "보안 설정",
     users: "사용자 관리",
     org: "지역·지점 관리",
@@ -560,6 +561,87 @@ export const ko = {
     cancel: "취소",
     lastPasskey:
       "마지막 패스키는 삭제할 수 없습니다. 먼저 다른 패스키를 등록하세요.",
+  },
+  email: {
+    title: "메일 서버",
+    description:
+      "회사 메일 계정(SMTP 발신·IMAP 수신)을 설정합니다. 비밀번호는 저장 후 다시 표시되지 않습니다.",
+    // Shown when the server has no master key configured (HTTP 503). The mail
+    // endpoints are unavailable until an operator provisions the key, so we
+    // render a clear notice instead of a crash.
+    notConfiguredTitle: "메일 기능이 아직 구성되지 않았습니다.",
+    notConfiguredBody:
+      "서버에 메일 암호화 키가 설정되지 않아 메일 계정을 구성할 수 없습니다. 운영 담당자에게 문의하세요.",
+    loadFailed: "메일 설정을 불러오지 못했습니다.",
+    // Section: SMTP (outbound send).
+    smtpSection: "SMTP (발신)",
+    smtpSectionHint: "메일을 보낼 때 사용하는 발신 서버입니다.",
+    // Section: IMAP (inbound receive — not live yet).
+    imapSection: "IMAP (수신)",
+    imapSectionHint:
+      "메일을 받을 때 사용하는 수신 서버입니다. 받은 편지함·수신 동기화는 곧 제공될 예정이며, 지금은 설정만 저장됩니다.",
+    // Section: identity (the from address / display name).
+    identitySection: "발신자 정보",
+    host: "호스트",
+    hostPlaceholder: "예: smtp.example.com",
+    port: "포트",
+    portPlaceholder: "예: 465",
+    security: "보안 연결",
+    securitySslTls: "SSL/TLS",
+    securityStartTls: "STARTTLS",
+    username: "사용자 이름",
+    usernamePlaceholder: "예: user@example.com",
+    password: "비밀번호",
+    // Placeholder shown when a credential is already on file — leaving it blank
+    // keeps the stored secret.
+    passwordKeepPlaceholder: "변경하려면 새 비밀번호를 입력하세요.",
+    passwordNewPlaceholder: "비밀번호를 입력하세요.",
+    // Inline indicator that a credential is sealed on the server.
+    passwordSet: "설정됨",
+    passwordSetHint: "비워 두면 기존 비밀번호가 유지됩니다.",
+    passwordRequiredHint: "최초 설정 시 비밀번호가 필요합니다.",
+    displayName: "표시 이름",
+    displayNamePlaceholder: "예: 한국지게차 정비팀",
+    emailAddress: "발신 주소",
+    emailAddressPlaceholder: "예: service@example.com",
+    fromName: "발신자 표시명 (선택)",
+    fromNamePlaceholder: "예: 정비팀",
+    save: "저장",
+    saving: "저장 중",
+    saved: "메일 설정을 저장했습니다.",
+    saveFailed: "메일 설정을 저장하지 못했습니다. 다시 시도하세요.",
+    // Test-connection action.
+    test: "연결 테스트",
+    testing: "테스트 중",
+    testOk: "SMTP 서버에 정상적으로 연결되었습니다.",
+    testFailed: "SMTP 서버에 연결하지 못했습니다.",
+    testRateLimited: "연결 테스트 시도가 너무 많습니다. 잠시 후 다시 시도하세요.",
+    testRequiresSave:
+      "연결을 테스트하려면 먼저 비밀번호를 포함해 설정을 저장하세요.",
+    // Friendly, non-secret mappings for the structured error_code returned by
+    // the test-connection endpoint. The raw token is never shown to the user.
+    errorCodes: {
+      auth_failed: "사용자 이름 또는 비밀번호가 올바르지 않습니다.",
+      connection_failed:
+        "서버에 연결할 수 없습니다. 호스트와 포트를 확인하세요.",
+      tls_failed:
+        "보안 연결(TLS) 협상에 실패했습니다. 보안 연결 설정을 확인하세요.",
+      timeout: "서버 응답 시간이 초과되었습니다. 잠시 후 다시 시도하세요.",
+      no_password:
+        "저장된 비밀번호가 없습니다. 비밀번호를 포함해 설정을 저장한 뒤 테스트하세요.",
+      not_configured: "메일 계정이 아직 설정되지 않았습니다.",
+      unknown: "알 수 없는 오류로 연결에 실패했습니다.",
+    },
+    // Client-side validation.
+    validation: {
+      hostRequired: "호스트를 입력하세요.",
+      portRange: "포트는 1~65535 사이의 숫자여야 합니다.",
+      usernameRequired: "사용자 이름을 입력하세요.",
+      passwordRequired: "최초 설정 시 비밀번호를 입력하세요.",
+      displayNameRequired: "표시 이름을 입력하세요.",
+      emailRequired: "발신 주소를 입력하세요.",
+      emailInvalid: "올바른 이메일 주소를 입력하세요.",
+    },
   },
   intake: {
     title: "접수 입력",

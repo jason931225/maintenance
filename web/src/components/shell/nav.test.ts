@@ -44,6 +44,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "sites",
     "profile",
     "location",
+    "email",
     "security",
   ],
   [ROLES.ADMIN]: [
@@ -67,6 +68,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "sites",
     "profile",
     "location",
+    "email",
     "security",
   ],
   // Executive: KPI yes; approvals/daily-plan/users/org/security no. Profile is
@@ -135,7 +137,17 @@ describe("nav role gating", () => {
       expect(isNavItemVisible("users", [role])).toBe(false);
       expect(isNavItemVisible("org", [role])).toBe(false);
       expect(isNavItemVisible("sites", [role])).toBe(false);
+      expect(isNavItemVisible("email", [role])).toBe(false);
     }
+  });
+
+  it("shows the mail-account config (MailAccountManage) only to ADMIN and SUPER_ADMIN", () => {
+    expect(isNavItemVisible("email", [ROLES.ADMIN])).toBe(true);
+    expect(isNavItemVisible("email", [ROLES.SUPER_ADMIN])).toBe(true);
+    expect(isNavItemVisible("email", [ROLES.EXECUTIVE])).toBe(false);
+    expect(isNavItemVisible("email", [ROLES.MECHANIC])).toBe(false);
+    expect(isNavItemVisible("email", [ROLES.RECEPTIONIST])).toBe(false);
+    expect(isNavItemVisible("email", [ROLES.MEMBER])).toBe(false);
   });
 
   it("shows user and org management only to ADMIN and SUPER_ADMIN", () => {

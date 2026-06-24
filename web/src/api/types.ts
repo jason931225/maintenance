@@ -199,6 +199,16 @@ export type BranchSummary = components["schemas"]["BranchSummary"];
 export type CreateBranchRequest = components["schemas"]["CreateBranchRequest"];
 export type UpdateBranchRequest = components["schemas"]["UpdateBranchRequest"];
 
+// Webmail / corporate mail account (B-mail-2). The password is WRITE-ONLY: the
+// view never returns it — has_smtp_password / has_imap_password signal whether a
+// credential is on file. MailSecurity maps SSL/TLS vs STARTTLS.
+export type MailSecurity = components["schemas"]["MailSecurity"];
+export type MailAccountView = components["schemas"]["MailAccountView"];
+export type ConfigureMailAccountRequest =
+  components["schemas"]["ConfigureMailAccountRequest"];
+export type MailTestConnectionResult =
+  components["schemas"]["MailTestConnectionResult"];
+
 // Integrity engine (#12 / #34): governance findings (review-needed anomalies).
 export type GovernanceFinding = components["schemas"]["GovernanceFinding"];
 export type FindingStatus = components["schemas"]["FindingStatus"];

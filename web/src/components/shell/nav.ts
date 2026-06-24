@@ -17,6 +17,7 @@ import {
   MessageSquare,
   Receipt,
   Settings2,
+  Mail,
   ShieldAlert,
   ShieldCheck,
   UserCircle,
@@ -158,6 +159,10 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["org", ADMIN_ROLES],
   ["sites", ADMIN_ROLES],
   ["security", ADMIN_ROLES],
+  // email (MailAccountManage): the tenant corporate mail-account config. The
+  // backend matrix grants MailAccountManage to ADMIN/SUPER_ADMIN only, matching
+  // the `RequireAdminRoute` guard on `/settings/email`.
+  ["email", ADMIN_ROLES],
   // inspection (InspectionScheduleManage): ADMIN/SUPER_ADMIN only, matching the
   // backend matrix row [D, D, A, D, A] and the list-schedules read gate.
   ["inspection", ADMIN_ROLES],
@@ -250,6 +255,10 @@ export const NAV_GROUPS = [
     items: [
       { key: "profile",   href: "/settings/profile",  labelKey: "nav.profile",  Icon: UserCircle },
       { key: "location",  href: "/settings/location", labelKey: "nav.location", Icon: MapPin },
+      // email (MailAccountManage): tenant corporate mail-account config. ADMIN/
+      // SUPER_ADMIN only — gated by ITEM_ROLE_GATES("email") and the
+      // RequireAdminRoute guard on /settings/email.
+      { key: "email",     href: "/settings/email",    labelKey: "nav.email",    Icon: Mail },
       { key: "security",  href: "/settings/security", labelKey: "nav.security", Icon: ShieldCheck },
     ],
   },
