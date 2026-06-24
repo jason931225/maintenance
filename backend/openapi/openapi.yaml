@@ -263,6 +263,28 @@ paths:
               schema:
                 $ref: '#/components/schemas/TargetChangeRequestSummary'
   /api/daily-work-plans:
+    get:
+      operationId: listDailyWorkPlans
+      summary: List branch-scoped daily work plans
+      description: Returns branch-scoped daily work plans (the approval queue) ordered newest plan
+        date first, with NO status filter so DRAFT/REQUESTED plans surface to approvers. Admins see
+        the whole org; other roles see their branch set.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: plan_date
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Date'
+        description: Optional single-day filter (YYYY-MM-DD). Absent returns every day.
+      responses:
+        '200':
+          description: Daily work plans for the caller's scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyPlanListPage'
     post:
       operationId: createDailyWorkPlan
       summary: Create a daily work plan
@@ -6885,6 +6907,15 @@ components:
           $ref: '#/components/schemas/Date'
         status:
           $ref: '#/components/schemas/DailyPlanStatus'
+    DailyPlanListPage:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyPlanSummary'
     OutsourceWorkSummary:
       type: object
       properties:

@@ -4,27 +4,27 @@
 use std::sync::Arc;
 
 use mnt_kernel_core::{
-    BranchId, CustomerId, DailyPlanId, EquipmentId, ErrorKind, KernelError, SiteId, UserId,
-    VendorId, WorkOrderId,
+    BranchId, BranchScope, CustomerId, DailyPlanId, EquipmentId, ErrorKind, KernelError, SiteId,
+    UserId, VendorId, WorkOrderId,
 };
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
 use mnt_workorder_application::{
-    CreateDailyPlanCommand, CreateOutsourceWorkCommand, CreateWorkOrderCommand, DailyPlanStatus,
-    DailyPlanSummary, OutsourceWorkStatus, OutsourceWorkSummary, RejectWorkOrderCommand,
-    ReviewDailyPlanCommand, ReviewTargetChangeCommand, SendDailyPlanForReviewCommand,
-    SubmitReportCommand, TargetChangeDecision, TargetChangeRequestCommand,
-    TargetChangeRequestSummary, TargetChangeStatus, UpdatePriorityCommand,
-    WorkOrderApprovalCommand, WorkOrderAssignmentCommand, WorkOrderCreatedEvent,
-    WorkOrderCreatedListener, WorkOrderStartCommand, WorkOrderSummary, daily_plan_audit_event,
-    work_order_audit_event,
+    CreateDailyPlanCommand, CreateOutsourceWorkCommand, CreateWorkOrderCommand, DailyPlanListPage,
+    DailyPlanListQuery, DailyPlanStatus, DailyPlanSummary, OutsourceWorkStatus,
+    OutsourceWorkSummary, RejectWorkOrderCommand, ReviewDailyPlanCommand,
+    ReviewTargetChangeCommand, SendDailyPlanForReviewCommand, SubmitReportCommand,
+    TargetChangeDecision, TargetChangeRequestCommand, TargetChangeRequestSummary,
+    TargetChangeStatus, UpdatePriorityCommand, WorkOrderApprovalCommand,
+    WorkOrderAssignmentCommand, WorkOrderCreatedEvent, WorkOrderCreatedListener,
+    WorkOrderStartCommand, WorkOrderSummary, daily_plan_audit_event, work_order_audit_event,
 };
 use mnt_workorder_domain::{
     ApprovalRole, AssignmentRole, PriorityLevel, TransitionActor, TransitionGuardContext,
     WorkOrderAssignment, WorkOrderAssignments, WorkOrderStatus, WorkResultType,
     validate_status_transition,
 };
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{PgPool, Postgres, QueryBuilder, Row, Transaction};
 use time::Date;
 
 #[derive(Debug, thiserror::Error)]
@@ -975,6 +975,54 @@ impl PgWorkOrderStore {
         .await
     }
 
+    /// The approval-queue list of daily work plans (#19.17). Branch-scoped to the
+    /// caller and armed via `with_org_conn(current_org())`, so it surfaces only
+    /// the tenant's plans as `mnt_rt`. Carries NO status filter — DRAFT/REQUESTED
+    /// plans MUST appear to the approver — and is ordered newest-plan-first.
+    pub async fn list_daily_plans(
+        &self,
+        query: DailyPlanListQuery,
+    ) -> Result<DailyPlanListPage, PgWorkOrderError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgWorkOrderError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let mut builder = QueryBuilder::<Postgres>::new(
+                    r#"
+                    SELECT id, branch_id, mechanic_id, plan_date, status
+                    FROM daily_work_plans
+                    WHERE
+                    "#,
+                );
+                match &query.branch_scope {
+                    BranchScope::All => {
+                        builder.push("TRUE");
+                    }
+                    BranchScope::Branches(branches) if branches.is_empty() => {
+                        builder.push("FALSE");
+                    }
+                    BranchScope::Branches(branches) => {
+                        let ids = branches.iter().map(|b| *b.as_uuid()).collect::<Vec<_>>();
+                        builder.push("branch_id = ANY(");
+                        builder.push_bind(ids);
+                        builder.push(")");
+                    }
+                }
+                if let Some(plan_date) = query.plan_date {
+                    builder.push(" AND plan_date = ");
+                    builder.push_bind(plan_date);
+                }
+                builder.push(" ORDER BY plan_date DESC, created_at DESC, id DESC");
+                Ok(builder.build().fetch_all(tx.as_mut()).await?)
+            })
+        })
+        .await?;
+        let items = rows
+            .iter()
+            .map(daily_plan_summary_from_row)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(DailyPlanListPage { items })
+    }
+
     pub async fn request_daily_plan_review(
         &self,
         command: SendDailyPlanForReviewCommand,
@@ -1355,8 +1403,20 @@ enum AssignmentRequirement {
     Required,
 }
 
+/// Normalize a typed management number for equipment resolution.
+///
+/// Receptionists file work orders with values like `3호기`, `#3`, `#3호기` or a
+/// bare `3`; equipment is stored with the bare number. This MUST strip both the
+/// leading `#` AND the trailing `호기` so the create write-lookup matches the
+/// same forms the REST equipment-lookup/autocomplete handlers accept — otherwise
+/// a perfectly valid `3호기` fails the create with a confusing error.
 fn normalize_management_no(value: &str) -> Result<String, KernelError> {
-    let normalized = value.trim().trim_start_matches('#').trim();
+    let normalized = value
+        .trim()
+        .trim_start_matches('#')
+        .trim()
+        .trim_end_matches("호기")
+        .trim();
     if normalized.is_empty() {
         return Err(KernelError::validation("management number is required"));
     }
@@ -1368,11 +1428,14 @@ async fn lookup_equipment_for_management_no(
     branch_uuid: uuid::Uuid,
     management_no: &str,
 ) -> Result<EquipmentLookup, PgWorkOrderError> {
+    // Leading-zero-insensitive exact match so a stored `010` resolves the
+    // normalized `10` / `10호기` / `#10` the receptionist typed, mirroring the
+    // REST lookup_equipment handler.
     let row = sqlx::query(
         r#"
         SELECT id, customer_id, site_id
         FROM registry_equipment
-        WHERE branch_id = $1 AND management_no = $2
+        WHERE branch_id = $1 AND ltrim(management_no, '0') = ltrim($2, '0')
         ORDER BY updated_at DESC
         LIMIT 1
         "#,
@@ -1381,7 +1444,7 @@ async fn lookup_equipment_for_management_no(
     .bind(management_no)
     .fetch_optional(tx.as_mut())
     .await?
-    .ok_or_else(|| KernelError::not_found("equipment management number was not found"))?;
+    .ok_or_else(|| KernelError::not_found("no equipment matches that 호기 number"))?;
 
     Ok(EquipmentLookup {
         equipment_id: row.try_get("id")?,

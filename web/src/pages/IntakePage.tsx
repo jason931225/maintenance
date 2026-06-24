@@ -10,7 +10,7 @@ import { useActiveBranchId, useAuth } from "../context/auth";
 import { PageHeader } from "../components/shell/PageHeader";
 import { PageEmpty } from "../components/states/PageEmpty";
 import { ROLES, hasAnyRole, type Role } from "../components/shell/nav";
-import { IntakeForm } from "../features/intake/IntakeForm";
+import { IntakeForm, WorkOrderCreateError } from "../features/intake/IntakeForm";
 import { ko } from "../i18n/ko";
 
 const equipmentDebounceMs = 300;
@@ -106,7 +106,10 @@ export function IntakePage() {
   async function createWorkOrder(request: CreateWorkOrderRequest): Promise<WorkOrderSummary> {
     const response = await api.POST("/api/work-orders", { body: request });
     if (!response.data) {
-      throw new Error("createWorkOrder response missing data");
+      // The only 404 the create path raises is the equipment write-lookup
+      // missing the typed 호기 — surface the status so the form can render the
+      // distinct "장비 없음" message instead of a generic save failure.
+      throw new WorkOrderCreateError(response.response.status);
     }
     return response.data;
   }

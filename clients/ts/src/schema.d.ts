@@ -258,7 +258,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List branch-scoped daily work plans
+         * @description Returns branch-scoped daily work plans (the approval queue) ordered newest plan date first, with NO status filter so DRAFT/REQUESTED plans surface to approvers. Admins see the whole org; other roles see their branch set.
+         */
+        get: operations["listDailyWorkPlans"];
         put?: never;
         /** Create a daily work plan */
         post: operations["createDailyWorkPlan"];
@@ -3520,6 +3524,9 @@ export interface components {
             plan_date?: components["schemas"]["Date"];
             status?: components["schemas"]["DailyPlanStatus"];
         };
+        DailyPlanListPage: {
+            items: components["schemas"]["DailyPlanSummary"][];
+        };
         OutsourceWorkSummary: {
             id?: components["schemas"]["Uuid"];
             work_order_id?: components["schemas"]["Uuid"];
@@ -5025,6 +5032,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TargetChangeRequestSummary"];
+                };
+            };
+        };
+    };
+    listDailyWorkPlans: {
+        parameters: {
+            query?: {
+                /** @description Optional single-day filter (YYYY-MM-DD). Absent returns every day. */
+                plan_date?: components["schemas"]["Date"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Daily work plans for the caller's scope. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyPlanListPage"];
                 };
             };
         };

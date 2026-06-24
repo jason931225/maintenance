@@ -47,6 +47,19 @@ const CYCLES: InspectionCycle[] = [
   "CUSTOM",
 ];
 
+/**
+ * Default 주기(일) for a chosen 주기. Picking 월/분기/년 auto-fills a sensible
+ * interval (31/92/365) instead of leaving the stale default 30 (#19.22); 기타
+ * (CUSTOM) keeps whatever the operator typed.
+ */
+const CYCLE_INTERVAL_DAYS: Partial<Record<InspectionCycle, number>> = {
+  DAILY: 1,
+  WEEKLY: 7,
+  MONTHLY: 31,
+  QUARTERLY: 92,
+  YEARLY: 365,
+};
+
 function today(): string {
   return todayInSeoul();
 }
@@ -54,7 +67,13 @@ function today(): string {
 function plusDays(days: number): string {
   // Anchor the offset to the Seoul business date; noon UTC keeps the Y-M-D
   // stable across timezones so the due-date suggestion never slips a day.
-  const base = new Date(`${todayInSeoul()}T12:00:00Z`);
+  return plusDaysFrom(todayInSeoul(), days);
+}
+
+function plusDaysFrom(date: string, days: number): string {
+  // Offset a YYYY-MM-DD date by `days`; noon UTC keeps the Y-M-D stable across
+  // timezones so the result never slips a day.
+  const base = new Date(`${date}T12:00:00Z`);
   base.setUTCDate(base.getUTCDate() + days);
   return base.toISOString().slice(0, 10);
 }
@@ -75,7 +94,9 @@ function emptyForm(): FormState {
     equipment_id: "",
     mechanic_id: "",
     cycle: "MONTHLY",
-    interval_days: "30",
+    // Mirror the MONTHLY default so the field is consistent with the cycle from
+    // the start (auto-fills on cycle change; CUSTOM lets the operator override).
+    interval_days: String(CYCLE_INTERVAL_DAYS.MONTHLY),
     due_date: today(),
     note: "",
   };
@@ -114,29 +135,32 @@ export function InspectionPage() {
   }, []);
   useAutoDismiss(notice, clearNotice, SUCCESS_DISMISS_MS);
 
-  const load = useCallback(async () => {
-    setLoadError(false);
-    try {
-      const response = await api.GET("/api/v1/inspections/schedules", {
-        params: {
-          query: {
-            due_start: rangeStart,
-            due_end: rangeEnd,
-            limit: SCHEDULES_PAGE_SIZE,
-            offset: 0,
+  const load = useCallback(
+    async (range?: { start: string; end: string }) => {
+      setLoadError(false);
+      try {
+        const response = await api.GET("/api/v1/inspections/schedules", {
+          params: {
+            query: {
+              due_start: range?.start ?? rangeStart,
+              due_end: range?.end ?? rangeEnd,
+              limit: SCHEDULES_PAGE_SIZE,
+              offset: 0,
+            },
           },
-        },
-      });
-      if (response.data) {
-        setSchedules(response.data.items);
-        setScheduleTotal(response.data.total);
-      } else {
+        });
+        if (response.data) {
+          setSchedules(response.data.items);
+          setScheduleTotal(response.data.total);
+        } else {
+          setLoadError(true);
+        }
+      } catch {
         setLoadError(true);
       }
-    } catch {
-      setLoadError(true);
-    }
-  }, [api, rangeStart, rangeEnd]);
+    },
+    [api, rangeStart, rangeEnd],
+  );
 
   const loadMore = useCallback(async () => {
     if (schedules === undefined) return;
@@ -227,6 +251,7 @@ export function InspectionPage() {
     setCreating(true);
     setNotice(undefined);
     setCreateError(undefined);
+    const dueDate = form.due_date;
     try {
       const body: CreateInspectionScheduleRequest = {
         branch_id: form.branch_id.trim(),
@@ -234,7 +259,7 @@ export function InspectionPage() {
         mechanic_id: form.mechanic_id.trim(),
         cycle: form.cycle,
         interval_days: Number(form.interval_days),
-        due_date: form.due_date,
+        due_date: dueDate,
         note: form.note.trim() || null,
       };
       const response = await api.POST("/api/v1/inspections/schedules", { body });
@@ -242,7 +267,14 @@ export function InspectionPage() {
         setNotice(ko.inspection.createSuccess);
         setForm(emptyForm());
         setEquipmentOption(undefined);
-        await load();
+        // Snap the visible window to include the new due_date so a schedule
+        // created outside the current [start, end) range is immediately visible
+        // (#19.22). The backend window is half-open, so end must be due_date + 1.
+        const nextStart = dueDate < rangeStart ? dueDate : rangeStart;
+        const nextEnd = dueDate >= rangeEnd ? plusDaysFrom(dueDate, 1) : rangeEnd;
+        setRangeStart(nextStart);
+        setRangeEnd(nextEnd);
+        await load({ start: nextStart, end: nextEnd });
       } else {
         setCreateError(ko.inspection.createFailed);
       }
@@ -539,10 +571,16 @@ export function InspectionPage() {
                 id="ins-cycle"
                 value={form.cycle}
                 onChange={(event) => {
-                  setField(
-                    "cycle",
-                    event.currentTarget.value as InspectionCycle,
-                  );
+                  const cycle = event.currentTarget.value as InspectionCycle;
+                  // Auto-fill 주기(일) for fixed cycles; 기타(CUSTOM) is manual,
+                  // so leave whatever the operator typed.
+                  const days = CYCLE_INTERVAL_DAYS[cycle];
+                  setForm((prev) => ({
+                    ...prev,
+                    cycle,
+                    interval_days:
+                      days === undefined ? prev.interval_days : String(days),
+                  }));
                 }}
               >
                 {CYCLES.map((cycle) => (

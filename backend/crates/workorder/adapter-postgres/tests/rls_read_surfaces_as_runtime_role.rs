@@ -34,14 +34,18 @@
 //!   (3) CROSS-TENANT ISOLATION — a second org's work order is NOT visible while
 //!       KNL's org is armed (RLS still isolates tenants under the fix).
 
-use mnt_kernel_core::{BranchId, BranchScope, OrgId, TraceContext, UserId};
+use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, OrgId, TraceContext, UserId};
 use mnt_messenger_adapter_postgres::PgMessengerStore;
 use mnt_messenger_application::{CreateThreadCommand, ListThreadsQuery};
 use mnt_messenger_domain::ThreadKind;
-use mnt_workorder_adapter_postgres::PgWorkOrderStore;
-use mnt_workorder_application::{CreateWorkOrderCommand, WorkOrderSummary};
+use mnt_workorder_adapter_postgres::{PgWorkOrderError, PgWorkOrderStore};
+use mnt_workorder_application::{
+    CreateDailyPlanCommand, CreateWorkOrderCommand, DailyPlanItemInput, DailyPlanListQuery,
+    DailyPlanStatus, SendDailyPlanForReviewCommand, WorkOrderSummary,
+};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
+use time::Date;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -296,6 +300,329 @@ async fn messenger_thread_list_returns_tenant_rows_as_runtime_role(owner_pool: P
         !threads.is_empty(),
         "the wrapped thread list must surface the seeded KNL thread as mnt_rt"
     );
+}
+
+// ===========================================================================
+// (4) #19.13a — WORK-ORDER CREATE resolves a `호기`/`#`-decorated, leading-zero
+// management number AS `mnt_rt`. Equipment is stored as the bare `3`; the
+// receptionist files `3호기`. Before the fix the adapter stripped only `#` and
+// matched exactly, so `3호기` failed the create. After the fix the adapter
+// normalizer strips `#` AND `호기` and matches leading-zero-insensitively, so all
+// of `3호기` / `#3` / `003` resolve the same `3`.
+// ===========================================================================
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn create_work_order_resolves_hogi_decorated_management_no_as_runtime_role(
+    owner_pool: PgPool,
+) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let knl = OrgId::knl();
+    let knl_uuid = *knl.as_uuid();
+    seed_org(&owner_pool, knl_uuid, "knl").await;
+    let branch = seed_branch(&owner_pool, knl_uuid).await;
+    let receptionist = seed_user(&owner_pool, knl_uuid, "RECEPTIONIST", branch).await;
+    // Equipment stored as the bare `3` (no leading zero, no 호기 suffix).
+    seed_equipment(&owner_pool, knl_uuid, branch, "3").await;
+
+    // File the order with the decorated `3호기` as the genuine non-owner mnt_rt.
+    let summary = mnt_platform_request_context::scope_org(knl, async {
+        let store = PgWorkOrderStore::new(rt_pool.clone());
+        store
+            .create_work_order(CreateWorkOrderCommand {
+                actor: receptionist,
+                branch_id: branch,
+                management_no: "3호기".to_owned(),
+                symptom: "시동 불량".to_owned(),
+                customer_request: None,
+                target_due_at: None,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+    })
+    .await
+    .expect("create_work_order must resolve `3호기` to equipment `3` as mnt_rt");
+
+    assert_eq!(
+        summary.branch_id, branch,
+        "the created work order must bind the resolved equipment's branch"
+    );
+}
+
+// ===========================================================================
+// (5) #19.13a — a management number with NO matching equipment yields a DISTINCT
+// NotFound (404) the UI renders as "해당 호기 장비를 찾을 수 없습니다", never a
+// generic 500/validation. Proves the create write-lookup fails closed cleanly.
+// ===========================================================================
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn create_work_order_missing_equipment_is_not_found_as_runtime_role(owner_pool: PgPool) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let knl = OrgId::knl();
+    let knl_uuid = *knl.as_uuid();
+    seed_org(&owner_pool, knl_uuid, "knl").await;
+    let branch = seed_branch(&owner_pool, knl_uuid).await;
+    let receptionist = seed_user(&owner_pool, knl_uuid, "RECEPTIONIST", branch).await;
+    // Deliberately seed NO equipment in this branch.
+
+    let result = mnt_platform_request_context::scope_org(knl, async {
+        let store = PgWorkOrderStore::new(rt_pool.clone());
+        store
+            .create_work_order(CreateWorkOrderCommand {
+                actor: receptionist,
+                branch_id: branch,
+                management_no: "999호기".to_owned(),
+                symptom: "시동 불량".to_owned(),
+                customer_request: None,
+                target_due_at: None,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+    })
+    .await;
+
+    match result {
+        Err(err) => assert_eq!(
+            err.kind(),
+            ErrorKind::NotFound,
+            "an unmatched 호기 must surface a distinct 404, not a generic failure"
+        ),
+        Ok(summary) => panic!("expected not-found, got created work order {summary:?}"),
+    }
+}
+
+// ===========================================================================
+// (6) #19.13b — an admin TRIAGING the work-order queue org-wide sees a just-filed
+// order in a branch they are NOT a member of, while a branch-scoped reader whose
+// scope EXCLUDES that branch sees zero. Exercises the EXACT list COUNT predicate
+// the GET /api/v1/work-orders handler runs (`push_branch_scope_filter` on
+// `w.branch_id`) under RLS as `mnt_rt`: admin scope = `All`, branch reader =
+// `Branches`. Before the fix the admin inherited a branch set and the row was
+// invisible to the very person who must act on it.
+// ===========================================================================
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn admin_list_scope_surfaces_off_branch_work_order_as_runtime_role(owner_pool: PgPool) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let knl = OrgId::knl();
+    let knl_uuid = *knl.as_uuid();
+    seed_org(&owner_pool, knl_uuid, "knl").await;
+
+    // The order is filed in branch B; the admin is NOT a member of B.
+    let branch_b = seed_branch(&owner_pool, knl_uuid).await;
+    let other_branch = seed_branch(&owner_pool, knl_uuid).await;
+    let receptionist = seed_user(&owner_pool, knl_uuid, "RECEPTIONIST", branch_b).await;
+    seed_equipment(&owner_pool, knl_uuid, branch_b, "77").await;
+    let wo = mnt_platform_request_context::scope_org(knl, async {
+        let store = PgWorkOrderStore::new(owner_pool.clone());
+        store
+            .create_work_order(CreateWorkOrderCommand {
+                actor: receptionist,
+                branch_id: branch_b,
+                management_no: "77".to_owned(),
+                symptom: "유압 누유".to_owned(),
+                customer_request: None,
+                target_due_at: None,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .expect("seed: create_work_order under armed owner pool")
+    })
+    .await;
+
+    // A branch reader scoped to `other_branch` (excludes B) sees ZERO — the row
+    // is hidden by the branch-scope filter, reproducing the original symptom.
+    let hidden = count_work_orders_for_scope(
+        &rt_pool,
+        knl,
+        &BranchScope::single(other_branch),
+        wo.branch_id,
+    )
+    .await;
+    assert_eq!(
+        hidden, 0,
+        "a branch-scoped reader excluding the filed branch must NOT see the order"
+    );
+
+    // The admin's org-wide list scope (`All`) surfaces it — RLS still confines
+    // the read to KNL, so this is org-wide, not cross-tenant.
+    let visible = count_work_orders_for_scope(&rt_pool, knl, &BranchScope::All, wo.branch_id).await;
+    assert_eq!(
+        visible, 1,
+        "the admin's org-wide list scope must surface the off-branch order"
+    );
+}
+
+/// Replicate the EXACT count predicate `list_work_orders` runs — a branch-scope
+/// filter on `w.branch_id` for the given work order — inside `with_org_conn` as
+/// the armed `mnt_rt` role, so the assertion exercises the real RLS + branch
+/// path the handler depends on. `BranchScope::All` -> `TRUE`,
+/// `BranchScope::Branches` -> `w.branch_id = ANY($branches)`.
+async fn count_work_orders_for_scope(
+    rt_pool: &PgPool,
+    org: OrgId,
+    scope: &BranchScope,
+    target_branch: BranchId,
+) -> i64 {
+    use sqlx::{Postgres, QueryBuilder};
+    let scope = scope.clone();
+    mnt_platform_request_context::scope_org(org, async move {
+        mnt_platform_db::with_org_conn::<_, i64, PgWorkOrderError>(rt_pool, org, move |tx| {
+            Box::pin(async move {
+                let mut builder =
+                    QueryBuilder::<Postgres>::new("SELECT COUNT(*) FROM work_orders w WHERE ");
+                match &scope {
+                    BranchScope::All => {
+                        builder.push("TRUE");
+                    }
+                    BranchScope::Branches(branches) if branches.is_empty() => {
+                        builder.push("FALSE");
+                    }
+                    BranchScope::Branches(branches) => {
+                        let ids = branches.iter().map(|b| *b.as_uuid()).collect::<Vec<_>>();
+                        builder.push("w.branch_id = ANY(");
+                        builder.push_bind(ids);
+                        builder.push(")");
+                    }
+                }
+                builder.push(" AND w.branch_id = ");
+                builder.push_bind(*target_branch.as_uuid());
+                Ok(builder
+                    .build_query_scalar::<i64>()
+                    .fetch_one(tx.as_mut())
+                    .await?)
+            })
+        })
+        .await
+    })
+    .await
+    .expect("count_work_orders_for_scope must run as mnt_rt under the armed GUC")
+}
+
+// ===========================================================================
+// (7) #19.17 — DAILY-PLAN APPROVAL QUEUE surfaces a DRAFT plan (and keeps it
+// after it becomes REQUESTED) to an approver in the SAME org but a different
+// user, AS `mnt_rt`. Before the fix there was NO list endpoint and the only read
+// filtered APPROVED/FINAL_CONFIRMED, so a freshly-created DRAFT/REQUESTED plan
+// was invisible to the very admin who must approve it. Cross-tenant: a second
+// org's plan must NOT appear under KNL's armed GUC.
+// ===========================================================================
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn daily_plan_list_surfaces_draft_and_requested_as_runtime_role(owner_pool: PgPool) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let knl = OrgId::knl();
+    let knl_uuid = *knl.as_uuid();
+    seed_org(&owner_pool, knl_uuid, "knl").await;
+    let branch = seed_branch(&owner_pool, knl_uuid).await;
+    let mechanic = seed_user(&owner_pool, knl_uuid, "MECHANIC", branch).await;
+    let plan_date = OffsetDateTime::now_utc().date();
+
+    // The mechanic FILES the plan (a wrapped write) as the genuine non-owner
+    // mnt_rt — the create path arms the GUC exactly as the middleware does.
+    let created = mnt_platform_request_context::scope_org(knl, async {
+        let store = PgWorkOrderStore::new(rt_pool.clone());
+        store
+            .create_daily_plan(CreateDailyPlanCommand {
+                actor: mechanic,
+                branch_id: branch,
+                mechanic_id: mechanic,
+                plan_date,
+                items: vec![DailyPlanItemInput {
+                    work_order_id: None,
+                    description: "엔진 오일 교체".to_owned(),
+                }],
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+    })
+    .await
+    .expect("create_daily_plan must succeed as mnt_rt under the armed GUC");
+    assert_eq!(created.status, DailyPlanStatus::Draft);
+
+    // An APPROVER (org-wide `All` scope, as an admin would carry for the queue)
+    // lists daily plans as mnt_rt and MUST see the DRAFT plan.
+    let draft_listed = list_daily_plan_ids(&rt_pool, knl, &BranchScope::All, Some(plan_date)).await;
+    assert!(
+        draft_listed.contains(&created.id),
+        "the DRAFT plan must surface to the approver's daily-plan queue"
+    );
+
+    // Move it to REQUESTED — it must STILL appear (no status filter hides it).
+    mnt_platform_request_context::scope_org(knl, async {
+        let store = PgWorkOrderStore::new(rt_pool.clone());
+        store
+            .request_daily_plan_review(SendDailyPlanForReviewCommand {
+                actor: mechanic,
+                plan_id: created.id,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .expect("request_daily_plan_review must succeed as mnt_rt");
+    })
+    .await;
+    let requested_listed = list_daily_plan_ids(&rt_pool, knl, &BranchScope::All, None).await;
+    assert!(
+        requested_listed.contains(&created.id),
+        "the REQUESTED plan must remain in the queue (no APPROVED-only filter)"
+    );
+
+    // Cross-tenant: a SECOND org's plan must NOT appear under KNL's armed GUC.
+    let org2 = OrgId::from_uuid(ORG_T2);
+    let org2_uuid = *org2.as_uuid();
+    seed_org(&owner_pool, org2_uuid, "t2").await;
+    let branch2 = seed_branch(&owner_pool, org2_uuid).await;
+    let mechanic2 = seed_user(&owner_pool, org2_uuid, "MECHANIC", branch2).await;
+    let other = mnt_platform_request_context::scope_org(org2, async {
+        let store = PgWorkOrderStore::new(rt_pool.clone());
+        store
+            .create_daily_plan(CreateDailyPlanCommand {
+                actor: mechanic2,
+                branch_id: branch2,
+                mechanic_id: mechanic2,
+                plan_date,
+                items: vec![DailyPlanItemInput {
+                    work_order_id: None,
+                    description: "타 테넌트 계획".to_owned(),
+                }],
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .expect("seed: org2 daily plan under its own armed GUC")
+    })
+    .await;
+    let knl_visible = list_daily_plan_ids(&rt_pool, knl, &BranchScope::All, None).await;
+    assert!(
+        !knl_visible.contains(&other.id),
+        "a second tenant's daily plan must be INVISIBLE under KNL's armed GUC"
+    );
+}
+
+/// List daily-plan ids through the REAL wrapped `list_daily_plans` read as the
+/// armed `mnt_rt` role.
+async fn list_daily_plan_ids(
+    rt_pool: &PgPool,
+    org: OrgId,
+    scope: &BranchScope,
+    plan_date: Option<Date>,
+) -> Vec<mnt_kernel_core::DailyPlanId> {
+    let scope = scope.clone();
+    mnt_platform_request_context::scope_org(org, async move {
+        let store = PgWorkOrderStore::new(rt_pool.clone());
+        store
+            .list_daily_plans(DailyPlanListQuery {
+                branch_scope: scope,
+                plan_date,
+            })
+            .await
+            .expect("list_daily_plans must succeed as mnt_rt under the armed GUC")
+            .items
+            .into_iter()
+            .map(|item| item.id)
+            .collect()
+    })
+    .await
 }
 
 // ===========================================================================

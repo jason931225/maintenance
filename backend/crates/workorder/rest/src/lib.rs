@@ -29,10 +29,11 @@ use mnt_platform_storage::{
 use mnt_workorder_adapter_postgres::{PgWorkOrderError, PgWorkOrderStore};
 use mnt_workorder_application::{
     AssignmentInput, CreateDailyPlanCommand, CreateOutsourceWorkCommand, CreateWorkOrderCommand,
-    DailyPlanItemInput, DailyPlanStatus, RejectWorkOrderCommand, ReviewDailyPlanCommand,
-    ReviewTargetChangeCommand, SendDailyPlanForReviewCommand, SubmitReportCommand,
-    TargetChangeDecision, TargetChangeRequestCommand, UpdatePriorityCommand,
-    WorkOrderApprovalCommand, WorkOrderAssignmentCommand, WorkOrderStartCommand,
+    DailyPlanItemInput, DailyPlanListQuery, DailyPlanStatus, DailyPlanSummary,
+    RejectWorkOrderCommand, ReviewDailyPlanCommand, ReviewTargetChangeCommand,
+    SendDailyPlanForReviewCommand, SubmitReportCommand, TargetChangeDecision,
+    TargetChangeRequestCommand, UpdatePriorityCommand, WorkOrderApprovalCommand,
+    WorkOrderAssignmentCommand, WorkOrderStartCommand,
 };
 use mnt_workorder_domain::{
     AssignmentRole, AttachmentStage, PriorityLevel, WorkOrderStatus, WorkResultType,
@@ -168,7 +169,10 @@ pub fn router(state: WorkOrderRestState) -> Router {
             "/api/target-change-requests/{request_id}/review",
             post(review_target_change),
         )
-        .route("/api/daily-work-plans", post(create_daily_plan))
+        .route(
+            "/api/daily-work-plans",
+            get(list_daily_plans).post(create_daily_plan),
+        )
         .route("/api/daily-work-plans/{plan_id}", get(get_daily_plan))
         .route(
             "/api/daily-work-plans/{plan_id}/request-review",
@@ -285,6 +289,17 @@ struct CreateDailyPlanRequest {
 struct ReviewDailyPlanRequestBody {
     decision: DailyPlanStatus,
     memo: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct ListDailyPlansQuery {
+    /// Optional `YYYY-MM-DD` filter for a single plan day; absent = all days.
+    plan_date: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct DailyPlanListResponse {
+    items: Vec<DailyPlanSummary>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1735,6 +1750,22 @@ fn is_admin_like(principal: &Principal) -> bool {
         .any(|role| matches!(role, Role::Admin | Role::SuperAdmin))
 }
 
+/// The branch scope to apply when an admin TRIAGES the work-order queue.
+///
+/// A receptionist files a work order against a branch they belong to; the org
+/// admin who must triage it may not be a member of that branch, so a strict
+/// branch-scope filter hides the just-created order from the very person who
+/// must act on it (#19.13b). Admins (and the already-`All` SUPER_ADMIN) see the
+/// whole org — RLS still confines the read to the caller's tenant — while every
+/// other role keeps its explicit branch set.
+fn work_order_list_scope(principal: &Principal) -> BranchScope {
+    if is_admin_like(principal) {
+        BranchScope::All
+    } else {
+        principal.branch_scope.clone()
+    }
+}
+
 /// Work orders in these statuses are closed: their completion evidence set is
 /// frozen and must not accept further AFTER/REPORT attachments (FIX 3).
 fn is_terminal_work_order_status(status: WorkOrderStatus) -> bool {
@@ -1813,6 +1844,9 @@ async fn list_work_orders(
     authorize_read_access(&principal)?;
     let query = parse_work_order_list_query(raw_query.as_deref(), principal.user_id)?;
     let pool = state.store.pool();
+    // Admins triage org-wide so a just-filed order is never hidden from them by a
+    // branch-scope filter (#19.13b); other roles keep their explicit branch set.
+    let list_scope = work_order_list_scope(&principal);
 
     let org = current_org()
         .map_err(KernelError::from)
@@ -1821,7 +1855,7 @@ async fn list_work_orders(
     let total = {
         let mut builder =
             QueryBuilder::<Postgres>::new("SELECT COUNT(*) FROM work_orders w WHERE ");
-        push_work_order_filters(&mut builder, &principal.branch_scope, &query)?;
+        push_work_order_filters(&mut builder, &list_scope, &query)?;
         with_org_conn::<_, _, RestError>(pool, org, move |tx| {
             Box::pin(async move {
                 Ok(builder
@@ -1852,7 +1886,7 @@ async fn list_work_orders(
         WHERE
         "#,
     );
-    push_work_order_filters(&mut list_builder, &principal.branch_scope, &query)?;
+    push_work_order_filters(&mut list_builder, &list_scope, &query)?;
     list_builder.push(
         r#"
         ORDER BY
@@ -2354,6 +2388,40 @@ async fn review_target_change(
         .await
         .map_err(RestError::from_store)?;
     Ok(Json(summary))
+}
+
+async fn list_daily_plans(
+    State(state): State<WorkOrderRestState>,
+    headers: HeaderMap,
+    Query(query): Query<ListDailyPlansQuery>,
+) -> Result<Json<DailyPlanListResponse>, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    authorize_read_access(&principal)?;
+    let plan_date = query
+        .plan_date
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            time::Date::parse(
+                value,
+                time::macros::format_description!("[year]-[month]-[day]"),
+            )
+            .map_err(|_| RestError::bad_request("plan_date must use YYYY-MM-DD"))
+        })
+        .transpose()?;
+    // Admins triage the queue org-wide so DRAFT/REQUESTED plans in any branch are
+    // reachable (#19.17); other roles keep their explicit branch set.
+    let branch_scope = work_order_list_scope(&principal);
+    let page = state
+        .store
+        .list_daily_plans(DailyPlanListQuery {
+            branch_scope,
+            plan_date,
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(DailyPlanListResponse { items: page.items }))
 }
 
 async fn create_daily_plan(

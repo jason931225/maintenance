@@ -676,6 +676,10 @@ export const ko = {
     createdWithNo: "접수가 저장되었습니다. 접수번호 {requestNo}",
     viewWorkOrder: "작업지시 보기",
     saveFailed: "접수를 저장하지 못했습니다. 다시 시도하세요.",
+    // Distinct from saveFailed: the backend resolved the form but found no
+    // equipment for the typed 호기 (after stripping #/호기, leading-zero
+    // insensitive). Tells the receptionist to recheck the number, not retry.
+    equipmentNotFound: "해당 호기 장비를 찾을 수 없습니다. 호기 번호를 확인하세요.",
     lookupPrompt: "호기를 입력하면 장비와 고객 정보를 조회합니다.",
     lookupLoading: "장비 조회 중",
     lookupNotFound: "일치하는 장비가 없습니다.",
@@ -1322,6 +1326,12 @@ export const ko = {
     approveSuccess: "계획을 승인했습니다.",
     rejectSuccess: "계획을 반려했습니다.",
     confirmSuccess: "계획을 결재했습니다.",
+    queueTitle: "계획 목록",
+    queueEmpty: "표시할 계획이 없습니다.",
+    queueLoadFailed: "계획 목록을 불러오지 못했습니다.",
+    refresh: "새로고침",
+    open: "열기",
+    selectedPlan: "선택한 계획",
     statuses: {
       DRAFT: "작성 중",
       REQUESTED: "검토 요청됨",

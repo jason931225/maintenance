@@ -54,6 +54,7 @@ export function DailyPlanPage() {
   const [items, setItems] = useState<PlanItem[]>([{ description: "" }]);
   const [reviewMemo, setReviewMemo] = useState("");
   const [plan, setPlan] = useState<DailyPlanSummary>();
+  const [plans, setPlans] = useState<DailyPlanSummary[]>([]);
   const [writeState, setWriteState] = useState<WriteState>("idle");
   const [errorKey, setErrorKey] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -86,6 +87,24 @@ export function DailyPlanPage() {
     if (!canRequest) return;
     void Promise.resolve().then(loadMechanics);
   }, [canRequest, loadMechanics]);
+
+  // The approval queue: every branch-scoped plan, DRAFT/REQUESTED included, so
+  // approvers actually see plans awaiting them (#19.17). Replaces the prior
+  // deep-link-only model where a created plan vanished from view.
+  const loadPlans = useCallback(async () => {
+    const response = await api
+      .GET("/api/daily-work-plans", { params: { query: {} } })
+      .catch(() => undefined);
+    if (response?.data) {
+      setPlans(response.data.items);
+    } else {
+      setErrorKey("queueLoadFailed");
+    }
+  }, [api]);
+
+  useEffect(() => {
+    void loadPlans();
+  }, [loadPlans]);
 
   // Deep-link load: when arriving with ?planId=… (e.g. a reviewer re-opening a
   // plan after switching sessions), fetch that plan by id so the review/confirm
@@ -154,6 +173,9 @@ export function DailyPlanPage() {
       setPlan(response.data);
       setNotice(ko.dailyPlan.createSuccess);
       setWriteState("idle");
+      // Object -> queue: surface the just-created plan in the shared list so it
+      // is immediately visible (and selectable) alongside the rest of the queue.
+      await loadPlans();
     } catch {
       setWriteState("error");
       setErrorKey("createFailed");
@@ -217,6 +239,8 @@ export function DailyPlanPage() {
       setReviewMemo("");
       setNotice(ko.dailyPlan[successKey] as string);
       setWriteState("idle");
+      // Reflect the new status in the shared queue (e.g. DRAFT -> REQUESTED).
+      await loadPlans();
     } catch {
       setWriteState("error");
       setErrorKey(failureKey);
@@ -324,6 +348,59 @@ export function DailyPlanPage() {
             </Button>
           </Card>
         ) : null}
+
+        <Card className="grid gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-ink">
+              {ko.dailyPlan.queueTitle}
+            </h2>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={busy}
+              onClick={() => void loadPlans()}
+            >
+              {ko.dailyPlan.refresh}
+            </Button>
+          </div>
+          {plans.length === 0 ? (
+            <p className="text-sm text-steel">{ko.dailyPlan.queueEmpty}</p>
+          ) : (
+            <ul className="grid gap-2">
+              {plans.map((entry) => (
+                <li
+                  key={entry.id}
+                  className="flex items-center justify-between gap-3 rounded-md border border-line p-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-medium text-ink">
+                      {entry.plan_date}
+                    </span>
+                    {entry.status ? (
+                      <Badge aria-label={ko.dailyPlan.status}>
+                        {ko.dailyPlan.statuses[entry.status]}
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-current={entry.id === plan?.id ? "true" : undefined}
+                    onClick={() => {
+                      setPlan(entry);
+                      if (entry.mechanic_id) setMechanicId(entry.mechanic_id);
+                      if (entry.plan_date) setPlanDate(entry.plan_date);
+                    }}
+                  >
+                    {ko.dailyPlan.open}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
 
         {plan ? (
           <Card className="grid gap-4">

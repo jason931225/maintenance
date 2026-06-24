@@ -8,8 +8,8 @@ use std::future::Future;
 use std::pin::Pin;
 
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, CustomerId, DailyPlanId, EquipmentId, KernelError, OrgId,
-    SiteId, Timestamp, TraceContext, UserId, VendorId, WorkOrderId,
+    AuditAction, AuditEvent, BranchId, BranchScope, CustomerId, DailyPlanId, EquipmentId,
+    KernelError, OrgId, SiteId, Timestamp, TraceContext, UserId, VendorId, WorkOrderId,
 };
 use mnt_workorder_domain::{AssignmentRole, PriorityLevel, WorkOrderStatus, WorkResultType};
 use serde::{Deserialize, Serialize};
@@ -475,6 +475,21 @@ pub struct DailyPlanSummary {
     #[serde(with = "iso_date")]
     pub plan_date: Date,
     pub status: DailyPlanStatus,
+}
+
+/// Query for the approval-queue list of daily work plans (#19.17). Branch-scoped
+/// to the caller; an optional `plan_date` narrows to one day. Intentionally
+/// carries NO status filter so DRAFT/REQUESTED plans surface to approvers — the
+/// reporting read filters APPROVED/FINAL_CONFIRMED separately and is unchanged.
+#[derive(Debug, Clone)]
+pub struct DailyPlanListQuery {
+    pub branch_scope: BranchScope,
+    pub plan_date: Option<Date>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DailyPlanListPage {
+    pub items: Vec<DailyPlanSummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

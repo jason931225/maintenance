@@ -31,6 +31,18 @@ const SERVICE_CATEGORIES = Object.keys(
   ko.intake.serviceCategories,
 ) as ServiceCategory[];
 
+/**
+ * Thrown by the create caller when the POST fails, carrying the HTTP status so
+ * the form can distinguish the equipment-not-found 404 (the only 404 the create
+ * path raises) from a generic save failure.
+ */
+export class WorkOrderCreateError extends Error {
+  constructor(readonly status: number) {
+    super(`work-order create failed with status ${status}`);
+    this.name = "WorkOrderCreateError";
+  }
+}
+
 interface IntakeFormProps {
   branchId: string;
   equipmentLookupState: EquipmentLookupState;
@@ -78,7 +90,7 @@ export function IntakeForm({
   const [targetDueAt, setTargetDueAt] = useState("");
   const [errors, setErrors] = useState<Errors>({});
   const [status, setStatus] = useState<
-    "idle" | "saving" | "created" | "error"
+    "idle" | "saving" | "created" | "error" | "equipmentNotFound"
   >("idle");
   // The created work order so the success banner can read the request_no back to
   // the caller and deep-link to its detail view (the intake dead-end fix).
@@ -163,8 +175,15 @@ export function IntakeForm({
       setCreatedWorkOrder(created);
       resetForm();
       onCreated?.(created);
-    } catch {
-      setStatus("error");
+    } catch (error) {
+      // A 404 from the create path means the typed 호기 resolved no equipment;
+      // surface the distinct message so the receptionist fixes the number
+      // instead of blindly retrying.
+      setStatus(
+        error instanceof WorkOrderCreateError && error.status === 404
+          ? "equipmentNotFound"
+          : "error",
+      );
     }
   }
 
@@ -365,9 +384,11 @@ export function IntakeForm({
             ) : null}
           </div>
         ) : null}
-        {status === "error" ? (
+        {status === "error" || status === "equipmentNotFound" ? (
           <p role="alert" className="text-sm font-semibold text-red-700">
-            {ko.intake.saveFailed}
+            {status === "equipmentNotFound"
+              ? ko.intake.equipmentNotFound
+              : ko.intake.saveFailed}
           </p>
         ) : null}
       </form>

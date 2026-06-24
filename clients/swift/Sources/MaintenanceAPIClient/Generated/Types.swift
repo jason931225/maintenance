@@ -88,6 +88,13 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/target-change-requests/{requestId}/review`.
     /// - Remark: Generated from `#/paths//api/target-change-requests/{requestId}/review/post(reviewTargetChange)`.
     func reviewTargetChange(_ input: Operations.ReviewTargetChange.Input) async throws -> Operations.ReviewTargetChange.Output
+    /// List branch-scoped daily work plans
+    ///
+    /// Returns branch-scoped daily work plans (the approval queue) ordered newest plan date first, with NO status filter so DRAFT/REQUESTED plans surface to approvers. Admins see the whole org; other roles see their branch set.
+    ///
+    /// - Remark: HTTP `GET /api/daily-work-plans`.
+    /// - Remark: Generated from `#/paths//api/daily-work-plans/get(listDailyWorkPlans)`.
+    func listDailyWorkPlans(_ input: Operations.ListDailyWorkPlans.Input) async throws -> Operations.ListDailyWorkPlans.Output
     /// Create a daily work plan
     ///
     /// - Remark: HTTP `POST /api/daily-work-plans`.
@@ -1047,6 +1054,21 @@ extension APIProtocol {
             path: path,
             headers: headers,
             body: body
+        ))
+    }
+    /// List branch-scoped daily work plans
+    ///
+    /// Returns branch-scoped daily work plans (the approval queue) ordered newest plan date first, with NO status filter so DRAFT/REQUESTED plans surface to approvers. Admins see the whole org; other roles see their branch set.
+    ///
+    /// - Remark: HTTP `GET /api/daily-work-plans`.
+    /// - Remark: Generated from `#/paths//api/daily-work-plans/get(listDailyWorkPlans)`.
+    public func listDailyWorkPlans(
+        query: Operations.ListDailyWorkPlans.Input.Query = .init(),
+        headers: Operations.ListDailyWorkPlans.Input.Headers = .init()
+    ) async throws -> Operations.ListDailyWorkPlans.Output {
+        try await listDailyWorkPlans(Operations.ListDailyWorkPlans.Input(
+            query: query,
+            headers: headers
         ))
     }
     /// Create a daily work plan
@@ -7098,6 +7120,21 @@ public enum Components {
                 case mechanicId = "mechanic_id"
                 case planDate = "plan_date"
                 case status
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DailyPlanListPage`.
+        public struct DailyPlanListPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DailyPlanListPage/items`.
+            public var items: [Components.Schemas.DailyPlanSummary]
+            /// Creates a new `DailyPlanListPage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            public init(items: [Components.Schemas.DailyPlanSummary]) {
+                self.items = items
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
             }
         }
         /// - Remark: Generated from `#/components/schemas/OutsourceWorkSummary`.
@@ -13889,6 +13926,138 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.ok`.
             /// - SeeAlso: `.ok`.
             public var ok: Operations.ReviewTargetChange.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List branch-scoped daily work plans
+    ///
+    /// Returns branch-scoped daily work plans (the approval queue) ordered newest plan date first, with NO status filter so DRAFT/REQUESTED plans surface to approvers. Admins see the whole org; other roles see their branch set.
+    ///
+    /// - Remark: HTTP `GET /api/daily-work-plans`.
+    /// - Remark: Generated from `#/paths//api/daily-work-plans/get(listDailyWorkPlans)`.
+    public enum ListDailyWorkPlans {
+        public static let id: Swift.String = "listDailyWorkPlans"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/daily-work-plans/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// Optional single-day filter (YYYY-MM-DD). Absent returns every day.
+                ///
+                /// - Remark: Generated from `#/paths/api/daily-work-plans/GET/query/plan_date`.
+                public var planDate: Components.Schemas.Date?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - planDate: Optional single-day filter (YYYY-MM-DD). Absent returns every day.
+                public init(planDate: Components.Schemas.Date? = nil) {
+                    self.planDate = planDate
+                }
+            }
+            public var query: Operations.ListDailyWorkPlans.Input.Query
+            /// - Remark: Generated from `#/paths/api/daily-work-plans/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListDailyWorkPlans.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListDailyWorkPlans.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListDailyWorkPlans.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListDailyWorkPlans.Input.Query = .init(),
+                headers: Operations.ListDailyWorkPlans.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/daily-work-plans/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/daily-work-plans/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.DailyPlanListPage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.DailyPlanListPage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListDailyWorkPlans.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListDailyWorkPlans.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Daily work plans for the caller's scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/daily-work-plans/get(listDailyWorkPlans)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListDailyWorkPlans.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListDailyWorkPlans.Output.Ok {
                 get throws {
                     switch self {
                     case let .ok(response):

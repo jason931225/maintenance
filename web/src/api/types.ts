@@ -52,6 +52,7 @@ export type CreateMessengerThreadRequest =
   components["schemas"]["CreateMessengerThreadRequest"];
 export type DailyPlanStatus = components["schemas"]["DailyPlanStatus"];
 export type DailyPlanSummary = components["schemas"]["DailyPlanSummary"];
+export type DailyPlanListPage = components["schemas"]["DailyPlanListPage"];
 export type CreateDailyPlanRequest =
   components["schemas"]["CreateDailyPlanRequest"];
 export type KpiMetric = components["schemas"]["KpiMetric"];
