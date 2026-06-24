@@ -11,7 +11,7 @@ const RESET_SQL = resolve(HERE, "../harness/reset-coldstart.sql");
 const BACKEND_LOG = resolve(HERE, "../.auth/backend.log");
 const E2E_DB_URL =
   process.env.E2E_DATABASE_URL ??
-  `postgres://${process.env.USER ?? "postgres"}@${
+  `postgres://${process.env.E2E_PG_SUPERUSER ?? process.env.USER ?? "postgres"}@${
     process.env.E2E_PG_HOST ?? "localhost"
   }:${process.env.E2E_PG_PORT ?? "5432"}/${process.env.E2E_DB_NAME ?? "mnt_e2e"}`;
 

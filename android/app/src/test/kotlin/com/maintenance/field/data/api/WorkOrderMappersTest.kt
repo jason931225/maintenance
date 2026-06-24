@@ -86,6 +86,7 @@ class WorkOrderMappersTest {
             id = UUID.fromString("00000000-0000-0000-0000-000000000555"),
             name = "1공장",
         ),
+        siteContact = null,
         assignments = listOf(
             AssignmentSummary(
                 id = UUID.fromString("00000000-0000-0000-0000-000000000666"),

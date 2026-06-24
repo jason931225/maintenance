@@ -107,6 +107,7 @@ class MessengerRepositoryTest {
             threadId = threadId,
             branchId = branchId,
             senderId = senderId,
+            senderName = null,
             body = body,
             attachmentEvidenceIds = emptyList(),
             sentAt = OffsetDateTime.parse("2026-06-12T09:${minute.toString().padStart(2, '0')}:00Z"),
