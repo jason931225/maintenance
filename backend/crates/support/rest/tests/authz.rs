@@ -79,7 +79,9 @@ async fn list_tickets_resolves_branch_scope_from_db_not_token_claim(pool: PgPool
 
         let response = get_json(service, "/api/v1/support/tickets", &token).await;
         assert_eq!(response.0, StatusCode::OK, "{:?}", response.1);
-        let items = response.1["items"].as_array().expect("paginated items array");
+        let items = response.1["items"]
+            .as_array()
+            .expect("paginated items array");
         // The user's REAL branch ticket is visible (DB scope), even though the token
         // claimed a different branch.
         assert_eq!(items.len(), 1, "{items:?}");
