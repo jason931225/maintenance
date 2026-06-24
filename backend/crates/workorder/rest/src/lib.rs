@@ -2019,17 +2019,18 @@ async fn get_work_order_detail(
     )?))
 }
 
-async fn lookup_equipment(
-    State(state): State<WorkOrderRestState>,
-    headers: HeaderMap,
-    Query(query): Query<EquipmentLookupQuery>,
-) -> Result<Json<EquipmentLookupResponse>, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
-    authorize_read_access(&principal)?;
-    let management_no = normalize_management_no(&query.management_no)?;
-    let org = current_org()
-        .map_err(KernelError::from)
-        .map_err(RestError::from_kernel)?;
+/// Fetch up to 2 candidate equipment rows matching `management_no` within the
+/// caller's branch scope. `exact = true` uses `e.management_no = $typed`;
+/// `exact = false` uses the leading-zero-insensitive normalized form
+/// `ltrim(e.management_no,'0') = ltrim($typed,'0')`. LIMIT 2 is enough to
+/// distinguish "exactly one" from "ambiguous" without a full table scan.
+async fn fetch_equipment_lookup_candidates(
+    state: &WorkOrderRestState,
+    org: uuid::Uuid,
+    branch_scope: &BranchScope,
+    management_no: String,
+    exact: bool,
+) -> Result<Vec<sqlx::postgres::PgRow>, RestError> {
     let mut builder = QueryBuilder::<Postgres>::new(
         r#"
         SELECT
@@ -2045,21 +2046,78 @@ async fn lookup_equipment(
     );
     push_branch_scope_filter(
         &mut builder,
-        &principal.branch_scope,
+        branch_scope,
         BranchColumn::new("e.branch_id").map_err(RestError::from_kernel)?,
     );
-    // Leading-zero-insensitive exact match so '010' (stored) matches the
-    // normalized '10' / '10호기' / '#10호기' the caller typed.
-    builder.push(" AND ltrim(e.management_no, '0') = ltrim(");
-    builder.push_bind(management_no);
-    builder.push(", '0')");
-    builder.push(" ORDER BY e.updated_at DESC LIMIT 1");
-    let row = with_org_conn::<_, _, RestError>(state.store.pool(), org, move |tx| {
-        Box::pin(async move { Ok(builder.build().fetch_optional(tx.as_mut()).await?) })
+    if exact {
+        builder.push(" AND e.management_no = ");
+        builder.push_bind(management_no);
+    } else {
+        builder.push(" AND ltrim(e.management_no, '0') = ltrim(");
+        builder.push_bind(management_no);
+        builder.push(", '0')");
+    }
+    builder.push(" LIMIT 2");
+    let org_id = mnt_kernel_core::OrgId::from_uuid(org);
+    with_org_conn::<_, _, RestError>(state.store.pool(), org_id, move |tx| {
+        Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
     })
-    .await?
-    .ok_or_else(|| RestError::from_kernel(KernelError::not_found("equipment was not found")))?;
-    Ok(Json(equipment_lookup_from_row(&row)?))
+    .await
+}
+
+async fn lookup_equipment(
+    State(state): State<WorkOrderRestState>,
+    headers: HeaderMap,
+    Query(query): Query<EquipmentLookupQuery>,
+) -> Result<Json<EquipmentLookupResponse>, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    authorize_read_access(&principal)?;
+    let management_no = normalize_management_no(&query.management_no)?;
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+
+    // 1. EXACT match first: a stored `10` and a stored `0010` are DIFFERENT
+    //    equipment; an exact hit is always the unambiguous answer.
+    let exact_rows = fetch_equipment_lookup_candidates(
+        &state,
+        *org.as_uuid(),
+        &principal.branch_scope,
+        management_no.clone(),
+        true,
+    )
+    .await?;
+    match exact_rows.as_slice() {
+        [row] => return Ok(Json(equipment_lookup_from_row(row)?)),
+        [] => {} // fall through to normalized fallback
+        _ => {
+            return Err(RestError::from_kernel(KernelError::conflict(
+                "여러 장비의 관리번호가 같은 번호로 정규화됩니다. 앞자리 0을 포함한 정확한 관리번호를 입력하세요 \
+                 (multiple equipment share this normalized management number — enter the exact management_no including any leading zeros)",
+            )));
+        }
+    }
+
+    // 2. Leading-zero-insensitive fallback: `42` typed resolves stored `0042`,
+    //    but ONLY when exactly one row matches — never a silent "newest wins" guess.
+    let norm_rows = fetch_equipment_lookup_candidates(
+        &state,
+        *org.as_uuid(),
+        &principal.branch_scope,
+        management_no,
+        false,
+    )
+    .await?;
+    match norm_rows.as_slice() {
+        [row] => Ok(Json(equipment_lookup_from_row(row)?)),
+        [] => Err(RestError::from_kernel(KernelError::not_found(
+            "equipment was not found",
+        ))),
+        _ => Err(RestError::from_kernel(KernelError::conflict(
+            "여러 장비의 관리번호가 같은 번호로 정규화됩니다. 앞자리 0을 포함한 정확한 관리번호를 입력하세요 \
+             (multiple equipment share this normalized management number — enter the exact management_no including any leading zeros)",
+        ))),
+    }
 }
 
 async fn autocomplete_equipment(

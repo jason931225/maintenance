@@ -744,3 +744,158 @@ async fn management_no_lookup_is_exact_then_unique_normalized_as_runtime_role(ow
         .await
         .expect("a unique normalized management_no `42` must still resolve `0042`");
 }
+
+// ===========================================================================
+// (9) #19.13c — PREVIEW lookup_equipment (REST handler) must use exact-then-
+// unique-normalized, NOT "newest wins". Two equipment `10` vs `0010` in scope:
+//   * typed `10`  → exact match → returns `10` row (not `0010`)
+//   * typed `010` → no exact hit → normalized ambiguous → Conflict (not silent preview)
+//   * typed `42`  → no exact hit → unique normalized → returns `0042` row
+//
+// Tests run the SAME two-phase query the REST handler executes (exact LIMIT 2,
+// then ltrim-normalized LIMIT 2) inside with_org_conn as genuine mnt_rt.
+// ===========================================================================
+
+/// Run the two-phase equipment-preview lookup (exact-first, then normalized
+/// fallback) as the genuine non-owner `mnt_rt` role inside `with_org_conn`,
+/// exactly mirroring what the REST `lookup_equipment` handler now executes.
+///
+/// Returns `Ok(management_no)` when exactly one row is found, `Err("conflict")`
+/// when the match is ambiguous, and `Err("not_found")` when no row matches.
+async fn preview_lookup(
+    rt_pool: &PgPool,
+    org: OrgId,
+    branch_scope: &BranchScope,
+    typed: &str,
+) -> Result<String, &'static str> {
+    use mnt_platform_db::with_org_conn;
+    use sqlx::{Postgres, QueryBuilder, Row};
+
+    let typed = typed.to_owned();
+    let scope = branch_scope.clone();
+
+    mnt_platform_request_context::scope_org(org, async move {
+        // Phase 1: exact match, LIMIT 2.
+        let exact = {
+            let typed = typed.clone();
+            let scope = scope.clone();
+            with_org_conn::<_, Vec<String>, PgWorkOrderError>(rt_pool, org, move |tx| {
+                Box::pin(async move {
+                    let mut b = QueryBuilder::<Postgres>::new(
+                        r#"SELECT e.management_no FROM registry_equipment e WHERE "#,
+                    );
+                    match &scope {
+                        BranchScope::All => b.push("TRUE"),
+                        BranchScope::Branches(bs) if bs.is_empty() => b.push("FALSE"),
+                        BranchScope::Branches(bs) => {
+                            let ids: Vec<Uuid> = bs.iter().map(|br| *br.as_uuid()).collect();
+                            b.push("e.branch_id = ANY(");
+                            b.push_bind(ids);
+                            b.push(")")
+                        }
+                    };
+                    b.push(" AND e.management_no = ");
+                    b.push_bind(typed);
+                    b.push(" LIMIT 2");
+                    let rows = b.build().fetch_all(tx.as_mut()).await?;
+                    Ok(rows
+                        .iter()
+                        .map(|r| r.try_get::<String, _>("management_no").unwrap())
+                        .collect())
+                })
+            })
+            .await
+            .unwrap()
+        };
+        match exact.as_slice() {
+            [one] => return Ok(one.clone()),
+            [] => {} // fall through
+            _ => return Err("conflict"),
+        }
+
+        // Phase 2: normalized fallback, LIMIT 2.
+        let norm = {
+            let typed = typed.clone();
+            let scope = scope.clone();
+            with_org_conn::<_, Vec<String>, PgWorkOrderError>(rt_pool, org, move |tx| {
+                Box::pin(async move {
+                    let mut b = QueryBuilder::<Postgres>::new(
+                        r#"SELECT e.management_no FROM registry_equipment e WHERE "#,
+                    );
+                    match &scope {
+                        BranchScope::All => b.push("TRUE"),
+                        BranchScope::Branches(bs) if bs.is_empty() => b.push("FALSE"),
+                        BranchScope::Branches(bs) => {
+                            let ids: Vec<Uuid> = bs.iter().map(|br| *br.as_uuid()).collect();
+                            b.push("e.branch_id = ANY(");
+                            b.push_bind(ids);
+                            b.push(")")
+                        }
+                    };
+                    b.push(" AND ltrim(e.management_no, '0') = ltrim(");
+                    b.push_bind(typed);
+                    b.push(", '0') LIMIT 2");
+                    let rows = b.build().fetch_all(tx.as_mut()).await?;
+                    Ok(rows
+                        .iter()
+                        .map(|r| r.try_get::<String, _>("management_no").unwrap())
+                        .collect())
+                })
+            })
+            .await
+            .unwrap()
+        };
+        match norm.as_slice() {
+            [one] => Ok(one.clone()),
+            [] => Err("not_found"),
+            _ => Err("conflict"),
+        }
+    })
+    .await
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn preview_lookup_exact_wins_over_normalized_ambiguous_as_runtime_role(owner_pool: PgPool) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let knl = OrgId::knl();
+    let knl_uuid = *knl.as_uuid();
+    seed_org(&owner_pool, knl_uuid, "knl").await;
+    let branch = seed_branch(&owner_pool, knl_uuid).await;
+    // Two equipment whose management_no normalize to the same `10`.
+    seed_equipment(&owner_pool, knl_uuid, branch, "10").await;
+    seed_equipment(&owner_pool, knl_uuid, branch, "0010").await;
+    // A third, normalized-unique equipment for the unique-fallback assertion.
+    seed_equipment(&owner_pool, knl_uuid, branch, "0042").await;
+
+    let scope = BranchScope::single(branch);
+
+    // typed `10` → EXACT hit on `10` row — must NOT silently choose `0010`.
+    let hit = preview_lookup(&rt_pool, knl, &scope, "10")
+        .await
+        .expect("typed `10` must resolve the exact `10` row");
+    assert_eq!(hit, "10", "exact `10` must return the `10` row, not `0010`");
+
+    // typed `0010` → EXACT hit on `0010` row.
+    let hit2 = preview_lookup(&rt_pool, knl, &scope, "0010")
+        .await
+        .expect("typed `0010` must resolve the exact `0010` row");
+    assert_eq!(hit2, "0010", "exact `0010` must return the `0010` row");
+
+    // typed `010` → no exact row → normalized ambiguous (matches both `10` and
+    // `0010`) → Conflict, never a silent wrong-equipment preview.
+    let conflict = preview_lookup(&rt_pool, knl, &scope, "010").await;
+    assert_eq!(
+        conflict,
+        Err("conflict"),
+        "ambiguous normalized `010` must conflict, not silently preview wrong equipment"
+    );
+
+    // typed `42` → no exact row → unique normalized match `0042` → resolves.
+    let fallback = preview_lookup(&rt_pool, knl, &scope, "42")
+        .await
+        .expect("unique normalized `42` must resolve `0042` via fallback");
+    assert_eq!(
+        fallback, "0042",
+        "unique normalized `42` must return the `0042` row"
+    );
+}
