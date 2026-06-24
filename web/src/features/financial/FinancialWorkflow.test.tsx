@@ -325,6 +325,41 @@ describe("financial purchase request workflow", () => {
       screen.queryByRole("button", { name: "구매요청서 작성" }),
     ).not.toBeInTheDocument();
   });
+
+  it("surfaces the server's reason when a create is rejected (no silent failure)", async () => {
+    const user = userEvent.setup();
+    const serverReason = "거래명세표 증빙을 찾을 수 없습니다.";
+
+    server.use(
+      lookupHandler(),
+      // The create rejects with a 4xx carrying the real reason. Before #19.18
+      // the panel's catch{} discarded response.error and the operator saw a
+      // generic "won't create"; the fix must render this exact message.
+      http.post("*/api/v1/financial/purchase-requests", () =>
+        HttpResponse.json(
+          { error: { code: "not_found", message: serverReason } },
+          { status: 404 },
+        ),
+      ),
+    );
+
+    renderApp(makeAuthContext(adminSession));
+
+    await user.click(await screen.findByRole("button", { name: "구매요청서 작성" }));
+    await lookupEquipment(user);
+    await user.type(screen.getByLabelText("거래처명"), "한빛부품");
+    await user.type(screen.getByLabelText("금액 (원)"), "500000");
+    await user.type(
+      screen.getByLabelText("거래명세표 증빙 번호"),
+      evidenceId,
+    );
+    await user.click(screen.getByRole("button", { name: "작성" }));
+
+    // The server's actual reason renders in an alert, not a generic failure.
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(serverReason);
+    expect(alert).not.toHaveTextContent("구매요청서를 작성하지 못했습니다.");
+  });
 });
 
 describe("rental quote", () => {

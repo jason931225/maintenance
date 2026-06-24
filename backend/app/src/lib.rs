@@ -225,6 +225,12 @@ pub struct AppConfig {
     /// (`MNT_MAIL_MASTER_KEY`) and object storage are both configured — it is a
     /// no-op otherwise, so a misconfiguration never crashes the app.
     pub mail_enabled: bool,
+    /// The tenant that owns the PUBLIC sales storefront (`STOREFRONT_ORG_ID`).
+    /// `None` defaults to KNL's org in the sales router. Set it to the storefront
+    /// tenant's real `organizations.id` when that tenant was re-minted via the
+    /// console with a random uuid, so a public inquiry lands in the SAME org the
+    /// staff inquiry inbox reads under (#19.21) instead of the `0x…a1` sentinel.
+    pub storefront_org: Option<OrgId>,
 }
 
 /// Native app-link association config for the `/.well-known/*` endpoints.
@@ -384,6 +390,13 @@ impl AppConfig {
                 .map_err(|err| AppError::Config(format!("invalid MNT_MAIL_ENABLED: {err}")))?,
             None => false,
         };
+        let storefront_org = match non_empty(vars.get("STOREFRONT_ORG_ID")) {
+            Some(raw) => Some(
+                OrgId::from_str(&raw)
+                    .map_err(|err| AppError::Config(format!("invalid STOREFRONT_ORG_ID: {err}")))?,
+            ),
+            None => None,
+        };
 
         Ok(Self {
             role,
@@ -408,6 +421,7 @@ impl AppConfig {
             trusted_proxy_count,
             app_links,
             mail_enabled,
+            storefront_org,
         })
     }
 }
@@ -1318,6 +1332,9 @@ pub fn build_router(state: AppState) -> Router {
                     let mut sales_state =
                         SalesRestState::new(sales_store, state.jwt_verifier.clone())
                             .with_trusted_proxy_count(state.config.trusted_proxy_count);
+                    if let Some(storefront_org) = state.config.storefront_org {
+                        sales_state = sales_state.with_storefront_org(storefront_org);
+                    }
                     if let Some((object_store, bucket)) = state.sales_media_storage.clone() {
                         sales_state = sales_state.with_media_storage(object_store, bucket);
                     }

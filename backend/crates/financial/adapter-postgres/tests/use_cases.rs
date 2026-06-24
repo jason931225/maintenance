@@ -292,7 +292,13 @@ async fn financial_inputs_reject_cross_scope_evidence_and_work_orders(pool: PgPo
             .unwrap_err();
         assert!(cross_scope.to_string().contains("outside"));
 
-        let unverified = store
+        // The WORM-replica precondition is DEFERRED from create to submit: a
+        // legitimate purchase request CREATES against still-replicating (PENDING)
+        // REQUEST evidence — the async replica state must not bar create — and
+        // only the SUBMIT into the approval pipeline waits on durable WORM
+        // verification. (Before #19.18 the create itself 4xx'd with "verified
+        // REQUEST", and the web catch{} swallowed the reason.)
+        let pending_purchase = store
             .create_purchase_request(CreatePurchaseRequestCommand {
                 actor: seeded.mechanic,
                 branch_id: seeded.branch_id,
@@ -307,8 +313,22 @@ async fn financial_inputs_reject_cross_scope_evidence_and_work_orders(pool: PgPo
                 occurred_at,
             })
             .await
+            .expect("create must succeed against PENDING (still-replicating) REQUEST evidence");
+        assert_eq!(pending_purchase.status, PurchaseStatus::StatementAttached);
+
+        // Submitting it into the approval pipeline is gated on durable WORM
+        // verification, so it is refused with the deferred, surfaced reason while
+        // the replica is still PENDING.
+        let worm_pending = store
+            .submit_purchase_request(PurchaseSubmitCommand {
+                actor: seeded.receptionist,
+                purchase_request_id: pending_purchase.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
             .unwrap_err();
-        assert!(unverified.to_string().contains("verified REQUEST"));
+        assert!(worm_pending.to_string().contains("WORM-verified"));
 
         let wrong_work_order = store
             .append_cost_ledger_entry(AppendCostLedgerEntryCommand {
@@ -460,9 +480,14 @@ async fn purchase_execute_rolls_back_if_ledger_update_fails(pool: PgPool) {
             })
             .await
             .unwrap();
+        // Below the executive threshold, prepare_expenditure jumps straight to
+        // READY_TO_EXECUTE, which is an approval-equivalent transition guarded by
+        // the self-approval SoD rule — so it must NOT be performed by the
+        // submitter (the receptionist). The admin (neither requester nor
+        // submitter) carries it out.
         let ready = store
             .prepare_expenditure(PrepareExpenditureCommand {
-                actor: seeded.receptionist,
+                actor: seeded.admin,
                 purchase_request_id: purchase.id,
                 expenditure_no: "EXP-ROLLBACK-001".to_owned(),
                 trace: TraceContext::generate(),

@@ -578,6 +578,16 @@ impl PgFinancialStore {
                     executive_threshold_won: row.executive_threshold_won,
                 })?;
 
+                // ── Deferred WORM compliance gate (SUBMIT only) ───────────────
+                // A purchase may be CREATED against still-replicating evidence,
+                // but it must not enter the approval pipeline until the linked
+                // 거래명세표 is durably preserved (worm_replica_status VERIFIED).
+                // Guarded strictly on the submit target so the check never leaks
+                // into approve/execute/reject, which share this method.
+                if to == PurchaseStatus::RequestSubmitted {
+                    ensure_statement_evidence_verified_tx(tx, row.statement_evidence_id).await?;
+                }
+
                 // ── Segregation-of-duties: self-approval block ────────────────
                 // Only applies on genuine approval transitions (admin or executive
                 // sign-off). Submission and execution are exempt from this guard.
@@ -675,6 +685,7 @@ struct LockedPurchase {
     branch_id: BranchId,
     equipment_id: EquipmentId,
     work_order_id: Option<WorkOrderId>,
+    statement_evidence_id: mnt_kernel_core::EvidenceId,
     status: PurchaseStatus,
     amount_won: i64,
     executive_threshold_won: i64,
@@ -874,6 +885,21 @@ async fn ensure_work_order_matches_tx(
     Ok(())
 }
 
+/// Scope-check the statement evidence linked to a purchase request WITHOUT
+/// requiring the WORM replica to be verified.
+///
+/// This is the create/restart-time check. It still enforces that the evidence is
+/// REQUEST-stage 거래명세표 belonging to the same branch/equipment/work-order as
+/// the purchase — the financial-scope invariants — but it deliberately does NOT
+/// require `worm_replica_status == 'VERIFIED'`. The WORM-replica state is set
+/// asynchronously by the replication worker (`replicate_once`), with no retry
+/// driver, so a still-replicating (PENDING/FAILED) replica must not permanently
+/// bar a legitimate purchase request from being *created*. The durable-WORM
+/// precondition is instead enforced at SUBMIT (see
+/// [`ensure_statement_evidence_verified_tx`]), the first state that promotes the
+/// request into the approval pipeline. No money or ledger entry moves until
+/// `execute_purchase`, so a StatementAttached row referencing not-yet-verified
+/// evidence carries no financial-integrity risk.
 async fn ensure_statement_evidence_tx(
     tx: &mut Transaction<'_, Postgres>,
     evidence_id: mnt_kernel_core::EvidenceId,
@@ -883,7 +909,7 @@ async fn ensure_statement_evidence_tx(
 ) -> Result<StatementEvidenceLink, PgFinancialError> {
     let row = sqlx::query(
         r#"
-        SELECT e.work_order_id, e.stage, e.worm_replica_status,
+        SELECT e.work_order_id, e.stage,
                w.branch_id, w.equipment_id
         FROM evidence_media e
         JOIN work_orders w ON w.id = e.work_order_id
@@ -911,15 +937,42 @@ async fn ensure_statement_evidence_tx(
     }
 
     let stage: String = row.try_get("stage")?;
-    let worm_replica_status: String = row.try_get("worm_replica_status")?;
-    if stage != "REQUEST" || worm_replica_status != "VERIFIED" {
-        return Err(KernelError::validation(
-            "statement evidence must be verified REQUEST evidence",
-        )
-        .into());
+    if stage != "REQUEST" {
+        return Err(
+            KernelError::validation("statement evidence must be REQUEST-stage evidence").into(),
+        );
     }
 
     Ok(StatementEvidenceLink { work_order_id })
+}
+
+/// Assert the linked statement evidence's WORM replica is durably VERIFIED.
+///
+/// The deferred compliance gate enforced at SUBMIT: a purchase request may be
+/// created against still-replicating evidence, but it may not enter the approval
+/// pipeline until the 거래명세표 is durably preserved under COMPLIANCE retention
+/// (`worm_replica_status == 'VERIFIED'`). Surfaces a clear caller-facing reason so
+/// the operator learns the request is waiting on WORM verification rather than
+/// seeing a silent failure.
+async fn ensure_statement_evidence_verified_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    evidence_id: mnt_kernel_core::EvidenceId,
+) -> Result<(), PgFinancialError> {
+    let status: Option<String> =
+        sqlx::query_scalar("SELECT worm_replica_status FROM evidence_media WHERE id = $1")
+            .bind(*evidence_id.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?;
+    let status =
+        status.ok_or_else(|| KernelError::not_found("statement evidence was not found"))?;
+    if status != "VERIFIED" {
+        return Err(KernelError::validation(
+            "거래명세표가 아직 보존 검증 중입니다. 잠시 후 다시 상신하세요. \
+             (statement evidence is still being WORM-verified)",
+        )
+        .into());
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1108,7 +1161,8 @@ async fn lock_purchase_tx(
 ) -> Result<LockedPurchase, PgFinancialError> {
     let row = sqlx::query(
         r#"
-        SELECT branch_id, equipment_id, work_order_id, status, amount_won,
+        SELECT branch_id, equipment_id, work_order_id, statement_evidence_id,
+               status, amount_won,
                executive_threshold_won, depreciation_method, useful_life_months,
                residual_rate_bps, declining_balance_rate_bps,
                management_fee_rate_bps, profit_rate_bps,
@@ -1131,6 +1185,9 @@ async fn lock_purchase_tx(
         branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
         equipment_id: EquipmentId::from_uuid(row.try_get("equipment_id")?),
         work_order_id: work_order_id.map(WorkOrderId::from_uuid),
+        statement_evidence_id: mnt_kernel_core::EvidenceId::from_uuid(
+            row.try_get("statement_evidence_id")?,
+        ),
         status: PurchaseStatus::from_db_str(&status)?,
         amount_won: row.try_get("amount_won")?,
         executive_threshold_won,

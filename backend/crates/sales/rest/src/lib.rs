@@ -125,6 +125,17 @@ pub struct SalesRestState {
     /// real client is the Nth-from-the-right XFF entry. Clamped to at least 1 so
     /// the spoofable left-most entry is never blindly trusted.
     trusted_proxy_count: usize,
+    /// The tenant that owns the PUBLIC storefront — the org under which the
+    /// unauthenticated catalog reads run and public inquiries are recorded. The
+    /// storefront carries no JWT, so its tenant cannot be derived from a request
+    /// principal; it is resolved once at app boot (`STOREFRONT_ORG_ID`, defaulting
+    /// to KNL's org). It MUST equal the org the staff inquiry inbox reads under
+    /// (their JWT `current_org`), or a submitted lead lands in a different tenant
+    /// and RLS hides it from staff — the #19.21 defect. Resolving it here (instead
+    /// of a hardcoded `OrgId::knl()` literal in the public router) also closes the
+    /// org-binding gate-hole #43: a console-re-minted storefront tenant with a
+    /// random uuid is configured, not hardcoded.
+    storefront_org: OrgId,
 }
 
 /// Object store handle + bucket for the storefront media-serve route.
@@ -145,7 +156,18 @@ impl SalesRestState {
             jwt_verifier,
             media_storage: None,
             trusted_proxy_count: 1,
+            storefront_org: OrgId::knl(),
         }
+    }
+
+    /// Set the tenant that owns the public storefront (from `STOREFRONT_ORG_ID`).
+    /// Defaults to KNL's org when unset; override when the storefront tenant was
+    /// re-minted via the console with a random uuid, so public inquiries land in
+    /// the SAME org the staff inquiry inbox reads under.
+    #[must_use]
+    pub fn with_storefront_org(mut self, storefront_org: OrgId) -> Self {
+        self.storefront_org = storefront_org;
+        self
     }
 
     /// Set the number of trusted reverse proxies (from `MNT_TRUSTED_PROXY_COUNT`).
@@ -183,7 +205,11 @@ pub fn router(state: SalesRestState) -> Router {
     let authed = mnt_platform_request_context::with_request_context(authed, verifier, pool);
 
     // Public storefront routes — no JWT required, but still need a tenant
-    // context for the store. The public catalog always belongs to the KNL org.
+    // context for the store. The storefront tenant is resolved at app boot
+    // (`STOREFRONT_ORG_ID`, default KNL) rather than hardcoded, so the public
+    // submit lands in the SAME org the staff inquiry inbox reads under (#19.21)
+    // and no hardcoded `OrgId::knl()` literal lives in this public router (#43).
+    let storefront_org = state.storefront_org;
     let public = Router::new()
         .route(STOREFRONT_LISTINGS_PATH, get(storefront_list_listings))
         .route(
@@ -197,8 +223,8 @@ pub fn router(state: SalesRestState) -> Router {
         .route(STOREFRONT_INQUIRIES_PATH, post(submit_inquiry))
         .with_state(state)
         .layer(axum::middleware::from_fn(
-            |req: axum::extract::Request, next: axum::middleware::Next| async move {
-                mnt_platform_request_context::scope_org(OrgId::knl(), next.run(req)).await
+            move |req: axum::extract::Request, next: axum::middleware::Next| async move {
+                mnt_platform_request_context::scope_org(storefront_org, next.run(req)).await
             },
         ));
 

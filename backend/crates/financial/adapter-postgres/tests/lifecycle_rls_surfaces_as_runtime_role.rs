@@ -26,10 +26,13 @@
 
 use mnt_financial_adapter_postgres::PgFinancialStore;
 use mnt_financial_application::{
-    AppendCostLedgerEntryCommand, CostLedgerSource, FinancialConfigSnapshot,
+    AppendCostLedgerEntryCommand, CostLedgerSource, CreatePurchaseRequestCommand,
+    FinancialConfigSnapshot, PurchaseSubmitCommand,
 };
-use mnt_financial_domain::{AcquisitionBasis, DepreciationMethod};
-use mnt_kernel_core::{BranchId, EquipmentId, OrgId, TraceContext, UserId, WorkOrderId};
+use mnt_financial_domain::{AcquisitionBasis, DepreciationMethod, PurchaseStatus};
+use mnt_kernel_core::{
+    BranchId, EquipmentId, EvidenceId, OrgId, TraceContext, UserId, WorkOrderId,
+};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use time::macros::datetime;
@@ -619,4 +622,260 @@ async fn acquisition_only_asset_returns_tco_as_runtime_role(owner_pool: PgPool) 
     // No sale, no vehicle_value -> gross margin stays None (not an error).
     assert_eq!(summary.sale_price_won, None);
     assert_eq!(summary.gross_margin_won, None);
+}
+
+// ===========================================================================
+// (#19.18) Purchase-request create + submit as the runtime role `mnt_rt`.
+//
+// The WORM-replica precondition is DEFERRED from CREATE to SUBMIT. This test
+// proves, as the genuine non-owner `mnt_rt` under the armed GUC:
+//   (a) a purchase request CREATES against still-replicating (UNVERIFIED)
+//       REQUEST evidence — the prod-real unblock; before the fix create itself
+//       4xx'd and the web swallowed the reason — and the created row is VISIBLE
+//       to a fresh armed read (`purchase_request`), i.e. the approver can see it;
+//   (b) SUBMIT is refused with the surfaced WORM reason while the replica is
+//       UNVERIFIED, then SUCCEEDS once the replica is VERIFIED;
+//   (c) cross-tenant: org-B's purchase request is INVISIBLE under org-A's GUC.
+// ===========================================================================
+
+/// Seed a REQUEST-stage statement evidence row in `org` with the given WORM
+/// replica status, tied to `work_order_id`. OWNER pool (raw insert).
+async fn seed_request_evidence(
+    owner_pool: &PgPool,
+    org: Uuid,
+    work_order_id: WorkOrderId,
+    uploaded_by: UserId,
+    worm_replica_status: &str,
+) -> EvidenceId {
+    let evidence_id = EvidenceId::new();
+    sqlx::query(
+        r#"
+        INSERT INTO evidence_media (
+            id, work_order_id, stage, s3_key, content_type, size_bytes,
+            uploaded_by, worm_replica_status, retry_count, org_id
+        )
+        VALUES ($1, $2, 'REQUEST', $3, 'application/pdf', 2048, $4, $5, 0, $6)
+        "#,
+    )
+    .bind(*evidence_id.as_uuid())
+    .bind(*work_order_id.as_uuid())
+    .bind(format!(
+        "work-orders/{work_order_id}/REQUEST/{evidence_id}.pdf"
+    ))
+    .bind(*uploaded_by.as_uuid())
+    .bind(worm_replica_status)
+    .bind(org)
+    .execute(owner_pool)
+    .await
+    .unwrap();
+    evidence_id
+}
+
+/// The grants the production default-privilege auto-grant would give `mnt_rt`
+/// for the purchase-request write path; the `#[sqlx::test]` harness runs
+/// migrations as a different superuser, so replicate them here. Each GRANT is a
+/// static literal (no interpolation) to satisfy the dynamic-SQL audit lint.
+async fn grant_purchase_path_to_runtime_role(owner_pool: &PgPool) {
+    for grant in [
+        "GRANT SELECT, INSERT, UPDATE ON evidence_media TO mnt_rt",
+        "GRANT SELECT, INSERT, UPDATE ON work_orders TO mnt_rt",
+        "GRANT SELECT, INSERT, UPDATE ON registry_equipment TO mnt_rt",
+        "GRANT SELECT, INSERT, UPDATE ON financial_purchase_requests TO mnt_rt",
+        "GRANT SELECT, INSERT, UPDATE ON financial_purchase_history TO mnt_rt",
+        "GRANT SELECT, INSERT, UPDATE ON audit_events TO mnt_rt",
+    ] {
+        sqlx::query(grant).execute(owner_pool).await.unwrap();
+    }
+}
+
+/// Seed org + branch + admin + asset + a REQUEST work order, returning the ids
+/// the purchase-request create needs.
+struct PurchaseFixture {
+    branch_id: BranchId,
+    admin: UserId,
+    equipment_id: EquipmentId,
+    work_order_id: WorkOrderId,
+}
+
+async fn seed_purchase_fixture(
+    owner_pool: &PgPool,
+    org: OrgId,
+    tag: &str,
+    request_seq: u32,
+) -> PurchaseFixture {
+    let org_uuid = *org.as_uuid();
+    seed_org(owner_pool, org_uuid, tag).await;
+    let branch_id = seed_branch(owner_pool, org_uuid).await;
+    let admin = seed_user(owner_pool, org_uuid, "ADMIN", branch_id).await;
+    let equipment_id = seed_equipment(
+        owner_pool,
+        org_uuid,
+        branch_id,
+        &format!("{request_seq}"),
+        30_000_000,
+        25_000_000,
+        9_000_000,
+        1_200,
+    )
+    .await;
+    let work_order_id = seed_work_order(
+        owner_pool,
+        org_uuid,
+        branch_id,
+        admin,
+        equipment_id,
+        &format!("20260612-{request_seq:03}"),
+    )
+    .await;
+    PurchaseFixture {
+        branch_id,
+        admin,
+        equipment_id,
+        work_order_id,
+    }
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn purchase_request_create_and_submit_as_runtime_role(owner_pool: PgPool) {
+    grant_purchase_path_to_runtime_role(&owner_pool).await;
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let org_a = OrgId::knl();
+    let occurred_at = datetime!(2026-06-12 12:00 UTC);
+
+    let fx = seed_purchase_fixture(&owner_pool, org_a, "A", 1).await;
+    // Evidence is still replicating (UNVERIFIED) at create time.
+    let evidence = seed_request_evidence(
+        &owner_pool,
+        *org_a.as_uuid(),
+        fx.work_order_id,
+        fx.admin,
+        "PENDING",
+    )
+    .await;
+
+    // (a) Create succeeds against PENDING evidence as armed mnt_rt, and the row
+    //     is visible to a fresh armed read.
+    let created = mnt_platform_request_context::scope_org(org_a, async {
+        let store = PgFinancialStore::new(rt_pool.clone());
+        store
+            .create_purchase_request(CreatePurchaseRequestCommand {
+                actor: fx.admin,
+                branch_id: fx.branch_id,
+                equipment_id: fx.equipment_id,
+                work_order_id: Some(fx.work_order_id),
+                statement_evidence_id: evidence,
+                vendor_name: "한빛부품".to_owned(),
+                amount_won: 500_000,
+                memo: "정기 부품 교체".to_owned(),
+                config: financial_config(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+    })
+    .await
+    .expect("create must succeed against PENDING evidence as armed mnt_rt");
+    assert_eq!(created.status, PurchaseStatus::StatementAttached);
+
+    let visible = mnt_platform_request_context::scope_org(org_a, async {
+        let store = PgFinancialStore::new(rt_pool.clone());
+        store.purchase_request(created.id).await
+    })
+    .await
+    .expect("the approver must SEE the created request under the same armed GUC");
+    assert_eq!(visible.id, created.id);
+    assert_eq!(visible.status, PurchaseStatus::StatementAttached);
+
+    // (b) SUBMIT is refused with the surfaced WORM reason while PENDING.
+    let blocked = mnt_platform_request_context::scope_org(org_a, async {
+        let store = PgFinancialStore::new(rt_pool.clone());
+        store
+            .submit_purchase_request(PurchaseSubmitCommand {
+                actor: fx.admin,
+                purchase_request_id: created.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+    })
+    .await
+    .unwrap_err();
+    assert!(
+        blocked.to_string().contains("WORM-verified"),
+        "submit must surface the deferred WORM reason, got: {blocked}"
+    );
+
+    // The replica finishes verifying (the worker flips it to VERIFIED).
+    sqlx::query("UPDATE evidence_media SET worm_replica_status = 'VERIFIED' WHERE id = $1")
+        .bind(*evidence.as_uuid())
+        .execute(&owner_pool)
+        .await
+        .unwrap();
+
+    let submitted = mnt_platform_request_context::scope_org(org_a, async {
+        let store = PgFinancialStore::new(rt_pool.clone());
+        store
+            .submit_purchase_request(PurchaseSubmitCommand {
+                actor: fx.admin,
+                purchase_request_id: created.id,
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+    })
+    .await
+    .expect("submit must succeed once the WORM replica is VERIFIED");
+    assert_eq!(submitted.status, PurchaseStatus::RequestSubmitted);
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn cross_tenant_purchase_request_is_invisible_as_runtime_role(owner_pool: PgPool) {
+    grant_purchase_path_to_runtime_role(&owner_pool).await;
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let org_a = OrgId::knl();
+    let org_b = OrgId::from_uuid(ORG_B);
+    let occurred_at = datetime!(2026-06-12 12:00 UTC);
+
+    // org-B owns a purchase request (created under B's armed GUC).
+    let fx_b = seed_purchase_fixture(&owner_pool, org_b, "B", 2).await;
+    let evidence_b = seed_request_evidence(
+        &owner_pool,
+        *org_b.as_uuid(),
+        fx_b.work_order_id,
+        fx_b.admin,
+        "VERIFIED",
+    )
+    .await;
+    let b_purchase = mnt_platform_request_context::scope_org(org_b, async {
+        let store = PgFinancialStore::new(rt_pool.clone());
+        store
+            .create_purchase_request(CreatePurchaseRequestCommand {
+                actor: fx_b.admin,
+                branch_id: fx_b.branch_id,
+                equipment_id: fx_b.equipment_id,
+                work_order_id: Some(fx_b.work_order_id),
+                statement_evidence_id: evidence_b,
+                vendor_name: "Org B Vendor".to_owned(),
+                amount_won: 500_000,
+                memo: "org-b purchase".to_owned(),
+                config: financial_config(),
+                trace: TraceContext::generate(),
+                occurred_at,
+            })
+            .await
+    })
+    .await
+    .expect("org-B create must succeed under B's armed GUC");
+
+    // Under org-A's GUC, B's purchase request is NOT FOUND (RLS isolates tenants).
+    seed_org(&owner_pool, *org_a.as_uuid(), "A").await;
+    let cross = mnt_platform_request_context::scope_org(org_a, async {
+        let store = PgFinancialStore::new(rt_pool.clone());
+        store.purchase_request(b_purchase.id).await
+    })
+    .await;
+    assert!(
+        cross.is_err(),
+        "org-B's purchase request must be INVISIBLE under org-A's GUC as mnt_rt"
+    );
 }

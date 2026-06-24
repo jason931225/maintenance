@@ -56,6 +56,28 @@ function upsert(
   return [next, ...list.filter((item) => item.id !== next.id)];
 }
 
+/**
+ * Pull the caller-facing reason out of an `{ error: { code, message } }` body so
+ * a 4xx renders the server's actual message (e.g. an evidence-scope rejection)
+ * rather than a generic "won't create". Falls back to the generic copy when the
+ * body has no usable message.
+ */
+function errorMessage(error: unknown): string {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "error" in error &&
+    typeof error.error === "object" &&
+    error.error !== null
+  ) {
+    const inner = (error as { error: { message?: unknown } }).error;
+    if (typeof inner.message === "string" && inner.message.trim().length > 0) {
+      return inner.message;
+    }
+  }
+  return ko.financial.purchase.createFailed;
+}
+
 export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) {
   const canCreate = hasAnyRole(roles, PURCHASE_CREATE_ROLES);
   const canApprove = hasAnyRole(roles, PURCHASE_APPROVE_ROLES);
@@ -71,6 +93,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
   const [equipment, setEquipment] = useState<SelectedEquipment>();
   const [form, setForm] = useState<CreateForm>(emptyCreateForm);
   const [writeState, setWriteState] = useState<WriteState>("idle");
+  const [createError, setCreateError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const clearNotice = useCallback(() => {
     setNotice(undefined);
@@ -90,6 +113,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
     setEquipment(undefined);
     setForm(emptyCreateForm());
     setWriteState("idle");
+    setCreateError(undefined);
   }
 
   function setField<K extends keyof CreateForm>(key: K, value: CreateForm[K]) {
@@ -99,6 +123,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
   async function handleCreate() {
     if (!equipment) return;
     setWriteState("saving");
+    setCreateError(undefined);
     try {
       const body: CreatePurchaseRequest = {
         branch_id: equipment.branchId,
@@ -112,14 +137,22 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
       const response = await api.POST("/api/v1/financial/purchase-requests", {
         body,
       });
-      if (!response.data) {
-        throw new Error("create purchase request response missing data");
+      // Surface the server's actual reason on a 4xx instead of swallowing it:
+      // the create rejects on real preconditions (e.g. evidence scope/stage),
+      // and the operator must see WHY rather than a silent "won't create".
+      if (response.error) {
+        setCreateError(errorMessage(response.error));
+        setWriteState("error");
+        return;
       }
+      // openapi-fetch's discriminated {data,error} union narrows data to present
+      // once the error branch above has returned, so the 201 body is non-null.
       setRequests((prev) => upsert(prev, response.data));
       setSelectedId(response.data.id);
       setNotice(ko.financial.purchase.createSuccess);
       resetCreate();
     } catch {
+      setCreateError(undefined);
       setWriteState("error");
     }
   }
@@ -285,7 +318,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
           </div>
           {writeState === "error" ? (
             <p role="alert" className="text-sm font-semibold text-red-700">
-              {ko.financial.purchase.createFailed}
+              {createError ?? ko.financial.purchase.createFailed}
             </p>
           ) : null}
           <div className="flex items-center justify-end gap-2">

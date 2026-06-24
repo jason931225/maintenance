@@ -1797,6 +1797,8 @@ export const ko = {
       },
       createSuccess: "구매요청서를 작성했습니다.",
       createFailed: "구매요청서를 작성하지 못했습니다.",
+      submitWormPending:
+        "거래명세표가 아직 보존 검증 중입니다. 잠시 후 다시 상신하세요.",
       cancel: "취소",
       save: "작성",
       saving: "작성 중",
