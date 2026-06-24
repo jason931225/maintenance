@@ -102,6 +102,11 @@ async fn seed_org_equipment(owner_pool: &PgPool, org: Uuid, tag: &str) -> (Uuid,
     .await
     .unwrap();
 
+    // equipment_no must satisfy the migration-0007 CHECK regex
+    // `^[A-Z]{3}[A-Z0-9]{2}-[0-9]{4}$`. Derive a stable uppercase letter from the
+    // tag so per-tag rows stay distinct (all current callers use distinct first
+    // letters: A / B / SRCH).
+    let tag_letter = tag.chars().next().unwrap().to_ascii_uppercase();
     let mut eq_ids = Vec::new();
     for i in 1i32..=2 {
         let eq_id: Uuid = sqlx::query_scalar(
@@ -121,7 +126,7 @@ async fn seed_org_equipment(owner_pool: &PgPool, org: Uuid, tag: &str) -> (Uuid,
         .bind(branch_id)
         .bind(customer_id)
         .bind(site_id)
-        .bind(format!("{tag}-EQ-{i:04}"))
+        .bind(format!("EQ{tag_letter}{i:02}-{i:04}"))
         .bind(format!("{i:03}"))
         .bind(format!("Model-{tag}-{i}"))
         .bind(i)
