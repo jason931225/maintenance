@@ -1446,19 +1446,29 @@ async fn lookup_equipment_for_management_no(
         SELECT id, customer_id, site_id
         FROM registry_equipment
         WHERE branch_id = $1 AND management_no = $2
-        LIMIT 1
+        LIMIT 2
         "#,
     )
     .bind(branch_uuid)
     .bind(management_no)
-    .fetch_optional(tx.as_mut())
+    .fetch_all(tx.as_mut())
     .await?;
-    if let Some(row) = exact {
-        return Ok(EquipmentLookup {
-            equipment_id: row.try_get("id")?,
-            customer_id: row.try_get("customer_id")?,
-            site_id: row.try_get("site_id")?,
-        });
+    match exact.as_slice() {
+        [row] => {
+            return Ok(EquipmentLookup {
+                equipment_id: row.try_get("id")?,
+                customer_id: row.try_get("customer_id")?,
+                site_id: row.try_get("site_id")?,
+            });
+        }
+        [] => {} // fall through to normalized fallback
+        _ => {
+            return Err(KernelError::conflict(
+                "여러 장비의 관리번호가 같습니다. 관리번호가 중복되지 않도록 정비하세요 \
+                 (multiple equipment share the same exact management number — deduplicate them)",
+            )
+            .into());
+        }
     }
 
     // 2. Leading-zero-insensitive fallback so a stored `010` resolves the

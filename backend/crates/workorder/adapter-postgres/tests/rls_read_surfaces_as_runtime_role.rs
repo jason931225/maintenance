@@ -899,3 +899,57 @@ async fn preview_lookup_exact_wins_over_normalized_ambiguous_as_runtime_role(own
         "unique normalized `42` must return the `0042` row"
     );
 }
+
+// ===========================================================================
+// (10) codex G001 MEDIUM — the EXACT phase of lookup_equipment_for_management_no
+// (adapter binding path, used by work-order CREATE) must conflict when two
+// equipment share the SAME EXACT management_no in one branch, not silently bind
+// the first row.  Unlike the normalized-ambiguous test (8) which uses `10` vs
+// `0010` (same normalized form, different exact forms), this seeds TWO rows with
+// the IDENTICAL string `10` — no UNIQUE constraint backs (branch_id,management_no)
+// in migration 0007, so the DB allows it.  The EXACT phase previously did
+// LIMIT 1 + fetch_optional and silently returned the first row; after the fix it
+// does LIMIT 2 + fetch_all and must return Conflict.
+// ===========================================================================
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn create_work_order_exact_duplicate_management_no_is_conflict_as_runtime_role(
+    owner_pool: PgPool,
+) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let knl = OrgId::knl();
+    let knl_uuid = *knl.as_uuid();
+    seed_org(&owner_pool, knl_uuid, "knl").await;
+    let branch = seed_branch(&owner_pool, knl_uuid).await;
+    let receptionist = seed_user(&owner_pool, knl_uuid, "RECEPTIONIST", branch).await;
+    // TWO equipment with the IDENTICAL exact management_no "10" in the same branch.
+    seed_equipment(&owner_pool, knl_uuid, branch, "10").await;
+    seed_equipment(&owner_pool, knl_uuid, branch, "10").await;
+
+    let result = mnt_platform_request_context::scope_org(knl, async {
+        let store = PgWorkOrderStore::new(rt_pool.clone());
+        store
+            .create_work_order(CreateWorkOrderCommand {
+                actor: receptionist,
+                branch_id: branch,
+                management_no: "10".to_owned(),
+                symptom: "유압 누유".to_owned(),
+                customer_request: None,
+                target_due_at: None,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+    })
+    .await;
+
+    match result {
+        Err(err) => assert_eq!(
+            err.kind(),
+            ErrorKind::Conflict,
+            "two equipment with the same exact management_no must conflict, not silently bind the first row"
+        ),
+        Ok(summary) => panic!(
+            "expected Conflict for exact-duplicate management_no, got created work order {summary:?}"
+        ),
+    }
+}

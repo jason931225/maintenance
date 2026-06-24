@@ -360,6 +360,54 @@ describe("financial purchase request workflow", () => {
     expect(alert).toHaveTextContent(serverReason);
     expect(alert).not.toHaveTextContent("구매요청서를 작성하지 못했습니다.");
   });
+
+  it("surfaces the server's reason when a submit is rejected (no silent failure)", async () => {
+    const user = userEvent.setup();
+    const serverReason =
+      "거래명세표가 아직 보존 검증 중입니다. 잠시 후 다시 상신하세요.";
+
+    server.use(
+      lookupHandler(),
+      http.post("*/api/v1/financial/purchase-requests", () =>
+        HttpResponse.json(purchase("STATEMENT_ATTACHED"), { status: 201 }),
+      ),
+      // Submit rejects with WORM-pending reason — before the fix runAction's
+      // catch{} always rendered the generic submitFailed; the fix must surface
+      // this exact server message.
+      http.post("*/api/v1/financial/purchase-requests/:id/submit", () =>
+        HttpResponse.json(
+          {
+            error: {
+              code: "conflict",
+              message: serverReason,
+            },
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+
+    renderApp(makeAuthContext(adminSession));
+
+    // Create a request first so the submit button appears.
+    await user.click(await screen.findByRole("button", { name: "구매요청서 작성" }));
+    await lookupEquipment(user);
+    await user.type(screen.getByLabelText("거래처명"), "한빛부품");
+    await user.type(screen.getByLabelText("금액 (원)"), "500000");
+    await user.type(
+      screen.getByLabelText("거래명세표 증빙 번호"),
+      evidenceId,
+    );
+    await user.click(screen.getByRole("button", { name: "작성" }));
+
+    // Submit the request.
+    await user.click(await screen.findByRole("button", { name: "결재 상신" }));
+
+    // The server's actual reason renders in an alert, not the generic failure.
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(serverReason);
+    expect(alert).not.toHaveTextContent("결재 상신에 실패했습니다.");
+  });
 });
 
 describe("rental quote", () => {

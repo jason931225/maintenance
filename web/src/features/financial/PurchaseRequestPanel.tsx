@@ -62,7 +62,7 @@ function upsert(
  * rather than a generic "won't create". Falls back to the generic copy when the
  * body has no usable message.
  */
-function errorMessage(error: unknown): string {
+function errorMessage(error: unknown, fallback: string = ko.financial.purchase.createFailed): string {
   if (
     typeof error === "object" &&
     error !== null &&
@@ -75,7 +75,7 @@ function errorMessage(error: unknown): string {
       return inner.message;
     }
   }
-  return ko.financial.purchase.createFailed;
+  return fallback;
 }
 
 export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) {
@@ -191,6 +191,11 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
     setActionError(undefined);
     try {
       const response = await fn();
+      if (response.error) {
+        setActionState("error");
+        setActionError(errorMessage(response.error, failureMessage));
+        return;
+      }
       if (!response.data) {
         throw new Error("action response missing data");
       }
@@ -417,6 +422,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
           canExecute={canExecute}
           canReject={canReject}
           actionState={actionState}
+          actionError={actionError}
           onOpenDialog={(next) => {
             setDialog(next);
             setDialogValue("");
@@ -569,6 +575,7 @@ interface PurchaseDetailProps {
   canExecute: boolean;
   canReject: boolean;
   actionState: WriteState;
+  actionError?: string;
   onOpenDialog: (dialog: Dialog) => void;
   onSubmit: () => void;
   onApproveAdmin: () => void;
@@ -627,6 +634,7 @@ function PurchaseDetail({
   canExecute,
   canReject,
   actionState,
+  actionError,
   onOpenDialog,
   onSubmit,
   onApproveAdmin,
@@ -744,6 +752,11 @@ function PurchaseDetail({
           </p>
         ) : null}
       </div>
+      {actionState === "error" && actionError ? (
+        <p role="alert" className="text-sm font-semibold text-red-700">
+          {actionError}
+        </p>
+      ) : null}
     </div>
   );
 }
