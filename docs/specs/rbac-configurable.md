@@ -122,29 +122,44 @@ New migration (next free number; **renumber at implementation time** to avoid co
 
 ```
 roles
-  id uuid pk
-  org_id uuid not null                       -- tenant boundary (RLS)
-  key text not null                          -- stable slug, unique per org; system keys reserved
-  display_name text not null                 -- shown in console (Korean copy lives in ko.ts, not here)
-  kind text not null                         -- 'system' | 'custom'  (system rows immutable)
+  id uuid                                     -- pk
+  org_id uuid not null                        -- tenant boundary (RLS)
+  key text not null                           -- stable slug, unique per org; system keys reserved
+  display_name text not null                  -- shown in console (Korean copy lives in ko.ts, not here)
+  kind text not null                          -- 'system' | 'custom'  (system rows immutable)
   is_assignable boolean not null default true
   created_at / updated_at / created_by
+  primary key (id)
+  unique (org_id, id)                         -- COMPOSITE target so children FK on (org_id,*) — proves same-org
   unique (org_id, key)
 
+feature_catalog                               -- R7: single-sourced from Feature::ALL (seed migration)
+  key text                                    -- pk; one row per Feature variant (snake_case)
+  primary key (key)
+
 role_permissions
-  role_id uuid fk -> roles
-  org_id uuid not null                       -- RLS (denormalized for armed reads)
-  feature text not null                      -- MUST parse to a known Feature; CHECK against catalog
-  level text not null                        -- 'deny'|'limited'|'request_only'|'allow' (PermissionLevel)
-  unique (role_id, feature)
+  org_id uuid not null
+  role_id uuid not null
+  feature text not null
+  level text not null                         -- 'deny'|'limited'|'request_only'|'allow' (PermissionLevel)
+  primary key (org_id, role_id, feature)
+  foreign key (org_id, role_id) references roles(org_id, id) on delete cascade   -- R4-fix #4: composite FK proves same-org
+  foreign key (feature) references feature_catalog(key)                          -- R7: no free-text catalog injection
 
 user_role_assignments
-  user_id uuid fk
-  role_id uuid fk -> roles
-  org_id uuid not null                       -- RLS
+  org_id uuid not null
+  user_id uuid not null
+  role_id uuid not null
   granted_by uuid / granted_at
-  unique (user_id, role_id)
+  primary key (org_id, user_id, role_id)
+  foreign key (org_id, role_id) references roles(org_id, id) on delete cascade   -- composite FK: assignment's role is same-org
+  foreign key (org_id, user_id) references users(org_id, id)                     -- and same-org user (users must carry the composite key)
 ```
+**Cross-tenant reference is unrepresentable by construction** (review-gate finding #4): the children
+FK on `(org_id, role_id) → roles(org_id, id)` (and `(org_id, user_id) → users(org_id, id)`), so a row
+whose `org_id` differs from its role's/user's `org_id` is rejected at write — RLS confines the row, the
+composite FK confines the *reference*. An `mnt_rt` test must prove a mismatched-org assignment INSERT
+fails.
 
 - **System roles** are seeded (migration) as `kind='system'` rows per org with `role_permissions`
   exactly mirroring today's `matrix_row()` — so day-0 behavior is byte-identical. System rows are
@@ -159,10 +174,14 @@ user_role_assignments
 - `permission_for(role, feature)` and `authorize()` keep their **signatures**, but effective levels come
   from the **resolved tenant policy** (DB), not `matrix_row()`. `matrix_row()` survives as the **seed +
   the system-role floor** (single source for the migration + a compile-time default if policy is absent).
-- Resolution is **per-request, RLS-armed, and cached**: load the tenant's role→permission map once
-  (short-TTL cache keyed by `org_id`, invalidated on any `RoleManage` write) so the hot path stays O(1)
-  and never does an unarmed read. The Principal already carries resolved roles; we additionally resolve
-  the **effective capability set** (or resolve lazily in `authorize`).
+- Resolution is **per-request, RLS-armed, and cached** with the cache keyed by **`(org_id,
+  policy_version)`** (**R4** — *not* TTL/`org_id`-only): every `RoleManage` write bumps the per-org
+  `policy_version` (an RLS-armed row) **synchronously before the write returns**; resolution reads the
+  version (one cheap armed read; deny on read failure) and treats a version mismatch as a cache miss, so
+  a revoke is globally effective on the next request across all replicas with no inter-node messaging.
+  The hot path stays O(1) and never does an unarmed read. The Principal carries resolved built-in roles;
+  we additionally resolve the **effective capability set** (union over built-in + assigned custom roles,
+  most-permissive per feature).
 - **Fail-closed:** unknown feature string, missing policy row, unarmed read, or cache miss under load →
   **deny**, never allow. Default for any (role,feature) not present = `Deny`.
 

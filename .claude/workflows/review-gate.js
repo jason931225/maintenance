@@ -7,15 +7,29 @@ export const meta = {
   ],
 }
 
+// NOTE: this is a Workflow SCRIPT, not a standalone Node module. The runtime injects
+// agent()/parallel()/phase()/log()/args and runs the body in an async context, so top-level `await`
+// and the trailing `return` are the DOCUMENTED form — `node --check` will (wrongly) flag the return as
+// "Illegal return statement". Do NOT wrap the body in a function to satisfy node; that breaks the runtime.
 // args: { commit?, base?, head?, kind?: "backend"|"web"|"mixed"|"design", context?: string }
 // Single commit: pass `commit`. Multi-commit story: pass `base` + `head` (reviews base..head).
-const COMMIT = (args && args.commit) || 'HEAD'
-const HEAD = (args && args.head) || COMMIT
-const BASE_REF = (args && args.base) || `${HEAD}~1`
+// NOTE: the runtime may deliver `args` as a JSON STRING rather than an object — parse defensively,
+// else `args.base`/`args.head` are undefined and the gate silently falls back to HEAD~1..HEAD.
+const A = typeof args === 'string' ? JSON.parse(args) : (args || {})
+const COMMIT = A.commit || 'HEAD'
+const HEAD = A.head || COMMIT
+const BASE_REF = A.base || `${HEAD}~1`
+// Refs flow into a shell string in the codex lane — reject anything but git-ref-safe chars
+// (allow ~ ^ for HEAD~1-style revs) so a metacharacter can't break out of the command.
+for (const ref of [BASE_REF, HEAD]) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/~^-]*$/.test(ref)) {
+    throw new Error(`review-gate: unsafe git ref ${JSON.stringify(ref)}`)
+  }
+}
 const DIFF = `git diff ${BASE_REF} ${HEAD}`
 const RANGE = `${BASE_REF}..${HEAD}`
-const KIND = (args && args.kind) || 'mixed'
-const CTX = (args && args.context) || ''
+const KIND = A.kind || 'mixed'
+const CTX = A.context || ''
 const REPO = '/Users/jasonlee/Developer/maintenance'
 const BASE = `Repo: ${REPO}. Multi-tenant Rust(axum)+Postgres RLS platform; runtime role mnt_rt is NOBYPASSRLS + FORCE ROW LEVEL SECURITY; EVERY tenant read/write MUST arm app.current_org (with_org_conn/with_audit + current_org()); tests must run as REAL mnt_rt (seed via the armed path, NOT the BYPASSRLS owner pool). Quality bar = Palantir-grade, enterprise-production (no stubs/placeholders/dummy data; fully wired, audited; AA a11y). Review the diff of \`${DIFF}\` (\`git log --oneline ${RANGE}\` lists the commits in scope).${CTX ? '\nStory context: ' + CTX : ''}`
 
@@ -65,7 +79,25 @@ if (KIND === 'web' || KIND === 'mixed') {
     { label: 'web-quality', phase: 'Review', schema: FINDINGS },
   ))
 }
-const results = (await parallel(lanes)).filter(Boolean)
+// Fail-CLOSED on a dropped lane: a null/errored security-rls or codex lane must NEVER be silently
+// discarded — that could let the synthesizer emit GO with no tenant-isolation coverage. Map results
+// positionally to the lanes pushed above and turn any missing lane into a hard high finding.
+const laneLabels = ['correctness', 'security-rls', 'codex-xmodel']
+if (KIND === 'web' || KIND === 'mixed') laneLabels.push('web-quality')
+const raw = await parallel(lanes)
+const results = raw.filter(Boolean)
+const missing = laneLabels.filter((_, i) => !raw[i] || !raw[i].findings)
+if (missing.length) {
+  results.push({
+    lane: 'gate-integrity',
+    verdict: 'fail',
+    findings: missing.map((label) => ({
+      severity: 'high',
+      title: `review lane "${label}" did not complete — diff was NOT fully reviewed`,
+      fix: `Re-run the gate. A missing lane (especially security-rls / codex-xmodel) means tenant-isolation/cross-model coverage is absent; treat as NO-GO until every lane completes.`,
+    })),
+  })
+}
 const all = results.flatMap((r) => (r.findings || []).map((f) => ({ ...f, lane: r.lane })))
 const crit = all.filter((f) => f.severity === 'critical').length
 const high = all.filter((f) => f.severity === 'high').length
