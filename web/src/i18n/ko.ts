@@ -1079,7 +1079,7 @@ export const ko = {
       pairRequired: "위도와 경도를 함께 입력해야 합니다.",
       latitudePlaceholder: "예: 37.5665",
       longitudePlaceholder: "예: 126.9780",
-      geofenceRadiusPlaceholder: "예: 150 (기본값)",
+      geofenceRadiusPlaceholder: "예: 300 (기본값)",
       contactPhonePlaceholder: "010-0000-0000",
     },
   },

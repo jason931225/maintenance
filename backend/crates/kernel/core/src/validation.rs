@@ -137,8 +137,9 @@ pub fn validate_bounded_text(
 /// customer site that has no per-site override (`registry_sites.geofence_radius_m`
 /// NULL). A forklift customer yard is larger than a building footprint but small
 /// enough that a passing GPS sample should not trigger a false arrival; on-site
-/// GPS accuracy is typically 5–30 m, so 150 m clears that jitter with margin.
-pub const DEFAULT_GEOFENCE_RADIUS_M: f64 = 150.0;
+/// GPS accuracy is typically 5–30 m, so 300 m clears that jitter with margin and
+/// comfortably covers the larger customer yards seen in the field.
+pub const DEFAULT_GEOFENCE_RADIUS_M: f64 = 300.0;
 
 /// Great-circle (haversine) distance in **fractional metres** between two WGS84
 /// coordinates, using the mean Earth radius (6 371 000 m). This is the single
