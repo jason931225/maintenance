@@ -2697,8 +2697,13 @@ fn authorize_read_access(principal: &Principal) -> Result<(), RestError> {
 /// A RECEPTIONIST or EXECUTIVE with no daily-plan permission gets a 403. Branch
 /// filtering still happens via `work_order_list_scope`.
 fn authorize_daily_plan_list(principal: &Principal) -> Result<(), RestError> {
+    // The daily-plan request/review participants OR an org-wide queue triager
+    // (EXECUTIVE / SUPER_ADMIN, via OrgWideQueueTriage) may read the queue — the
+    // latter for org-wide oversight, mirroring their work-order-queue visibility.
+    // RECEPTIONIST (none of these capabilities) stays excluded.
     authorize_feature_in_scope(principal, Feature::DailyPlanRequest)
         .or_else(|_| authorize_feature_in_scope(principal, Feature::DailyPlanReview))
+        .or_else(|_| authorize_feature_in_scope(principal, Feature::OrgWideQueueTriage))
 }
 
 /// Authorize a read-style feature against a representative branch from the

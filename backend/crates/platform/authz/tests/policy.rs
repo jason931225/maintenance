@@ -189,35 +189,35 @@ fn org_wide_queue_triage_is_executive_and_super_admin_only() {
 }
 
 #[test]
-fn daily_plan_list_gate_requires_a_daily_plan_capability() {
+fn daily_plan_list_gate_requires_daily_plan_or_org_wide_triage() {
     // codex G001 HIGH-2: the daily-plan LIST is a MECHANIC-requests / ADMIN-reviews
     // flow, gated on DailyPlanRequest OR DailyPlanReview — NOT the broad
-    // WorkOrderReadAll (which RECEPTIONIST + EXECUTIVE also pass). This mirrors
-    // `authorize_daily_plan_list` in workorder/rest: a role passes iff it holds
-    // EITHER capability at `Allow`.
+    // WorkOrderReadAll (which RECEPTIONIST also passes). An org-wide queue triager
+    // (EXECUTIVE / SUPER_ADMIN, via OrgWideQueueTriage) may ALSO read it for
+    // org-wide oversight, mirroring their work-order-queue visibility. RECEPTIONIST
+    // (none of these) stays denied. Mirrors `authorize_daily_plan_list` in
+    // workorder/rest: a role passes iff it holds ANY of the three at `Allow`.
     let can_list = |role: Role| {
         permission_for(role, Feature::DailyPlanRequest) == PermissionLevel::Allow
             || permission_for(role, Feature::DailyPlanReview) == PermissionLevel::Allow
+            || permission_for(role, Feature::OrgWideQueueTriage) == PermissionLevel::Allow
     };
     assert!(
         can_list(Role::Mechanic),
         "MECHANIC (request) must list daily plans"
     );
-    assert!(
-        can_list(Role::Admin),
-        "ADMIN (review) must list daily plans"
-    );
+    assert!(can_list(Role::Admin), "ADMIN (review) must list daily plans");
     assert!(
         can_list(Role::SuperAdmin),
         "SUPER_ADMIN must list daily plans"
     );
     assert!(
-        !can_list(Role::Receptionist),
-        "RECEPTIONIST has no daily-plan permission and must be denied the list"
+        can_list(Role::Executive),
+        "EXECUTIVE (org-wide triager) may list daily plans for oversight"
     );
     assert!(
-        !can_list(Role::Executive),
-        "EXECUTIVE has no daily-plan permission and must be denied the list"
+        !can_list(Role::Receptionist),
+        "RECEPTIONIST has no daily-plan or triage capability and must be denied the list"
     );
     assert!(!can_list(Role::Member), "MEMBER must be denied the list");
 }
