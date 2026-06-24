@@ -1,11 +1,15 @@
 # Spec: Conglomerate Operations Platform — the entire business as software, in one place
 (anchor entity: KNL; first delivered vertical: forklift FSM)
 
-> Status: DRAFT — Phase 1 (Specify), awaiting human approval before Plan/Tasks/Implement.
+> Status: Phase 1 CONVERGED — deep-interview ~19% ambiguity (≤20% gate) + research-grounded.
+> Executing via `/ultragoal` (phased extraction). MVP acceptance criteria = the carbon-copy-Foundry
+> CAP-1..N (Ontology catalog · Object Views · Object-Set query API · scoped RBAC+RLS · action/write-back
+> engine) + Korean-payroll computation list + vertical object models in
+> `.omc/research/foundry-domain-research.md`.
 > Owner: Jason Lee (KNL). Author: Claude. Branch: `feat/multi-tenant-phase1`.
-> Design north star: `.omc/research/palantir-blueprint.md`. Intent analysis + fix plans:
-> `.omc/research/{broken-flows-fix-plan,role-workflow-backlog,analytics-intelligence-roadmap,
-> webmail-build-plan,dispatchmap-build-plan}.md`.
+> Design north star: `.omc/research/palantir-blueprint.md`. Research + fix plans:
+> `.omc/research/{foundry-domain-research,broken-flows-fix-plan,role-workflow-backlog,
+> analytics-intelligence-roadmap,webmail-build-plan,dispatchmap-build-plan}.md`.
 
 ## Objective
 
@@ -26,6 +30,28 @@ provenance). **No AI/LLM integration for now.**
 Success = a KNL employee runs their whole job here — receive work, plan, dispatch, execute, approve,
 bill, get paid, manage people, close the books — without leaving the platform, with nothing silently
 failing and every number traceable to its source.
+
+## Strategy (crystallized via deep-interview)
+
+- **North star**: a faithful **carbon-copy of Palantir Foundry** (NO AI) — a generic, object-centric
+  operational platform that can **capture any business's operations, employees, assets, and workflows**
+  as first-class objects, ultimately with a **full no-code configurable ontology** (users define object
+  types/links/actions/workflows). Diverge into KNL/conglomerate-specific capabilities *after* the
+  generic core is faithful.
+- **Build path = PHASED EXTRACTION** ("ontology by extraction, not speculation" — the executive call,
+  vs platform-first which is ~12–18mo-to-value + over-abstraction + worst-case security):
+  1. **Stabilize** the live business (issue-#19 broken flows) — value now.
+  2. **Generic object-centric core** (object-views · triage · lenses · scoped RBAC · write-back actions),
+     built generic from day one, with **KNL FSM as the first configured instance** that proves it —
+     continuous ROI each increment.
+  3. **Extract the ontology engine** from the proven patterns (custom fields → configurable lifecycles/
+     forms → links/actions).
+  4. **Open configurability**: low-code (adapt existing types) → **no-code** (define new types).
+  Same destination the user chose; de-risked, financed by shipped value, secured on a proven isolation
+  model. The MVP capability scope of the carbon-copy core is being grounded by Foundry research.
+- **Assets are universal**: real estate/factory, machinery, vehicles, equipment are all **Asset** types
+  with the same lifecycle/cost/depreciation/maintenance/observability; the forklift is a specialized
+  config. Same for **Work Item / Party / Money / Inventory**.
 
 ## Scope (domains)
 
