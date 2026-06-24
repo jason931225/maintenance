@@ -55,10 +55,10 @@ test("ADMIN-14 admin assigns a 대차 substitute and returns it", async ({
   // Find candidates — the seeded spare should rank as an exact-ton match.
   await page.getByRole("button", { name: /대차 후보 조회/ }).click();
   await expect(
-    page.getByRole("heading", { name: /대차 후보/ }),
+    page.getByRole("heading", { name: /예비 추천 목록/ }),
   ).toBeVisible({ timeout: 8_000 });
-  // The spare's 정확 일치 (ExactTon) badge confirms a compatible candidate.
-  await expect(page.getByText(/정확 일치/).first()).toBeVisible({
+  // The spare's 전체 호환 (ExactTon full-compat) badge confirms a compatible candidate.
+  await expect(page.getByText(/전체 호환/).first()).toBeVisible({
     timeout: 8_000,
   });
 

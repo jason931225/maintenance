@@ -1,9 +1,11 @@
 import { ArrowLeftRight, RotateCcw } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { ConsoleApiClient } from "../../api/client";
 import type {
+  EquipmentListItem,
   EquipmentSummary,
+  SiteLocationGroup,
   SubstituteAssignment,
   SubstituteCandidate,
 } from "../../api/types";
@@ -29,10 +31,54 @@ interface SubstitutionPanelProps {
 
 type WriteState = "idle" | "loading" | "error";
 
+/** The status the API expects for rented (임대) units — the sources that break
+ * down and need a 대차. Sourced from the EquipmentStatus enum. */
+const STATUS_RENTED = "rented" as const;
+
 const t = ko.equipment.substitution;
 
 function matchLabel(kind: SubstituteCandidate["match_kind"]): string {
   return kind === "nearest_above" ? t.matchNearest : t.matchExact;
+}
+
+/** Source-picker option label: management_no (falling back to equipment_no) and
+ * the model, e.g. "290 · GTS25DE". Never shows a raw UUID. */
+function equipmentLabel(
+  managementNo: string | null | undefined,
+  equipmentNo: string,
+  model: string | null | undefined,
+): string {
+  return `${managementNo ?? equipmentNo} · ${model ?? ko.common.unknown}`;
+}
+
+/** One row per site_id, sorted by site name, for the source-by-site picker. The
+ * by-location read is already grouped by site, but dedupe defensively. */
+function dedupeSites(sites: SiteLocationGroup[]): SiteLocationGroup[] {
+  const seen = new Map<string, SiteLocationGroup>();
+  for (const site of sites) {
+    if (!seen.has(site.site_id)) seen.set(site.site_id, site);
+  }
+  return Array.from(seen.values()).sort((a, b) =>
+    a.site_name.localeCompare(b.site_name, "ko"),
+  );
+}
+
+/** Power-type label for a candidate: the API's power_label when present, else a
+ * label derived from the single-letter power_code (mirrors the backend
+ * power_family: B→battery, O/D→diesel, L→lpg). */
+function powerLabel(candidate: SubstituteCandidate): string {
+  if (candidate.power_label) return candidate.power_label;
+  switch (candidate.power_code) {
+    case "B":
+      return t.powerBattery;
+    case "O":
+    case "D":
+      return t.powerDiesel;
+    case "L":
+      return t.powerLpg;
+    default:
+      return t.powerUnknown;
+  }
 }
 
 export function SubstitutionPanel({
@@ -40,6 +86,13 @@ export function SubstitutionPanel({
   results,
   canManage,
 }: SubstitutionPanelProps) {
+  const [sites, setSites] = useState<SiteLocationGroup[]>([]);
+  // Starts "loading": the on-mount effect fetches the site list immediately.
+  const [siteState, setSiteState] = useState<WriteState>("loading");
+  const [siteId, setSiteId] = useState<string>("");
+  const [siteEquipment, setSiteEquipment] = useState<EquipmentListItem[]>();
+  const [siteEquipmentState, setSiteEquipmentState] =
+    useState<WriteState>("idle");
   const [sourceId, setSourceId] = useState<string>("");
   const [candidates, setCandidates] = useState<SubstituteCandidate[]>();
   const [searchState, setSearchState] = useState<WriteState>("idle");
@@ -49,6 +102,74 @@ export function SubstitutionPanel({
   const [returnNote, setReturnNote] = useState("");
   const [returnState, setReturnState] = useState<WriteState>("idle");
   const [notice, setNotice] = useState<string>();
+
+  // Load the org's sites once on mount so an operator can pick the broken unit
+  // by its current site instead of searching by 호기. Aborts on unmount so the
+  // request can't setState after teardown.
+  useEffect(() => {
+    const controller = new AbortController();
+    void Promise.resolve().then(() => {
+      if (controller.signal.aborted) return;
+      void api
+        .GET("/api/v1/equipment-by-location", { signal: controller.signal })
+        .then((response) => {
+          if (controller.signal.aborted) return;
+          if (response.data) {
+            setSites(response.data.items);
+            setSiteState("idle");
+          } else {
+            setSiteState("error");
+          }
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setSiteState("error");
+        });
+    });
+    return () => {
+      controller.abort();
+    };
+  }, [api]);
+
+  async function selectSite(nextSiteId: string) {
+    setSiteId(nextSiteId);
+    setSourceId("");
+    setCandidates(undefined);
+    setAssignment(undefined);
+    if (!nextSiteId) {
+      setSiteEquipment(undefined);
+      setSiteEquipmentState("idle");
+      return;
+    }
+    setSiteEquipmentState("loading");
+    const response = await api.GET("/api/v1/equipment/list", {
+      params: { query: { site_id: nextSiteId, status: STATUS_RENTED } },
+    });
+    if (response.data) {
+      setSiteEquipment(response.data.items);
+      setSiteEquipmentState("idle");
+    } else {
+      setSiteEquipment(undefined);
+      setSiteEquipmentState("error");
+    }
+  }
+
+  // When a site is chosen the source list is its rented units; otherwise it
+  // falls back to the page-search results so the 호기 search flow still works.
+  // The two paths return different shapes (list items carry equipment_id, search
+  // hits carry id), so normalize both to { id, label } for the picker.
+  const sourceOptions: { id: string; label: string }[] = siteId
+    ? (siteEquipment ?? []).map((item) => ({
+        id: item.equipment_id,
+        label: equipmentLabel(item.management_no, item.equipment_no, item.model),
+      }))
+    : results.map((equipment) => ({
+        id: equipment.id,
+        label: equipmentLabel(
+          equipment.management_no,
+          equipment.equipment_no,
+          equipment.model,
+        ),
+      }));
 
   async function findCandidates() {
     if (!sourceId) return;
@@ -123,6 +244,36 @@ export function SubstitutionPanel({
         </p>
       ) : null}
 
+      <div className="grid gap-2">
+        <label
+          className="text-sm font-medium text-steel"
+          htmlFor="substitution-site"
+        >
+          {t.siteLabel}
+        </label>
+        <Select
+          id="substitution-site"
+          value={siteId}
+          onChange={(event) => {
+            void selectSite(event.currentTarget.value);
+          }}
+        >
+          <option value="">
+            {siteState === "loading" ? t.siteLoading : t.selectSite}
+          </option>
+          {dedupeSites(sites).map((site) => (
+            <option key={site.site_id} value={site.site_id}>
+              {site.site_name} · {site.customer_name}
+            </option>
+          ))}
+        </Select>
+        {siteState === "error" ? (
+          <p role="alert" className="text-sm font-semibold text-red-700">
+            {t.siteLoadFailed}
+          </p>
+        ) : null}
+      </div>
+
       <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
         <div className="grid gap-2">
           <label
@@ -134,21 +285,34 @@ export function SubstitutionPanel({
           <Select
             id="substitution-source"
             value={sourceId}
+            disabled={siteId !== "" && siteEquipmentState === "loading"}
             onChange={(event) => {
               setSourceId(event.currentTarget.value);
               setCandidates(undefined);
               setAssignment(undefined);
             }}
           >
-            <option value="">{t.selectSource}</option>
-            {results.map((equipment) => (
-              <option key={equipment.id} value={equipment.id}>
-                {(equipment.management_no ?? equipment.equipment_no) +
-                  " · " +
-                  (equipment.model ?? ko.common.unknown)}
+            <option value="">
+              {siteId && siteEquipmentState === "loading"
+                ? t.sourceLoading
+                : t.selectSource}
+            </option>
+            {sourceOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
               </option>
             ))}
           </Select>
+          {siteId && siteEquipmentState === "error" ? (
+            <p role="alert" className="text-sm font-semibold text-red-700">
+              {t.sourceLoadFailed}
+            </p>
+          ) : null}
+          {siteId &&
+          siteEquipmentState === "idle" &&
+          (siteEquipment?.length ?? 0) === 0 ? (
+            <p className="text-sm text-steel">{t.sourceEmpty}</p>
+          ) : null}
         </div>
         <Button
           type="button"
@@ -186,9 +350,12 @@ export function SubstitutionPanel({
               />
             </div>
           ) : null}
-          <h3 className="text-base font-semibold text-ink">
-            {t.candidatesTitle}
-          </h3>
+          <div className="grid gap-0.5">
+            <h3 className="text-base font-semibold text-ink">
+              {t.candidatesSpareTitle}
+            </h3>
+            <p className="text-sm text-steel">{t.candidatesSpareHint}</p>
+          </div>
           <ul className="grid gap-2">
             {candidates.map((candidate) => (
               <li
@@ -200,13 +367,31 @@ export function SubstitutionPanel({
                     {candidate.management_no ?? candidate.equipment_no}
                     {candidate.model ? ` · ${candidate.model}` : ""}
                   </span>
+                  <span className="flex flex-wrap gap-x-3 gap-y-0.5 text-sm text-steel">
+                    <span>
+                      {t.tonLabel}: {candidate.ton_text}
+                      {candidate.ton_delta_milli !== null &&
+                      candidate.ton_delta_milli > 0
+                        ? ` (+${String(candidate.ton_delta_milli / 1000)}t ${t.tonUpgrade})`
+                        : ""}
+                    </span>
+                    <span>
+                      {t.specLabel}: {candidate.specification}
+                    </span>
+                    <span>
+                      {t.powerLabelHeading}: {powerLabel(candidate)}
+                    </span>
+                  </span>
                   <span className="text-sm text-steel">
-                    {candidate.ton_text} · {candidate.customer_name} /{" "}
-                    {candidate.site_name}
+                    {candidate.customer_name} / {candidate.site_name}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge>{matchLabel(candidate.match_kind)}</Badge>
+                  <Badge>
+                    {candidate.match_kind === "exact_ton"
+                      ? t.fullCompat
+                      : matchLabel(candidate.match_kind)}
+                  </Badge>
                   {canManage ? (
                     <Button
                       type="button"
