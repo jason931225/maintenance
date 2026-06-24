@@ -62,7 +62,7 @@ backend/ci/gates/<gate>                  # static-analysis gates
 backend/app/src/lib.rs                   # composition root (routers + background workers)
 backend/openapi/openapi.yaml             # single source; clients regenerated from it
 web/src/{pages,features/<domain>,components/{ui,shell,states},i18n,lib,context,api}
-SPEC.md (this) · docs/specs/             # master spec + JIT domain sub-specs (payroll, accounting, org-hierarchy)
+SPEC.md (this) · docs/specs/             # master spec + JIT domain sub-specs (payroll, accounting, org-hierarchy, rbac-configurable)
 .omc/{research,ultragoal}/               # blueprints, research, durable goal ledger
 ```
 
@@ -117,10 +117,14 @@ ids/₩ in `Mono`. New objects = one `ObjectViewConfig<T>` over `ObjectViewScaff
 
 ## Phased Roadmap (ultragoal G001–G015)
 
-A stabilize live (#40 + #19) → B0 org-hierarchy security (sub-spec + security-review FIRST) →
-B carbon-copy-Foundry core: P0 Blueprint tokens → P1 Object-View kit → P2 Equipment view → P3 ⌘K/nav/
-DataTable → P4 Triage Home → P5 Object-Set query API + faceted (CAP-3) → P6 timeline+graph → action/
-write-back engine (CAP-5) → C HR + Korean payroll + ERP (JIT sub-specs) → D webmail + dispatch-map.
+A stabilize live (#40 + #19; incl. codex-flagged authz fixes — `OrgWideQueueTriage` replaces the
+`is_admin_like→All` widen, daily-plan list gated on daily-plan perms) → B0 org-hierarchy security
+(sub-spec + security-review FIRST) → B0.5 configurable RBAC (data-driven custom roles + per-role policy,
+console-managed; sub-spec `rbac-configurable.md` + security-review FIRST; "org-admin" = first custom
+role; convert all role-string authz checks → capability checks) → B carbon-copy-Foundry core: P0
+Blueprint tokens → P1 Object-View kit → P2 Equipment view → P3 ⌘K/nav/DataTable → P4 Triage Home →
+P5 Object-Set query API + faceted (CAP-3) → P6 timeline+graph → action/write-back engine (CAP-5) →
+C HR + Korean payroll + ERP (JIT sub-specs) → D webmail + dispatch-map.
 
 ## Open Questions
 
