@@ -206,7 +206,10 @@ fn daily_plan_list_gate_requires_daily_plan_or_org_wide_triage() {
         can_list(Role::Mechanic),
         "MECHANIC (request) must list daily plans"
     );
-    assert!(can_list(Role::Admin), "ADMIN (review) must list daily plans");
+    assert!(
+        can_list(Role::Admin),
+        "ADMIN (review) must list daily plans"
+    );
     assert!(
         can_list(Role::SuperAdmin),
         "SUPER_ADMIN must list daily plans"
