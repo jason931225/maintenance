@@ -2574,6 +2574,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mail/folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the tenant mailbox folders
+         * @description Lists the configured mailbox's folders (Inbox/Sent/…) with per-folder unread + total counts. RLS-armed to the caller's org. Requires the MailUse feature.
+         */
+        get: operations["listMailFolders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/threads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List mail threads (paginated, unread filter, search)
+         * @description Lists the mailbox's threads newest-first. Optional filters: unread-only, a full-text search term q, a folder id, and a keyset cursor (before, a unix-second last_message_at). RLS-armed to the caller's org. Requires the MailUse feature.
+         */
+        get: operations["listMailThreads"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/threads/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one thread with its messages
+         * @description Returns the thread and its messages (oldest first). body_html is returned verbatim and MUST be sanitized by the client before render. RLS-armed to the caller's org. Requires the MailUse feature.
+         */
+        get: operations["getMailThread"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/messages/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one message with its attachments
+         * @description Returns one message (with attachment metadata; bytes are fetched via the attachment download endpoint). body_html is verbatim and MUST be sanitized by the client. RLS-armed to the caller's org. Requires the MailUse feature.
+         */
+        get: operations["getMailMessage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/attachments/{id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a presigned download URL for an attachment
+         * @description Resolves the attachment under the caller's org (cross-tenant invisible) and returns a short-lived presigned GET URL — the raw object key is never exposed. RLS-armed to the caller's org. Requires the MailUse feature.
+         */
+        get: operations["downloadMailAttachment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4428,6 +4528,69 @@ export interface components {
             message_id: components["schemas"]["Uuid"];
             /** @description The RFC 5322 Message-ID stamped on the sent message. */
             rfc_message_id: string;
+        };
+        MailFolderView: {
+            id: components["schemas"]["Uuid"];
+            /** @description INBOX | SENT | DRAFTS | ARCHIVE | TRASH | JUNK | CUSTOM. */
+            role: string;
+            name: string;
+            /** Format: int64 */
+            unread_count: number;
+            /** Format: int64 */
+            total_count: number;
+        };
+        MailThreadView: {
+            id: components["schemas"]["Uuid"];
+            subject: string;
+            /** Format: date-time */
+            last_message_at: string;
+            /** Format: int64 */
+            message_count: number;
+            /** Format: int64 */
+            unread_count: number;
+            has_attachments: boolean;
+            is_flagged: boolean;
+        };
+        MailThreadDetail: {
+            id: components["schemas"]["Uuid"];
+            subject: string;
+            messages: components["schemas"]["MailMessageView"][];
+        };
+        MailMessageView: {
+            id: components["schemas"]["Uuid"];
+            thread_id: components["schemas"]["Uuid"];
+            /** @description IN (mirrored from IMAP) or OUT (sent by the tenant). */
+            direction: string;
+            message_id?: string | null;
+            in_reply_to?: string | null;
+            from_address: string;
+            from_name?: string | null;
+            to: components["schemas"]["MailAddress"][];
+            cc: components["schemas"]["MailAddress"][];
+            subject: string;
+            snippet: string;
+            body_text?: string | null;
+            /** @description The stored HTML body, returned verbatim. The client MUST sanitize it (DOMPurify-class) before rendering. */
+            body_html?: string | null;
+            seen: boolean;
+            flagged: boolean;
+            answered: boolean;
+            has_attachments: boolean;
+            /** Format: date-time */
+            received_at: string;
+            attachments: components["schemas"]["MailAttachmentView"][];
+        };
+        MailAttachmentView: {
+            id: components["schemas"]["Uuid"];
+            filename: string;
+            content_type: string;
+            /** Format: int64 */
+            size_bytes: number;
+            is_inline: boolean;
+        };
+        MailAttachmentDownload: {
+            /** @description A short-lived presigned GET URL for the attachment bytes. */
+            url: string;
         };
     };
     responses: {
@@ -8432,6 +8595,136 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
             429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    listMailFolders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The folders for the tenant's mailbox (empty if unconfigured). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailFolderView"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    listMailThreads: {
+        parameters: {
+            query?: {
+                unread?: boolean;
+                q?: string;
+                folder?: string;
+                before?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of threads (newest first). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailThreadView"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    getMailThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The thread and its ordered messages. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailThreadDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    getMailMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The message and its attachments. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailMessageView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    downloadMailAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A short-lived presigned download URL. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailAttachmentDownload"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             503: components["responses"]["MailUnavailable"];
         };
     };

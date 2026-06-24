@@ -17,10 +17,12 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_comms_application::{
-    AccountUpsert, EmailAccountId, MailServiceError, MailStore, OutboundRecord, SealedCredential,
-    StoredAccount,
+    AccountUpsert, AttachmentRef, AttachmentView, DueAccount, EmailAccountId, EmailMessageId,
+    FolderCursor, FolderView, ImapFolder, InboundUpsert, MailReadStore, MailServiceError,
+    MailStore, MessageView, OutboundRecord, SealedCredential, StoredAccount, StoredAttachment,
+    ThreadDetail, ThreadQuery, ThreadView, thread_grouping_key,
 };
-use mnt_comms_domain::{MailSecurity, normalize_subject};
+use mnt_comms_domain::{MailSecurity, MessageAddress, normalize_subject};
 use mnt_kernel_core::{AuditEvent, ErrorKind, KernelError, OrgId, Timestamp, UserId};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
@@ -273,6 +275,899 @@ impl MailStore for PgMailStore {
                 .map_err(Into::into)
         })
     }
+}
+
+// ===========================================================================
+// MailReadStore — inbound sync + read API (B-mail-3).
+//
+// Every method is org-scoped via `with_org_conn` (reads) or `with_audit` (the
+// inbound upsert writes an `email.sync.message` audit row). The ONLY exception is
+// `list_due_accounts`, which calls the `comms_due_email_accounts` SECURITY
+// DEFINER function on the raw pool — it returns id-only pairs across tenants so
+// the scheduler can dispatch per-(org, account) jobs that then arm RLS.
+// ===========================================================================
+
+impl PgMailStore {
+    async fn upsert_folders_inner(
+        &self,
+        org: OrgId,
+        account: EmailAccountId,
+        folders: &[ImapFolder],
+    ) -> Result<Vec<FolderCursor>, PgMailError> {
+        let account_uuid = *account.as_uuid();
+        let owned: Vec<ImapFolder> = folders.to_vec();
+        with_org_conn::<_, Vec<FolderCursor>, PgMailError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let org_uuid = *org.as_uuid();
+                let mut cursors = Vec::with_capacity(owned.len());
+                for folder in &owned {
+                    let row = sqlx::query(
+                        r#"
+                        INSERT INTO email_folders (org_id, account_id, imap_path, role, name)
+                        VALUES ($1, $2, $3, $4, $5)
+                        ON CONFLICT (org_id, account_id, imap_path)
+                        DO UPDATE SET role = EXCLUDED.role, name = EXCLUDED.name, updated_at = now()
+                        RETURNING id, uid_validity, last_seen_uid
+                        "#,
+                    )
+                    .bind(org_uuid)
+                    .bind(account_uuid)
+                    .bind(&folder.imap_path)
+                    .bind(folder.role.as_db_str())
+                    .bind(&folder.name)
+                    .fetch_one(tx.as_mut())
+                    .await?;
+                    cursors.push(FolderCursor {
+                        folder_id: row.try_get("id")?,
+                        imap_path: folder.imap_path.clone(),
+                        uid_validity: row.try_get("uid_validity")?,
+                        last_seen_uid: row.try_get("last_seen_uid")?,
+                    });
+                }
+                Ok(cursors)
+            })
+        })
+        .await
+    }
+
+    async fn reset_folder_cursor_inner(
+        &self,
+        org: OrgId,
+        folder_id: uuid::Uuid,
+        uid_validity: i64,
+    ) -> Result<(), PgMailError> {
+        with_org_conn::<_, (), PgMailError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                sqlx::query(
+                    r#"
+                    UPDATE email_folders
+                    SET uid_validity = $2, last_seen_uid = 0, updated_at = now()
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(folder_id)
+                .bind(uid_validity)
+                .execute(tx.as_mut())
+                .await?;
+                Ok(())
+            })
+        })
+        .await
+    }
+
+    async fn upsert_inbound_inner(
+        &self,
+        org: OrgId,
+        upsert: InboundUpsert,
+    ) -> Result<bool, PgMailError> {
+        // Build the audit BEFORE the transaction so `with_audit` arms the org.
+        let audit = mnt_comms_application::inbound_sync_audit_event(
+            upsert.id,
+            mnt_kernel_core::TraceContext::generate(),
+            Timestamp::now_utc(),
+        )
+        .map_err(PgMailError::Domain)?
+        .with_org(org);
+
+        with_audit::<_, bool, PgMailError>(&self.pool, audit, move |tx| {
+            Box::pin(async move {
+                let org_uuid = *org.as_uuid();
+                let account_uuid = *upsert.account_id.as_uuid();
+
+                // 1. Idempotency gate on the IMAP identity: if a row already
+                // exists for (account, folder, uid_validity, uid), this is a
+                // re-sync — refresh its mutable flags and return `false` (no dup).
+                let existing: Option<uuid::Uuid> = sqlx::query_scalar(
+                    r#"
+                    SELECT id FROM email_messages
+                    WHERE account_id = $1 AND folder_id = $2
+                      AND imap_uid_validity = $3 AND imap_uid = $4
+                    LIMIT 1
+                    "#,
+                )
+                .bind(account_uuid)
+                .bind(upsert.folder_id)
+                .bind(upsert.uid_validity)
+                .bind(i64::from(upsert.message.imap_uid))
+                .fetch_optional(tx.as_mut())
+                .await?;
+
+                if let Some(existing_id) = existing {
+                    sqlx::query(
+                        r#"
+                        UPDATE email_messages
+                        SET seen = $2, flagged = $3, answered = $4, draft = $5, updated_at = now()
+                        WHERE id = $1
+                        "#,
+                    )
+                    .bind(existing_id)
+                    .bind(upsert.message.seen)
+                    .bind(upsert.message.flagged)
+                    .bind(upsert.message.answered)
+                    .bind(upsert.message.draft)
+                    .execute(tx.as_mut())
+                    .await?;
+                    return Ok(false);
+                }
+
+                // 2. Secondary dedupe on Message-ID within the account: a message
+                // already mirrored under another folder (e.g. a Sent copy) is not
+                // re-inserted; we still return `false`.
+                if let Some(ref mid) = upsert.message.message_id
+                    && message_id_seen(tx, account_uuid, mid).await?
+                {
+                    return Ok(false);
+                }
+
+                // 3. Resolve the thread by the References/subject grouping key.
+                let thread_id =
+                    resolve_inbound_thread_tx(tx, org_uuid, account_uuid, &upsert).await?;
+
+                // 4. Insert the IN message.
+                insert_inbound_message_tx(tx, org_uuid, account_uuid, thread_id, &upsert).await?;
+
+                // 5. Insert its attachment rows.
+                for att in &upsert.stored_attachments {
+                    insert_attachment_tx(tx, org_uuid, *upsert.id.as_uuid(), att).await?;
+                }
+
+                // 6. Maintain the thread aggregate + the folder high-water mark.
+                update_thread_aggregate_tx(tx, thread_id, &upsert).await?;
+                advance_folder_cursor_tx(
+                    tx,
+                    upsert.folder_id,
+                    upsert.uid_validity,
+                    upsert.message.imap_uid,
+                )
+                .await?;
+
+                Ok(true)
+            })
+        })
+        .await
+    }
+
+    async fn record_sync_result_inner(
+        &self,
+        org: OrgId,
+        account: EmailAccountId,
+        status: &str,
+        error: Option<&str>,
+    ) -> Result<(), PgMailError> {
+        let account_uuid = *account.as_uuid();
+        let status = status.to_owned();
+        let error = error.map(ToOwned::to_owned);
+        with_org_conn::<_, (), PgMailError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                sqlx::query(
+                    r#"
+                    UPDATE email_accounts
+                    SET last_sync_at = now(),
+                        sync_status = $2,
+                        last_sync_error = $3,
+                        consecutive_auth_failures = CASE
+                            WHEN $2 = 'AUTH_FAILED' THEN consecutive_auth_failures + 1
+                            WHEN $2 = 'OK' THEN 0
+                            ELSE consecutive_auth_failures
+                        END,
+                        updated_at = now()
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(account_uuid)
+                .bind(&status)
+                .bind(error.as_deref())
+                .execute(tx.as_mut())
+                .await?;
+                Ok(())
+            })
+        })
+        .await
+    }
+
+    async fn list_due_accounts_inner(
+        &self,
+        now: Timestamp,
+    ) -> Result<Vec<DueAccount>, PgMailError> {
+        // Cross-tenant id-only enumeration via the SECURITY DEFINER function. Runs
+        // on the raw pool (NO org armed) — the function REVOKEs PUBLIC and only
+        // mnt_rt may EXECUTE it; it returns ONLY (org_id, account_id) pairs.
+        let rows = sqlx::query("SELECT org_id, account_id FROM comms_due_email_accounts($1, $2)")
+            .bind(now)
+            .bind(SYNC_DISPATCH_LIMIT)
+            // rls-arming: ok comms_due_email_accounts is a SECURITY DEFINER function (REVOKE PUBLIC, GRANT mnt_rt) that returns id-only (org_id, account_id) pairs across tenants for the scheduler; it cannot be org-armed (it predates knowing the orgs) and exposes no tenant data
+            .fetch_all(&self.pool)
+            .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(DueAccount {
+                    org_id: OrgId::from_uuid(row.try_get("org_id")?),
+                    account_id: EmailAccountId::from_uuid(row.try_get("account_id")?),
+                })
+            })
+            .collect()
+    }
+
+    async fn list_folders_inner(
+        &self,
+        org: OrgId,
+        account: EmailAccountId,
+    ) -> Result<Vec<FolderView>, PgMailError> {
+        let account_uuid = *account.as_uuid();
+        with_org_conn::<_, Vec<FolderView>, PgMailError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let rows = sqlx::query(
+                    r#"
+                    SELECT id, role, name, unread_count, total_count
+                    FROM email_folders
+                    WHERE account_id = $1
+                    ORDER BY
+                        CASE role
+                            WHEN 'INBOX' THEN 0 WHEN 'SENT' THEN 1 WHEN 'DRAFTS' THEN 2
+                            WHEN 'ARCHIVE' THEN 3 WHEN 'JUNK' THEN 4 WHEN 'TRASH' THEN 5
+                            ELSE 6
+                        END,
+                        name ASC
+                    "#,
+                )
+                .bind(account_uuid)
+                .fetch_all(tx.as_mut())
+                .await?;
+                rows.into_iter()
+                    .map(|row| {
+                        Ok(FolderView {
+                            id: row.try_get("id")?,
+                            role: row.try_get("role")?,
+                            name: row.try_get("name")?,
+                            unread_count: i64::from(row.try_get::<i32, _>("unread_count")?),
+                            total_count: i64::from(row.try_get::<i32, _>("total_count")?),
+                        })
+                    })
+                    .collect()
+            })
+        })
+        .await
+    }
+
+    async fn list_threads_inner(
+        &self,
+        org: OrgId,
+        account: EmailAccountId,
+        query: &ThreadQuery,
+    ) -> Result<Vec<ThreadView>, PgMailError> {
+        let account_uuid = *account.as_uuid();
+        let query = query.clone();
+        with_org_conn::<_, Vec<ThreadView>, PgMailError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let limit = query.limit.clamp(1, MAX_THREAD_PAGE);
+                let mut builder = sqlx::QueryBuilder::<Postgres>::new(
+                    r#"
+                    SELECT t.id, t.subject, t.last_message_at, t.message_count,
+                           t.unread_count, t.has_attachments, t.is_flagged
+                    FROM email_threads t
+                    WHERE t.account_id =
+                    "#,
+                );
+                builder.push_bind(account_uuid);
+                if query.unread_only {
+                    builder.push(" AND t.unread_count > 0");
+                }
+                if let Some(before) = query.before {
+                    builder.push(" AND t.last_message_at < ");
+                    builder.push_bind(before);
+                }
+                if let Some(search) = query.search.as_ref().filter(|s| !s.trim().is_empty()) {
+                    // FTS over the thread's messages' search_vector, with an ILIKE
+                    // fallback so a partial/Korean term still matches the subject.
+                    let term = search.trim().to_owned();
+                    builder.push(
+                        r#" AND (
+                            t.subject ILIKE '%' || "#,
+                    );
+                    builder.push_bind(term.clone());
+                    builder.push(
+                        r#" || '%'
+                            OR EXISTS (
+                                SELECT 1 FROM email_messages m
+                                WHERE m.thread_id = t.id
+                                  AND m.search_vector @@ plainto_tsquery('simple', "#,
+                    );
+                    builder.push_bind(term);
+                    builder.push("))) ");
+                }
+                builder.push(" ORDER BY t.last_message_at DESC, t.id DESC LIMIT ");
+                builder.push_bind(limit);
+
+                let rows = builder.build().fetch_all(tx.as_mut()).await?;
+                rows.into_iter()
+                    .map(|row| {
+                        Ok(ThreadView {
+                            id: row.try_get("id")?,
+                            subject: row.try_get("subject")?,
+                            last_message_at: row.try_get("last_message_at")?,
+                            message_count: i64::from(row.try_get::<i32, _>("message_count")?),
+                            unread_count: i64::from(row.try_get::<i32, _>("unread_count")?),
+                            has_attachments: row.try_get("has_attachments")?,
+                            is_flagged: row.try_get("is_flagged")?,
+                        })
+                    })
+                    .collect()
+            })
+        })
+        .await
+    }
+
+    async fn get_thread_inner(
+        &self,
+        org: OrgId,
+        thread_id: uuid::Uuid,
+    ) -> Result<Option<ThreadDetail>, PgMailError> {
+        with_org_conn::<_, Option<ThreadDetail>, PgMailError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let Some(thread) =
+                    sqlx::query("SELECT id, subject FROM email_threads WHERE id = $1")
+                        .bind(thread_id)
+                        .fetch_optional(tx.as_mut())
+                        .await?
+                else {
+                    return Ok(None);
+                };
+                let message_rows = sqlx::query(MESSAGE_SELECT_BY_THREAD)
+                    .bind(thread_id)
+                    .fetch_all(tx.as_mut())
+                    .await?;
+                let mut messages = Vec::with_capacity(message_rows.len());
+                for row in message_rows {
+                    let id: uuid::Uuid = row.try_get("id")?;
+                    let attachments = load_attachments_tx(tx, id).await?;
+                    messages.push(message_view_from_row(&row, attachments)?);
+                }
+                Ok(Some(ThreadDetail {
+                    id: thread.try_get("id")?,
+                    subject: thread.try_get("subject")?,
+                    messages,
+                }))
+            })
+        })
+        .await
+    }
+
+    async fn get_message_inner(
+        &self,
+        org: OrgId,
+        message_id: EmailMessageId,
+    ) -> Result<Option<MessageView>, PgMailError> {
+        let message_uuid = *message_id.as_uuid();
+        with_org_conn::<_, Option<MessageView>, PgMailError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let Some(row) = sqlx::query(MESSAGE_SELECT_BY_ID)
+                    .bind(message_uuid)
+                    .fetch_optional(tx.as_mut())
+                    .await?
+                else {
+                    return Ok(None);
+                };
+                let attachments = load_attachments_tx(tx, message_uuid).await?;
+                Ok(Some(message_view_from_row(&row, attachments)?))
+            })
+        })
+        .await
+    }
+
+    async fn get_attachment_key_inner(
+        &self,
+        org: OrgId,
+        attachment_id: uuid::Uuid,
+    ) -> Result<Option<AttachmentRef>, PgMailError> {
+        with_org_conn::<_, Option<AttachmentRef>, PgMailError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let row = sqlx::query(
+                    "SELECT s3_key, filename, content_type FROM email_attachments WHERE id = $1",
+                )
+                .bind(attachment_id)
+                .fetch_optional(tx.as_mut())
+                .await?;
+                row.map(|row| {
+                    Ok(AttachmentRef {
+                        s3_key: row.try_get("s3_key")?,
+                        filename: row.try_get("filename")?,
+                        content_type: row.try_get("content_type")?,
+                    })
+                })
+                .transpose()
+            })
+        })
+        .await
+    }
+}
+
+impl MailReadStore for PgMailStore {
+    fn upsert_folders<'a>(
+        &'a self,
+        org: OrgId,
+        account: EmailAccountId,
+        folders: &'a [ImapFolder],
+    ) -> mnt_comms_application::MailFuture<'a, Result<Vec<FolderCursor>, MailServiceError>> {
+        Box::pin(async move {
+            self.upsert_folders_inner(org, account, folders)
+                .await
+                .map_err(Into::into)
+        })
+    }
+
+    fn reset_folder_cursor<'a>(
+        &'a self,
+        org: OrgId,
+        folder_id: uuid::Uuid,
+        uid_validity: i64,
+    ) -> mnt_comms_application::MailFuture<'a, Result<(), MailServiceError>> {
+        Box::pin(async move {
+            self.reset_folder_cursor_inner(org, folder_id, uid_validity)
+                .await
+                .map_err(Into::into)
+        })
+    }
+
+    fn upsert_inbound<'a>(
+        &'a self,
+        org: OrgId,
+        upsert: InboundUpsert,
+    ) -> mnt_comms_application::MailFuture<'a, Result<bool, MailServiceError>> {
+        Box::pin(async move {
+            self.upsert_inbound_inner(org, upsert)
+                .await
+                .map_err(Into::into)
+        })
+    }
+
+    fn record_sync_result<'a>(
+        &'a self,
+        org: OrgId,
+        account: EmailAccountId,
+        status: &'a str,
+        error: Option<&'a str>,
+    ) -> mnt_comms_application::MailFuture<'a, Result<(), MailServiceError>> {
+        Box::pin(async move {
+            self.record_sync_result_inner(org, account, status, error)
+                .await
+                .map_err(Into::into)
+        })
+    }
+
+    fn list_due_accounts(
+        &self,
+        now: Timestamp,
+    ) -> mnt_comms_application::MailFuture<'_, Result<Vec<DueAccount>, MailServiceError>> {
+        Box::pin(async move { self.list_due_accounts_inner(now).await.map_err(Into::into) })
+    }
+
+    fn list_folders<'a>(
+        &'a self,
+        org: OrgId,
+        account: EmailAccountId,
+    ) -> mnt_comms_application::MailFuture<'a, Result<Vec<FolderView>, MailServiceError>> {
+        Box::pin(async move {
+            self.list_folders_inner(org, account)
+                .await
+                .map_err(Into::into)
+        })
+    }
+
+    fn list_threads<'a>(
+        &'a self,
+        org: OrgId,
+        account: EmailAccountId,
+        query: &'a ThreadQuery,
+    ) -> mnt_comms_application::MailFuture<'a, Result<Vec<ThreadView>, MailServiceError>> {
+        Box::pin(async move {
+            self.list_threads_inner(org, account, query)
+                .await
+                .map_err(Into::into)
+        })
+    }
+
+    fn get_thread<'a>(
+        &'a self,
+        org: OrgId,
+        thread_id: uuid::Uuid,
+    ) -> mnt_comms_application::MailFuture<'a, Result<Option<ThreadDetail>, MailServiceError>> {
+        Box::pin(async move {
+            self.get_thread_inner(org, thread_id)
+                .await
+                .map_err(Into::into)
+        })
+    }
+
+    fn get_message<'a>(
+        &'a self,
+        org: OrgId,
+        message_id: EmailMessageId,
+    ) -> mnt_comms_application::MailFuture<'a, Result<Option<MessageView>, MailServiceError>> {
+        Box::pin(async move {
+            self.get_message_inner(org, message_id)
+                .await
+                .map_err(Into::into)
+        })
+    }
+
+    fn get_attachment_key<'a>(
+        &'a self,
+        org: OrgId,
+        attachment_id: uuid::Uuid,
+    ) -> mnt_comms_application::MailFuture<'a, Result<Option<AttachmentRef>, MailServiceError>>
+    {
+        Box::pin(async move {
+            self.get_attachment_key_inner(org, attachment_id)
+                .await
+                .map_err(Into::into)
+        })
+    }
+}
+
+/// Per-tick cap on how many due accounts the scheduler enumerates + dispatches.
+const SYNC_DISPATCH_LIMIT: i32 = 100;
+/// Max threads returned in one thread-list page.
+const MAX_THREAD_PAGE: i64 = 100;
+
+/// The read-API message column projection shared by the thread + single-message
+/// reads. Spelled out twice as full `&'static str` queries because sqlx 0.9
+/// requires a statically-known SQL string (no runtime `format!`).
+const MESSAGE_SELECT_BY_THREAD: &str = r#"
+    SELECT id, thread_id, direction, message_id, in_reply_to,
+           from_address, from_name, to_addresses, cc_addresses,
+           subject, snippet, body_text, body_html,
+           seen, flagged, answered, has_attachments, received_at
+    FROM email_messages
+    WHERE thread_id = $1
+    ORDER BY received_at ASC, id ASC
+"#;
+
+const MESSAGE_SELECT_BY_ID: &str = r#"
+    SELECT id, thread_id, direction, message_id, in_reply_to,
+           from_address, from_name, to_addresses, cc_addresses,
+           subject, snippet, body_text, body_html,
+           seen, flagged, answered, has_attachments, received_at
+    FROM email_messages
+    WHERE id = $1
+"#;
+
+/// True when a message with `message_id` already exists for this account (the
+/// secondary dedupe — a Sent copy mirrored under another folder, etc.).
+async fn message_id_seen(
+    tx: &mut Transaction<'_, Postgres>,
+    account_uuid: uuid::Uuid,
+    message_id: &str,
+) -> Result<bool, PgMailError> {
+    let exists: Option<uuid::Uuid> = sqlx::query_scalar(
+        "SELECT id FROM email_messages WHERE account_id = $1 AND message_id = $2 LIMIT 1",
+    )
+    .bind(account_uuid)
+    .bind(message_id)
+    .fetch_optional(tx.as_mut())
+    .await?;
+    Ok(exists.is_some())
+}
+
+/// Resolve (or create) the thread an inbound message belongs to. Threads are
+/// matched by the References/subject grouping key: we first try to attach to a
+/// thread whose newest message shares the same grouping key (via the parent
+/// message-id chain or the normalized subject), else open a new thread.
+async fn resolve_inbound_thread_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+    account_uuid: uuid::Uuid,
+    upsert: &InboundUpsert,
+) -> Result<uuid::Uuid, PgMailError> {
+    let key = thread_grouping_key(&upsert.message, &upsert.normalized_subject);
+
+    // If the message references a parent we already stored, join that parent's
+    // thread directly (the strongest signal).
+    for parent in upsert
+        .message
+        .references
+        .iter()
+        .rev()
+        .chain(upsert.message.in_reply_to.iter())
+    {
+        if let Some(thread_id) = sqlx::query_scalar::<_, uuid::Uuid>(
+            r#"
+            SELECT thread_id FROM email_messages
+            WHERE account_id = $1 AND message_id = $2
+            ORDER BY received_at DESC LIMIT 1
+            "#,
+        )
+        .bind(account_uuid)
+        .bind(parent)
+        .fetch_optional(tx.as_mut())
+        .await?
+        {
+            let _ = key; // grouping key is the fallback; the parent link wins
+            return Ok(thread_id);
+        }
+    }
+
+    // Subject fallback: attach to the most recent same-normalized-subject thread.
+    if !upsert.normalized_subject.is_empty()
+        && let Some(thread_id) = sqlx::query_scalar::<_, uuid::Uuid>(
+            r#"
+            SELECT id FROM email_threads
+            WHERE account_id = $1 AND normalized_subject = $2
+            ORDER BY last_message_at DESC LIMIT 1
+            "#,
+        )
+        .bind(account_uuid)
+        .bind(&upsert.normalized_subject)
+        .fetch_optional(tx.as_mut())
+        .await?
+    {
+        return Ok(thread_id);
+    }
+
+    // Otherwise open a fresh thread.
+    let subject = if upsert.message.subject.trim().is_empty() {
+        "(no subject)".to_owned()
+    } else {
+        upsert.message.subject.clone()
+    };
+    let id = sqlx::query_scalar::<_, uuid::Uuid>(
+        r#"
+        INSERT INTO email_threads (
+            org_id, account_id, normalized_subject, subject, last_message_at, message_count
+        ) VALUES ($1, $2, $3, $4, $5, 0)
+        RETURNING id
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(account_uuid)
+    .bind(&upsert.normalized_subject)
+    .bind(&subject)
+    .bind(upsert.message.received_at)
+    .fetch_one(tx.as_mut())
+    .await?;
+    Ok(id)
+}
+
+async fn insert_inbound_message_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+    account_uuid: uuid::Uuid,
+    thread_id: uuid::Uuid,
+    upsert: &InboundUpsert,
+) -> Result<(), PgMailError> {
+    let m = &upsert.message;
+    let snippet: String = m
+        .body_text
+        .as_deref()
+        .unwrap_or("")
+        .chars()
+        .take(200)
+        .collect();
+    let from_address = m.from.as_ref().map_or("", |a| a.address.as_str());
+    let from_name = m.from.as_ref().and_then(|a| a.name.as_deref());
+    let to_json = addresses_json(&m.to)?;
+    let cc_json = addresses_json(&m.cc)?;
+    let references = m.references.clone();
+    let has_attachments = !upsert.stored_attachments.is_empty();
+
+    sqlx::query(
+        r#"
+        INSERT INTO email_messages (
+            id, org_id, account_id, folder_id, thread_id,
+            imap_uid, imap_uid_validity, message_id, in_reply_to, references_ids,
+            direction, from_address, from_name, to_addresses, cc_addresses,
+            subject, snippet, body_text, body_html,
+            seen, flagged, answered, draft, has_attachments, received_at
+        ) VALUES (
+            $1, $2, $3, $4, $5,
+            $6, $7, $8, $9, $10,
+            'IN', $11, $12, $13, $14,
+            $15, $16, $17, $18,
+            $19, $20, $21, $22, $23, $24
+        )
+        "#,
+    )
+    .bind(*upsert.id.as_uuid())
+    .bind(org_uuid)
+    .bind(account_uuid)
+    .bind(upsert.folder_id)
+    .bind(thread_id)
+    .bind(i64::from(m.imap_uid))
+    .bind(upsert.uid_validity)
+    .bind(m.message_id.as_deref())
+    .bind(m.in_reply_to.as_deref())
+    .bind(&references)
+    .bind(from_address)
+    .bind(from_name)
+    .bind(&to_json)
+    .bind(&cc_json)
+    .bind(&m.subject)
+    .bind(&snippet)
+    .bind(m.body_text.as_deref())
+    .bind(m.body_html.as_deref())
+    .bind(m.seen)
+    .bind(m.flagged)
+    .bind(m.answered)
+    .bind(m.draft)
+    .bind(has_attachments)
+    .bind(m.received_at)
+    .execute(tx.as_mut())
+    .await?;
+    Ok(())
+}
+
+async fn insert_attachment_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+    message_uuid: uuid::Uuid,
+    att: &StoredAttachment,
+) -> Result<(), PgMailError> {
+    sqlx::query(
+        r#"
+        INSERT INTO email_attachments (
+            org_id, message_id, s3_key, filename, content_type,
+            size_bytes, content_id, is_inline, upload_state, sort_order
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'CONFIRMED', $9)
+        ON CONFLICT (org_id, message_id, sort_order) DO NOTHING
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(message_uuid)
+    .bind(&att.s3_key)
+    .bind(&att.filename)
+    .bind(&att.content_type)
+    .bind(att.size_bytes)
+    .bind(att.content_id.as_deref())
+    .bind(att.is_inline)
+    .bind(att.sort_order)
+    .execute(tx.as_mut())
+    .await?;
+    Ok(())
+}
+
+async fn update_thread_aggregate_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    thread_id: uuid::Uuid,
+    upsert: &InboundUpsert,
+) -> Result<(), PgMailError> {
+    let m = &upsert.message;
+    let unread_delta = i32::from(!m.seen);
+    let has_attachments = !upsert.stored_attachments.is_empty();
+    sqlx::query(
+        r#"
+        UPDATE email_threads
+        SET message_count = message_count + 1,
+            unread_count = unread_count + $2,
+            last_message_at = GREATEST(last_message_at, $3),
+            has_attachments = has_attachments OR $4,
+            is_flagged = is_flagged OR $5,
+            updated_at = now()
+        WHERE id = $1
+        "#,
+    )
+    .bind(thread_id)
+    .bind(unread_delta)
+    .bind(m.received_at)
+    .bind(has_attachments)
+    .bind(m.flagged)
+    .execute(tx.as_mut())
+    .await?;
+    Ok(())
+}
+
+async fn advance_folder_cursor_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    folder_id: uuid::Uuid,
+    uid_validity: i64,
+    imap_uid: u32,
+) -> Result<(), PgMailError> {
+    sqlx::query(
+        r#"
+        UPDATE email_folders
+        SET uid_validity = $2,
+            last_seen_uid = GREATEST(last_seen_uid, $3),
+            unread_count = (
+                SELECT COUNT(*) FROM email_messages
+                WHERE folder_id = $1 AND seen = FALSE
+            ),
+            total_count = (
+                SELECT COUNT(*) FROM email_messages WHERE folder_id = $1
+            ),
+            last_synced_at = now(),
+            updated_at = now()
+        WHERE id = $1
+        "#,
+    )
+    .bind(folder_id)
+    .bind(uid_validity)
+    .bind(i64::from(imap_uid))
+    .execute(tx.as_mut())
+    .await?;
+    Ok(())
+}
+
+async fn load_attachments_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    message_uuid: uuid::Uuid,
+) -> Result<Vec<AttachmentView>, PgMailError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT id, filename, content_type, size_bytes, is_inline
+        FROM email_attachments
+        WHERE message_id = $1
+        ORDER BY sort_order ASC
+        "#,
+    )
+    .bind(message_uuid)
+    .fetch_all(tx.as_mut())
+    .await?;
+    rows.into_iter()
+        .map(|row| {
+            Ok(AttachmentView {
+                id: row.try_get("id")?,
+                filename: row.try_get("filename")?,
+                content_type: row.try_get("content_type")?,
+                size_bytes: row.try_get("size_bytes")?,
+                is_inline: row.try_get("is_inline")?,
+            })
+        })
+        .collect()
+}
+
+/// Build a [`MessageView`] from a message row + its attachments.
+fn message_view_from_row(
+    row: &sqlx::postgres::PgRow,
+    attachments: Vec<AttachmentView>,
+) -> Result<MessageView, PgMailError> {
+    let to: Vec<MessageAddress> = serde_json::from_value(row.try_get("to_addresses")?)
+        .map_err(|_| PgMailError::Domain(KernelError::internal("could not decode recipients")))?;
+    let cc: Vec<MessageAddress> = serde_json::from_value(row.try_get("cc_addresses")?)
+        .map_err(|_| PgMailError::Domain(KernelError::internal("could not decode cc")))?;
+    Ok(MessageView {
+        id: EmailMessageId::from_uuid(row.try_get("id")?),
+        thread_id: row.try_get("thread_id")?,
+        direction: row.try_get("direction")?,
+        message_id: row.try_get("message_id")?,
+        in_reply_to: row.try_get("in_reply_to")?,
+        from_address: row.try_get("from_address")?,
+        from_name: row.try_get("from_name")?,
+        to,
+        cc,
+        subject: row.try_get("subject")?,
+        snippet: row.try_get("snippet")?,
+        body_text: row.try_get("body_text")?,
+        body_html: row.try_get("body_html")?,
+        seen: row.try_get("seen")?,
+        flagged: row.try_get("flagged")?,
+        answered: row.try_get("answered")?,
+        has_attachments: row.try_get("has_attachments")?,
+        received_at: row.try_get("received_at")?,
+        attachments,
+    })
+}
+
+fn addresses_json(addresses: &[MessageAddress]) -> Result<serde_json::Value, PgMailError> {
+    serde_json::to_value(addresses)
+        .map_err(|_| PgMailError::Domain(KernelError::internal("could not encode addresses")))
 }
 
 // ---------------------------------------------------------------------------

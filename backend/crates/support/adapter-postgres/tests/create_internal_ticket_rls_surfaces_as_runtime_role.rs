@@ -24,9 +24,7 @@
 use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, OrgId, TraceContext, UserId};
 use mnt_platform_request_context::CURRENT_ORG;
 use mnt_support_adapter_postgres::PgSupportStore;
-use mnt_support_application::{
-    CommentAudience, CreateInternalTicketCommand, ListTicketsQuery,
-};
+use mnt_support_application::{CommentAudience, CreateInternalTicketCommand, ListTicketsQuery};
 use mnt_support_domain::{TicketCategory, TicketOrigin, TicketPriority};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;

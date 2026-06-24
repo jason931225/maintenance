@@ -94,6 +94,8 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+mod mail_sync;
+
 const DEFAULT_HTTP_ADDR: &str = "0.0.0.0:8080";
 const DEFAULT_SERVICE_NAME: &str = "mnt-app";
 const DEFAULT_SHUTDOWN_TIMEOUT_SECS: u64 = 10;
@@ -218,6 +220,11 @@ pub struct AppConfig {
     /// domain. Sourced from `MNT_IOS_APP_IDS`, `MNT_ANDROID_PACKAGE`, and
     /// `MNT_ANDROID_CERT_SHA256` (see [`app_links_config_from_vars`]).
     pub app_links: AppLinksConfig,
+    /// Whether the inbound webmail IMAP sync worker runs (`MNT_MAIL_ENABLED`,
+    /// default false). Even when true the worker only starts if the master KEK
+    /// (`MNT_MAIL_MASTER_KEY`) and object storage are both configured — it is a
+    /// no-op otherwise, so a misconfiguration never crashes the app.
+    pub mail_enabled: bool,
 }
 
 /// Native app-link association config for the `/.well-known/*` endpoints.
@@ -371,6 +378,12 @@ impl AppConfig {
         )?;
         let trusted_proxy_count = parse_trusted_proxy_count(vars.get("MNT_TRUSTED_PROXY_COUNT"))?;
         let app_links = app_links_config_from_vars(&vars);
+        let mail_enabled = match vars.get("MNT_MAIL_ENABLED") {
+            Some(raw) => raw
+                .parse::<bool>()
+                .map_err(|err| AppError::Config(format!("invalid MNT_MAIL_ENABLED: {err}")))?,
+            None => false,
+        };
 
         Ok(Self {
             role,
@@ -394,6 +407,7 @@ impl AppConfig {
             coldstart_otp_ttl,
             trusted_proxy_count,
             app_links,
+            mail_enabled,
         })
     }
 }
@@ -765,6 +779,10 @@ pub struct AppState {
     /// `503 email_not_configured`. The cipher feature is lazily/optionally init'd
     /// so a missing key is never a panic.
     mail_cipher: Option<Arc<EnvelopeCredentialCipher>>,
+    /// The inbound webmail IMAP sync worker handle. `None` when the worker is OFF
+    /// (no KEK / no storage / `MNT_MAIL_ENABLED` unset). Held so its lifetime is
+    /// tied to the running `AppState` and it stops on shutdown.
+    mail_sync_handle: Option<Arc<mail_sync::MailSyncHandle>>,
 }
 
 impl AppState {
@@ -809,6 +827,7 @@ impl AppState {
             realtime_hub,
             realtime_bridge: None,
             mail_cipher: None,
+            mail_sync_handle: None,
         })
     }
 
@@ -926,6 +945,20 @@ impl AppState {
                     .map_err(AppError::Realtime)?,
             );
         }
+        // Inbound webmail sync worker (B-mail-3). Spawned like the realtime
+        // listener: a background loop on the app pool that arms `app.current_org`
+        // per tenant for each sync pass. GRACEFUL — only runs when the master KEK,
+        // object storage, and `MNT_MAIL_ENABLED` are all present; otherwise a
+        // no-op so the app boots normally and mail endpoints still mount.
+        if let DatabaseDependency::Postgres(pool) = &state.database {
+            state.mail_sync_handle = mail_sync::spawn(
+                pool.clone(),
+                state.mail_cipher.clone(),
+                state.sales_media_storage.clone(),
+                config.mail_enabled,
+            )
+            .map(Arc::new);
+        }
         Ok(state)
     }
 
@@ -947,7 +980,22 @@ impl AppState {
         if let Some(hub) = &self.realtime_hub {
             hub.shutdown().await;
         }
+        if let Some(handle) = &self.mail_sync_handle {
+            handle.shutdown();
+        }
     }
+}
+
+/// Build the inbound-attachment object store the webmail read API uses for
+/// presigned GETs, from the same storage config the evidence pipeline uses.
+/// `None` when storage is unconfigured (the attachment-download endpoint 503s).
+fn mail_attachment_store(state: &AppState) -> Option<mnt_comms_rest::SharedAttachmentStore> {
+    state.sales_media_storage.as_ref().map(|(store, bucket)| {
+        Arc::new(mail_sync::S3MailAttachmentStore::new(
+            store.clone(),
+            bucket.clone(),
+        )) as mnt_comms_rest::SharedAttachmentStore
+    })
 }
 
 fn realtime_hub_from_database(database: &DatabaseDependency) -> Option<Arc<PgRealtimeHub>> {
@@ -1299,11 +1347,17 @@ pub fn build_router(state: AppState) -> Router {
                 // Webmail (`/api/v1/mail/*`). The router ALWAYS mounts so the
                 // OpenAPI paths exist and the app boots without the master key;
                 // when `state.mail_cipher` is `None` every endpoint returns 503.
-                .merge(mnt_comms_rest::router(CommsRestState::new(
-                    PgMailStore::new(pool.clone()),
-                    state.mail_cipher.clone(),
-                    state.jwt_verifier.clone(),
-                )));
+                // The inbound-attachment object store (presigned GET) is wired
+                // from the same storage config the evidence pipeline uses; `None`
+                // when storage is unconfigured (download then 503s).
+                .merge(mnt_comms_rest::router(
+                    CommsRestState::new(
+                        PgMailStore::new(pool.clone()),
+                        state.mail_cipher.clone(),
+                        state.jwt_verifier.clone(),
+                    )
+                    .with_attachments(mail_attachment_store(&state)),
+                ));
             // READ-ONLY WALL for PLATFORM "view as": wrap the WHOLE tenant
             // domain router so any request carrying a `view_as` token may use
             // ONLY GET/HEAD — every other method is rejected 403 `view_as_read_only`

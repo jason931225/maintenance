@@ -835,6 +835,41 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/mail/forward`.
     /// - Remark: Generated from `#/paths//api/v1/mail/forward/post(forwardMail)`.
     func forwardMail(_ input: Operations.ForwardMail.Input) async throws -> Operations.ForwardMail.Output
+    /// List the tenant mailbox folders
+    ///
+    /// Lists the configured mailbox's folders (Inbox/Sent/…) with per-folder unread + total counts. RLS-armed to the caller's org. Requires the MailUse feature.
+    ///
+    /// - Remark: HTTP `GET /api/v1/mail/folders`.
+    /// - Remark: Generated from `#/paths//api/v1/mail/folders/get(listMailFolders)`.
+    func listMailFolders(_ input: Operations.ListMailFolders.Input) async throws -> Operations.ListMailFolders.Output
+    /// List mail threads (paginated, unread filter, search)
+    ///
+    /// Lists the mailbox's threads newest-first. Optional filters: unread-only, a full-text search term q, a folder id, and a keyset cursor (before, a unix-second last_message_at). RLS-armed to the caller's org. Requires the MailUse feature.
+    ///
+    /// - Remark: HTTP `GET /api/v1/mail/threads`.
+    /// - Remark: Generated from `#/paths//api/v1/mail/threads/get(listMailThreads)`.
+    func listMailThreads(_ input: Operations.ListMailThreads.Input) async throws -> Operations.ListMailThreads.Output
+    /// Get one thread with its messages
+    ///
+    /// Returns the thread and its messages (oldest first). body_html is returned verbatim and MUST be sanitized by the client before render. RLS-armed to the caller's org. Requires the MailUse feature.
+    ///
+    /// - Remark: HTTP `GET /api/v1/mail/threads/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/get(getMailThread)`.
+    func getMailThread(_ input: Operations.GetMailThread.Input) async throws -> Operations.GetMailThread.Output
+    /// Get one message with its attachments
+    ///
+    /// Returns one message (with attachment metadata; bytes are fetched via the attachment download endpoint). body_html is verbatim and MUST be sanitized by the client. RLS-armed to the caller's org. Requires the MailUse feature.
+    ///
+    /// - Remark: HTTP `GET /api/v1/mail/messages/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/mail/messages/{id}/get(getMailMessage)`.
+    func getMailMessage(_ input: Operations.GetMailMessage.Input) async throws -> Operations.GetMailMessage.Output
+    /// Get a presigned download URL for an attachment
+    ///
+    /// Resolves the attachment under the caller's org (cross-tenant invisible) and returns a short-lived presigned GET URL — the raw object key is never exposed. RLS-armed to the caller's org. Requires the MailUse feature.
+    ///
+    /// - Remark: HTTP `GET /api/v1/mail/attachments/{id}/download`.
+    /// - Remark: Generated from `#/paths//api/v1/mail/attachments/{id}/download/get(downloadMailAttachment)`.
+    func downloadMailAttachment(_ input: Operations.DownloadMailAttachment.Input) async throws -> Operations.DownloadMailAttachment.Output
 }
 
 /// Convenience overloads for operation inputs.
@@ -2777,6 +2812,75 @@ extension APIProtocol {
         try await forwardMail(Operations.ForwardMail.Input(
             headers: headers,
             body: body
+        ))
+    }
+    /// List the tenant mailbox folders
+    ///
+    /// Lists the configured mailbox's folders (Inbox/Sent/…) with per-folder unread + total counts. RLS-armed to the caller's org. Requires the MailUse feature.
+    ///
+    /// - Remark: HTTP `GET /api/v1/mail/folders`.
+    /// - Remark: Generated from `#/paths//api/v1/mail/folders/get(listMailFolders)`.
+    public func listMailFolders(headers: Operations.ListMailFolders.Input.Headers = .init()) async throws -> Operations.ListMailFolders.Output {
+        try await listMailFolders(Operations.ListMailFolders.Input(headers: headers))
+    }
+    /// List mail threads (paginated, unread filter, search)
+    ///
+    /// Lists the mailbox's threads newest-first. Optional filters: unread-only, a full-text search term q, a folder id, and a keyset cursor (before, a unix-second last_message_at). RLS-armed to the caller's org. Requires the MailUse feature.
+    ///
+    /// - Remark: HTTP `GET /api/v1/mail/threads`.
+    /// - Remark: Generated from `#/paths//api/v1/mail/threads/get(listMailThreads)`.
+    public func listMailThreads(
+        query: Operations.ListMailThreads.Input.Query = .init(),
+        headers: Operations.ListMailThreads.Input.Headers = .init()
+    ) async throws -> Operations.ListMailThreads.Output {
+        try await listMailThreads(Operations.ListMailThreads.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Get one thread with its messages
+    ///
+    /// Returns the thread and its messages (oldest first). body_html is returned verbatim and MUST be sanitized by the client before render. RLS-armed to the caller's org. Requires the MailUse feature.
+    ///
+    /// - Remark: HTTP `GET /api/v1/mail/threads/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/get(getMailThread)`.
+    public func getMailThread(
+        path: Operations.GetMailThread.Input.Path,
+        headers: Operations.GetMailThread.Input.Headers = .init()
+    ) async throws -> Operations.GetMailThread.Output {
+        try await getMailThread(Operations.GetMailThread.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Get one message with its attachments
+    ///
+    /// Returns one message (with attachment metadata; bytes are fetched via the attachment download endpoint). body_html is verbatim and MUST be sanitized by the client. RLS-armed to the caller's org. Requires the MailUse feature.
+    ///
+    /// - Remark: HTTP `GET /api/v1/mail/messages/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/mail/messages/{id}/get(getMailMessage)`.
+    public func getMailMessage(
+        path: Operations.GetMailMessage.Input.Path,
+        headers: Operations.GetMailMessage.Input.Headers = .init()
+    ) async throws -> Operations.GetMailMessage.Output {
+        try await getMailMessage(Operations.GetMailMessage.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Get a presigned download URL for an attachment
+    ///
+    /// Resolves the attachment under the caller's org (cross-tenant invisible) and returns a short-lived presigned GET URL — the raw object key is never exposed. RLS-armed to the caller's org. Requires the MailUse feature.
+    ///
+    /// - Remark: HTTP `GET /api/v1/mail/attachments/{id}/download`.
+    /// - Remark: Generated from `#/paths//api/v1/mail/attachments/{id}/download/get(downloadMailAttachment)`.
+    public func downloadMailAttachment(
+        path: Operations.DownloadMailAttachment.Input.Path,
+        headers: Operations.DownloadMailAttachment.Input.Headers = .init()
+    ) async throws -> Operations.DownloadMailAttachment.Output {
+        try await downloadMailAttachment(Operations.DownloadMailAttachment.Input(
+            path: path,
+            headers: headers
         ))
     }
 }
@@ -11387,6 +11491,318 @@ public enum Components {
             public enum CodingKeys: String, CodingKey {
                 case messageId = "message_id"
                 case rfcMessageId = "rfc_message_id"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MailFolderView`.
+        public struct MailFolderView: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MailFolderView/id`.
+            public var id: Components.Schemas.Uuid
+            /// INBOX | SENT | DRAFTS | ARCHIVE | TRASH | JUNK | CUSTOM.
+            ///
+            /// - Remark: Generated from `#/components/schemas/MailFolderView/role`.
+            public var role: Swift.String
+            /// - Remark: Generated from `#/components/schemas/MailFolderView/name`.
+            public var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/MailFolderView/unread_count`.
+            public var unreadCount: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/MailFolderView/total_count`.
+            public var totalCount: Swift.Int64
+            /// Creates a new `MailFolderView`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - role: INBOX | SENT | DRAFTS | ARCHIVE | TRASH | JUNK | CUSTOM.
+            ///   - name:
+            ///   - unreadCount:
+            ///   - totalCount:
+            public init(
+                id: Components.Schemas.Uuid,
+                role: Swift.String,
+                name: Swift.String,
+                unreadCount: Swift.Int64,
+                totalCount: Swift.Int64
+            ) {
+                self.id = id
+                self.role = role
+                self.name = name
+                self.unreadCount = unreadCount
+                self.totalCount = totalCount
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case role
+                case name
+                case unreadCount = "unread_count"
+                case totalCount = "total_count"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MailThreadView`.
+        public struct MailThreadView: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MailThreadView/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MailThreadView/subject`.
+            public var subject: Swift.String
+            /// - Remark: Generated from `#/components/schemas/MailThreadView/last_message_at`.
+            public var lastMessageAt: Foundation.Date
+            /// - Remark: Generated from `#/components/schemas/MailThreadView/message_count`.
+            public var messageCount: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/MailThreadView/unread_count`.
+            public var unreadCount: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/MailThreadView/has_attachments`.
+            public var hasAttachments: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/MailThreadView/is_flagged`.
+            public var isFlagged: Swift.Bool
+            /// Creates a new `MailThreadView`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - subject:
+            ///   - lastMessageAt:
+            ///   - messageCount:
+            ///   - unreadCount:
+            ///   - hasAttachments:
+            ///   - isFlagged:
+            public init(
+                id: Components.Schemas.Uuid,
+                subject: Swift.String,
+                lastMessageAt: Foundation.Date,
+                messageCount: Swift.Int64,
+                unreadCount: Swift.Int64,
+                hasAttachments: Swift.Bool,
+                isFlagged: Swift.Bool
+            ) {
+                self.id = id
+                self.subject = subject
+                self.lastMessageAt = lastMessageAt
+                self.messageCount = messageCount
+                self.unreadCount = unreadCount
+                self.hasAttachments = hasAttachments
+                self.isFlagged = isFlagged
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case subject
+                case lastMessageAt = "last_message_at"
+                case messageCount = "message_count"
+                case unreadCount = "unread_count"
+                case hasAttachments = "has_attachments"
+                case isFlagged = "is_flagged"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MailThreadDetail`.
+        public struct MailThreadDetail: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MailThreadDetail/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MailThreadDetail/subject`.
+            public var subject: Swift.String
+            /// - Remark: Generated from `#/components/schemas/MailThreadDetail/messages`.
+            public var messages: [Components.Schemas.MailMessageView]
+            /// Creates a new `MailThreadDetail`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - subject:
+            ///   - messages:
+            public init(
+                id: Components.Schemas.Uuid,
+                subject: Swift.String,
+                messages: [Components.Schemas.MailMessageView]
+            ) {
+                self.id = id
+                self.subject = subject
+                self.messages = messages
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case subject
+                case messages
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MailMessageView`.
+        public struct MailMessageView: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MailMessageView/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MailMessageView/thread_id`.
+            public var threadId: Components.Schemas.Uuid
+            /// IN (mirrored from IMAP) or OUT (sent by the tenant).
+            ///
+            /// - Remark: Generated from `#/components/schemas/MailMessageView/direction`.
+            public var direction: Swift.String
+            /// - Remark: Generated from `#/components/schemas/MailMessageView/message_id`.
+            public var messageId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/MailMessageView/in_reply_to`.
+            public var inReplyTo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/MailMessageView/from_address`.
+            public var fromAddress: Swift.String
+            /// - Remark: Generated from `#/components/schemas/MailMessageView/from_name`.
+            public var fromName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/MailMessageView/to`.
+            public var to: [Components.Schemas.MailAddress]
+            /// - Remark: Generated from `#/components/schemas/MailMessageView/cc`.
+            public var cc: [Components.Schemas.MailAddress]
+            /// - Remark: Generated from `#/components/schemas/MailMessageView/subject`.
+            public var subject: Swift.String
+            /// - Remark: Generated from `#/components/schemas/MailMessageView/snippet`.
+            public var snippet: Swift.String
+            /// - Remark: Generated from `#/components/schemas/MailMessageView/body_text`.
+            public var bodyText: Swift.String?
+            /// The stored HTML body, returned verbatim. The client MUST sanitize it (DOMPurify-class) before rendering.
+            ///
+            /// - Remark: Generated from `#/components/schemas/MailMessageView/body_html`.
+            public var bodyHtml: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/MailMessageView/seen`.
+            public var seen: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/MailMessageView/flagged`.
+            public var flagged: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/MailMessageView/answered`.
+            public var answered: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/MailMessageView/has_attachments`.
+            public var hasAttachments: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/MailMessageView/received_at`.
+            public var receivedAt: Foundation.Date
+            /// - Remark: Generated from `#/components/schemas/MailMessageView/attachments`.
+            public var attachments: [Components.Schemas.MailAttachmentView]
+            /// Creates a new `MailMessageView`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - threadId:
+            ///   - direction: IN (mirrored from IMAP) or OUT (sent by the tenant).
+            ///   - messageId:
+            ///   - inReplyTo:
+            ///   - fromAddress:
+            ///   - fromName:
+            ///   - to:
+            ///   - cc:
+            ///   - subject:
+            ///   - snippet:
+            ///   - bodyText:
+            ///   - bodyHtml: The stored HTML body, returned verbatim. The client MUST sanitize it (DOMPurify-class) before rendering.
+            ///   - seen:
+            ///   - flagged:
+            ///   - answered:
+            ///   - hasAttachments:
+            ///   - receivedAt:
+            ///   - attachments:
+            public init(
+                id: Components.Schemas.Uuid,
+                threadId: Components.Schemas.Uuid,
+                direction: Swift.String,
+                messageId: Swift.String? = nil,
+                inReplyTo: Swift.String? = nil,
+                fromAddress: Swift.String,
+                fromName: Swift.String? = nil,
+                to: [Components.Schemas.MailAddress],
+                cc: [Components.Schemas.MailAddress],
+                subject: Swift.String,
+                snippet: Swift.String,
+                bodyText: Swift.String? = nil,
+                bodyHtml: Swift.String? = nil,
+                seen: Swift.Bool,
+                flagged: Swift.Bool,
+                answered: Swift.Bool,
+                hasAttachments: Swift.Bool,
+                receivedAt: Foundation.Date,
+                attachments: [Components.Schemas.MailAttachmentView]
+            ) {
+                self.id = id
+                self.threadId = threadId
+                self.direction = direction
+                self.messageId = messageId
+                self.inReplyTo = inReplyTo
+                self.fromAddress = fromAddress
+                self.fromName = fromName
+                self.to = to
+                self.cc = cc
+                self.subject = subject
+                self.snippet = snippet
+                self.bodyText = bodyText
+                self.bodyHtml = bodyHtml
+                self.seen = seen
+                self.flagged = flagged
+                self.answered = answered
+                self.hasAttachments = hasAttachments
+                self.receivedAt = receivedAt
+                self.attachments = attachments
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case threadId = "thread_id"
+                case direction
+                case messageId = "message_id"
+                case inReplyTo = "in_reply_to"
+                case fromAddress = "from_address"
+                case fromName = "from_name"
+                case to
+                case cc
+                case subject
+                case snippet
+                case bodyText = "body_text"
+                case bodyHtml = "body_html"
+                case seen
+                case flagged
+                case answered
+                case hasAttachments = "has_attachments"
+                case receivedAt = "received_at"
+                case attachments
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MailAttachmentView`.
+        public struct MailAttachmentView: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MailAttachmentView/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MailAttachmentView/filename`.
+            public var filename: Swift.String
+            /// - Remark: Generated from `#/components/schemas/MailAttachmentView/content_type`.
+            public var contentType: Swift.String
+            /// - Remark: Generated from `#/components/schemas/MailAttachmentView/size_bytes`.
+            public var sizeBytes: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/MailAttachmentView/is_inline`.
+            public var isInline: Swift.Bool
+            /// Creates a new `MailAttachmentView`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - filename:
+            ///   - contentType:
+            ///   - sizeBytes:
+            ///   - isInline:
+            public init(
+                id: Components.Schemas.Uuid,
+                filename: Swift.String,
+                contentType: Swift.String,
+                sizeBytes: Swift.Int64,
+                isInline: Swift.Bool
+            ) {
+                self.id = id
+                self.filename = filename
+                self.contentType = contentType
+                self.sizeBytes = sizeBytes
+                self.isInline = isInline
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case filename
+                case contentType = "content_type"
+                case sizeBytes = "size_bytes"
+                case isInline = "is_inline"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MailAttachmentDownload`.
+        public struct MailAttachmentDownload: Codable, Hashable, Sendable {
+            /// A short-lived presigned GET URL for the attachment bytes.
+            ///
+            /// - Remark: Generated from `#/components/schemas/MailAttachmentDownload/url`.
+            public var url: Swift.String
+            /// Creates a new `MailAttachmentDownload`.
+            ///
+            /// - Parameters:
+            ///   - url: A short-lived presigned GET URL for the attachment bytes.
+            public init(url: Swift.String) {
+                self.url = url
+            }
+            public enum CodingKeys: String, CodingKey {
+                case url
             }
         }
     }
@@ -41396,6 +41812,1074 @@ public enum Operations {
             /// Webmail is not configured on this server (the master key MNT_MAIL_MASTER_KEY is absent), or JWT verification is not configured. The app is otherwise healthy.
             ///
             /// - Remark: Generated from `#/paths//api/v1/mail/forward/post(forwardMail)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Components.Responses.MailUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Components.Responses.MailUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List the tenant mailbox folders
+    ///
+    /// Lists the configured mailbox's folders (Inbox/Sent/…) with per-folder unread + total counts. RLS-armed to the caller's org. Requires the MailUse feature.
+    ///
+    /// - Remark: HTTP `GET /api/v1/mail/folders`.
+    /// - Remark: Generated from `#/paths//api/v1/mail/folders/get(listMailFolders)`.
+    public enum ListMailFolders {
+        public static let id: Swift.String = "listMailFolders"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/mail/folders/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMailFolders.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMailFolders.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListMailFolders.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.ListMailFolders.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/mail/folders/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/mail/folders/GET/responses/200/content/application\/json`.
+                    case json([Components.Schemas.MailFolderView])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.MailFolderView] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMailFolders.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMailFolders.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The folders for the tenant's mailbox (empty if unconfigured).
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/folders/get(listMailFolders)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListMailFolders.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListMailFolders.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/folders/get(listMailFolders)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/folders/get(listMailFolders)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Webmail is not configured on this server (the master key MNT_MAIL_MASTER_KEY is absent), or JWT verification is not configured. The app is otherwise healthy.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/folders/get(listMailFolders)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Components.Responses.MailUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Components.Responses.MailUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List mail threads (paginated, unread filter, search)
+    ///
+    /// Lists the mailbox's threads newest-first. Optional filters: unread-only, a full-text search term q, a folder id, and a keyset cursor (before, a unix-second last_message_at). RLS-armed to the caller's org. Requires the MailUse feature.
+    ///
+    /// - Remark: HTTP `GET /api/v1/mail/threads`.
+    /// - Remark: Generated from `#/paths//api/v1/mail/threads/get(listMailThreads)`.
+    public enum ListMailThreads {
+        public static let id: Swift.String = "listMailThreads"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/mail/threads/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/mail/threads/GET/query/unread`.
+                public var unread: Swift.Bool?
+                /// - Remark: Generated from `#/paths/api/v1/mail/threads/GET/query/q`.
+                public var q: Swift.String?
+                /// - Remark: Generated from `#/paths/api/v1/mail/threads/GET/query/folder`.
+                public var folder: Swift.String?
+                /// - Remark: Generated from `#/paths/api/v1/mail/threads/GET/query/before`.
+                public var before: Swift.Int64?
+                /// - Remark: Generated from `#/paths/api/v1/mail/threads/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - unread:
+                ///   - q:
+                ///   - folder:
+                ///   - before:
+                ///   - limit:
+                public init(
+                    unread: Swift.Bool? = nil,
+                    q: Swift.String? = nil,
+                    folder: Swift.String? = nil,
+                    before: Swift.Int64? = nil,
+                    limit: Swift.Int64? = nil
+                ) {
+                    self.unread = unread
+                    self.q = q
+                    self.folder = folder
+                    self.before = before
+                    self.limit = limit
+                }
+            }
+            public var query: Operations.ListMailThreads.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/mail/threads/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMailThreads.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMailThreads.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListMailThreads.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListMailThreads.Input.Query = .init(),
+                headers: Operations.ListMailThreads.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/mail/threads/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/mail/threads/GET/responses/200/content/application\/json`.
+                    case json([Components.Schemas.MailThreadView])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.MailThreadView] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMailThreads.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMailThreads.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// A page of threads (newest first).
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/threads/get(listMailThreads)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListMailThreads.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListMailThreads.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/threads/get(listMailThreads)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/threads/get(listMailThreads)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Webmail is not configured on this server (the master key MNT_MAIL_MASTER_KEY is absent), or JWT verification is not configured. The app is otherwise healthy.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/threads/get(listMailThreads)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Components.Responses.MailUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Components.Responses.MailUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Get one thread with its messages
+    ///
+    /// Returns the thread and its messages (oldest first). body_html is returned verbatim and MUST be sanitized by the client before render. RLS-armed to the caller's org. Requires the MailUse feature.
+    ///
+    /// - Remark: HTTP `GET /api/v1/mail/threads/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/get(getMailThread)`.
+    public enum GetMailThread {
+        public static let id: Swift.String = "getMailThread"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/mail/threads/{id}/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/mail/threads/{id}/GET/path/id`.
+                public var id: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.String) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.GetMailThread.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/mail/threads/{id}/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetMailThread.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetMailThread.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetMailThread.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.GetMailThread.Input.Path,
+                headers: Operations.GetMailThread.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/mail/threads/{id}/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/mail/threads/{id}/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.MailThreadDetail)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.MailThreadDetail {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetMailThread.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetMailThread.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The thread and its ordered messages.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/get(getMailThread)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetMailThread.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetMailThread.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/get(getMailThread)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/get(getMailThread)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/get(getMailThread)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Webmail is not configured on this server (the master key MNT_MAIL_MASTER_KEY is absent), or JWT verification is not configured. The app is otherwise healthy.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/threads/{id}/get(getMailThread)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Components.Responses.MailUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Components.Responses.MailUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Get one message with its attachments
+    ///
+    /// Returns one message (with attachment metadata; bytes are fetched via the attachment download endpoint). body_html is verbatim and MUST be sanitized by the client. RLS-armed to the caller's org. Requires the MailUse feature.
+    ///
+    /// - Remark: HTTP `GET /api/v1/mail/messages/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/mail/messages/{id}/get(getMailMessage)`.
+    public enum GetMailMessage {
+        public static let id: Swift.String = "getMailMessage"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/mail/messages/{id}/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/mail/messages/{id}/GET/path/id`.
+                public var id: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.String) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.GetMailMessage.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/mail/messages/{id}/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetMailMessage.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetMailMessage.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetMailMessage.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.GetMailMessage.Input.Path,
+                headers: Operations.GetMailMessage.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/mail/messages/{id}/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/mail/messages/{id}/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.MailMessageView)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.MailMessageView {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetMailMessage.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetMailMessage.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The message and its attachments.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/messages/{id}/get(getMailMessage)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetMailMessage.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetMailMessage.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/messages/{id}/get(getMailMessage)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/messages/{id}/get(getMailMessage)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/messages/{id}/get(getMailMessage)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Webmail is not configured on this server (the master key MNT_MAIL_MASTER_KEY is absent), or JWT verification is not configured. The app is otherwise healthy.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/messages/{id}/get(getMailMessage)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Components.Responses.MailUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Components.Responses.MailUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Get a presigned download URL for an attachment
+    ///
+    /// Resolves the attachment under the caller's org (cross-tenant invisible) and returns a short-lived presigned GET URL — the raw object key is never exposed. RLS-armed to the caller's org. Requires the MailUse feature.
+    ///
+    /// - Remark: HTTP `GET /api/v1/mail/attachments/{id}/download`.
+    /// - Remark: Generated from `#/paths//api/v1/mail/attachments/{id}/download/get(downloadMailAttachment)`.
+    public enum DownloadMailAttachment {
+        public static let id: Swift.String = "downloadMailAttachment"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/mail/attachments/{id}/download/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/mail/attachments/{id}/download/GET/path/id`.
+                public var id: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.String) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.DownloadMailAttachment.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/mail/attachments/{id}/download/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DownloadMailAttachment.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DownloadMailAttachment.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.DownloadMailAttachment.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.DownloadMailAttachment.Input.Path,
+                headers: Operations.DownloadMailAttachment.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/mail/attachments/{id}/download/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/mail/attachments/{id}/download/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.MailAttachmentDownload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.MailAttachmentDownload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DownloadMailAttachment.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.DownloadMailAttachment.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// A short-lived presigned download URL.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/attachments/{id}/download/get(downloadMailAttachment)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.DownloadMailAttachment.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.DownloadMailAttachment.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/attachments/{id}/download/get(downloadMailAttachment)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/attachments/{id}/download/get(downloadMailAttachment)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/attachments/{id}/download/get(downloadMailAttachment)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Webmail is not configured on this server (the master key MNT_MAIL_MASTER_KEY is absent), or JWT verification is not configured. The app is otherwise healthy.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/mail/attachments/{id}/download/get(downloadMailAttachment)/responses/503`.
             ///
             /// HTTP response code: `503 serviceUnavailable`.
             case serviceUnavailable(Components.Responses.MailUnavailable)

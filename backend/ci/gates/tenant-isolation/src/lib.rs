@@ -1201,9 +1201,13 @@ mod tests {
         // Directly exercise the sanitizer with a dollar-quoted body whose comment
         // carries em-dashes at varied offsets, so the byte walk crosses a
         // multi-byte boundary while `dollar_tag` is open. Must not panic.
-        let sql = "DO $body$\n-- 정비 메모 — 한글과 — em-dash 섞임 — 경계 테스트 —\nBEGIN END\n$body$;\n";
+        let sql =
+            "DO $body$\n-- 정비 메모 — 한글과 — em-dash 섞임 — 경계 테스트 —\nBEGIN END\n$body$;\n";
         let sanitized = sanitize_sql(sql);
         // The closing `;` survives sanitization (statement boundaries stay aligned).
-        assert!(sanitized.contains(';'), "statement boundary must be preserved");
+        assert!(
+            sanitized.contains(';'),
+            "statement boundary must be preserved"
+        );
     }
 }

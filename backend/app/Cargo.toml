@@ -18,7 +18,9 @@ path = "src/lib.rs"
 [dependencies]
 axum = { workspace = true }
 http = { workspace = true }
+mnt-comms-adapter-imap = { workspace = true }
 mnt-comms-adapter-postgres = { workspace = true }
+mnt-comms-application = { workspace = true }
 mnt-comms-credential-cipher = { workspace = true }
 mnt-comms-rest = { workspace = true }
 mnt-compliance-adapter-postgres = { workspace = true }

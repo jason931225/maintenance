@@ -22,20 +22,23 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
-use axum::extract::State;
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use mnt_comms_adapter_imap::AsyncImapClient;
 use mnt_comms_adapter_postgres::PgMailStore;
 use mnt_comms_adapter_smtp::LettreMailSender;
 use mnt_comms_application::{
-    AccountService, AccountView, ConfigureAccountCommand, MailServiceError, SendKind,
-    SendMessageCommand, SendResult, SendService, TestConnectionResult,
+    AccountService, AccountView, ConfigureAccountCommand, EmailMessageId, FolderView,
+    MailAttachmentStore, MailReadStore, MailServiceError, MessageView, SendKind,
+    SendMessageCommand, SendResult, SendService, StoredAccount, SyncService, TestConnectionResult,
+    ThreadDetail, ThreadQuery, ThreadView,
 };
 use mnt_comms_credential_cipher::EnvelopeCredentialCipher;
 use mnt_comms_domain::{MailSecurity, MessageAddress};
-use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, KernelError, TraceContext, UserId};
+use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, KernelError, OrgId, TraceContext, UserId};
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
 use secrecy::SecretString;
@@ -48,6 +51,14 @@ pub const MAIL_ACCOUNT_TEST_PATH: &str = "/api/v1/mail/account/test";
 pub const MAIL_SEND_PATH: &str = "/api/v1/mail/send";
 pub const MAIL_REPLY_PATH: &str = "/api/v1/mail/reply";
 pub const MAIL_FORWARD_PATH: &str = "/api/v1/mail/forward";
+pub const MAIL_FOLDERS_PATH: &str = "/api/v1/mail/folders";
+pub const MAIL_THREADS_PATH: &str = "/api/v1/mail/threads";
+pub const MAIL_THREAD_PATH: &str = "/api/v1/mail/threads/{id}";
+pub const MAIL_MESSAGE_PATH: &str = "/api/v1/mail/messages/{id}";
+pub const MAIL_ATTACHMENT_DOWNLOAD_PATH: &str = "/api/v1/mail/attachments/{id}/download";
+
+/// The shared attachment-store handle (presigned GET for inbound attachments).
+pub type SharedAttachmentStore = Arc<dyn MailAttachmentStore>;
 
 /// A no-op realtime notifier: outbound persistence never depends on it, and the
 /// realtime channel for inbound mail lands in B-mail-5.
@@ -67,9 +78,13 @@ impl mnt_comms_application::MailNotifier for NoopMailNotifier {
 pub struct CommsRestState {
     store: PgMailStore,
     sender: LettreMailSender,
+    imap: AsyncImapClient,
     /// The master-key cipher. `None` when `MNT_MAIL_MASTER_KEY` is absent — the
     /// feature is then unavailable (503) but the app still boots.
     cipher: Option<Arc<EnvelopeCredentialCipher>>,
+    /// The object store for inbound attachment presigned GETs. `None` when
+    /// storage is unconfigured — the attachment-download endpoint then 503s.
+    attachments: Option<SharedAttachmentStore>,
     jwt_verifier: Option<JwtVerifier>,
 }
 
@@ -83,9 +98,18 @@ impl CommsRestState {
         Self {
             store,
             sender: LettreMailSender::new(),
+            imap: AsyncImapClient::new(),
             cipher,
+            attachments: None,
             jwt_verifier,
         }
+    }
+
+    /// Attach the object store backing inbound attachment presigned GETs.
+    #[must_use]
+    pub fn with_attachments(mut self, attachments: Option<SharedAttachmentStore>) -> Self {
+        self.attachments = attachments;
+        self
     }
 
     fn pool(&self) -> &sqlx::PgPool {
@@ -102,6 +126,11 @@ pub fn router(state: CommsRestState) -> Router {
         .route(MAIL_SEND_PATH, post(send_new))
         .route(MAIL_REPLY_PATH, post(send_reply))
         .route(MAIL_FORWARD_PATH, post(send_forward))
+        .route(MAIL_FOLDERS_PATH, get(list_folders))
+        .route(MAIL_THREADS_PATH, get(list_threads))
+        .route(MAIL_THREAD_PATH, get(get_thread))
+        .route(MAIL_MESSAGE_PATH, get(get_message))
+        .route(MAIL_ATTACHMENT_DOWNLOAD_PATH, get(download_attachment))
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
@@ -240,12 +269,36 @@ async fn test_account(
     let principal = principal_from_headers(&state, &headers)?;
     authorize_feature(&principal, Feature::MailAccountManage)?;
     let cipher = state.cipher_ref()?;
-    let service = AccountService::new(state.store.clone(), state.sender.clone(), cipher);
-    let result: TestConnectionResult = service
+    // Probe SMTP first (rate-limited + decrypted inside the service). A failure
+    // short-circuits with the SMTP error code.
+    let smtp_service = AccountService::new(state.store.clone(), state.sender.clone(), cipher);
+    let smtp: TestConnectionResult = smtp_service
         .test_connection(principal.user_id, OffsetDateTime::now_utc())
         .await
         .map_err(RestError::from_service)?;
-    Ok(Json(result).into_response())
+    if !smtp.ok {
+        return Ok(Json(smtp).into_response());
+    }
+
+    // SMTP is reachable — now actually probe IMAP (the part deferred from B-mail-2).
+    // The stored IMAP password is decrypted in-memory inside the SyncService and
+    // dropped after the probe; the SSRF guard + TLS enforcement apply.
+    let Some(account) = read_account(&state, principal.org_id).await? else {
+        return Err(RestError::validation(
+            "no mailbox is configured for this tenant",
+        ));
+    };
+    let sync = SyncService::new(
+        state.store.clone(),
+        state.imap.clone(),
+        NoopAttachmentStore,
+        cipher,
+    );
+    let imap: TestConnectionResult = sync
+        .test_connection(&account)
+        .await
+        .map_err(RestError::from_service)?;
+    Ok(Json(imap).into_response())
 }
 
 async fn send_new(
@@ -329,6 +382,210 @@ async fn send_impl(
         .await
         .map_err(RestError::from_service)?;
     Ok((StatusCode::CREATED, Json(result)).into_response())
+}
+
+// ---------------------------------------------------------------------------
+// READ API (B-mail-3): folders, threads, messages, attachment download. All
+// MailUse-gated and RLS-armed (the store re-arms `app.current_org` to the
+// principal's org for every query).
+// ---------------------------------------------------------------------------
+
+/// Query string for the thread list: `unread`, `q` (search), `folder`, `before`
+/// (keyset cursor on `last_message_at`), `limit`.
+#[derive(Debug, Deserialize, Default)]
+struct ThreadListQuery {
+    #[serde(default)]
+    unread: bool,
+    #[serde(default)]
+    q: Option<String>,
+    #[serde(default)]
+    folder: Option<String>,
+    #[serde(default)]
+    before: Option<i64>,
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+async fn list_folders(
+    State(state): State<CommsRestState>,
+    headers: HeaderMap,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    authorize_feature(&principal, Feature::MailUse)?;
+    let _cipher = state.cipher_ref()?; // gate the feature on a configured KEK
+    let Some(account) = read_account(&state, principal.org_id).await? else {
+        return Ok(Json(Vec::<FolderView>::new()).into_response());
+    };
+    let folders = state
+        .store
+        .list_folders(principal.org_id, account.id)
+        .await
+        .map_err(RestError::from_service)?;
+    Ok(Json(folders).into_response())
+}
+
+async fn list_threads(
+    State(state): State<CommsRestState>,
+    headers: HeaderMap,
+    Query(params): Query<ThreadListQuery>,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    authorize_feature(&principal, Feature::MailUse)?;
+    let _cipher = state.cipher_ref()?;
+    let Some(account) = read_account(&state, principal.org_id).await? else {
+        return Ok(Json(Vec::<ThreadView>::new()).into_response());
+    };
+    let before = params
+        .before
+        .and_then(|ts| OffsetDateTime::from_unix_timestamp(ts).ok());
+    let folder_id = params
+        .folder
+        .as_deref()
+        .and_then(|s| uuid::Uuid::from_str(s).ok());
+    let query = ThreadQuery {
+        folder_id,
+        unread_only: params.unread,
+        search: params.q,
+        before,
+        limit: params.limit.unwrap_or(50),
+    };
+    let threads = state
+        .store
+        .list_threads(principal.org_id, account.id, &query)
+        .await
+        .map_err(RestError::from_service)?;
+    Ok(Json(threads).into_response())
+}
+
+async fn get_thread(
+    State(state): State<CommsRestState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    authorize_feature(&principal, Feature::MailUse)?;
+    let _cipher = state.cipher_ref()?;
+    let thread_id =
+        uuid::Uuid::from_str(&id).map_err(|_| RestError::bad_request("invalid thread id"))?;
+    let detail: Option<ThreadDetail> = state
+        .store
+        .get_thread(principal.org_id, thread_id)
+        .await
+        .map_err(RestError::from_service)?;
+    match detail {
+        Some(detail) => Ok(Json(detail).into_response()),
+        None => Err(RestError::new(
+            StatusCode::NOT_FOUND,
+            "not_found",
+            "thread not found",
+        )),
+    }
+}
+
+async fn get_message(
+    State(state): State<CommsRestState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    authorize_feature(&principal, Feature::MailUse)?;
+    let _cipher = state.cipher_ref()?;
+    let message_id =
+        EmailMessageId::from_str(&id).map_err(|_| RestError::bad_request("invalid message id"))?;
+    let message: Option<MessageView> = state
+        .store
+        .get_message(principal.org_id, message_id)
+        .await
+        .map_err(RestError::from_service)?;
+    match message {
+        Some(message) => Ok(Json(message).into_response()),
+        None => Err(RestError::new(
+            StatusCode::NOT_FOUND,
+            "not_found",
+            "message not found",
+        )),
+    }
+}
+
+async fn download_attachment(
+    State(state): State<CommsRestState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    authorize_feature(&principal, Feature::MailUse)?;
+    let _cipher = state.cipher_ref()?;
+    let attachment_id =
+        uuid::Uuid::from_str(&id).map_err(|_| RestError::bad_request("invalid attachment id"))?;
+    let attachments = state
+        .attachments
+        .as_ref()
+        .ok_or_else(RestError::email_not_configured)?;
+    // Resolve the attachment's storage key under the armed org (cross-tenant
+    // invisible: a key for another org's attachment is simply not found).
+    let reference = state
+        .store
+        .get_attachment_key(principal.org_id, attachment_id)
+        .await
+        .map_err(RestError::from_service)?
+        .ok_or_else(|| {
+            RestError::new(StatusCode::NOT_FOUND, "not_found", "attachment not found")
+        })?;
+    let url = attachments
+        .presign_get(&reference.s3_key)
+        .await
+        .map_err(RestError::from_service)?;
+    // 302 to the short-lived presigned URL (the UI follows it); the raw key is
+    // never exposed.
+    Ok(Json(AttachmentDownload { url }).into_response())
+}
+
+/// The presigned-GET response for an attachment download.
+#[derive(Debug, Serialize)]
+struct AttachmentDownload {
+    url: String,
+}
+
+/// Read the tenant's single configured mailbox as a [`StoredAccount`] (sealed
+/// credentials included), org-armed. `None` when no mailbox is configured.
+async fn read_account(
+    state: &CommsRestState,
+    org: OrgId,
+) -> Result<Option<StoredAccount>, RestError> {
+    use mnt_comms_application::MailStore;
+    use mnt_platform_request_context::CURRENT_ORG;
+    CURRENT_ORG
+        .scope(org, state.store.get_account())
+        .await
+        .map_err(RestError::from_service)
+}
+
+/// A no-op attachment store for paths that never upload (the IMAP test-connection
+/// probe builds a `SyncService` but only calls `test_connection`, which never
+/// touches storage).
+#[derive(Clone, Copy)]
+struct NoopAttachmentStore;
+
+impl MailAttachmentStore for NoopAttachmentStore {
+    fn put<'a>(
+        &'a self,
+        _key: String,
+        _content_type: String,
+        _bytes: Vec<u8>,
+    ) -> mnt_comms_application::MailFuture<'a, Result<(), MailServiceError>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn presign_get<'a>(
+        &'a self,
+        _key: &'a str,
+    ) -> mnt_comms_application::MailFuture<'a, Result<String, MailServiceError>> {
+        Box::pin(async {
+            Err(MailServiceError::Transport {
+                code: "presign_unavailable",
+            })
+        })
+    }
 }
 
 /// Collapse a present-but-blank password to `None` so the write-only contract

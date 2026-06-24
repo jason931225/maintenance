@@ -187,10 +187,10 @@ async fn assignee_name_join_resolves_in_tenant_and_never_leaks_as_mnt_rt(owner_p
 
     // Seed an assigned ticket per tenant directly as owner, so the test isolates
     // the display-name JOIN on the READ path.
-    let ticket_a = seed_assigned_ticket(&owner_pool, org_a_uuid, branch_a, requester_a, assignee_a)
-        .await;
-    let ticket_b = seed_assigned_ticket(&owner_pool, ORG_B, branch_b, requester_b, assignee_b)
-        .await;
+    let ticket_a =
+        seed_assigned_ticket(&owner_pool, org_a_uuid, branch_a, requester_a, assignee_a).await;
+    let ticket_b =
+        seed_assigned_ticket(&owner_pool, ORG_B, branch_b, requester_b, assignee_b).await;
 
     // All reads go through the genuine runtime role under FORCE RLS.
     let rt_pool = runtime_role_pool(&owner_pool).await;

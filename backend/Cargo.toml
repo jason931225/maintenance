@@ -124,6 +124,25 @@ base64 = "0.22.1"
 # does NOT add a second rustls stack (it speaks plain UDP/TCP DNS by default).
 hickory-resolver = "0.26.1"
 ipnet = "2.12.0"
+# Inbound IMAP sync (B-mail-3). Versions verified live against the crates.io
+# index 2026-06-23: async-imap 0.11.2, mail-parser 0.11.4, tokio-rustls 0.26.4,
+# rustls 0.23 (workspace already resolves 0.23.x via lettre's tokio1-rustls-tls),
+# webpki-roots 1.0.8, futures 0.3.32.
+#
+# R1 SINGLE-STACK GATE: `async-imap` is TLS-AGNOSTIC — it speaks IMAP over any
+# `tokio::io::AsyncRead + AsyncWrite` (feature `runtime-tokio`, default off so
+# `async-std` is never pulled). We supply the TLS layer ourselves with
+# `tokio-rustls` 0.26 on `rustls` 0.23 + the `ring` provider — the EXACT rustls
+# major/minor + ring that `lettre 0.11.22`'s `tokio1-rustls-tls` already pulls,
+# so `cargo tree -d` stays single-stack (one rustls, one ring, no native-tls /
+# openssl). `mail-parser` is the inbound MIME parser; both appear ONLY in
+# `mnt-comms-adapter-imap`.
+async-imap = { version = "0.11.2", default-features = false, features = ["runtime-tokio"] }
+mail-parser = "0.11.4"
+tokio-rustls = { version = "0.26.4", default-features = false, features = ["ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1.0.8"
+futures = { version = "0.3.32", default-features = false, features = ["std"] }
 
 mnt-kernel-core = { path = "crates/kernel/core" }
 mnt-compliance-domain = { path = "crates/compliance/domain" }
@@ -172,6 +191,7 @@ mnt-comms-credential-cipher = { path = "crates/comms/credential-cipher" }
 mnt-comms-application = { path = "crates/comms/application" }
 mnt-comms-adapter-postgres = { path = "crates/comms/adapter-postgres" }
 mnt-comms-adapter-smtp = { path = "crates/comms/adapter-smtp" }
+mnt-comms-adapter-imap = { path = "crates/comms/adapter-imap" }
 mnt-comms-rest = { path = "crates/comms/rest" }
 mnt-dispatch-domain = { path = "crates/dispatch/domain" }
 mnt-dispatch-application = { path = "crates/dispatch/application" }
