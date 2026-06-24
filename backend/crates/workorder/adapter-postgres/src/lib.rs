@@ -1012,6 +1012,15 @@ impl PgWorkOrderStore {
                     builder.push_bind(plan_date);
                 }
                 builder.push(" ORDER BY plan_date DESC, created_at DESC, id DESC");
+                // Bound the unfiltered queue. The ORDER BY puts the newest
+                // plan_date first, so a just-created today plan (#19.17) always
+                // sorts to the top and stays within the cap — the bound trims
+                // only the long tail of old plans, never today's DRAFT/REQUESTED.
+                // ponytail: fixed cap; add keyset pagination if a tenant's recent
+                // queue ever exceeds 200 same-day plans.
+                if query.plan_date.is_none() {
+                    builder.push(" LIMIT 200");
+                }
                 Ok(builder.build().fetch_all(tx.as_mut()).await?)
             })
         })
@@ -1428,29 +1437,62 @@ async fn lookup_equipment_for_management_no(
     branch_uuid: uuid::Uuid,
     management_no: &str,
 ) -> Result<EquipmentLookup, PgWorkOrderError> {
-    // Leading-zero-insensitive exact match so a stored `010` resolves the
-    // normalized `10` / `10호기` / `#10` the receptionist typed, mirroring the
-    // REST lookup_equipment handler.
-    let row = sqlx::query(
+    // 1. EXACT match first: a stored `10` and a stored `0010` are DIFFERENT
+    //    equipment, so an exact hit on the typed (normalized) value is always
+    //    the unambiguous answer and must win over the leading-zero-insensitive
+    //    fallback below.
+    let exact = sqlx::query(
         r#"
         SELECT id, customer_id, site_id
         FROM registry_equipment
-        WHERE branch_id = $1 AND ltrim(management_no, '0') = ltrim($2, '0')
-        ORDER BY updated_at DESC
+        WHERE branch_id = $1 AND management_no = $2
         LIMIT 1
         "#,
     )
     .bind(branch_uuid)
     .bind(management_no)
     .fetch_optional(tx.as_mut())
-    .await?
-    .ok_or_else(|| KernelError::not_found("no equipment matches that 호기 number"))?;
+    .await?;
+    if let Some(row) = exact {
+        return Ok(EquipmentLookup {
+            equipment_id: row.try_get("id")?,
+            customer_id: row.try_get("customer_id")?,
+            site_id: row.try_get("site_id")?,
+        });
+    }
 
-    Ok(EquipmentLookup {
-        equipment_id: row.try_get("id")?,
-        customer_id: row.try_get("customer_id")?,
-        site_id: row.try_get("site_id")?,
-    })
+    // 2. Leading-zero-insensitive fallback so a stored `010` resolves the
+    //    normalized `10` / `10호기` / `#10` the receptionist typed, mirroring the
+    //    REST lookup_equipment handler. But this must NOT guess: if several
+    //    rows share a normalized management_no (e.g. `10` vs `0010`), binding the
+    //    work order to whichever was updated last risks the wrong
+    //    equipment/customer/site — so we require EXACTLY ONE normalized match
+    //    and otherwise raise a conflict for the operator to disambiguate.
+    let rows = sqlx::query(
+        r#"
+        SELECT id, customer_id, site_id
+        FROM registry_equipment
+        WHERE branch_id = $1 AND ltrim(management_no, '0') = ltrim($2, '0')
+        LIMIT 2
+        "#,
+    )
+    .bind(branch_uuid)
+    .bind(management_no)
+    .fetch_all(tx.as_mut())
+    .await?;
+    match rows.as_slice() {
+        [] => Err(KernelError::not_found("no equipment matches that 호기 number").into()),
+        [row] => Ok(EquipmentLookup {
+            equipment_id: row.try_get("id")?,
+            customer_id: row.try_get("customer_id")?,
+            site_id: row.try_get("site_id")?,
+        }),
+        _ => Err(KernelError::conflict(
+            "여러 장비의 관리번호가 같은 번호로 정규화됩니다. 앞자리 0을 포함한 정확한 관리번호를 입력하세요 \
+             (multiple equipment share this normalized management number — enter the exact management_no including any leading zeros)",
+        )
+        .into()),
+    }
 }
 
 async fn next_request_no(

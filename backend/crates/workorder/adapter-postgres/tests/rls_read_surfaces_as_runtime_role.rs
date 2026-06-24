@@ -391,13 +391,20 @@ async fn create_work_order_missing_equipment_is_not_found_as_runtime_role(owner_
 }
 
 // ===========================================================================
-// (6) #19.13b — an admin TRIAGING the work-order queue org-wide sees a just-filed
-// order in a branch they are NOT a member of, while a branch-scoped reader whose
-// scope EXCLUDES that branch sees zero. Exercises the EXACT list COUNT predicate
-// the GET /api/v1/work-orders handler runs (`push_branch_scope_filter` on
-// `w.branch_id`) under RLS as `mnt_rt`: admin scope = `All`, branch reader =
-// `Branches`. Before the fix the admin inherited a branch set and the row was
-// invisible to the very person who must act on it.
+// (6) #19.13b — an ORG-WIDE TRIAGER sees a just-filed order in a branch they are
+// NOT a member of, while a branch-scoped reader whose scope EXCLUDES that branch
+// sees zero. Exercises the EXACT list COUNT predicate the GET /api/v1/work-orders
+// handler runs (`push_branch_scope_filter` on `w.branch_id`) under RLS as
+// `mnt_rt`: org-wide scope = `All`, branch reader = `Branches`.
+//
+// POLICY NOTE (codex G001 HIGH-1): org-wide queue visibility is now gated on the
+// `OrgWideQueueTriage` capability — EXECUTIVE + SUPER_ADMIN only — NOT plain
+// ADMIN. This store-level test asserts the SCOPE mechanics (`All` surfaces the
+// off-branch row; a branch `Branches` scope hides it), which are role-agnostic
+// and still valid. The principal→scope mapping (a holder of OrgWideQueueTriage
+// gets `All`; a branch-scoped ADMIN keeps its branch set) is proven at the
+// capability level in `platform/authz/tests/policy.rs`
+// (`org_wide_queue_triage_is_executive_and_super_admin_only`).
 // ===========================================================================
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn admin_list_scope_surfaces_off_branch_work_order_as_runtime_role(owner_pool: PgPool) {
@@ -443,12 +450,13 @@ async fn admin_list_scope_surfaces_off_branch_work_order_as_runtime_role(owner_p
         "a branch-scoped reader excluding the filed branch must NOT see the order"
     );
 
-    // The admin's org-wide list scope (`All`) surfaces it — RLS still confines
-    // the read to KNL, so this is org-wide, not cross-tenant.
+    // The org-wide list scope (`All`, held by an OrgWideQueueTriage principal —
+    // EXECUTIVE/SUPER_ADMIN) surfaces it — RLS still confines the read to KNL, so
+    // this is org-wide, not cross-tenant.
     let visible = count_work_orders_for_scope(&rt_pool, knl, &BranchScope::All, wo.branch_id).await;
     assert_eq!(
         visible, 1,
-        "the admin's org-wide list scope must surface the off-branch order"
+        "the org-wide list scope must surface the off-branch order"
     );
 }
 
@@ -662,4 +670,77 @@ async fn cross_tenant_work_order_is_invisible_as_runtime_role(owner_pool: PgPool
         "a second tenant's work order must be INVISIBLE under KNL's GUC as mnt_rt \
          (cross-tenant isolation must hold)"
     );
+}
+
+// ===========================================================================
+// (8) codex G001 MEDIUM — management-no resolution must be EXACT-first, then a
+// UNIQUE normalized fallback, never a silent "newest wins" guess. Two equipment
+// whose management_no normalize equal (`10` vs `0010`) must NOT let a create bind
+// to whichever was updated last:
+//   * an EXACT typed value resolves its own row deterministically;
+//   * an ambiguous-normalized value (`010`, matching both) is a CONFLICT, not a
+//     guess;
+//   * a value that normalizes to exactly ONE row still resolves via the fallback.
+// ===========================================================================
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn management_no_lookup_is_exact_then_unique_normalized_as_runtime_role(owner_pool: PgPool) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let knl = OrgId::knl();
+    let knl_uuid = *knl.as_uuid();
+    seed_org(&owner_pool, knl_uuid, "knl").await;
+    let branch = seed_branch(&owner_pool, knl_uuid).await;
+    let receptionist = seed_user(&owner_pool, knl_uuid, "RECEPTIONIST", branch).await;
+    // Two DIFFERENT equipment whose management_no normalize to the same `10`.
+    seed_equipment(&owner_pool, knl_uuid, branch, "10").await;
+    seed_equipment(&owner_pool, knl_uuid, branch, "0010").await;
+    // A third, normalized-unique equipment for the unique-fallback assertion.
+    seed_equipment(&owner_pool, knl_uuid, branch, "0042").await;
+
+    let file = |management_no: &str| {
+        let value = management_no.to_owned();
+        let rt_pool = rt_pool.clone();
+        async move {
+            mnt_platform_request_context::scope_org(knl, async {
+                let store = PgWorkOrderStore::new(rt_pool.clone());
+                store
+                    .create_work_order(CreateWorkOrderCommand {
+                        actor: receptionist,
+                        branch_id: branch,
+                        management_no: value,
+                        symptom: "유압 누유".to_owned(),
+                        customer_request: None,
+                        target_due_at: None,
+                        trace: TraceContext::generate(),
+                        occurred_at: OffsetDateTime::now_utc(),
+                    })
+                    .await
+            })
+            .await
+        }
+    };
+
+    // EXACT `10` resolves deterministically (its own row exists), no conflict.
+    file("10")
+        .await
+        .expect("an EXACT management_no `10` must resolve its own row, not conflict");
+    // EXACT `0010` likewise resolves its own distinct row.
+    file("0010")
+        .await
+        .expect("an EXACT management_no `0010` must resolve its own row, not conflict");
+
+    // Ambiguous normalized `010` (no exact row, matches BOTH `10` and `0010`)
+    // must be a CONFLICT — never a silent wrong-equipment bind.
+    match file("010").await {
+        Err(err) => assert_eq!(
+            err.kind(),
+            ErrorKind::Conflict,
+            "an ambiguous normalized management_no must conflict, not guess"
+        ),
+        Ok(summary) => panic!("expected conflict on ambiguous normalized no, got {summary:?}"),
+    }
+
+    // A value that normalizes to exactly ONE row still resolves via the fallback.
+    file("42")
+        .await
+        .expect("a unique normalized management_no `42` must still resolve `0042`");
 }

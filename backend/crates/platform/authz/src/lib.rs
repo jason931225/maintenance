@@ -104,6 +104,13 @@ pub enum Feature {
     CompletionReview,
     DailyPlanRequest,
     DailyPlanReview,
+    /// Org-wide read of the work-order + daily-plan queues regardless of branch
+    /// membership. EXECUTIVE + SUPER_ADMIN only — it widens triage visibility to
+    /// every branch in the tenant (RLS still confines it to the caller's org),
+    /// matching [`resolve_branch_scope_in_org`]'s org-wide tier. A branch-scoped
+    /// ADMIN stays confined to its branches. The future "org-admin" custom role
+    /// will hold this capability (see docs/specs/rbac-configurable.md).
+    OrgWideQueueTriage,
     KpiRead,
     KpiExclusionManage,
     UserManage,
@@ -157,7 +164,7 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Self; 41] = [
+    pub const ALL: [Self; 42] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -171,6 +178,7 @@ impl Feature {
         Self::CompletionReview,
         Self::DailyPlanRequest,
         Self::DailyPlanReview,
+        Self::OrgWideQueueTriage,
         Self::KpiRead,
         Self::KpiExclusionManage,
         Self::UserManage,
@@ -223,6 +231,10 @@ impl Feature {
             Self::CompletionReview => [D, D, D, A, D, A],
             Self::DailyPlanRequest => [D, D, A, A, D, A],
             Self::DailyPlanReview => [D, D, D, A, D, A],
+            // Org-wide queue read: EXECUTIVE + SUPER_ADMIN only, matching the
+            // org-wide tier of `resolve_branch_scope_in_org`. A branch ADMIN is
+            // deliberately NOT here — it stays confined to its branch scope.
+            Self::OrgWideQueueTriage => [D, D, D, D, A, A],
             Self::KpiRead => [D, D, D, A, A, A],
             Self::KpiExclusionManage => [D, D, D, A, A, A],
             Self::UserManage => [D, D, D, A, D, A],

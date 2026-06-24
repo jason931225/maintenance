@@ -18,17 +18,18 @@ const ROLES: [Role; 6] = [
     Role::SuperAdmin,
 ];
 
-fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 41] {
+fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 42] {
     use Feature::{
         AiAssist, AssigneeManage, AuditLogRead, BranchManage, CompletionReview, DailyPlanRequest,
         DailyPlanReview, ElevatedRoleGrant, EquipmentCostLedgerRead, EquipmentCostLedgerWrite,
         EquipmentManage, EvidenceAttach, ExcelDownload, InspectionRoundComplete,
         InspectionScheduleManage, IntegrityFindingTriage, IntegrityFindingsRead,
         KpiExclusionManage, KpiRead, Login, MailAccountManage, MailUse, MasterListImport,
-        OpsDashboardRead, PriorityManage, PurchaseExecute, PurchaseFinalApprove,
-        PurchaseRequestApprove, PurchaseRequestCreate, PurchaseRequestRead, RegionManage,
-        RentalQuoteManage, SalesManage, SubordinateUserCreate, TargetManage, UserManage,
-        WorkOrderCreate, WorkOrderEditIntake, WorkOrderReadAll, WorkOrderStart, WorkReportSubmit,
+        OpsDashboardRead, OrgWideQueueTriage, PriorityManage, PurchaseExecute,
+        PurchaseFinalApprove, PurchaseRequestApprove, PurchaseRequestCreate, PurchaseRequestRead,
+        RegionManage, RentalQuoteManage, SalesManage, SubordinateUserCreate, TargetManage,
+        UserManage, WorkOrderCreate, WorkOrderEditIntake, WorkOrderReadAll, WorkOrderStart,
+        WorkReportSubmit,
     };
     use PermissionLevel::{Allow as A, Deny as D, Limited as L, RequestOnly as R};
 
@@ -48,6 +49,10 @@ fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 41] {
         (CompletionReview, [D, D, D, A, D, A]),
         (DailyPlanRequest, [D, D, A, A, D, A]),
         (DailyPlanReview, [D, D, D, A, D, A]),
+        // Org-wide queue triage read: EXECUTIVE + SUPER_ADMIN only (a branch
+        // ADMIN stays confined to its branch scope), matching the org-wide tier
+        // of resolve_branch_scope_in_org.
+        (OrgWideQueueTriage, [D, D, D, D, A, A]),
         (KpiRead, [D, D, D, A, A, A]),
         (KpiExclusionManage, [D, D, D, A, A, A]),
         (UserManage, [D, D, D, A, D, A]),
@@ -107,7 +112,7 @@ fn role_enum_uses_canonical_database_codes() {
 #[test]
 fn member_role_is_default_deny_except_login() {
     // The open-signup default tier: it can authenticate but nothing else until an
-    // admin elevates it. `Login` is its only `Allow` cell across all 41 features.
+    // admin elevates it. `Login` is its only `Allow` cell across all 42 features.
     for feature in Feature::ALL {
         let level = permission_for(Role::Member, feature);
         if feature == Feature::Login {
@@ -135,7 +140,7 @@ fn member_role_is_default_deny_except_login() {
 #[test]
 fn permission_matrix_is_exhaustive_and_matches_inherited_table() {
     let matrix = expected_matrix();
-    assert_eq!(Feature::ALL.len(), 41);
+    assert_eq!(Feature::ALL.len(), 42);
     assert_eq!(matrix.len(), Feature::ALL.len());
 
     for feature in Feature::ALL {
@@ -154,6 +159,67 @@ fn permission_matrix_is_exhaustive_and_matches_inherited_table() {
             );
         }
     }
+}
+
+#[test]
+fn org_wide_queue_triage_is_executive_and_super_admin_only() {
+    // codex G001 HIGH-1: org-wide work-order/daily-plan queue visibility is gated
+    // on the OrgWideQueueTriage capability, NOT a role string. It must mirror the
+    // org-wide tier of `resolve_branch_scope_in_org` — EXECUTIVE + SUPER_ADMIN —
+    // so a branch-scoped ADMIN is confined to its branches and does NOT see the
+    // org-wide queue. `work_order_list_scope` widens to `BranchScope::All` exactly
+    // when a principal holds this capability at `Allow`.
+    let holds =
+        |role: Role| permission_for(role, Feature::OrgWideQueueTriage) == PermissionLevel::Allow;
+    assert!(
+        holds(Role::Executive),
+        "EXECUTIVE must hold OrgWideQueueTriage"
+    );
+    assert!(
+        holds(Role::SuperAdmin),
+        "SUPER_ADMIN must hold OrgWideQueueTriage"
+    );
+    assert!(
+        !holds(Role::Admin),
+        "a branch-scoped ADMIN must NOT hold OrgWideQueueTriage (no org-wide widen)"
+    );
+    assert!(!holds(Role::Receptionist), "RECEPTIONIST must NOT hold it");
+    assert!(!holds(Role::Mechanic), "MECHANIC must NOT hold it");
+    assert!(!holds(Role::Member), "MEMBER must NOT hold it");
+}
+
+#[test]
+fn daily_plan_list_gate_requires_a_daily_plan_capability() {
+    // codex G001 HIGH-2: the daily-plan LIST is a MECHANIC-requests / ADMIN-reviews
+    // flow, gated on DailyPlanRequest OR DailyPlanReview — NOT the broad
+    // WorkOrderReadAll (which RECEPTIONIST + EXECUTIVE also pass). This mirrors
+    // `authorize_daily_plan_list` in workorder/rest: a role passes iff it holds
+    // EITHER capability at `Allow`.
+    let can_list = |role: Role| {
+        permission_for(role, Feature::DailyPlanRequest) == PermissionLevel::Allow
+            || permission_for(role, Feature::DailyPlanReview) == PermissionLevel::Allow
+    };
+    assert!(
+        can_list(Role::Mechanic),
+        "MECHANIC (request) must list daily plans"
+    );
+    assert!(
+        can_list(Role::Admin),
+        "ADMIN (review) must list daily plans"
+    );
+    assert!(
+        can_list(Role::SuperAdmin),
+        "SUPER_ADMIN must list daily plans"
+    );
+    assert!(
+        !can_list(Role::Receptionist),
+        "RECEPTIONIST has no daily-plan permission and must be denied the list"
+    );
+    assert!(
+        !can_list(Role::Executive),
+        "EXECUTIVE has no daily-plan permission and must be denied the list"
+    );
+    assert!(!can_list(Role::Member), "MEMBER must be denied the list");
 }
 
 #[test]

@@ -18,7 +18,9 @@ use mnt_kernel_core::{
     KernelError, OrgId, TraceContext, UserId, WorkOrderId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
-use mnt_platform_authz::{Action, BranchColumn, Feature, Principal, Role, authorize};
+use mnt_platform_authz::{
+    Action, BranchColumn, Feature, PermissionLevel, Principal, Role, authorize, permission_for,
+};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_jobs::{JobQueue, JobRequest};
 use mnt_platform_request_context::current_org;
@@ -1750,16 +1752,30 @@ fn is_admin_like(principal: &Principal) -> bool {
         .any(|role| matches!(role, Role::Admin | Role::SuperAdmin))
 }
 
-/// The branch scope to apply when an admin TRIAGES the work-order queue.
+/// Whether the principal may read the work-order + daily-plan queues org-wide
+/// (every branch in the tenant) regardless of branch membership.
 ///
-/// A receptionist files a work order against a branch they belong to; the org
-/// admin who must triage it may not be a member of that branch, so a strict
-/// branch-scope filter hides the just-created order from the very person who
-/// must act on it (#19.13b). Admins (and the already-`All` SUPER_ADMIN) see the
-/// whole org — RLS still confines the read to the caller's tenant — while every
-/// other role keeps its explicit branch set.
+/// Gated on the [`Feature::OrgWideQueueTriage`] capability — EXECUTIVE +
+/// SUPER_ADMIN today — NOT a role string. A branch-scoped ADMIN does NOT hold
+/// it and stays confined to its branch set, matching `resolve_branch_scope_in_org`.
+fn has_org_wide_queue_triage(principal: &Principal) -> bool {
+    principal
+        .roles
+        .iter()
+        .any(|role| permission_for(*role, Feature::OrgWideQueueTriage) == PermissionLevel::Allow)
+}
+
+/// The branch scope to apply when triaging the work-order queue.
+///
+/// A receptionist files a work order against a branch they belong to; the
+/// org-wide triager who must act on it may not be a member of that branch, so a
+/// strict branch-scope filter would hide the just-created order from them
+/// (#19.13b). Principals holding `OrgWideQueueTriage` (EXECUTIVE + SUPER_ADMIN)
+/// see the whole org — RLS still confines the read to the caller's tenant —
+/// while every other role (including a branch-scoped ADMIN) keeps its explicit
+/// branch set.
 fn work_order_list_scope(principal: &Principal) -> BranchScope {
-    if is_admin_like(principal) {
+    if has_org_wide_queue_triage(principal) {
         BranchScope::All
     } else {
         principal.branch_scope.clone()
@@ -2396,7 +2412,7 @@ async fn list_daily_plans(
     Query(query): Query<ListDailyPlansQuery>,
 ) -> Result<Json<DailyPlanListResponse>, RestError> {
     let principal = principal_from_headers(&state, &headers)?;
-    authorize_read_access(&principal)?;
+    authorize_daily_plan_list(&principal)?;
     let plan_date = query
         .plan_date
         .as_deref()
@@ -2614,18 +2630,30 @@ async fn transition_daily_plan_endpoint(
 }
 
 fn authorize_read_access(principal: &Principal) -> Result<(), RestError> {
+    authorize_feature_in_scope(principal, Feature::WorkOrderReadAll)
+}
+
+/// Authorize the daily-plan LIST: the queue is a MECHANIC-requests / ADMIN-reviews
+/// flow, so visibility is gated on holding `DailyPlanRequest` OR `DailyPlanReview`
+/// — NOT the broad `WorkOrderReadAll` (which RECEPTIONIST + EXECUTIVE also pass).
+/// A RECEPTIONIST or EXECUTIVE with no daily-plan permission gets a 403. Branch
+/// filtering still happens via `work_order_list_scope`.
+fn authorize_daily_plan_list(principal: &Principal) -> Result<(), RestError> {
+    authorize_feature_in_scope(principal, Feature::DailyPlanRequest)
+        .or_else(|_| authorize_feature_in_scope(principal, Feature::DailyPlanReview))
+}
+
+/// Authorize a read-style feature against a representative branch from the
+/// principal's scope (the first branch it belongs to, or any branch when the
+/// scope is `All`). Shared by the work-order and daily-plan list gates.
+fn authorize_feature_in_scope(principal: &Principal, feature: Feature) -> Result<(), RestError> {
     let resource_branch = match &principal.branch_scope {
         BranchScope::All => BranchId::new(),
         BranchScope::Branches(branches) => branches.iter().next().copied().ok_or_else(|| {
             RestError::from_kernel(KernelError::forbidden("principal has no branch scope"))
         })?,
     };
-    authorize(
-        principal,
-        Action::new(Feature::WorkOrderReadAll),
-        resource_branch,
-    )
-    .map_err(RestError::from_kernel)
+    authorize(principal, Action::new(feature), resource_branch).map_err(RestError::from_kernel)
 }
 
 fn parse_work_order_list_query(
