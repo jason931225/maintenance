@@ -23,6 +23,10 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.AttachmentStage
+import com.maintenance.api.client.model.MediaKind
+import com.maintenance.api.client.model.PresignedUpload
+import com.maintenance.api.client.model.ProcessingStatus
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -32,26 +36,33 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param id
- * @param name
- * @param deactivatedAt Set when the region has been soft-deleted (deactivated); null for an active region. Active-only listings omit deactivated rows.
- * @param createdAt
+ * @param workOrderId
+ * @param stage
+ * @param mediaKind
+ * @param processingStatus
+ * @param upload
  */
 @Serializable
 
-data class RegionSummary (
+data class EvidenceStagingPresignResponse (
 
     @Contextual @SerialName(value = "id")
     val id: java.util.UUID,
 
-    @SerialName(value = "name")
-    val name: kotlin.String,
+    @Contextual @SerialName(value = "work_order_id")
+    val workOrderId: java.util.UUID,
 
-    /* Set when the region has been soft-deleted (deactivated); null for an active region. Active-only listings omit deactivated rows. */
-    @Contextual @SerialName(value = "deactivated_at")
-    val deactivatedAt: java.time.OffsetDateTime?,
+    @Contextual @SerialName(value = "stage")
+    val stage: AttachmentStage,
 
-    @Contextual @SerialName(value = "created_at")
-    val createdAt: java.time.OffsetDateTime
+    @Contextual @SerialName(value = "media_kind")
+    val mediaKind: MediaKind,
+
+    @Contextual @SerialName(value = "processing_status")
+    val processingStatus: ProcessingStatus,
+
+    @SerialName(value = "upload")
+    val upload: PresignedUpload
 
 ) {
 

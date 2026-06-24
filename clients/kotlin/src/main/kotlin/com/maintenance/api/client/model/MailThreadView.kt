@@ -32,41 +32,39 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param id
- * @param workOrderNo
- * @param siteName
- * @param kind
- * @param occurredAt
+ * @param subject
+ * @param lastMessageAt
+ * @param messageCount
+ * @param unreadCount
+ * @param hasAttachments
+ * @param isFlagged
  */
 @Serializable
 
-data class ArrivalEvent (
+data class MailThreadView (
 
-    @SerialName(value = "id")
-    val id: kotlin.String,
+    @Contextual @SerialName(value = "id")
+    val id: java.util.UUID,
 
-    @SerialName(value = "work_order_no")
-    val workOrderNo: kotlin.String,
+    @SerialName(value = "subject")
+    val subject: kotlin.String,
 
-    @SerialName(value = "site_name")
-    val siteName: kotlin.String,
+    @Contextual @SerialName(value = "last_message_at")
+    val lastMessageAt: java.time.OffsetDateTime,
 
-    @SerialName(value = "kind")
-    val kind: ArrivalEvent.Kind,
+    @SerialName(value = "message_count")
+    val messageCount: kotlin.Long,
 
-    @Contextual @SerialName(value = "occurred_at")
-    val occurredAt: java.time.OffsetDateTime
+    @SerialName(value = "unread_count")
+    val unreadCount: kotlin.Long,
+
+    @SerialName(value = "has_attachments")
+    val hasAttachments: kotlin.Boolean,
+
+    @SerialName(value = "is_flagged")
+    val isFlagged: kotlin.Boolean
 
 ) {
 
-    /**
-     *
-     *
-     * Values: ARRIVAL,DEPARTURE
-     */
-    @Serializable
-    enum class Kind(val value: kotlin.String) {
-        @SerialName(value = "ARRIVAL") ARRIVAL("ARRIVAL"),
-        @SerialName(value = "DEPARTURE") DEPARTURE("DEPARTURE");
-    }
 
 }

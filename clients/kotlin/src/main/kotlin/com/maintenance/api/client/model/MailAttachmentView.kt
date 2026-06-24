@@ -32,41 +32,31 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param id
- * @param workOrderNo
- * @param siteName
- * @param kind
- * @param occurredAt
+ * @param filename
+ * @param contentType
+ * @param sizeBytes
+ * @param isInline
  */
 @Serializable
 
-data class ArrivalEvent (
+data class MailAttachmentView (
 
-    @SerialName(value = "id")
-    val id: kotlin.String,
+    @Contextual @SerialName(value = "id")
+    val id: java.util.UUID,
 
-    @SerialName(value = "work_order_no")
-    val workOrderNo: kotlin.String,
+    @SerialName(value = "filename")
+    val filename: kotlin.String,
 
-    @SerialName(value = "site_name")
-    val siteName: kotlin.String,
+    @SerialName(value = "content_type")
+    val contentType: kotlin.String,
 
-    @SerialName(value = "kind")
-    val kind: ArrivalEvent.Kind,
+    @SerialName(value = "size_bytes")
+    val sizeBytes: kotlin.Long,
 
-    @Contextual @SerialName(value = "occurred_at")
-    val occurredAt: java.time.OffsetDateTime
+    @SerialName(value = "is_inline")
+    val isInline: kotlin.Boolean
 
 ) {
 
-    /**
-     *
-     *
-     * Values: ARRIVAL,DEPARTURE
-     */
-    @Serializable
-    enum class Kind(val value: kotlin.String) {
-        @SerialName(value = "ARRIVAL") ARRIVAL("ARRIVAL"),
-        @SerialName(value = "DEPARTURE") DEPARTURE("DEPARTURE");
-    }
 
 }

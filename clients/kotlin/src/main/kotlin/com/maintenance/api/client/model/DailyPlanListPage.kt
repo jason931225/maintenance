@@ -23,6 +23,7 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.DailyPlanSummary
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -31,27 +32,14 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param id
- * @param name
- * @param deactivatedAt Set when the region has been soft-deleted (deactivated); null for an active region. Active-only listings omit deactivated rows.
- * @param createdAt
+ * @param items
  */
 @Serializable
 
-data class RegionSummary (
+data class DailyPlanListPage (
 
-    @Contextual @SerialName(value = "id")
-    val id: java.util.UUID,
-
-    @SerialName(value = "name")
-    val name: kotlin.String,
-
-    /* Set when the region has been soft-deleted (deactivated); null for an active region. Active-only listings omit deactivated rows. */
-    @Contextual @SerialName(value = "deactivated_at")
-    val deactivatedAt: java.time.OffsetDateTime?,
-
-    @Contextual @SerialName(value = "created_at")
-    val createdAt: java.time.OffsetDateTime
+    @SerialName(value = "items")
+    val items: kotlin.collections.List<DailyPlanSummary>
 
 ) {
 

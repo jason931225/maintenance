@@ -29,92 +29,65 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Contextual
 
 /**
+ * Create a site under an existing customer. Optional location/contact fields follow the same WGS84 ranges and length bounds as UpdateSiteRequest; latitude and longitude must be supplied together.
  *
- *
- * @param siteId
- * @param siteName
  * @param customerId
- * @param customerName
- * @param branchId
+ * @param name Site name (현장명). Required, trimmed, ≤ 200 characters.
  * @param address
- * @param postalCode
  * @param province
  * @param city
+ * @param postalCode
  * @param latitude
  * @param longitude
- * @param geofenceRadiusM Per-site geofence radius in metres for arrival/departure detection; null uses the system default (150 m).
+ * @param geofenceRadiusM Per-site geofence radius in metres (> 0, ≤ 100000). Null uses the system default (150 m).
  * @param contactName On-site representative contact name (담당자명).
  * @param contactPhone On-site contact phone (연락처).
  * @param contactEmail Optional contact email (이메일).
- * @param equipmentCount
- * @param rentedCount
- * @param spareCount
- * @param substitutionActiveCount
  */
 @Serializable
 
-data class SiteLocationGroup (
-
-    @Contextual @SerialName(value = "site_id")
-    val siteId: java.util.UUID,
-
-    @SerialName(value = "site_name")
-    val siteName: kotlin.String,
+data class CreateSiteRequest (
 
     @Contextual @SerialName(value = "customer_id")
     val customerId: java.util.UUID,
 
-    @SerialName(value = "customer_name")
-    val customerName: kotlin.String,
-
-    @Contextual @SerialName(value = "branch_id")
-    val branchId: java.util.UUID,
+    /* Site name (현장명). Required, trimmed, ≤ 200 characters. */
+    @SerialName(value = "name")
+    val name: kotlin.String,
 
     @SerialName(value = "address")
-    val address: kotlin.String?,
-
-    @SerialName(value = "postal_code")
-    val postalCode: kotlin.String?,
+    val address: kotlin.String? = null,
 
     @SerialName(value = "province")
-    val province: kotlin.String?,
+    val province: kotlin.String? = null,
 
     @SerialName(value = "city")
-    val city: kotlin.String?,
+    val city: kotlin.String? = null,
+
+    @SerialName(value = "postal_code")
+    val postalCode: kotlin.String? = null,
 
     @SerialName(value = "latitude")
-    val latitude: kotlin.Double?,
+    val latitude: kotlin.Double? = null,
 
     @SerialName(value = "longitude")
-    val longitude: kotlin.Double?,
+    val longitude: kotlin.Double? = null,
 
-    /* Per-site geofence radius in metres for arrival/departure detection; null uses the system default (150 m). */
+    /* Per-site geofence radius in metres (> 0, ≤ 100000). Null uses the system default (150 m). */
     @SerialName(value = "geofence_radius_m")
-    val geofenceRadiusM: kotlin.Double?,
+    val geofenceRadiusM: kotlin.Double? = null,
 
     /* On-site representative contact name (담당자명). */
     @SerialName(value = "contact_name")
-    val contactName: kotlin.String?,
+    val contactName: kotlin.String? = null,
 
     /* On-site contact phone (연락처). */
     @SerialName(value = "contact_phone")
-    val contactPhone: kotlin.String?,
+    val contactPhone: kotlin.String? = null,
 
     /* Optional contact email (이메일). */
     @SerialName(value = "contact_email")
-    val contactEmail: kotlin.String?,
-
-    @SerialName(value = "equipment_count")
-    val equipmentCount: kotlin.Long,
-
-    @SerialName(value = "rented_count")
-    val rentedCount: kotlin.Long,
-
-    @SerialName(value = "spare_count")
-    val spareCount: kotlin.Long,
-
-    @SerialName(value = "substitution_active_count")
-    val substitutionActiveCount: kotlin.Long
+    val contactEmail: kotlin.String? = null
 
 ) {
 

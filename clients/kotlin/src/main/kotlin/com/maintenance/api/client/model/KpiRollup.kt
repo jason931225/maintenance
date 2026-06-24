@@ -48,6 +48,7 @@ import kotlinx.serialization.Contextual
  * @param p1DispatchCount
  * @param p1AcceptedCount
  * @param p1AcceptanceBps
+ * @param scopeDisplayName Human-readable name for the scope (region/branch/mechanic), resolved via a same-org lookup. Null for the company-wide scope or a deleted region/branch/user. Optional; absent on the pure-domain shape.
  */
 @Serializable
 
@@ -99,7 +100,11 @@ data class KpiRollup (
     val p1AcceptedCount: kotlin.Int,
 
     @SerialName(value = "p1_acceptance_bps")
-    val p1AcceptanceBps: kotlin.Int?
+    val p1AcceptanceBps: kotlin.Int?,
+
+    /* Human-readable name for the scope (region/branch/mechanic), resolved via a same-org lookup. Null for the company-wide scope or a deleted region/branch/user. Optional; absent on the pure-domain shape. */
+    @SerialName(value = "scope_display_name")
+    val scopeDisplayName: kotlin.String? = null
 
 ) {
 

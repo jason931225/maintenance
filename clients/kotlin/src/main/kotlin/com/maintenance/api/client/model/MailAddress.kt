@@ -31,27 +31,20 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param id
- * @param name
- * @param deactivatedAt Set when the region has been soft-deleted (deactivated); null for an active region. Active-only listings omit deactivated rows.
- * @param createdAt
+ * @param address The bare mailbox, e.g. user@example.com.
+ * @param name Optional display name.
  */
 @Serializable
 
-data class RegionSummary (
+data class MailAddress (
 
-    @Contextual @SerialName(value = "id")
-    val id: java.util.UUID,
+    /* The bare mailbox, e.g. user@example.com. */
+    @SerialName(value = "address")
+    val address: kotlin.String,
 
+    /* Optional display name. */
     @SerialName(value = "name")
-    val name: kotlin.String,
-
-    /* Set when the region has been soft-deleted (deactivated); null for an active region. Active-only listings omit deactivated rows. */
-    @Contextual @SerialName(value = "deactivated_at")
-    val deactivatedAt: java.time.OffsetDateTime?,
-
-    @Contextual @SerialName(value = "created_at")
-    val createdAt: java.time.OffsetDateTime
+    val name: kotlin.String? = null
 
 ) {
 

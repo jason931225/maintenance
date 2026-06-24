@@ -32,41 +32,32 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param id
- * @param workOrderNo
- * @param siteName
- * @param kind
- * @param occurredAt
+ * @param role INBOX | SENT | DRAFTS | ARCHIVE | TRASH | JUNK | CUSTOM.
+ * @param name
+ * @param unreadCount
+ * @param totalCount
  */
 @Serializable
 
-data class ArrivalEvent (
+data class MailFolderView (
 
-    @SerialName(value = "id")
-    val id: kotlin.String,
+    @Contextual @SerialName(value = "id")
+    val id: java.util.UUID,
 
-    @SerialName(value = "work_order_no")
-    val workOrderNo: kotlin.String,
+    /* INBOX | SENT | DRAFTS | ARCHIVE | TRASH | JUNK | CUSTOM. */
+    @SerialName(value = "role")
+    val role: kotlin.String,
 
-    @SerialName(value = "site_name")
-    val siteName: kotlin.String,
+    @SerialName(value = "name")
+    val name: kotlin.String,
 
-    @SerialName(value = "kind")
-    val kind: ArrivalEvent.Kind,
+    @SerialName(value = "unread_count")
+    val unreadCount: kotlin.Long,
 
-    @Contextual @SerialName(value = "occurred_at")
-    val occurredAt: java.time.OffsetDateTime
+    @SerialName(value = "total_count")
+    val totalCount: kotlin.Long
 
 ) {
 
-    /**
-     *
-     *
-     * Values: ARRIVAL,DEPARTURE
-     */
-    @Serializable
-    enum class Kind(val value: kotlin.String) {
-        @SerialName(value = "ARRIVAL") ARRIVAL("ARRIVAL"),
-        @SerialName(value = "DEPARTURE") DEPARTURE("DEPARTURE");
-    }
 
 }

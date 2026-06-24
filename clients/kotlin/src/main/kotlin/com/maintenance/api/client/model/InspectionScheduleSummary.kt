@@ -37,6 +37,7 @@ import kotlinx.serialization.Contextual
  * @param branchId
  * @param equipmentId
  * @param mechanicId
+ * @param mechanicDisplayName Assigned mechanic's display name, resolved via a same-org LEFT JOIN on users. Null when the mechanic account no longer exists.
  * @param cycle
  * @param intervalDays
  * @param dueDate
@@ -64,6 +65,10 @@ data class InspectionScheduleSummary (
 
     @Contextual @SerialName(value = "mechanic_id")
     val mechanicId: java.util.UUID,
+
+    /* Assigned mechanic's display name, resolved via a same-org LEFT JOIN on users. Null when the mechanic account no longer exists. */
+    @SerialName(value = "mechanic_display_name")
+    val mechanicDisplayName: kotlin.String?,
 
     @Contextual @SerialName(value = "cycle")
     val cycle: InspectionCycle,

@@ -23,35 +23,23 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.PasskeyStepUpAssertion
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Contextual
 
 /**
+ * Cross-device passkey-enrollment handoff request. Carries NO user/org — those come from the verified access token, so a caller can only mint a handoff for itself. `step_up` is REQUIRED only when the caller already has a passkey (adding a device); a mid-onboarding caller (zero passkeys) omits it.
  *
- *
- * @param id
- * @param name
- * @param deactivatedAt Set when the region has been soft-deleted (deactivated); null for an active region. Active-only listings omit deactivated rows.
- * @param createdAt
+ * @param stepUp
  */
 @Serializable
 
-data class RegionSummary (
+data class EnrollHandoffRequest (
 
-    @Contextual @SerialName(value = "id")
-    val id: java.util.UUID,
-
-    @SerialName(value = "name")
-    val name: kotlin.String,
-
-    /* Set when the region has been soft-deleted (deactivated); null for an active region. Active-only listings omit deactivated rows. */
-    @Contextual @SerialName(value = "deactivated_at")
-    val deactivatedAt: java.time.OffsetDateTime?,
-
-    @Contextual @SerialName(value = "created_at")
-    val createdAt: java.time.OffsetDateTime
+    @SerialName(value = "step_up")
+    val stepUp: PasskeyStepUpAssertion? = null
 
 ) {
 

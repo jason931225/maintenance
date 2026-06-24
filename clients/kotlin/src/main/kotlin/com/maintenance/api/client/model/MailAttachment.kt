@@ -31,27 +31,23 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param id
- * @param name
- * @param deactivatedAt Set when the region has been soft-deleted (deactivated); null for an active region. Active-only listings omit deactivated rows.
- * @param createdAt
+ * @param filename
+ * @param contentType
+ * @param contentBase64 Standard-base64 encoded attachment bytes.
  */
 @Serializable
 
-data class RegionSummary (
+data class MailAttachment (
 
-    @Contextual @SerialName(value = "id")
-    val id: java.util.UUID,
+    @SerialName(value = "filename")
+    val filename: kotlin.String,
 
-    @SerialName(value = "name")
-    val name: kotlin.String,
+    @SerialName(value = "content_type")
+    val contentType: kotlin.String,
 
-    /* Set when the region has been soft-deleted (deactivated); null for an active region. Active-only listings omit deactivated rows. */
-    @Contextual @SerialName(value = "deactivated_at")
-    val deactivatedAt: java.time.OffsetDateTime?,
-
-    @Contextual @SerialName(value = "created_at")
-    val createdAt: java.time.OffsetDateTime
+    /* Standard-base64 encoded attachment bytes. */
+    @SerialName(value = "content_base64")
+    val contentBase64: kotlin.String
 
 ) {
 

@@ -23,6 +23,7 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.UserSummary
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -31,27 +32,26 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param id
- * @param name
- * @param deactivatedAt Set when the region has been soft-deleted (deactivated); null for an active region. Active-only listings omit deactivated rows.
- * @param createdAt
+ * @param items
+ * @param limit
+ * @param offset
+ * @param total
  */
 @Serializable
 
-data class RegionSummary (
+data class UserPage (
 
-    @Contextual @SerialName(value = "id")
-    val id: java.util.UUID,
+    @SerialName(value = "items")
+    val items: kotlin.collections.List<UserSummary>,
 
-    @SerialName(value = "name")
-    val name: kotlin.String,
+    @SerialName(value = "limit")
+    val limit: kotlin.Long,
 
-    /* Set when the region has been soft-deleted (deactivated); null for an active region. Active-only listings omit deactivated rows. */
-    @Contextual @SerialName(value = "deactivated_at")
-    val deactivatedAt: java.time.OffsetDateTime?,
+    @SerialName(value = "offset")
+    val offset: kotlin.Long,
 
-    @Contextual @SerialName(value = "created_at")
-    val createdAt: java.time.OffsetDateTime
+    @SerialName(value = "total")
+    val total: kotlin.Long
 
 ) {
 

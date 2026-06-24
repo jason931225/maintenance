@@ -32,41 +32,23 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param id
- * @param workOrderNo
- * @param siteName
- * @param kind
- * @param occurredAt
+ * @param branchId
+ * @param name
  */
 @Serializable
 
-data class ArrivalEvent (
+data class CreatedCustomer (
 
-    @SerialName(value = "id")
-    val id: kotlin.String,
+    @Contextual @SerialName(value = "id")
+    val id: java.util.UUID,
 
-    @SerialName(value = "work_order_no")
-    val workOrderNo: kotlin.String,
+    @Contextual @SerialName(value = "branch_id")
+    val branchId: java.util.UUID,
 
-    @SerialName(value = "site_name")
-    val siteName: kotlin.String,
-
-    @SerialName(value = "kind")
-    val kind: ArrivalEvent.Kind,
-
-    @Contextual @SerialName(value = "occurred_at")
-    val occurredAt: java.time.OffsetDateTime
+    @SerialName(value = "name")
+    val name: kotlin.String
 
 ) {
 
-    /**
-     *
-     *
-     * Values: ARRIVAL,DEPARTURE
-     */
-    @Serializable
-    enum class Kind(val value: kotlin.String) {
-        @SerialName(value = "ARRIVAL") ARRIVAL("ARRIVAL"),
-        @SerialName(value = "DEPARTURE") DEPARTURE("DEPARTURE");
-    }
 
 }

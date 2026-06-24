@@ -23,6 +23,7 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.MailMessageView
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -32,41 +33,23 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param id
- * @param workOrderNo
- * @param siteName
- * @param kind
- * @param occurredAt
+ * @param subject
+ * @param messages
  */
 @Serializable
 
-data class ArrivalEvent (
+data class MailThreadDetail (
 
-    @SerialName(value = "id")
-    val id: kotlin.String,
+    @Contextual @SerialName(value = "id")
+    val id: java.util.UUID,
 
-    @SerialName(value = "work_order_no")
-    val workOrderNo: kotlin.String,
+    @SerialName(value = "subject")
+    val subject: kotlin.String,
 
-    @SerialName(value = "site_name")
-    val siteName: kotlin.String,
-
-    @SerialName(value = "kind")
-    val kind: ArrivalEvent.Kind,
-
-    @Contextual @SerialName(value = "occurred_at")
-    val occurredAt: java.time.OffsetDateTime
+    @SerialName(value = "messages")
+    val messages: kotlin.collections.List<MailMessageView>
 
 ) {
 
-    /**
-     *
-     *
-     * Values: ARRIVAL,DEPARTURE
-     */
-    @Serializable
-    enum class Kind(val value: kotlin.String) {
-        @SerialName(value = "ARRIVAL") ARRIVAL("ARRIVAL"),
-        @SerialName(value = "DEPARTURE") DEPARTURE("DEPARTURE");
-    }
 
 }

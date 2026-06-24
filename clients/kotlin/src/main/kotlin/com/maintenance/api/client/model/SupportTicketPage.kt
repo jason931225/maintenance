@@ -23,6 +23,7 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.SupportTicketSummary
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -31,27 +32,23 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param id
- * @param name
- * @param deactivatedAt Set when the region has been soft-deleted (deactivated); null for an active region. Active-only listings omit deactivated rows.
- * @param createdAt
+ * @param items
+ * @param nextCursor Id to pass as `cursor` for the next page, or null on the last page.
+ * @param total
  */
 @Serializable
 
-data class RegionSummary (
+data class SupportTicketPage (
 
-    @Contextual @SerialName(value = "id")
-    val id: java.util.UUID,
+    @SerialName(value = "items")
+    val items: kotlin.collections.List<SupportTicketSummary>,
 
-    @SerialName(value = "name")
-    val name: kotlin.String,
+    /* Id to pass as `cursor` for the next page, or null on the last page. */
+    @Contextual @SerialName(value = "next_cursor")
+    val nextCursor: java.util.UUID?,
 
-    /* Set when the region has been soft-deleted (deactivated); null for an active region. Active-only listings omit deactivated rows. */
-    @Contextual @SerialName(value = "deactivated_at")
-    val deactivatedAt: java.time.OffsetDateTime?,
-
-    @Contextual @SerialName(value = "created_at")
-    val createdAt: java.time.OffsetDateTime
+    @SerialName(value = "total")
+    val total: kotlin.Long
 
 ) {
 

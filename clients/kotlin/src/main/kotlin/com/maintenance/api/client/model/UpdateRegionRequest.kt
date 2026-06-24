@@ -31,27 +31,14 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param id
  * @param name
- * @param deactivatedAt Set when the region has been soft-deleted (deactivated); null for an active region. Active-only listings omit deactivated rows.
- * @param createdAt
  */
 @Serializable
 
-data class RegionSummary (
-
-    @Contextual @SerialName(value = "id")
-    val id: java.util.UUID,
+data class UpdateRegionRequest (
 
     @SerialName(value = "name")
-    val name: kotlin.String,
-
-    /* Set when the region has been soft-deleted (deactivated); null for an active region. Active-only listings omit deactivated rows. */
-    @Contextual @SerialName(value = "deactivated_at")
-    val deactivatedAt: java.time.OffsetDateTime?,
-
-    @Contextual @SerialName(value = "created_at")
-    val createdAt: java.time.OffsetDateTime
+    val name: kotlin.String? = null
 
 ) {
 
