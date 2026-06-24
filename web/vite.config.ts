@@ -33,5 +33,10 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
+    // Workers rendering <AppRouter /> with lazy routes can keep the jsdom event
+    // loop alive after tests complete, causing the fork to hang until OOM (seen
+    // as a ~80min CI run). Cap the teardown window so the fork is forcibly
+    // terminated rather than leaking into an OOM crash.
+    teardownTimeout: 10_000,
   },
 });
