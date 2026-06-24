@@ -2,7 +2,7 @@
   "version": 1,
   "planId": "conglomerate-platform",
   "createdAt": "2026-06-24T04:23:29.185Z",
-  "updatedAt": "2026-06-24T04:23:36.927Z",
+  "updatedAt": "2026-06-24T18:52:50.510Z",
   "briefPath": ".omc/ultragoal/plans/conglomerate-platform/brief.md",
   "goalsPath": ".omc/ultragoal/plans/conglomerate-platform/goals.json",
   "ledgerPath": ".omc/ultragoal/plans/conglomerate-platform/ledger.jsonl",
@@ -12,11 +12,13 @@
       "id": "G001-track-a-stabilize-live-ops",
       "title": "Track A — Stabilize live ops",
       "objective": "Fix issue-#19 broken-loop flows (#40 batches) + remaining #19; every flow create→admin-visible round-trip tested as real mnt_rt",
-      "status": "in_progress",
+      "status": "complete",
       "attempt": 1,
       "createdAt": "2026-06-24T04:23:29.185Z",
-      "updatedAt": "2026-06-24T04:23:36.927Z",
-      "startedAt": "2026-06-24T04:23:36.927Z"
+      "updatedAt": "2026-06-24T18:52:50.510Z",
+      "startedAt": "2026-06-24T04:23:36.927Z",
+      "completedAt": "2026-06-24T18:52:50.510Z",
+      "evidence": "Active aggregate /goal in .omc/ultragoal/plans/conglomerate-platform/goals.json + ledger.jsonl covers G001-G015; marking story G001-track-a-stabilize-live-ops COMPLETE (G002-G015 remain active). IMPLEMENTATION: #19 core flows fixed+deployed (#19.13 mgmt_no normalize, #19.17 daily-plan visibility, #19.18 purchase create WORM-defer + error surfacing, #19.21 inquiry org-scope/storefront_org, #19.22 PM-schedule); codex P0 authz (OrgWideQueueTriage replaces is_admin_like widen; daily-plan gate; mgmt_no exact-then-unique binding+preview). Commits 3a87533..0755965. VALIDATION/REVIEW: review-gate (correctness+RLS-as-mnt_rt+codex cross-model+web) = GO-with-fixes, 2 mediums landed; security-reviewer on RBAC sub-spec (separate goal); real mnt_rt tests; backend gates PASSED; full workspace cargo test green after org_setup pagination fix. DEPLOYED LIVE: blue-green /readyz-smoke promotion to mnt-app@804d601+mnt-web@a28c85d, rollouts Healthy, live triager diagnostic done (1/9 admins low-risk). Blocked-external: #19.14 FLMS (Windows MSI). Orthogonal pre-existing CI debt (api-clients/E2E/Android) = task #47."
     },
     {
       "id": "G002-track-b0-org-hierarchy-security",
@@ -145,6 +147,5 @@
       "updatedAt": "2026-06-24T04:23:29.185Z"
     }
   ],
-  "claudeObjective": "Complete all ultragoal stories in .omc/ultragoal/plans/conglomerate-platform/goals.json: G001-track-a-stabilize-live-ops Track A — Stabilize live ops; G002-track-b0-org-hierarchy-security Track B0 — Org-hierarchy security; G003-p0-blueprint-tokens P0 — Blueprint tokens; G004-p1-object-view-kit P1 — Object-View kit; G005-p2-equipment-object-view P2 — Equipment Object View; G006-p3-nav-fabric P3 — Nav fabric; G007-p4-triage-home P4 — Triage Home; G008-p5-object-set-query-api-faceted-lens P5 — Object-Set query API + faceted lens; G009-p6-timeline-graph-lenses P6 — Timeline + graph lenses; G010-action-write-back-engine Action/write-back engine; G011-track-c-hr-core Track C — HR core; G012-track-c-korean-payroll Track C — Korean payroll; G013-track-c-erp Track C — ERP; G014-track-d-webmail-enable Track D — Webmail enable; G015-track-d-dispatch-map Track D — Dispatch map",
-  "activeGoalId": "G001-track-a-stabilize-live-ops"
+  "claudeObjective": "Complete all ultragoal stories in .omc/ultragoal/plans/conglomerate-platform/goals.json: G001-track-a-stabilize-live-ops Track A — Stabilize live ops; G002-track-b0-org-hierarchy-security Track B0 — Org-hierarchy security; G003-p0-blueprint-tokens P0 — Blueprint tokens; G004-p1-object-view-kit P1 — Object-View kit; G005-p2-equipment-object-view P2 — Equipment Object View; G006-p3-nav-fabric P3 — Nav fabric; G007-p4-triage-home P4 — Triage Home; G008-p5-object-set-query-api-faceted-lens P5 — Object-Set query API + faceted lens; G009-p6-timeline-graph-lenses P6 — Timeline + graph lenses; G010-action-write-back-engine Action/write-back engine; G011-track-c-hr-core Track C — HR core; G012-track-c-korean-payroll Track C — Korean payroll; G013-track-c-erp Track C — ERP; G014-track-d-webmail-enable Track D — Webmail enable; G015-track-d-dispatch-map Track D — Dispatch map"
 }
