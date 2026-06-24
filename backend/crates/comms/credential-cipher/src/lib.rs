@@ -1,5 +1,13 @@
 //! Webmail credential cipher — envelope AEAD for SMTP/IMAP passwords at rest.
 //!
+//! This crate provides the CONCRETE [`EnvelopeCredentialCipher`] implementation
+//! of the [`CredentialCipher`] PORT. The trait and its value types ([`Aad`],
+//! [`SealedCredential`], [`CipherError`]) are owned by the application layer
+//! (`mnt-comms-application`); this crate depends on that abstraction and
+//! implements it, so the dependency direction stays clean (the application /
+//! adapter layers speak only to the port, and only the app composition root
+//! wires this concrete cipher).
+//!
 //! # Scheme (envelope encryption)
 //!
 //! Each encrypted secret gets its OWN random 256-bit data-encryption key (DEK):
@@ -41,6 +49,10 @@ use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 use secrecy::{ExposeSecret, SecretBox};
 use zeroize::Zeroize;
 
+pub use mnt_comms_application::credential_cipher::{
+    Aad, CipherError, CredentialCipher, SealedCredential,
+};
+
 /// The environment variable carrying the base64-encoded 32-byte master KEK.
 pub const MASTER_KEY_ENV: &str = "MNT_MAIL_MASTER_KEY";
 
@@ -49,124 +61,6 @@ pub const MASTER_KEY_ENV: &str = "MNT_MAIL_MASTER_KEY";
 pub const CURRENT_KEY_VERSION: i16 = 1;
 
 const KEY_LEN: usize = 32;
-
-/// Errors from the credential cipher. Deliberately coarse and free of any
-/// secret material — an attacker learns only "it failed", never plaintext,
-/// key bytes, or which check failed in a way that aids forgery.
-#[derive(Debug, thiserror::Error)]
-pub enum CipherError {
-    /// The master KEK env var is missing, not valid base64, or not 32 bytes.
-    #[error("master key configuration error")]
-    MasterKey,
-    /// AEAD encryption failed (allocation/internal). Carries no detail.
-    #[error("encryption failed")]
-    Encrypt,
-    /// AEAD decryption/authentication failed: wrong KEK, tampered ciphertext /
-    /// nonce / wrapped DEK, or mismatched AAD (wrong org/account/field).
-    #[error("decryption failed")]
-    Decrypt,
-    /// A persisted key_version this build cannot interpret.
-    #[error("unsupported key version")]
-    KeyVersion,
-}
-
-/// Associated data binding a ciphertext to the exact row + field it belongs to.
-///
-/// Encoded into the AEAD AAD on both the secret-seal and the DEK-wrap, so a
-/// ciphertext lifted to a different org, account, or field fails to
-/// authenticate. The encoding is unambiguous (length-prefixed) so distinct
-/// triples can never collide.
-#[derive(Debug, Clone, Copy)]
-pub struct Aad<'a> {
-    /// The owning tenant (`email_accounts.org_id`).
-    pub org_id: &'a str,
-    /// The owning account row (`email_accounts.id`).
-    pub account_id: &'a str,
-    /// The credential field, e.g. `"smtp_password"` / `"imap_password"`.
-    pub field: &'a str,
-}
-
-impl Aad<'_> {
-    /// Length-prefixed, unambiguous byte encoding of the triple.
-    fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        for part in [self.org_id, self.account_id, self.field] {
-            let bytes = part.as_bytes();
-            // u32 length prefix keeps `("ab","c",..)` distinct from `("a","bc",..)`.
-            out.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
-            out.extend_from_slice(bytes);
-        }
-        out
-    }
-}
-
-/// The persisted output of [`CredentialCipher::encrypt`]. Every field is opaque
-/// ciphertext / nonce material safe to store; NONE of it reveals the plaintext.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SealedCredential {
-    /// AEAD ciphertext of the secret (includes the Poly1305 tag).
-    pub ciphertext: Vec<u8>,
-    /// 24-byte XChaCha nonce used to seal the secret under the DEK.
-    pub nonce: Vec<u8>,
-    /// The DEK, itself AEAD-sealed under the KEK (includes its tag).
-    pub dek_wrapped: Vec<u8>,
-    /// 24-byte XChaCha nonce used to wrap the DEK under the KEK.
-    pub dek_nonce: Vec<u8>,
-    /// The KEK version used to wrap the DEK.
-    pub key_version: i16,
-}
-
-/// Envelope credential cipher port. A single implementation
-/// ([`EnvelopeCredentialCipher`]) backs it; the trait exists so application/
-/// adapter layers depend on the capability, not the concrete cipher.
-pub trait CredentialCipher: Send + Sync {
-    /// Seal `plaintext` under a fresh per-row DEK wrapped by the master KEK,
-    /// binding `aad` (org/account/field) as associated data.
-    fn encrypt(&self, plaintext: &[u8], aad: Aad<'_>) -> Result<SealedCredential, CipherError>;
-
-    /// Recover the plaintext secret from a [`SealedCredential`]. Fails (with the
-    /// opaque [`CipherError::Decrypt`]) on a wrong KEK, any tampering, or an AAD
-    /// that does not match the row the ciphertext was sealed for.
-    fn decrypt(
-        &self,
-        sealed: &SealedCredential,
-        aad: Aad<'_>,
-    ) -> Result<SecretBox<Vec<u8>>, CipherError>;
-}
-
-/// Forward the port through a shared reference, so a `&EnvelopeCredentialCipher`
-/// satisfies a generic `C: CredentialCipher` bound without moving/cloning the
-/// KEK. (Defined here, where the trait is local, so there is no orphan-rule
-/// violation.)
-impl<C: CredentialCipher + ?Sized> CredentialCipher for &C {
-    fn encrypt(&self, plaintext: &[u8], aad: Aad<'_>) -> Result<SealedCredential, CipherError> {
-        (**self).encrypt(plaintext, aad)
-    }
-
-    fn decrypt(
-        &self,
-        sealed: &SealedCredential,
-        aad: Aad<'_>,
-    ) -> Result<SecretBox<Vec<u8>>, CipherError> {
-        (**self).decrypt(sealed, aad)
-    }
-}
-
-/// Forward the port through an `Arc`, so the single shared cipher can satisfy a
-/// generic `C: CredentialCipher` bound directly.
-impl<C: CredentialCipher + ?Sized> CredentialCipher for std::sync::Arc<C> {
-    fn encrypt(&self, plaintext: &[u8], aad: Aad<'_>) -> Result<SealedCredential, CipherError> {
-        (**self).encrypt(plaintext, aad)
-    }
-
-    fn decrypt(
-        &self,
-        sealed: &SealedCredential,
-        aad: Aad<'_>,
-    ) -> Result<SecretBox<Vec<u8>>, CipherError> {
-        (**self).decrypt(sealed, aad)
-    }
-}
 
 /// `XChaCha20Poly1305` envelope cipher holding the master KEK in a [`SecretBox`].
 pub struct EnvelopeCredentialCipher {

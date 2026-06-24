@@ -9,7 +9,6 @@ publish.workspace = true
 
 [dependencies]
 mnt-comms-domain = { workspace = true }
-mnt-comms-credential-cipher = { workspace = true }
 mnt-kernel-core = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }

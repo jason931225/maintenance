@@ -691,7 +691,12 @@ fn sanitize_sql(content: &str) -> String {
         let next = bytes.get(index + 1).copied();
 
         if let Some(tag) = &dollar_tag {
-            if content[index..].starts_with(tag.as_str()) {
+            // Compare on RAW BYTES, not `content[index..]`: `index` walks the
+            // dollar-quoted body one byte at a time, so it can land in the middle
+            // of a multi-byte char (e.g. an em-dash `—` in a comment). Slicing a
+            // `&str` at a non-char-boundary panics; the dollar-quote tag is always
+            // ASCII, so a byte-prefix check is equivalent and boundary-safe.
+            if bytes[index..].starts_with(tag.as_bytes()) {
                 for _ in 0..tag.len() {
                     output.push(' ');
                 }
@@ -1156,5 +1161,49 @@ mod tests {
             "allowlisted global table must not be unclassified: {:?}",
             result.violations
         );
+    }
+
+    #[test]
+    fn em_dash_inside_dollar_quoted_body_does_not_panic() {
+        // Regression: the dollar-quote sanitizer walks the body byte-by-byte to
+        // find the closing tag. A multi-byte char (em-dash `—`, 3 bytes) in a
+        // comment inside `DO $$ ... $$` once made `content[index..]` slice at a
+        // non-char-boundary and PANIC ("byte index N is not a char boundary").
+        // The scan must complete and still credit the array tables as tenants.
+        let dir = tmpdir("emdash");
+        write(
+            &dir,
+            "0001_w.sql",
+            "ALTER TABLE alpha ADD COLUMN org_id UUID;\n\
+             ALTER TABLE beta ADD COLUMN org_id UUID;\n\
+             DO $$\n\
+             -- rollout note — these tables are tenant-scoped — RLS below.\n\
+             DECLARE t TEXT;\n\
+             tenant_tables TEXT[] := ARRAY['alpha', 'beta'];\nBEGIN\n\
+             -- another em-dash comment — must not break byte slicing —.\n\
+             FOREACH t IN ARRAY tenant_tables LOOP\n\
+               EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);\n\
+               EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);\n\
+               EXECUTE format('CREATE POLICY org_isolation ON %I USING (org_id = NULLIF(current_setting(''app.current_org'', true), '''')::uuid)', t);\n\
+             END LOOP;\nEND\n$$;\n",
+        );
+        // Before the fix this call panicked inside sanitize_sql; now it returns.
+        let result = check_migrations_root(&dir);
+        assert!(
+            result.passed(),
+            "em-dash in dollar-quoted body must sanitize cleanly and credit alpha+beta: {:?}",
+            result.violations
+        );
+    }
+
+    #[test]
+    fn sanitize_sql_is_char_boundary_safe_on_multibyte_comment() {
+        // Directly exercise the sanitizer with a dollar-quoted body whose comment
+        // carries em-dashes at varied offsets, so the byte walk crosses a
+        // multi-byte boundary while `dollar_tag` is open. Must not panic.
+        let sql = "DO $body$\n-- 정비 메모 — 한글과 — em-dash 섞임 — 경계 테스트 —\nBEGIN END\n$body$;\n";
+        let sanitized = sanitize_sql(sql);
+        // The closing `;` survives sanitization (statement boundaries stay aligned).
+        assert!(sanitized.contains(';'), "statement boundary must be preserved");
     }
 }

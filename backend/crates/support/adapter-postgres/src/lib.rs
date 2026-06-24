@@ -112,7 +112,12 @@ impl PgSupportStore {
                 "status": TicketStatus::Open.as_db_str(),
                 "branch_id": command.branch_id.to_string(),
             })),
-        );
+        )
+        // Arm the tenant on the audit event so `with_audit` binds
+        // `app.current_org` BEFORE the closure runs. Without it, the
+        // ensure_active_user_in_branch SELECT + the INSERT execute under FORCE
+        // RLS with an unset GUC and fail closed as the real `mnt_rt` role.
+        .with_org(org);
 
         with_audit::<_, TicketSummary, PgSupportError>(&self.pool, event, |tx| {
             Box::pin(async move {
@@ -193,7 +198,11 @@ impl PgSupportStore {
                 "priority": command.priority.as_db_str(),
                 "status": TicketStatus::Open.as_db_str(),
             })),
-        );
+        )
+        // Arm the tenant on the audit event so `with_audit` binds
+        // `app.current_org` BEFORE the closure runs; otherwise the customer-row
+        // INSERT executes under FORCE RLS with an unset GUC and fails closed.
+        .with_org(org);
 
         with_audit::<_, TicketSummary, PgSupportError>(&self.pool, event, |tx| {
             Box::pin(async move {

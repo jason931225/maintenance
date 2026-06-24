@@ -2299,7 +2299,6 @@ dependencies = [
 name = "mnt-comms-application"
 version = "0.1.0"
 dependencies = [
- "mnt-comms-credential-cipher",
  "mnt-comms-domain",
  "mnt-kernel-core",
  "secrecy",
@@ -2317,9 +2316,9 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305",
+ "mnt-comms-application",
  "mnt-kernel-core",
  "secrecy",
- "thiserror 2.0.18",
  "zeroize",
 ]
 

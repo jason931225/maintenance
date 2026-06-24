@@ -10,7 +10,6 @@ publish.workspace = true
 [dependencies]
 mnt-comms-application = { workspace = true }
 mnt-comms-domain = { workspace = true }
-mnt-comms-credential-cipher = { workspace = true }
 mnt-kernel-core = { workspace = true }
 mnt-platform-db = { workspace = true }
 mnt-platform-request-context = { workspace = true }

@@ -17,9 +17,9 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_comms_application::{
-    AccountUpsert, EmailAccountId, MailServiceError, MailStore, OutboundRecord, StoredAccount,
+    AccountUpsert, EmailAccountId, MailServiceError, MailStore, OutboundRecord, SealedCredential,
+    StoredAccount,
 };
-use mnt_comms_credential_cipher::SealedCredential;
 use mnt_comms_domain::{MailSecurity, normalize_subject};
 use mnt_kernel_core::{AuditEvent, ErrorKind, KernelError, OrgId, Timestamp, UserId};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
