@@ -159,7 +159,9 @@ async fn admin_creates_region_branch_and_user_then_lists_and_reads(pool: PgPool)
     // List users in scope returns the admin and the new mechanic.
     let (status, users) = send(&harness, "GET", "/api/v1/users", &token, None).await;
     assert_eq!(status, StatusCode::OK);
-    let ids: Vec<&str> = users
+    // GET /api/v1/users returns a paginated UserPage ({items,total,limit,offset}),
+    // not a bare array — read the items page (honest-pagination change, commit 9ddae44).
+    let ids: Vec<&str> = users["items"]
         .as_array()
         .unwrap()
         .iter()
