@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/jason931225/maintenance/compare/v0.1.8...v0.1.9) (2026-06-25)
+
+
+### Features
+
+* **authz:** add access scope projection ([5a95983](https://github.com/jason931225/maintenance/commit/5a9598309ff20f5b0fc0114f3dadd8f079764473))
+
 ## [0.1.8](https://github.com/jason931225/maintenance/compare/v0.1.7...v0.1.8) (2026-06-25)
 
 
