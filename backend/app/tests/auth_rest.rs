@@ -61,6 +61,13 @@ struct AdminIssueOtpResponse {
     user_id: Uuid,
 }
 
+#[derive(Debug, Deserialize)]
+struct PrivacyConsentStatusResponse {
+    policy_version: String,
+    accepted: bool,
+    accepted_at: Option<OffsetDateTime>,
+}
+
 /// End-to-end: an admin issues a one-time code; the new user signs in for the
 /// FIRST time by redeeming it (minting a session, flagged for passkey setup),
 /// enrolls a passkey from that authenticated session, and then signs in again
@@ -187,6 +194,104 @@ async fn otp_first_signin_then_passkey_enrollment_then_usernameless_login(pool: 
 
     assert_audit_count(&pool, "auth.otp.signin", 2).await; // admin + new user
     assert_audit_count(&pool, "auth.login", 1).await; // usernameless login
+}
+
+/// Initial passkey enrollment is gated on separate privacy/data-collection and
+/// service-terms agreements. A freshly OTP-authenticated user can read the
+/// required version, cannot start enrollment until both required boxes are true,
+/// and can proceed after acceptance is recorded.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn first_passkey_enrollment_requires_privacy_terms(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_id = seed_branch(&pool, "Privacy Region", "Privacy Branch").await;
+    let user_id = seed_user_with_branch(
+        &pool,
+        "Privacy User",
+        "010-4050-0001",
+        "MECHANIC",
+        branch_id,
+    )
+    .await;
+    let service = build_router(
+        app_state(
+            pool.clone(),
+            private_key_pem.to_string(),
+            public_key_pem.clone(),
+        )
+        .unwrap(),
+    );
+
+    let issue = BootstrapCredentialStore
+        .issue_for_zero_credential_user(
+            &pool,
+            *user_id.as_uuid(),
+            OrgId::knl(),
+            OffsetDateTime::now_utc(),
+            Duration::hours(24),
+        )
+        .await
+        .unwrap();
+    let redeem: OtpRedeemResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/otp/redeem",
+        None,
+        json!({ "otp": issue.token.as_str() }),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(redeem.requires_passkey_setup);
+
+    let initial_status: PrivacyConsentStatusResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/privacy-consent/status",
+        Some(&redeem.access_token),
+        json!({}),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(!initial_status.accepted);
+    assert!(initial_status.accepted_at.is_none());
+
+    let blocked = post_raw(
+        service.clone(),
+        "/api/v1/auth/passkey/register/start",
+        Some(&redeem.access_token),
+        json!({ "username": "privacy.user", "display_name": "Privacy User" }),
+    )
+    .await;
+    assert_eq!(blocked.status(), StatusCode::FORBIDDEN);
+
+    let bundled_or_partial_consent = post_raw(
+        service.clone(),
+        "/api/v1/auth/privacy-consent/accept",
+        Some(&redeem.access_token),
+        json!({
+            "policy_version": initial_status.policy_version,
+            "privacy_collection": true,
+            "terms_of_service": false
+        }),
+    )
+    .await;
+    assert_eq!(bundled_or_partial_consent.status(), StatusCode::BAD_REQUEST);
+
+    let accepted = accept_required_privacy_consent(&service, &redeem.access_token).await;
+    assert!(accepted.accepted);
+    assert!(accepted.accepted_at.is_some());
+
+    let allowed: RegisterStartResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/passkey/register/start",
+        Some(&redeem.access_token),
+        json!({ "username": "privacy.user", "display_name": "Privacy User" }),
+        StatusCode::OK,
+    )
+    .await;
+    assert_ne!(allowed.ceremony_id, Uuid::nil());
 }
 
 /// The one-time code is consumed on PASSKEY REGISTRATION, not on redeem. A redeem
@@ -875,6 +980,7 @@ async fn enroll_passkey(
     authenticator: &mut WebauthnAuthenticator<SoftPasskey>,
     access_token: &str,
 ) -> String {
+    accept_required_privacy_consent(service, access_token).await;
     let registration: RegisterStartResponse = post_json(
         service.clone(),
         "/api/v1/auth/passkey/register/start",
@@ -895,6 +1001,42 @@ async fn enroll_passkey(
     )
     .await;
     finish.credential_id
+}
+
+async fn accept_required_privacy_consent(
+    service: &axum::Router,
+    access_token: &str,
+) -> PrivacyConsentStatusResponse {
+    let status: PrivacyConsentStatusResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/privacy-consent/status",
+        Some(access_token),
+        json!({}),
+        StatusCode::OK,
+    )
+    .await;
+    if status.accepted {
+        return status;
+    }
+
+    let accepted: PrivacyConsentStatusResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/privacy-consent/accept",
+        Some(access_token),
+        json!({
+            "policy_version": status.policy_version,
+            "privacy_collection": true,
+            "terms_of_service": true
+        }),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(accepted.accepted);
+    assert!(
+        accepted.accepted_at.is_some(),
+        "accepted consent must record an audit timestamp"
+    );
+    accepted
 }
 
 async fn usernameless_login(
