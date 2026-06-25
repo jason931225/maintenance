@@ -73,6 +73,7 @@ final class AccessibilityAuditUITests: FieldUITestCase {
     func testLoginScreenPassesAudit() {
         RealSessionSeed.clear()
         let app = XCUIApplication()
+        app.launchArguments += LaunchLocale.arguments
         app.launch()
         self.app = app
         XCTAssertTrue(

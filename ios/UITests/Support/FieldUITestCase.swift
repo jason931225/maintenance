@@ -82,6 +82,13 @@ enum KO {
     static let cameraCancel = "취소"
 }
 
+/// Launch arguments that make rendered copy deterministic on GitHub's hosted
+/// runners. The product's field UI is Korean-first, while the runner locale is
+/// not guaranteed to be Korean, so every UI-test launch pins the app language.
+enum LaunchLocale {
+    static let arguments = ["-AppleLanguages", "(ko)", "-AppleLocale", "ko_KR"]
+}
+
 /// Launch presentation variants the suite runs each screen under, so the
 /// accessibility audit covers the real Dynamic Type / dark-mode conditions the
 /// field uses (gloves, bright sun, night shift).
@@ -177,6 +184,7 @@ class FieldUITestCase: XCTestCase {
         // Drive light/dark via the supported device-appearance API before launch.
         XCUIDevice.shared.appearance = presentation.deviceAppearance
         let app = XCUIApplication()
+        app.launchArguments += LaunchLocale.arguments
         app.launchArguments += presentation.launchArguments
         if let baseURL = ProcessInfo.processInfo.environment["MNT_UITEST_BASE_URL"] {
             app.launchEnvironment["MAINTENANCE_API_BASE_URL"] = baseURL

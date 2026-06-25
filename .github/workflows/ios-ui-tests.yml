@@ -136,10 +136,27 @@ jobs:
           grep -q "MaintenanceFieldApp.app" "$XCTESTRUN"
           echo "Verified xctestrun points UI tests at MaintenanceFieldApp.app"
 
+          TEST_SELECTION_ARGS=()
+          if [[ -z "${MNT_UITEST_BASE_URL}" || ( -z "${MNT_UITEST_REFRESH_TOKEN}" && -z "${MNT_UITEST_OTP}" ) ]]; then
+            echo "No real UI-test session source is configured; skipping real-session-dependent UI tests."
+            TEST_SELECTION_ARGS+=(
+              "-skip-testing:MaintenanceFieldUITests/AccessibilityAuditUITests/testTodayScreenPassesAuditStandard"
+              "-skip-testing:MaintenanceFieldUITests/AccessibilityAuditUITests/testTodayScreenPassesAuditLargestDynamicType"
+              "-skip-testing:MaintenanceFieldUITests/AccessibilityAuditUITests/testTodayScreenPassesAuditDarkMode"
+              "-skip-testing:MaintenanceFieldUITests/AccessibilityAuditUITests/testWorkOrderDetailPassesAudit"
+              "-skip-testing:MaintenanceFieldUITests/AccessibilityAuditUITests/testMessengerScreenPassesAuditStandard"
+              "-skip-testing:MaintenanceFieldUITests/AccessibilityAuditUITests/testMessengerScreenPassesAuditDarkMode"
+              "-skip-testing:MaintenanceFieldUITests/CameraCaptureUITests"
+              "-skip-testing:MaintenanceFieldUITests/FieldCriticalPathUITests"
+              "-skip-testing:MaintenanceFieldUITests/MessengerUITests"
+            )
+          fi
+
           xcodebuild test-without-building \
             -xctestrun "$XCTESTRUN" \
             -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
             -resultBundlePath TestResults.xcresult \
+            "${TEST_SELECTION_ARGS[@]}" \
             | xcbeautify
 
       - name: Upload test results

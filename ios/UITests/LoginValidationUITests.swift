@@ -15,6 +15,7 @@ final class LoginValidationUITests: XCTestCase {
         // Ensure no seeded session lingers from another spec on the same host.
         RealSessionSeed.clear()
         app = XCUIApplication()
+        app.launchArguments += LaunchLocale.arguments
         app.launch()
     }
 
