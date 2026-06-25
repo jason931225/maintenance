@@ -893,7 +893,10 @@ async fn principal_from_claims(
         .await
         .map_err(|err| RestError::internal(err.to_string()))?;
 
-    Ok(Principal::new(user_id, org_id, roles, branch_scope))
+    let access_scope = claims
+        .access_scope()
+        .map_err(|_| RestError::unauthorized("token contains an invalid access scope"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope).with_access_scope(access_scope))
 }
 
 // ---------------------------------------------------------------------------

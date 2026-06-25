@@ -1,5 +1,5 @@
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
-use mnt_kernel_core::{BranchId, OrgId, UserId};
+use mnt_kernel_core::{AccessScope, AccessScopeLevel, BranchId, OrgId, ScopeNodeId, UserId};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use time::Duration;
@@ -91,7 +91,40 @@ pub struct AccessClaims {
     /// omitted from the wire when `None`, so old tokens remain valid verbatim.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Optional hierarchy-scope level. Missing with `scope_node` missing means
+    /// the legacy tenant-wide scope from the `org` claim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_level: Option<AccessScopeLevel>,
+    /// Optional hierarchy-scope node id. Must be present exactly when
+    /// `scope_level` is present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_node: Option<ScopeNodeId>,
+    /// Group roles are carried for future group-scoped authorization. They are
+    /// never allowed on read-only platform view-as tokens.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub group_roles: Vec<String>,
     pub alg: String,
+}
+
+impl AccessClaims {
+    /// Resolve the claim-level hierarchy scope.
+    ///
+    /// Back-compatibility rule: tokens without scope claims keep today's
+    /// meaning, i.e. tenant-wide access to the `org` claim.
+    pub fn access_scope(&self) -> Result<AccessScope, AuthError> {
+        match (self.scope_level, self.scope_node) {
+            (None, None) => {
+                let org_id = OrgId::from_str(&self.org).map_err(|_| {
+                    AuthError::InvalidStoredData("token org claim is not a valid uuid".to_owned())
+                })?;
+                Ok(AccessScope::legacy_org(org_id))
+            }
+            (Some(level), Some(node_id)) => Ok(AccessScope::new(level, node_id)),
+            _ => Err(AuthError::InvalidStoredData(
+                "token scope claims must include both scope_level and scope_node".to_owned(),
+            )),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -124,6 +157,20 @@ impl JwtIssuer {
         self.issue_access_token_with_ttl(input, self.settings.access_token_ttl)
     }
 
+    pub fn issue_scoped_access_token(
+        &self,
+        input: AccessTokenInput,
+        access_scope: AccessScope,
+        group_roles: Vec<String>,
+    ) -> Result<String, AuthError> {
+        self.issue_access_token_inner(
+            input,
+            self.settings.access_token_ttl,
+            Some(access_scope),
+            group_roles,
+        )
+    }
+
     /// Mint an access token with an EXPLICIT lifetime, overriding the issuer's
     /// default `access_token_ttl`.
     ///
@@ -137,6 +184,21 @@ impl JwtIssuer {
         input: AccessTokenInput,
         ttl: Duration,
     ) -> Result<String, AuthError> {
+        self.issue_access_token_inner(input, ttl, None, Vec::new())
+    }
+
+    fn issue_access_token_inner(
+        &self,
+        input: AccessTokenInput,
+        ttl: Duration,
+        access_scope: Option<AccessScope>,
+        group_roles: Vec<String>,
+    ) -> Result<String, AuthError> {
+        if input.view_as && !group_roles.is_empty() {
+            return Err(AuthError::InvalidStoredData(
+                "view-as tokens cannot carry group roles".to_owned(),
+            ));
+        }
         let ttl = if ttl.is_positive() {
             ttl
         } else {
@@ -144,6 +206,9 @@ impl JwtIssuer {
         };
         let issued_at = input.issued_at.unix_timestamp();
         let expires_at = (input.issued_at + ttl).unix_timestamp();
+        let (scope_level, scope_node) = access_scope
+            .map(|scope| (Some(scope.level), Some(scope.node_id)))
+            .unwrap_or((None, None));
         let claims = AccessClaims {
             iss: self.settings.issuer.clone(),
             aud: self.settings.audience.clone(),
@@ -163,6 +228,9 @@ impl JwtIssuer {
             view_as: input.view_as,
             read_only: input.read_only,
             name: input.display_name,
+            scope_level,
+            scope_node,
+            group_roles,
             alg: "ES256".to_owned(),
         };
 
@@ -211,5 +279,11 @@ fn verify_access_token(
     OrgId::from_str(&token.claims.org).map_err(|_| {
         AuthError::InvalidStoredData("token org claim is not a valid uuid".to_owned())
     })?;
+    token.claims.access_scope()?;
+    if token.claims.view_as && !token.claims.group_roles.is_empty() {
+        return Err(AuthError::InvalidStoredData(
+            "view-as tokens cannot carry group roles".to_owned(),
+        ));
+    }
     Ok(token.claims)
 }

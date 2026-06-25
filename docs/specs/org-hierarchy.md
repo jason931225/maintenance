@@ -1,7 +1,8 @@
 # Sub-Spec: ORG-HIERARCHY — Conglomerate Group → 법인 → Region → Branch → Worksite
 
 **Story:** G002 (Track B0) · **Status:** P0 schema/resolvers IMPLEMENTED (`6c7d121`); P1 AccessScope
-kernel bridge IMPLEMENTED; P2+ claims/helper/API/UI scope remains open · **RLS posture:** the per-법인 `app.current_org` boundary is **UNCHANGED**. This spec
+kernel bridge IMPLEMENTED; P2 JWT claims + principal legacy-default resolution IMPLEMENTED; P3+ helper/API/UI
+scope remains open · **RLS posture:** the per-법인 `app.current_org` boundary is **UNCHANGED**. This spec
 adds a *controlled cross-entity scope above* that boundary; it never punches a hole in it.
 
 ## 0. Security-review revisions (applied — review verdict was MUST-REVISE-DESIGN-FIRST)
@@ -30,7 +31,7 @@ These hardening fixes are now binding on implementation:
   `row_security=off`, restores `on`, THEN `RETURN QUERY` from the array (mirrors 0036 byte-for-byte), or
   wraps the body in an `EXCEPTION … restore row_security; RAISE` block.
 - **FIX-7 (was LOW — tier):** a `view_as=true` token may **never** carry `group_roles` (an impersonation
-  token can't be widened into a cross-entity writer) — asserted in P5 + a test.
+  token can't be widened into a cross-entity writer) — asserted in P2 JWT issuance/verification + a test.
 - **6 NEW mnt_rt TESTS** added to §10: T13 cross-tenant read of group_role_grants returns own/zero rows;
   T14 group helper file is gate-scanned (bare-pool read flagged); T15 C1 negative — a group id can never
   arm app.current_org; T16 mid-session membership revocation drops the member on the next read AND write;
@@ -259,8 +260,9 @@ tenant-isolation: only `groups` is added to the GLOBAL allowlist with a rational
 
 ## 12. Phased Implementation (each ≤~5 files, mnt_rt tests, separate review pass)
 P0 schema + identity resolver (0060, done) → P1 AccessScope kernel type + BranchScope bridge (pure-logic,
-done in `mnt-kernel-core`) → P2 claims + login resolution + legacy default → P3 consolidated-read helper (`platform/group`) → P4 group authz +
-Principal extension + conjunctive marking → P5 REST consolidated/switch-context/cross-entity + audited
+done in `mnt-kernel-core`) → P2 claims + login resolution + legacy default (done in `mnt-platform-auth` /
+principal adapters) → P3 consolidated-read helper (`platform/group`) → P4 group authz +
+group-role principal extension + conjunctive marking → P5 REST consolidated/switch-context/cross-entity + audited
 grant endpoint → P6 scope selector (web, visual-verdict ≥90) → P7 security-review + checklist sign-off.
 
 ## 13. Open Risks / Decisions for the User

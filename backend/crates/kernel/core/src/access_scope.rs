@@ -59,7 +59,7 @@ impl BranchProjection {
 
 impl AccessScope {
     #[must_use]
-    pub fn legacy_org(org_id: OrgId) -> Self {
+    pub const fn legacy_org(org_id: OrgId) -> Self {
         Self {
             level: AccessScopeLevel::Org,
             node_id: ScopeNodeId::from_uuid(*org_id.as_uuid()),

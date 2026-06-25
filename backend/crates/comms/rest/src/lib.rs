@@ -702,7 +702,10 @@ fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
             .collect::<Result<BTreeSet<_>, _>>()?;
         BranchScope::Branches(branches)
     };
-    Ok(Principal::new(user_id, org_id, roles, branch_scope))
+    let access_scope = claims
+        .access_scope()
+        .map_err(|_| RestError::unauthorized("token contains an invalid access scope"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope).with_access_scope(access_scope))
 }
 
 // ---------------------------------------------------------------------------

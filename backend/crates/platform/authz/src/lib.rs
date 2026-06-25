@@ -11,7 +11,7 @@
 use std::collections::BTreeSet;
 use std::str::FromStr;
 
-use mnt_kernel_core::{BranchId, BranchScope, KernelError, OrgId, UserId};
+use mnt_kernel_core::{AccessScope, BranchId, BranchScope, KernelError, OrgId, UserId};
 use sqlx::PgPool;
 
 /// Canonical role codes stored in `users.roles`.
@@ -347,6 +347,7 @@ pub struct Principal {
     /// The tenant this principal belongs to, taken from the verified token's
     /// `org` claim. Used to arm `app.current_org` for RLS on this request.
     pub org_id: OrgId,
+    pub access_scope: AccessScope,
     pub roles: BTreeSet<Role>,
     pub branch_scope: BranchScope,
 }
@@ -362,9 +363,16 @@ impl Principal {
         Self {
             user_id,
             org_id,
+            access_scope: AccessScope::legacy_org(org_id),
             roles,
             branch_scope,
         }
+    }
+
+    #[must_use]
+    pub const fn with_access_scope(mut self, access_scope: AccessScope) -> Self {
+        self.access_scope = access_scope;
+        self
     }
 }
 

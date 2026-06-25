@@ -1667,7 +1667,10 @@ fn principal_from_claims(claims: AccessClaims) -> Result<Principal, ApiError> {
 
     let org_id = OrgId::from_str(&claims.org)
         .map_err(|_| ApiError::unauthorized("token contains an invalid org id"))?;
-    Ok(Principal::new(user_id, org_id, roles, branch_scope))
+    let access_scope = claims
+        .access_scope()
+        .map_err(|_| ApiError::unauthorized("token contains an invalid access scope"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope).with_access_scope(access_scope))
 }
 
 fn authorize_audit_read(principal: &Principal) -> Result<(), ApiError> {

@@ -140,6 +140,9 @@ pub async fn resolve_principal(
         .map_err(|_| RequestContextError::InvalidClaim("subject is not a valid user id"))?;
     let org_id = OrgId::from_str(&claims.org)
         .map_err(|_| RequestContextError::InvalidClaim("org is not a valid uuid"))?;
+    let access_scope = claims
+        .access_scope()
+        .map_err(|_| RequestContextError::InvalidClaim("access scope is invalid"))?;
     let roles = claims
         .roles
         .iter()
@@ -153,7 +156,7 @@ pub async fn resolve_principal(
         .await
         .map_err(|err| RequestContextError::BranchScope(err.to_string()))?;
 
-    Ok(Principal::new(user_id, org_id, roles, branch_scope))
+    Ok(Principal::new(user_id, org_id, roles, branch_scope).with_access_scope(access_scope))
 }
 
 // ---------------------------------------------------------------------------
