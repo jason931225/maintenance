@@ -2,13 +2,24 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { MemoryRouter } from "react-router-dom";
+import type { ReactNode } from "react";
+import {
+  MemoryRouter,
+  Navigate,
+  Outlet,
+  Route,
+  Routes,
+} from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { AppRouter } from "../AppRouter";
+import { ProtectedRoute } from "../components/ProtectedRoute";
+import { RequirePlatformRoute } from "../components/RequirePlatformRoute";
 import { AuthContext } from "../context/auth";
 import type { AuthContextValue, AuthSession } from "../context/auth";
 import { createConsoleApiClient } from "../api/client";
+import { PlatformOpsPage } from "../features/platform/PlatformOpsPage";
+import { PlatformOnboardPage } from "./PlatformOnboardPage";
+import { PlatformTenantsPage } from "./PlatformTenantsPage";
 
 const server = setupServer();
 
@@ -60,8 +71,31 @@ function renderApp(path: string, ctx: AuthContextValue) {
   return render(
     <AuthContext.Provider value={ctx}>
       <MemoryRouter initialEntries={[path]}>
-        <AppRouter />
+        <Routes>
+          <Route element={<ProtectedRoute />}>
+            <Route path="/dispatch" element={<h1>Dispatch Board</h1>} />
+          </Route>
+          <Route element={<RequirePlatformRoute />}>
+            <Route path="/platform" element={<Outlet />}>
+              <Route index element={<Navigate to="/platform/tenants" replace />} />
+              <Route path="tenants" element={<PlatformTenantsPage />} />
+              <Route path="ops" element={<PlatformOpsPage />} />
+            </Route>
+          </Route>
+        </Routes>
       </MemoryRouter>
+    </AuthContext.Provider>,
+  );
+}
+
+function renderPlatformPage(
+  page: ReactNode,
+  path: string,
+  ctx = makeAuthContext(platformSession),
+) {
+  return render(
+    <AuthContext.Provider value={ctx}>
+      <MemoryRouter initialEntries={[path]}>{page}</MemoryRouter>
     </AuthContext.Provider>,
   );
 }
@@ -122,7 +156,7 @@ describe("Platform tenant list", () => {
       http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
     );
 
-    renderApp("/platform/tenants", makeAuthContext(platformSession));
+    renderPlatformPage(<PlatformTenantsPage />, "/platform/tenants");
 
     const row = (await screen.findByText("Acme Corporation")).closest("tr");
     expect(row).not.toBeNull();
@@ -136,7 +170,7 @@ describe("Platform tenant list", () => {
       http.get("*/api/platform/orgs", () => HttpResponse.json([])),
     );
 
-    renderApp("/platform/tenants", makeAuthContext(platformSession));
+    renderPlatformPage(<PlatformTenantsPage />, "/platform/tenants");
 
     expect(
       await screen.findByText("등록된 테넌트가 없습니다."),
@@ -150,7 +184,7 @@ describe("Platform tenant list", () => {
       ),
     );
 
-    renderApp("/platform/tenants", makeAuthContext(platformSession));
+    renderPlatformPage(<PlatformTenantsPage />, "/platform/tenants");
 
     expect(
       await screen.findByText("테넌트 목록을 불러오지 못했습니다."),
@@ -189,7 +223,7 @@ describe("Platform ops dashboard", () => {
   it("renders the cross-tenant health table for a platform session", async () => {
     server.use(http.get("*/api/platform/ops", () => HttpResponse.json(opsTenants)));
 
-    renderApp("/platform/ops", makeAuthContext(platformSession));
+    renderPlatformPage(<PlatformOpsPage />, "/platform/ops");
 
     expect(
       await screen.findByRole("heading", { name: "플랫폼 운영 현황" }),
@@ -213,7 +247,7 @@ describe("Platform ops dashboard", () => {
       http.get("*/api/platform/ops", () => HttpResponse.json({ tenants: [] })),
     );
 
-    renderApp("/platform/ops", makeAuthContext(platformSession));
+    renderPlatformPage(<PlatformOpsPage />, "/platform/ops");
 
     expect(
       await screen.findByText("운영 데이터를 불러오면 표시됩니다."),
@@ -227,7 +261,7 @@ describe("Platform ops dashboard", () => {
       ),
     );
 
-    renderApp("/platform/ops", makeAuthContext(platformSession));
+    renderPlatformPage(<PlatformOpsPage />, "/platform/ops");
 
     expect(
       await screen.findByText("운영 현황을 불러오지 못했습니다."),
@@ -262,7 +296,7 @@ describe("Platform tenant removal", () => {
       }),
     );
 
-    renderApp("/platform/tenants", makeAuthContext(platformSession));
+    renderPlatformPage(<PlatformTenantsPage />, "/platform/tenants");
 
     const row = (await screen.findByText("Acme Corporation")).closest("tr");
     await user.click(
@@ -305,7 +339,7 @@ describe("Platform tenant removal", () => {
       ),
     );
 
-    renderApp("/platform/tenants", makeAuthContext(platformSession));
+    renderPlatformPage(<PlatformTenantsPage />, "/platform/tenants");
 
     const row = (await screen.findByText("Acme Corporation")).closest("tr");
     await user.click(
@@ -348,7 +382,7 @@ describe("Platform onboard", () => {
       }),
     );
 
-    renderApp("/platform/onboard", makeAuthContext(platformSession));
+    renderPlatformPage(<PlatformOnboardPage />, "/platform/onboard");
 
     await screen.findByRole("heading", { name: "테넌트 등록" });
 
@@ -381,7 +415,7 @@ describe("Platform onboard", () => {
       ),
     );
 
-    renderApp("/platform/onboard", makeAuthContext(platformSession));
+    renderPlatformPage(<PlatformOnboardPage />, "/platform/onboard");
 
     await user.type(screen.getByLabelText("이름"), "중복");
     await user.type(screen.getByLabelText("슬러그"), "taken-slug");

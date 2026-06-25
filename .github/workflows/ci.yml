@@ -42,6 +42,10 @@ on:
       - "tsconfig.json"
       - ".github/workflows/ci.yml"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     name: Backend — fmt / clippy / test / gates
@@ -178,13 +182,7 @@ jobs:
         run: npm run lint --workspace @maintenance/web-console
 
       - name: Unit tests
-        # PlatformConsole.test.tsx mounts <AppRouter/> ~15× and the per-fork V8
-        # heap grows across mounts; the default ceiling OOMs (exit 144 / #31).
-        # Raise the heap so the suite completes (vite.config teardownTimeout caps
-        # the leaked fork). Real fix = restructure that test to render once/describe.
         run: npm run test --workspace @maintenance/web-console
-        env:
-          NODE_OPTIONS: --max-old-space-size=6144
 
       - name: Production build
         run: npm run build --workspace @maintenance/web-console
