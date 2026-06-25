@@ -57,7 +57,10 @@ const server = setupServer(
   }),
   http.get("*/api/v1/ops/summary", () => HttpResponse.json(opsSummary)),
   http.get("*/api/v1/branches", () =>
-    HttpResponse.json([{ id: activeBranchId, name: "본사" }]),
+    HttpResponse.json([
+      { id: activeBranchId, name: "본사" },
+      { id: equipmentLookup.branch_id, name: "지점 B" },
+    ]),
   ),
   http.get("*/api/v1/location/arrival-events", () =>
     HttpResponse.json({ items: [], limit: 20, offset: 0, total: 0 }),
@@ -150,7 +153,7 @@ const authenticatedSession: AuthSession = {
   access_token: tokenPair.access_token,
   user_id: "00000000-0000-4000-8000-000000000002",
   roles: ["MECHANIC"],
-  branches: [activeBranchId],
+  branches: [activeBranchId, equipmentLookup.branch_id],
 };
 
 const adminSession: AuthSession = {
@@ -504,7 +507,7 @@ describe("IntakePage", () => {
     });
   });
 
-  it("submits the selected equipment 호기", async () => {
+  it("submits the selected equipment 호기 with its resolved branch", async () => {
     const user = userEvent.setup();
     renderAt("/intake");
 
@@ -519,7 +522,7 @@ describe("IntakePage", () => {
 
     await waitFor(() => {
       expect(createWorkOrderRequest).toMatchObject({
-        branch_id: activeBranchId,
+        branch_id: equipmentLookup.branch_id,
         management_no: "290",
         symptom: "시동 불량",
       });

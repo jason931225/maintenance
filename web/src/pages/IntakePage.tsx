@@ -38,6 +38,7 @@ export function IntakePage() {
   const [managementNo, setManagementNo] = useState("");
   const [equipmentSuggestions, setEquipmentSuggestions] = useState<EquipmentLookupResponse[]>([]);
   const [equipmentLookupState, setEquipmentLookupState] = useState<EquipmentLookupState>({ status: "idle" });
+  const [resolvedEquipmentBranchId, setResolvedEquipmentBranchId] = useState<string>();
 
   useEffect(() => {
     const query = managementNo.trim();
@@ -62,6 +63,7 @@ export function IntakePage() {
       setEquipmentSuggestions(autocompleteResponse.data?.items ?? []);
       if (lookupResponse.data) {
         const eq = lookupResponse.data;
+        setResolvedEquipmentBranchId(eq.branch_id);
         setEquipmentLookupState({
           status: "ready",
           equipment: {
@@ -76,6 +78,7 @@ export function IntakePage() {
         });
         return;
       }
+      setResolvedEquipmentBranchId(undefined);
       setEquipmentLookupState({ status: "notFound" });
     }
 
@@ -83,6 +86,7 @@ export function IntakePage() {
       loadEquipment().catch(() => {
         if (!ignore) {
           setEquipmentSuggestions([]);
+          setResolvedEquipmentBranchId(undefined);
           setEquipmentLookupState({ status: "error" });
         }
       });
@@ -96,7 +100,13 @@ export function IntakePage() {
 
   function handleManagementNoChange(nextManagementNo: string) {
     setManagementNo(nextManagementNo);
-    if (nextManagementNo.trim().length === 0) {
+    const trimmed = nextManagementNo.trim();
+    const selectedSuggestion = equipmentSuggestions.find(
+      (equipment) =>
+        (equipment.management_no ?? equipment.equipment_no) === trimmed,
+    );
+    setResolvedEquipmentBranchId(selectedSuggestion?.branch_id);
+    if (trimmed.length === 0) {
       setEquipmentSuggestions([]);
       setEquipmentLookupState({ status: "idle" });
       return;
@@ -105,7 +115,11 @@ export function IntakePage() {
   }
 
   async function createWorkOrder(request: CreateWorkOrderRequest): Promise<WorkOrderSummary> {
-    const response = await api.POST("/api/work-orders", { body: request });
+    const response = await api.POST("/api/work-orders", {
+      body: resolvedEquipmentBranchId
+        ? { ...request, branch_id: resolvedEquipmentBranchId }
+        : request,
+    });
     if (!response.data) {
       // The only 404 the create path raises is the equipment write-lookup
       // missing the typed 호기 — surface the status so the form can render the
