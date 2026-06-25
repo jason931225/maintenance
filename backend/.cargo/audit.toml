@@ -1,6 +1,5 @@
-# cargo-audit (RUSTSEC) configuration. Read by the rustsec/audit-check CI job
-# (working-directory: backend). Keep the ignore list in sync with the rationale
-# in backend/deny.toml.
+# cargo-audit (RUSTSEC) configuration. Read by the Security workflow from
+# backend/. Keep the ignore list in sync with the rationale in backend/deny.toml.
 [advisories]
 ignore = [
   # rsa Marvin timing side-channel. Pulled via jsonwebtoken. The RS256 signing

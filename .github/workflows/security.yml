@@ -57,24 +57,13 @@ jobs:
   rust-advisories:
     name: cargo audit (RUSTSEC)
     runs-on: ubuntu-latest
-    # audit-check posts results as a Check Run, which needs checks:write on top
-    # of the repo-default contents:read; without it the step fails with
-    # "Resource not accessible by integration".
-    permissions:
-      contents: read
-      checks: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          working-directory: backend
-          # audit-check does not read backend/.cargo/audit.toml, so the accepted
-          # advisories must be passed explicitly. Keep this in sync with the
-          # rationale in backend/deny.toml (the cargo-deny gate reads that file):
-          #   RUSTSEC-2023-0071 rsa Marvin — sign-only, no decryption oracle
-          #   RUSTSEC-2024-0436 paste unmaintained — build-time proc-macro only
-          ignore: RUSTSEC-2023-0071,RUSTSEC-2024-0436
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked --version 0.22.2
+      - name: Run cargo audit
+        working-directory: backend
+        run: cargo audit
 
   rust-supply-chain:
     name: cargo deny (licenses + sources + advisories)
