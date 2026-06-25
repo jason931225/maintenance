@@ -9,7 +9,7 @@ spec:
   project: maintenance
   source:
     repoURL: https://github.com/jason931225/maintenance.git
-    targetRevision: feat/multi-tenant-phase1
+    targetRevision: main
     path: deploy/infra/local-path
   destination:
     server: https://kubernetes.default.svc

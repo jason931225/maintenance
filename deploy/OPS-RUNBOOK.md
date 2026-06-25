@@ -84,7 +84,7 @@ kubectl exec -n maintenance mnt-db-1 -c postgres -- psql -U postgres -d maintena
      *Proper fix:* create the apalis schema in a migration (as `mnt_app`) + grant mnt_rt DML.
 
 ## 5. The GitOps server (Argo CD, ns `argocd`)
-- Argo watches branch **feat/multi-tenant-phase1** (the cutover branch), app-of-apps
+- Argo watches branch **main**, app-of-apps
   `root` → cert-manager, traefik, cnpg-operator, barman-plugin, local-path,
   argo-rollouts, cluster-issuer, **maintenance** (the app + DB + ingress).
 - Install (if rebuilding): `kubectl apply --server-side --force-conflicts -n argocd -k
@@ -93,7 +93,7 @@ kubectl exec -n maintenance mnt-db-1 -c postgres -- psql -U postgres -d maintena
 - Non-git secrets to create first: see `deploy/SECRETS.md` (`mnt-secrets`,
   `oci-objectstore-creds`, `mnt-db-rt` in `maintenance`; `cloudflare-api-token` in
   `cert-manager`). Material is in Vault `mnt-app-secrets-bundle`.
-- App images: branch build (`gh workflow run image-release.yml --ref feat/multi-tenant-phase1`),
+- App images: main build (`gh workflow run image-release.yml --ref main`),
   digests pinned in `deploy/apps/maintenance/overlays/prod/kustomization.yaml`.
 
 ## 6. Full rebuild from zero

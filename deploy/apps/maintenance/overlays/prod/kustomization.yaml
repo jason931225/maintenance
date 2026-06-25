@@ -8,10 +8,8 @@ resources:
 
 images:
   # Deploy by immutable, cosign-signed @sha256 digest (not a mutable tag): the
-  # exact scanned+signed artifact from image-release. mnt-app is the cutover
-  # build feat/multi-tenant-phase1@3b5bee8 (backend unchanged since); mnt-web is
-  # the one-stop front-door redesign @d919a66. Renovate / release-please bump
-  # these. mnt-worker shares the mnt-app image.
+  # exact scanned+signed artifact from image-release. Renovate / release-please
+  # bump these. mnt-worker shares the mnt-app image.
   - name: mnt-app
     newName: ghcr.io/jason931225/mnt-app
     digest: sha256:5d4cef9d704181a97a7f73b40f5bfd93ee49d0103262d58697697f82e7556700

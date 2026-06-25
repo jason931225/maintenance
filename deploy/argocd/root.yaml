@@ -10,7 +10,7 @@ spec:
   project: maintenance
   source:
     repoURL: https://github.com/jason931225/maintenance.git # replace OWNER
-    targetRevision: feat/multi-tenant-phase1
+    targetRevision: main
     path: deploy/argocd/apps
     directory:
       recurse: false
