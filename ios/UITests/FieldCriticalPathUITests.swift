@@ -11,6 +11,7 @@ import XCTest
 /// CI-ONLY: requires the iOS Simulator + a real backend session source. Locally
 /// (`swift build` / `swift test`) this target is not built — see the CI job
 /// `ios-ui-tests` in `.github/workflows/ios-ui-tests.yml`.
+@MainActor
 final class FieldCriticalPathUITests: FieldUITestCase {
     func testAuthenticatedLaunchShowsTodayTabInKorean() {
         launchApp()

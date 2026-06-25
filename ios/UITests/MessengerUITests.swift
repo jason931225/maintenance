@@ -5,6 +5,7 @@ import XCTest
 /// mechanic's day-to-day communication surface.
 ///
 /// CI-ONLY (see `FieldCriticalPathUITests` for the why).
+@MainActor
 final class MessengerUITests: FieldUITestCase {
     private func openMessengerTab() {
         launchApp()

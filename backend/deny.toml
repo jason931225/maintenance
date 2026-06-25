@@ -28,6 +28,8 @@ version = 2
 # never to silence a surprise copyleft dependency.
 allow = [
   "MIT",
+  # quoted_printable is 0BSD via lettre SMTP; permissive/no-attribution.
+  "0BSD",
   "Apache-2.0",
   "Apache-2.0 WITH LLVM-exception",
   "BSD-2-Clause",

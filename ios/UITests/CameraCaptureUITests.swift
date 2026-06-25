@@ -7,6 +7,7 @@ import XCTest
 /// camera is unavailable or permission is refused).
 ///
 /// CI-ONLY.
+@MainActor
 final class CameraCaptureUITests: FieldUITestCase {
     func testCaptureSheetPresentsAGracefulRealStateOnSimulator() throws {
         launchApp()

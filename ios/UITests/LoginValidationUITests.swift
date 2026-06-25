@@ -6,6 +6,7 @@ import XCTest
 /// session is seeded here — the app starts at the real login form.
 ///
 /// CI-ONLY.
+@MainActor
 final class LoginValidationUITests: XCTestCase {
     private var app: XCUIApplication!
 
