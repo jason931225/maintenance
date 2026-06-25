@@ -1,8 +1,8 @@
 # Sub-Spec: ORG-HIERARCHY — Conglomerate Group → 법인 → Region → Branch → Worksite
 
-**Story:** G002 (Track B0) · **Status:** REVISED per security-review → SAFE-TO-IMPLEMENT · **RLS posture:**
-the per-법인 `app.current_org` boundary is **UNCHANGED**. This spec adds a *controlled cross-entity scope
-above* that boundary; it never punches a hole in it.
+**Story:** G002 (Track B0) · **Status:** P0 schema/resolvers IMPLEMENTED (`6c7d121`); P1+ helper/API/UI
+scope remains open · **RLS posture:** the per-법인 `app.current_org` boundary is **UNCHANGED**. This spec
+adds a *controlled cross-entity scope above* that boundary; it never punches a hole in it.
 
 ## 0. Security-review revisions (applied — review verdict was MUST-REVISE-DESIGN-FIRST)
 The keystone architecture (N armed per-member reads, no BYPASSRLS on the data path) PASSED and is kept.
