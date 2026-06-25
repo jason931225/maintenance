@@ -68,6 +68,26 @@ async function logout(page: Page): Promise<void> {
   });
 }
 
+function seedRequiredPrivacyConsent(userId: string) {
+  sql(
+    `BEGIN;
+     SELECT set_config('app.current_org', '${ORG_ID}', true);
+     INSERT INTO audit_events (
+       id, actor, action, target_type, target_id, before_snap, after_snap,
+       trace_id, span_id, occurred_at, org_id
+     )
+     VALUES (
+       gen_random_uuid(), '${userId}', 'privacy.required_accept',
+       'privacy_terms', 'kr-pipa-v1-2026-06-25', NULL,
+       '{"policy_version":"kr-pipa-v1-2026-06-25","privacy_collection":true,"terms_of_service":true}'::jsonb,
+       substr(replace(gen_random_uuid()::text, '-', ''), 1, 32),
+       substr(replace(gen_random_uuid()::text, '-', ''), 1, 16),
+       now(), '${ORG_ID}'
+     );
+     COMMIT;`,
+  );
+}
+
 base("ADMIN-16/AUTH-08 admin credential-reset recovers a locked-out user", async ({
   browser,
 }) => {
@@ -76,6 +96,12 @@ base("ADMIN-16/AUTH-08 admin credential-reset recovers a locked-out user", async
   // rate-limit bucket up front so neither this spec nor the ones after it trip the
   // 100/min/endpoint global cap (see resetRateLimits in fixtures/roles).
   resetRateLimits();
+  // This recovery story is about credential revocation/re-enrollment, not the
+  // first-login consent gate (covered by auth/onboarding specs). Seed the
+  // required consent audit for both seeded actors so stale consent UI cannot
+  // obscure the credential-reset flow.
+  seedRequiredPrivacyConsent(RECEPTIONIST.userId);
+  seedRequiredPrivacyConsent(ROLE_CONFIG.SUPER_ADMIN.userId);
 
   // Two isolated contexts: the recovered user and the admin.
   const userContext = await browser.newContext();
@@ -107,15 +133,17 @@ base("ADMIN-16/AUTH-08 admin credential-reset recovers a locked-out user", async
 
     const row = adminPage.getByRole("row", { name: /E2E Receptionist/ });
     await row
-      .getByRole("button", { name: "패스키 재설정 / 로그인 코드 재발급" })
+      .getByRole("button", { name: /E2E Receptionist 추가 작업/ })
+      .click();
+    await adminPage
+      .getByRole("menuitem", { name: "패스키 재설정 / 로그인 코드 재발급" })
       .click();
 
     const dialog = adminPage.getByRole("dialog", {
       name: "패스키 재설정 / 로그인 코드 재발급",
     });
     await expect(dialog).toBeVisible({ timeout: 5_000 });
-    // The reset is destructive → confirm() must be accepted.
-    adminPage.on("dialog", (d) => void d.accept());
+    // The reset dialog itself is the destructive confirmation surface.
     await dialog
       .getByRole("button", { name: "패스키 재설정 및 코드 발급" })
       .click();

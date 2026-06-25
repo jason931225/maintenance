@@ -39,10 +39,13 @@ test("ADMIN-10 admin creates a recurring inspection schedule", async ({
     page.getByRole("heading", { name: /정기 예방정비/, level: 1 }),
   ).toBeVisible({ timeout: 8_000 });
 
-  // Fill the create form (id-based fields).
-  await page.locator("#ins-branch").fill(BRANCH_ID);
-  await page.locator("#ins-equipment").fill(EQUIPMENT_ID);
-  await page.locator("#ins-mechanic").fill(MECH_ID);
+  // Fill the create form through the current human-label comboboxes.
+  await page.getByLabel("지점").fill("E2E Branch");
+  await page.getByRole("option", { name: "E2E Branch" }).click();
+  await page.getByLabel("장비 (호기 번호)").fill("E2E-001");
+  await page.getByRole("option", { name: /E2E-001/ }).click();
+  await page.getByLabel("정비사").fill("E2E Prevention");
+  await page.getByRole("option", { name: /E2E Prevention/ }).click();
   await page.locator("#ins-cycle").selectOption("MONTHLY");
 
   // A due date 14 days out.

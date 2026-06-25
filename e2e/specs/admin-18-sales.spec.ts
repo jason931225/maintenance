@@ -44,6 +44,7 @@ test.afterAll(() => {
 test("ADMIN-18 admin creates a sales listing, publishes it, and it appears on the public storefront", async ({
   page,
   loginAs,
+  browser,
 }) => {
   await loginAs("SUPER_ADMIN");
 
@@ -80,13 +81,26 @@ test("ADMIN-18 admin creates a sales listing, publishes it, and it appears on th
   const statusSelect = row.getByRole("combobox");
   await expect(statusSelect).toHaveValue("DRAFT");
 
-  // A DRAFT must NOT yet be on the public storefront.
-  await page.goto("/used");
-  await expect(
-    page.getByRole("heading", { name: "검수된 중고 지게차를 조건별로 비교", level: 1 }),
-  ).toBeVisible({ timeout: 8_000 });
-  // The inventory live-region settles; the draft model is absent.
-  await expect(page.getByText(MODEL_NAME)).toHaveCount(0, { timeout: 8_000 });
+  // A DRAFT must NOT yet be on the public storefront. Use an isolated public
+  // context so visiting unauthenticated routes cannot disturb the admin session.
+  const appOrigin = new URL(page.url()).origin;
+  const publicContext = await browser.newContext();
+  const publicPage = await publicContext.newPage();
+  try {
+    await publicPage.goto(`${appOrigin}/used`);
+    await expect(
+      publicPage.getByRole("heading", {
+        name: "검수된 중고 지게차, 조건별 비교",
+        level: 1,
+      }),
+    ).toBeVisible({ timeout: 8_000 });
+    // The inventory live-region settles; the draft model is absent.
+    await expect(publicPage.getByText(MODEL_NAME)).toHaveCount(0, {
+      timeout: 8_000,
+    });
+  } finally {
+    await publicContext.close();
+  }
 
   // ── Still on /catalog: publish the 중고 listing via its row status select ────
   await page.goto("/catalog");
@@ -124,36 +138,47 @@ test("ADMIN-18 admin creates a sales listing, publishes it, and it appears on th
   });
 
   // ── One PUBLIC storefront visit exercises the whole 중고/신차 split ──────────
-  await page.goto("/used");
-  await expect(
-    page.getByRole("heading", { name: "검수된 중고 지게차를 조건별로 비교", level: 1 }),
-  ).toBeVisible({ timeout: 8_000 });
-  // Default (전체) shows BOTH the published 중고 and 신차 cards.
-  await expect(
-    page.getByRole("heading", { name: MODEL_NAME, level: 3 }),
-  ).toBeVisible({ timeout: 8_000 });
-  await expect(
-    page.getByRole("heading", { name: NEW_MODEL_NAME, level: 3 }),
-  ).toBeVisible({ timeout: 8_000 });
+  const storefrontContext = await browser.newContext();
+  const storefrontPage = await storefrontContext.newPage();
+  try {
+    await storefrontPage.goto(`${appOrigin}/used`);
+    await expect(
+      storefrontPage.getByRole("heading", {
+        name: "검수된 중고 지게차, 조건별 비교",
+        level: 1,
+      }),
+    ).toBeVisible({ timeout: 8_000 });
+    // Default (전체) shows BOTH the published 중고 and 신차 cards.
+    await expect(
+      storefrontPage.getByRole("heading", { name: MODEL_NAME, level: 3 }),
+    ).toBeVisible({ timeout: 8_000 });
+    await expect(
+      storefrontPage.getByRole("heading", { name: NEW_MODEL_NAME, level: 3 }),
+    ).toBeVisible({ timeout: 8_000 });
 
-  // 신차 tab → the new listing is present, the used one is gone.
-  await page.getByRole("button", { name: "신차", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: NEW_MODEL_NAME, level: 3 }),
-  ).toBeVisible({ timeout: 8_000 });
-  await expect(page.getByText(MODEL_NAME)).toHaveCount(0, { timeout: 8_000 });
+    // 신차 tab → the new listing is present, the used one is gone.
+    await storefrontPage.getByRole("button", { name: "신차", exact: true }).click();
+    await expect(
+      storefrontPage.getByRole("heading", { name: NEW_MODEL_NAME, level: 3 }),
+    ).toBeVisible({ timeout: 8_000 });
+    await expect(storefrontPage.getByText(MODEL_NAME)).toHaveCount(0, {
+      timeout: 8_000,
+    });
 
-  // 중고 tab → the used listing is present, the 신차 one is gone.
-  await page.getByRole("button", { name: "중고", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: MODEL_NAME, level: 3 }),
-  ).toBeVisible({ timeout: 8_000 });
-  await expect(page.getByText(NEW_MODEL_NAME)).toHaveCount(0, {
-    timeout: 8_000,
-  });
+    // 중고 tab → the used listing is present, the 신차 one is gone.
+    await storefrontPage.getByRole("button", { name: "중고", exact: true }).click();
+    await expect(
+      storefrontPage.getByRole("heading", { name: MODEL_NAME, level: 3 }),
+    ).toBeVisible({ timeout: 8_000 });
+    await expect(storefrontPage.getByText(NEW_MODEL_NAME)).toHaveCount(0, {
+      timeout: 8_000,
+    });
 
-  await page.screenshot({
-    path: "e2e/.artifacts/sales-storefront.png",
-    fullPage: true,
-  });
+    await storefrontPage.screenshot({
+      path: "e2e/.artifacts/sales-storefront.png",
+      fullPage: true,
+    });
+  } finally {
+    await storefrontContext.close();
+  }
 });

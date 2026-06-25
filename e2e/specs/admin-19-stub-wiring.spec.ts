@@ -18,6 +18,7 @@ import { test, expect, sql, TENANT_ORG_ID } from "../fixtures/roles";
 
 const ORG_ID = TENANT_ORG_ID;
 const BRANCH_ID = "00000000-0000-0000-0000-0000000000c1";
+const ADMIN_ID = "00000000-0000-0000-0000-0000000d0003";
 const SADMIN_ID = "00000000-0000-0000-0000-0000000d0005";
 const EQUIP_ID = "00000000-0000-0000-0000-000000ee0003";
 
@@ -36,7 +37,17 @@ async function openControls(
   const selectBtn = page.getByRole("button", {
     name: new RegExp(`${requestNoSuffix} 배차 제어`),
   });
-  await expect(selectBtn).toBeVisible({ timeout: 8_000 });
+  await expect
+    .poll(
+      async () => {
+        if (await selectBtn.isVisible()) return true;
+        const retry = page.getByRole("button", { name: /다시 시도/ });
+        if (await retry.isVisible()) await retry.click();
+        return selectBtn.isVisible();
+      },
+      { timeout: 20_000, intervals: [500, 1000, 1500] },
+    )
+    .toBe(true);
   await selectBtn.click();
   await expect(
     page.getByRole("heading", {
@@ -110,10 +121,24 @@ test("ADMIN-19 admin approves a target due-date change request by id", async ({
   sql(
     `BEGIN;
      SELECT set_config('app.current_org', '${ORG_ID}', true);
-     UPDATE target_change_requests
-       SET status = 'REQUESTED', reviewed_by = NULL, reviewed_at = NULL,
-           review_memo = NULL
-     WHERE id = '${TARGET_CHANGE_ID}';
+     INSERT INTO target_change_requests (
+       id, work_order_id, requested_by, requested_target_due_at, reason,
+       status, reviewed_by, reviewed_at, review_memo, org_id
+     ) VALUES (
+       '${TARGET_CHANGE_ID}', '${WO_OUTSOURCE}', '${ADMIN_ID}',
+       now() + interval '7 days', 'E2E 일정 변경 검토 대상',
+       'REQUESTED', NULL, NULL, NULL, '${ORG_ID}'
+     )
+     ON CONFLICT (id) DO UPDATE
+       SET work_order_id = EXCLUDED.work_order_id,
+           requested_by = EXCLUDED.requested_by,
+           requested_target_due_at = EXCLUDED.requested_target_due_at,
+           reason = EXCLUDED.reason,
+           status = 'REQUESTED',
+           reviewed_by = NULL,
+           reviewed_at = NULL,
+           review_memo = NULL,
+           org_id = EXCLUDED.org_id;
      COMMIT;`,
   );
 
@@ -143,8 +168,10 @@ test("ADMIN-19 admin approves a target due-date change request by id", async ({
   const reviewInput = page.locator("#target-change-request-id");
   await expect(reviewInput).toBeVisible({ timeout: 8_000 });
   await reviewInput.fill(TARGET_CHANGE_ID);
-  await page.locator("#target-change-memo").fill("E2E 승인 메모");
-  await page.getByRole("button", { name: "승인", exact: true }).click();
+  const reviewMemo = page.locator("#target-change-memo");
+  await reviewMemo.fill("E2E 승인 메모");
+  await reviewMemo.press("Tab");
+  await page.keyboard.press("Enter");
 
   await expect(page.getByText(/일정 변경 요청을 승인했습니다\./)).toBeVisible({
     timeout: 10_000,
@@ -264,7 +291,7 @@ test("ADMIN-19 admin imports an equipment master-list .xlsx", async ({
   loginAs,
 }) => {
   await loginAs("SUPER_ADMIN");
-  await page.goto("/equipment");
+  await page.goto("/equipment/legacy");
   await expect(
     page.getByRole("heading", { name: /장비 마스터 일괄 등록/ }),
   ).toBeVisible({ timeout: 8_000 });

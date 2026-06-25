@@ -11,9 +11,9 @@ import { test, expect, sql, TENANT_ORG_ID } from "../fixtures/roles";
  *   - a manual cost-ledger entry (…0cd001) so the ledger view renders a row
  *   - an evidence_media row (…0ed001) so a purchase request can be created in-spec
  *
- * The cost-ledger view also exercises the rfc3339 serde fix: entry_at is rendered
- * verbatim, so an array-shaped timestamp would surface a comma-joined number list
- * instead of an ISO instant.
+ * The cost-ledger view also exercises the timestamp serde fix: entry_at is
+ * rendered as a formatted date-time, so an array-shaped timestamp would fail the
+ * stable date-time selector instead of slipping through.
  */
 
 const ORG_ID = TENANT_ORG_ID;
@@ -72,7 +72,7 @@ test("ADMIN-13 admin creates a rental quote for an equipment", async ({
   ).toBeVisible({ timeout: 8_000 });
 });
 
-test("ADMIN-13 admin views an equipment cost ledger (renders rfc3339 entry_at)", async ({
+test("ADMIN-13 admin views an equipment cost ledger (renders formatted entry_at)", async ({
   page,
   loginAs,
 }) => {
@@ -94,11 +94,11 @@ test("ADMIN-13 admin views an equipment cost ledger (renders rfc3339 entry_at)",
   // The seeded ledger entry renders its memo.
   await expect(page.getByText("E2E 원장 항목")).toBeVisible({ timeout: 8_000 });
 
-  // entry_at must be an rfc3339 instant (contains 'T' and a year), NOT a serde
-  // array like "2026,171,..." — this is the systemic timestamp-as-array guard.
+  // The UI renders entry_at through formatKoreanDateTime: a stable KST
+  // "YYYY-MM-DD HH:mm" value, NOT a serde array like "2026,171,...".
   const entryAtValue = page
     .locator("dd")
-    .filter({ hasText: /^\d{4}-\d{2}-\d{2}T/ });
+    .filter({ hasText: /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/ });
   await expect(entryAtValue.first()).toBeVisible({ timeout: 8_000 });
 });
 

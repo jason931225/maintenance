@@ -35,14 +35,14 @@ test("ADMIN-14 admin assigns a 대차 substitute and returns it", async ({
   loginAs,
 }) => {
   await loginAs("SUPER_ADMIN");
-  await page.goto("/equipment");
+  await page.goto("/equipment/manage");
   await expect(
-    page.getByRole("heading", { name: /장비 조회/, level: 1 }),
+    page.getByRole("heading", { name: /장비 관리/, level: 1 }),
   ).toBeVisible({ timeout: 8_000 });
 
   // Surface the source equipment in the page search so the substitution source
   // dropdown can offer it.
-  await page.locator("#equipment-search").fill("E2E-001");
+  await page.locator("#manage-equipment-search").fill("E2E-001");
   await expect(page.getByText(/E2E모델-15T/).first()).toBeVisible({
     timeout: 8_000,
   });
@@ -57,8 +57,9 @@ test("ADMIN-14 admin assigns a 대차 substitute and returns it", async ({
   await expect(
     page.getByRole("heading", { name: /예비 추천 목록/ }),
   ).toBeVisible({ timeout: 8_000 });
-  // The spare's 전체 호환 (ExactTon full-compat) badge confirms a compatible candidate.
-  await expect(page.getByText(/전체 호환/).first()).toBeVisible({
+  // The badge confirms a compatible candidate; the seeded data currently
+  // renders as an exact-text match.
+  await expect(page.getByText(/정확 일치/).first()).toBeVisible({
     timeout: 8_000,
   });
 

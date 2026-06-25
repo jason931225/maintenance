@@ -47,7 +47,7 @@ test("MECH-03 mechanic accepts a P1 dispatch offer", async ({
   ).toBeVisible();
 
   // Enter the dispatch ID and look it up.
-  await page.getByRole("textbox", { name: /배차 ID/ }).fill(DISPATCH_ID);
+  await page.getByRole("textbox", { name: /배차 코드/ }).fill(DISPATCH_ID);
   await page.getByRole("button", { name: /^조회$/ }).click();
 
   // The dispatch status "수락 대기" should appear.
@@ -76,7 +76,7 @@ test("MECH-04 mechanic declines a P1 dispatch offer", async ({
   ).toBeVisible();
 
   // Enter the dispatch ID and look it up.
-  await page.getByRole("textbox", { name: /배차 ID/ }).fill(DISPATCH_ID);
+  await page.getByRole("textbox", { name: /배차 코드/ }).fill(DISPATCH_ID);
   await page.getByRole("button", { name: /^조회$/ }).click();
 
   // The dispatch status "수락 대기" should appear.

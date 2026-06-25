@@ -3,7 +3,7 @@ import { test, expect, sql, TENANT_ORG_ID } from "../fixtures/roles";
 /**
  * ADMIN-05 — admin creates an equipment row and edits it (EquipmentManage).
  *
- * Driven against /equipment as the seeded SUPER_ADMIN. The EquipmentManagementPanel
+ * Driven against /equipment/manage as the seeded SUPER_ADMIN. The EquipmentManagementPanel
  * renders only for EquipmentManage holders (ADMIN/EXECUTIVE/SUPER_ADMIN). Its
  * editable list is populated by the page's autocomplete search, so after creating
  * the row we search for its 관리 번호 to surface the edit control.
@@ -35,14 +35,9 @@ test("ADMIN-05 admin creates + edits an equipment row", async ({
   loginAs,
 }) => {
   await loginAs("SUPER_ADMIN");
-  await page.goto("/equipment");
+  await page.goto("/equipment/manage");
   await expect(
-    page.getByRole("heading", { name: /장비 조회/, level: 1 }),
-  ).toBeVisible({ timeout: 8_000 });
-
-  // The manage panel renders for SUPER_ADMIN.
-  await expect(
-    page.getByRole("heading", { name: /장비 관리/ }),
+    page.getByRole("heading", { name: /장비 관리/, level: 1 }),
   ).toBeVisible({ timeout: 8_000 });
 
   // ── Create ─────────────────────────────────────────────────────────────────
@@ -65,7 +60,7 @@ test("ADMIN-05 admin creates + edits an equipment row", async ({
   });
 
   // ── Surface the new row via the page search, then edit it ────────────────────
-  await page.locator("#equipment-search").fill(MANAGEMENT_NO);
+  await page.locator("#manage-equipment-search").fill(MANAGEMENT_NO);
   // After the 300ms debounce + autocomplete, the row appears with an edit button
   // whose aria-label is "{equipment_no} 수정".
   const editBtn = page.getByRole("button", {

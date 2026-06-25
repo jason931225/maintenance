@@ -26,9 +26,10 @@ test("PUBLIC-01 visitor submits the public intake form and sees the confirmation
   ).toBeVisible({ timeout: 8_000 });
 
   // The PublicLayout header is present (this is a storefront page, not the
-  // authenticated console) — the staff 로그인 link and the FSM 플랫폼 nav render.
+  // authenticated console) — the staff 로그인 link and the platform showcase nav
+  // render.
   await expect(
-    page.getByRole("link", { name: "FSM 플랫폼" }).first(),
+    page.getByRole("link", { name: /지게차 임대·정비 운영 플랫폼 소개/ }).first(),
   ).toHaveAttribute("href", "/platform-fsm");
 
   // ── Comprehensive intake form ───────────────────────────────────────────────

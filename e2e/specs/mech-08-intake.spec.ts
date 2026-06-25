@@ -36,7 +36,7 @@ test("MECH-08 intake form: required-field errors, 호기 autopull, then submit",
 
   // ── 호기 autopull ──────────────────────────────────────────────────────────
   // Type the management_no; the debounce fires after ~300ms.
-  await page.getByRole("textbox", { name: /호기/ }).fill("#E2E-001");
+  await page.getByRole("combobox", { name: /호기/ }).fill("#E2E-001");
   // Wait for the equipment lookup panel to show the model.
   await expect(page.getByText(/E2E모델-15T/).first()).toBeVisible({
     timeout: 5_000,

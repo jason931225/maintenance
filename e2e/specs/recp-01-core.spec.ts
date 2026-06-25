@@ -20,7 +20,7 @@ test("RECP equipment lookup by 호기", async ({ page, loginAs }) => {
   await loginAs("RECEPTIONIST");
   await expect(page).toHaveURL(/\/dispatch/, { timeout: 15_000 });
 
-  await page.goto("/equipment");
+  await page.goto("/equipment/legacy");
   await expect(
     page.getByRole("heading", { name: /장비 조회/ }),
   ).toBeVisible({ timeout: 8_000 });
@@ -57,7 +57,7 @@ test("RECP intake form: 호기 autopull then submit (접수증)", async ({
   await expect(page.getByText(/고장내용을 입력하세요\./).first()).toBeVisible();
 
   // 호기 autopull resolves the seeded equipment.
-  await page.getByRole("textbox", { name: /호기/ }).fill(MANAGEMENT_NO);
+  await page.getByRole("combobox", { name: /호기/ }).fill(MANAGEMENT_NO);
   await expect(page.getByText(/E2E모델-15T/).first()).toBeVisible({
     timeout: 5_000,
   });

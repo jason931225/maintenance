@@ -15,12 +15,12 @@ import {
  * a lowest-privilege MEMBER account and "emails" a one-time code (the stub email
  * sender logs it, since MNT_EMAIL_* is unset in e2e), the visitor redeems that
  * code, is forced through passkey onboarding, enrolls a discoverable passkey, and
- * lands in the role-gated console showing only the MEMBER minimal surface.
+ * lands on the pending MEMBER screen until an admin grants a role.
  *
  * This proves the real end-to-end signup path (no stubs in the app flow itself —
  * only the email transport is the stub, which is the sanctioned dev/e2e sender).
  */
-test("AUTH-07 open signup: email -> stub OTP -> redeem -> enroll -> MEMBER minimal console", async ({
+test("AUTH-07 open signup: email -> stub OTP -> redeem -> enroll -> pending MEMBER landing", async ({
   page,
   authenticator,
 }) => {
@@ -37,10 +37,12 @@ test("AUTH-07 open signup: email -> stub OTP -> redeem -> enroll -> MEMBER minim
   await expect(page).toHaveURL(/\/onboarding/, { timeout: 15_000 });
   await enrollPasskey(page);
 
-  // 4) A freshly self-registered MEMBER is a tenant session: after onboarding the
-  // route guard lands it on the default tenant route, NOT the platform console.
-  await expect(page).toHaveURL(/\/dispatch/, { timeout: 15_000 });
-  await expect(page).not.toHaveURL(/\/platform/);
+  // 4) A freshly self-registered MEMBER is a tenant session with no role grant
+  // yet, so ProtectedRoute redirects it to the pending landing.
+  await expect(page).toHaveURL(/\/pending/, { timeout: 15_000 });
+  await expect(
+    page.getByRole("heading", { name: "계정이 생성되었습니다", level: 1 }),
+  ).toBeVisible({ timeout: 8_000 });
 
   // The virtual authenticator now holds exactly one resident credential.
   const { credentials } = await authenticator.cdp.send("WebAuthn.getCredentials", {
@@ -49,17 +51,16 @@ test("AUTH-07 open signup: email -> stub OTP -> redeem -> enroll -> MEMBER minim
   expect(credentials.length).toBe(1);
   expect(credentials[0]?.isResidentCredential).toBe(true);
 
-  // 5) Role-gated console: MEMBER sees the minimal surface. Every admin/role-gated
-  // nav item (approvals, KPI, users, org, sites, catalog, ops, ...) is hidden; a
-  // MEMBER is denied everything but Login until an admin elevates it.
+  // 5) Pending MEMBER surface: admin/role-gated nav items are absent until an
+  // admin grants a role.
   await expect(
     page.getByRole("link", { name: /승인|결재/ }),
   ).toHaveCount(0);
   await expect(page.getByRole("link", { name: /KPI/ })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /사용자/ })).toHaveCount(0);
 
-  // 6) Hard-guard: navigating to an admin-only route bounces a MEMBER back to the
-  // default tenant route (RequireAdminRoute redirects to /dispatch).
+  // 6) Hard-guard: navigating to an admin-only route keeps a no-grant MEMBER on
+  // the pending landing.
   await page.goto("/settings/users");
-  await expect(page).toHaveURL(/\/dispatch/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/pending/, { timeout: 15_000 });
 });

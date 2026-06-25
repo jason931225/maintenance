@@ -81,12 +81,16 @@ test("ADMIN-07 admin rejects a submitted completion with a memo", async ({
     page.getByRole("heading", { name: /승인 대기/, level: 1 }),
   ).toBeVisible({ timeout: 8_000 });
 
-  // A reject requires a memo — fill the shared 검토 메모 textarea first.
-  await page.locator("#approval-memo").fill("E2E 반려 사유: 추가 점검이 필요합니다.");
-
   const rejectBtn = page.getByRole("button", { name: /-072 반려/ });
   await expect(rejectBtn).toBeVisible({ timeout: 8_000 });
   await rejectBtn.click();
+
+  const dialog = page.getByRole("dialog", { name: "작업지시 반려" });
+  await expect(dialog).toBeVisible({ timeout: 5_000 });
+  await dialog
+    .getByLabel("반려 메모")
+    .fill("E2E 반려 사유: 추가 점검이 필요합니다.");
+  await dialog.getByRole("button", { name: "반려", exact: true }).click();
 
   await expect(page.getByText(/반려를 처리했습니다\./)).toBeVisible({
     timeout: 10_000,

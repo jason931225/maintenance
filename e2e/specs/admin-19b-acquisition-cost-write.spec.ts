@@ -54,15 +54,12 @@ test("ADMIN-19b admin records acquisition cost/date and it propagates to the TCO
   await loginAs("SUPER_ADMIN");
 
   // ── Open the seed equipment's edit form via the manage panel search ──────────
-  await page.goto("/equipment");
+  await page.goto("/equipment/manage");
   await expect(
-    page.getByRole("heading", { name: /장비 조회/, level: 1 }),
-  ).toBeVisible({ timeout: 8_000 });
-  await expect(
-    page.getByRole("heading", { name: /장비 관리/ }),
+    page.getByRole("heading", { name: /장비 관리/, level: 1 }),
   ).toBeVisible({ timeout: 8_000 });
 
-  await page.locator("#equipment-search").fill(MANAGEMENT_NO);
+  await page.locator("#manage-equipment-search").fill(MANAGEMENT_NO);
   const editBtn = page.getByRole("button", { name: `${EQUIPMENT_NO} 수정` });
   await expect(editBtn).toBeVisible({ timeout: 8_000 });
   await editBtn.click();

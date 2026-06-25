@@ -14,7 +14,7 @@ test("MECH-13 equipment lookup by 호기 and view 대차 substitute candidates",
   await loginAs("MECHANIC");
   await expect(page).toHaveURL(/\/dispatch/, { timeout: 15_000 });
 
-  await page.goto("/equipment");
+  await page.goto("/equipment/legacy");
   await expect(
     page.getByRole("heading", { name: /장비 조회/ }),
   ).toBeVisible({ timeout: 8_000 });
@@ -45,10 +45,10 @@ test("MECH-13 equipment lookup by 호기 and view 대차 substitute candidates",
 
   // seed-admin.sql seeds a compatible 예비(spare) unit (호기 E2E-SPARE, exact-ton
   // match), so the substitution read returns it as a candidate. The mechanic can
-  // READ candidates (the 대차 후보 list + 정확 일치 badge render) but the assign
+  // READ candidates (the 예비 추천 목록 + 정확 일치 badge render) but the assign
   // control is admin-only (EquipmentManage) and must stay hidden.
   await expect(
-    page.getByRole("heading", { name: /대차 후보/ }),
+    page.getByRole("heading", { name: /예비 추천 목록/ }),
   ).toBeVisible({ timeout: 8_000 });
   await expect(page.getByText("E2E-SPARE")).toBeVisible({ timeout: 8_000 });
   await expect(page.getByText(/정확 일치/).first()).toBeVisible();

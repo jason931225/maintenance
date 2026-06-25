@@ -122,7 +122,7 @@ test("ADMIN-09 admin force-assigns an escalated P1 dispatch", async ({
   // Force-assign needs an in-flight dispatch surfaced for THIS work order. Look it
   // up by id in the offers panel — that sets the page's activeDispatch so the
   // force-assign select unlocks for the matching, selected order.
-  await page.getByLabel("배차 ID").fill(DISPATCH_ID);
+  await page.getByLabel("배차 코드").fill(DISPATCH_ID);
   await page.getByRole("button", { name: /^조회$/ }).click();
   // The offer status renders (관리자 강제 배정 대기 = MANAGER_FORCE_PENDING).
   await expect(page.getByText(/관리자 강제 배정 대기/).first()).toBeVisible({
