@@ -127,8 +127,10 @@ enum Presentation {
 ///
 /// `setUp` mints a real backend session and seeds it into the real Keychain so
 /// the app's normal `restore()` path authenticates. If no real session source is
-/// configured (local dev, unsigned build) every test in the suite skips with an
-/// actionable message — it never fakes auth.
+/// configured and the CI run did not explicitly require one, every dependent
+/// test skips with an actionable message — it never fakes auth. When
+/// `MNT_UITEST_REQUIRE_REAL=1`, absence of the real session remains a hard
+/// failure through the preflight guard and this setup path.
 class FieldUITestCase: XCTestCase {
     var app: XCUIApplication!
     private(set) var seededSession = false
@@ -137,7 +139,21 @@ class FieldUITestCase: XCTestCase {
         try await super.setUp()
         continueAfterFailure = false
 
-        let tokens = try await RealBackendSession.fetch()
+        let tokens: RealBackendSession.TokenPair
+        do {
+            tokens = try await RealBackendSession.fetch()
+        } catch RealBackendSession.SeedError.notConfigured {
+            if ProcessInfo.processInfo.environment["MNT_UITEST_REQUIRE_REAL"] == "1" {
+                throw RealBackendSession.SeedError.notConfigured
+            }
+            throw XCTSkip(
+                """
+                No real-backend session source configured. Skipping this \
+                session-dependent UI test because MNT_UITEST_REQUIRE_REAL is not \
+                enabled for this run.
+                """
+            )
+        }
         try RealSessionSeed.seed(SeedTokens(accessToken: tokens.accessToken, refreshToken: tokens.refreshToken))
         seededSession = true
     }
