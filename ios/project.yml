@@ -69,9 +69,10 @@ targets:
     sources:
       - path: UITests
     # The dependency on the app target wires the UI-test host (XcodeGen sets the
-    # target's "Target Application" / TEST_TARGET_NAME from this for a
-    # bundle.ui-testing target). Do not also set TEST_TARGET_NAME by hand — the
-    # dependency is the source of truth.
+    # target's "Target Application" relationship for a bundle.ui-testing target).
+    # Xcode 16.4's generated xctestrun derives UITargetAppPath from TEST_TARGET_NAME;
+    # set the wrapper name explicitly so it points at MaintenanceFieldApp.app, not
+    # the extensionless executable path.
     dependencies:
       - target: MaintenanceFieldApp
     settings:
@@ -85,6 +86,7 @@ targets:
         GENERATE_INFOPLIST_FILE: "YES"
         INFOPLIST_KEY_CFBundleDisplayName: "MaintenanceFieldUITests"
         PRODUCT_BUNDLE_IDENTIFIER: "$(MNT_IOS_BUNDLE_ID).UITests"
+        TEST_TARGET_NAME: "MaintenanceFieldApp.app"
         # The UI-test bundle is signed, too, so Xcode 16.4 needs either an
         # explicit plist or generated one. Keep it generated because the test
         # bundle has no product-specific Info.plist keys.
