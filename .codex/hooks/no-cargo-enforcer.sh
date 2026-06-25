@@ -41,6 +41,11 @@ esac
 # payloads mentioning forbidden examples do not false-positive.
 cmd_stripped="$(printf '%s' "$cmd" | sed -E "s/'[^']*'//g; s/\"[^\"]*\"//g")"
 
+# Containerized Cargo is okay; the guard is for host-local Cargo.
+if printf '%s' "$cmd_stripped" | grep -Eq '^[[:space:]]*(docker|podman)([[:space:]]|$)'; then
+  exit 0
+fi
+
 # cargo, optional toolchain (+stable), then local build/verify/run subcommand.
 if printf '%s' "$cmd_stripped" | grep -Eq '(^|[;&|(]|[[:space:]])cargo[[:space:]]+(\+[^[:space:]]+[[:space:]]+)?(build|check|test|nextest|clippy|run|bench)([[:space:]]|$)'; then
   {
