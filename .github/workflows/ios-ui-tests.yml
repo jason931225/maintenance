@@ -64,8 +64,9 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Select Xcode
-        # Pin to a stable Xcode that ships iOS 17+ SDK + the performAccessibilityAudit API.
-        run: sudo xcode-select -switch /Applications/Xcode_16.app
+        # Pin to Xcode 16.4: swift-openapi-runtime 1.12 uses Swift tools 6.1,
+        # and Xcode 16.0 only ships Swift 6.0 on the macos-15 runner.
+        run: sudo xcode-select -switch /Applications/Xcode_16.4.app
 
       - name: Show toolchain
         run: |
