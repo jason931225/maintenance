@@ -280,6 +280,19 @@ replacement one-time code. Treat this as a Q0/L1 recovery gate: identify the ser
 a regression for the affected authorization/branch/role path, and keep personally identifying details out
 of docs and fixtures.
 
+**2026-06-25 #20.6 intake resolution:** the "호기 선택 후 접수등록해도 호기수를 제대로 입력하라"
+report was a multi-branch mismatch: the lookup could resolve equipment in a secondary assigned branch,
+while submit used the first active JWT branch. The web intake submit now carries the resolved
+equipment `branch_id`; the regression asserts a selected cross-branch equipment submits with that branch.
+Code is merged in `4ebcfe2`; release `v0.1.7` / prod-overlay bump `a3df78e` carry the fix.
+
+**2026-06-25 #24 rollout state after v0.1.7:** GitHub delivery is clean (`v0.1.7` at `bc7eb5f`,
+prod-overlay bump `a3df78e`, open PRs 0, remote branches `main` only, CI/Security/Release
+Please/Image Release green). Read-only prod verification still shows Argo `root` and `maintenance`
+Applications pinned to `feat/multi-tenant-phase1`, running the older `mnt-app@8bbf...` and
+`mnt-web@eb78...` images; both public hosts still serve the 2026-06-24 asset set. Keep #24 open until a
+production Argo patch/sync to `main` is performed and live assets match the current overlay.
+
 **2026-06-25 issue-backed #19 cleanup:** code/UI already use a 300 m default geofence; API/client docs and
 comments must not drift back to the obsolete 150 m wording. The GPS consent settings page must keep the
 current consent status usable when the audit ledger endpoint is unavailable or unauthorized; ledger loading
