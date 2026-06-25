@@ -237,7 +237,7 @@ aid); ontology shared (`org_id IS NULL`) rows carry schema metadata only, never 
 
 ## 9. GitHub issue/comment intake (binding live-feedback ledger)
 
-**Last polled:** 2026-06-25T01:38:51Z (2026-06-24 21:38 ET). Source of truth:
+**Last polled:** 2026-06-25T01:59:37Z (2026-06-24 21:59 ET). Source of truth:
 open GitHub issues + issue comments in `jason931225/maintenance`. Open PR feed is currently empty; PR review
 comment feed is currently empty. Re-run this intake before every wave gate, before merging
 `feat/multi-tenant-phase1` to `main`, and before marking an issue-backed lane done.
@@ -266,6 +266,10 @@ comment feed is currently empty. Re-run this intake before every wave gate, befo
 | [#12](https://github.com/jason931225/maintenance/issues/12), [#13](https://github.com/jason931225/maintenance/issues/13) | Visual rental dispatch map by province/city/customer site; move/displace assets; customer/site registration with contact/address; arrival/departure location events. | L4 dispatch + L3 registry + C dispatch map; consent-gated arrival/return markers, not 24h live tracking. |
 | [#14](https://github.com/jason931225/maintenance/issues/14) | Intake receipt form with required fields, equipment model pulled from master list, request date, symptom, contact. | L2 workorder intake + OpenAPI/UI tests. |
 | [#16](https://github.com/jason931225/maintenance/issues/16) | AI assistant request for maintenance recommendations and report generation. | **Scope decision required:** current plan says no AI. If accepted, add a separate post-spine AI lane with LLM threat model, tenant data isolation, audit, cost/rate limits, and no direct write actions. |
+
+**Latest #20 clarification:** do not model "groupware user" as a durable taxonomy until clarified; the
+maintainer challenged whether groupware is still used. L13/L18 should classify people by actual product
+access, site/department responsibility, and operational capabilities rather than a legacy groupware label.
 
 **Bottom line: S‑1 first (prove a red PR blocks deploy), then S6–S12 + freeze the registry/contracts +
 pull L16/L17 out — then the 20 lanes fan out safely.** The architecture stands; only the sequence changes.

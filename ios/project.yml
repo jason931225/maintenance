@@ -77,8 +77,12 @@ targets:
     settings:
       base:
         CODE_SIGN_ENTITLEMENTS: Config/MaintenanceFieldUITests.entitlements
-        # The UITests bundle id derives from the app's; XcodeGen sets a sensible
-        # default ($(PRODUCT_BUNDLE_IDENTIFIER).uitests-style) — no literal here.
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_KEY_CFBundleDisplayName: "MaintenanceFieldUITests"
+        PRODUCT_BUNDLE_IDENTIFIER: "$(MNT_IOS_BUNDLE_ID).UITests"
+        # The UI-test bundle is signed, too, so Xcode 16.4 needs either an
+        # explicit plist or generated one. Keep it generated because the test
+        # bundle has no product-specific Info.plist keys.
 
 schemes:
   MaintenanceFieldApp:
