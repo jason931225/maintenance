@@ -1,7 +1,7 @@
 -- Issue #13 — site arrival/departure (geofence) tracking.
 --
 -- When a mechanic on duty (location consent GRANTED) pings GPS within a site's
--- geofence radius (registry_sites.geofence_radius_m / the 150 m default), the
+-- geofence radius (registry_sites.geofence_radius_m / the 300 m default), the
 -- ping-ingest path records an ARRIVAL; leaving the radius records a DEPARTURE.
 --
 -- TWO tables with deliberately different retention, to honour the location-data

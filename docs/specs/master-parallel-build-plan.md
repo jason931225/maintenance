@@ -237,7 +237,7 @@ aid); ontology shared (`org_id IS NULL`) rows carry schema metadata only, never 
 
 ## 9. GitHub issue/comment intake (binding live-feedback ledger)
 
-**Last polled:** 2026-06-25T14:28:31Z (2026-06-25 10:28 EDT). Source of truth:
+**Last polled:** 2026-06-25T16:24:13Z (2026-06-25 12:24 EDT). Source of truth:
 open GitHub issues + issue comments in `jason931225/maintenance`. Open PRs were empty and remote
 branches contained only `main`; re-run this intake before every wave gate and before marking an
 issue-backed lane done.
@@ -279,6 +279,11 @@ fail with `패스키 재설정에 실패했습니다. 다시 시도하세요.` i
 replacement one-time code. Treat this as a Q0/L1 recovery gate: identify the server/API failure class, add
 a regression for the affected authorization/branch/role path, and keep personally identifying details out
 of docs and fixtures.
+
+**2026-06-25 issue-backed #19 cleanup:** code/UI already use a 300 m default geofence; API/client docs and
+comments must not drift back to the obsolete 150 m wording. The GPS consent settings page must keep the
+current consent status usable when the audit ledger endpoint is unavailable or unauthorized; ledger loading
+is optional for mechanics, status loading is not.
 
 **2026-06-25 legal/privacy release gate:** initial console login now needs an engineering control that
 records separate required acceptance of 개인정보 수집·이용 and service terms before first passkey

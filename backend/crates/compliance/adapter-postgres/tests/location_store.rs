@@ -409,7 +409,7 @@ async fn geofence_arrival_departure_is_audited_and_survives_withdrawal(pool: PgP
     mnt_platform_request_context::scope_org(OrgId::knl(), async move {
         let (user_id, branch_id) = seed_user_and_branch(&pool, "Geofence Mechanic").await;
         let customer_id = seed_customer(&pool, branch_id).await;
-        // Site at Seoul City Hall; default 150 m geofence (no per-site override).
+        // Site at Seoul City Hall; default 300 m geofence (no per-site override).
         let site_id = seed_site(&pool, branch_id, customer_id, 37.5665, 126.9780).await;
         let equipment_id = seed_equipment(&pool, branch_id, customer_id, site_id).await;
         seed_assigned_work_order(

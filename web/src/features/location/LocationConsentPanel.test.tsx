@@ -66,6 +66,24 @@ afterAll(() => {
 });
 
 describe("LocationConsentPanel", () => {
+  it("keeps consent status usable when ledger loading fails", async () => {
+    server.use(
+      http.get("*/api/v1/location-consents/ledger", () => HttpResponse.error()),
+    );
+
+    render(
+      <LocationConsentPanel
+        api={createConsoleApiClient(tokenPair.access_token)}
+        branchId={branchId}
+        session={tokenPair}
+      />,
+    );
+
+    expect(await screen.findByText("동의됨")).toBeVisible();
+    expect(screen.getByRole("button", { name: "GPS 끄기" })).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("keeps GPS off and withdrawal controls visible and mutates through the API", async () => {
     const user = userEvent.setup();
 

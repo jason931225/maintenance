@@ -67,14 +67,14 @@ export function LocationConsentPanel({
     setIsLoading(true);
     setError(false);
     setExported(false);
-    const [statusResponse, ledgerResponse] = await Promise.all([
-      api.GET("/api/v1/location-consent/status", {
+    let statusResponse;
+    try {
+      statusResponse = await api.GET("/api/v1/location-consent/status", {
         params: { query: { branch_id: branchId } },
-      }),
-      api.GET("/api/v1/location-consents/ledger", {
-        params: { query: { branch_id: branchId, limit: 10, offset: 0 } },
-      }),
-    ]).catch(() => [undefined, undefined] as const);
+      });
+    } catch {
+      statusResponse = undefined;
+    }
 
     if (!statusResponse?.data) {
       setError(true);
@@ -83,8 +83,13 @@ export function LocationConsentPanel({
     }
 
     setStatus(statusResponse.data);
-    if (ledgerResponse.data) {
+    try {
+      const ledgerResponse = await api.GET("/api/v1/location-consents/ledger", {
+        params: { query: { branch_id: branchId, limit: 10, offset: 0 } },
+      });
       setLedger(ledgerResponse.data);
+    } catch {
+      setLedger(undefined);
     }
     setIsLoading(false);
   }, [api, branchId, session]);

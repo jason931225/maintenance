@@ -3,7 +3,7 @@
 -- registry_sites already carries lat/long (0039); the geofence radius is how far
 -- from that coordinate a mechanic's on-duty GPS counts as "arrived" at the site.
 -- NULL means "use the system default" (mnt_kernel_core::DEFAULT_GEOFENCE_RADIUS_M
--- = 150 m); an admin can override per site via PATCH /api/v1/sites/{id}. The
+-- = 300 m); an admin can override per site via PATCH /api/v1/sites/{id}. The
 -- column is NULLable with no backfill and inherits registry_sites' existing
 -- org_isolation RLS, immutable-org trigger, and (id, org_id) key — so this
 -- migration adds NO new policy/trigger/org column, only the column + its CHECK.

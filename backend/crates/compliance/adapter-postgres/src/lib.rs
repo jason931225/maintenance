@@ -611,7 +611,7 @@ impl PgComplianceStore {
 /// For each active (non-terminal) work order assigned to the user whose site is
 /// geocoded: load the prior inside/outside state (FOR UPDATE), evaluate the
 /// haversine distance vs the site's effective radius (per-site override or the
-/// 150 m default), and on an inside/outside EDGE upsert the presence row + append
+/// 300 m default), and on an inside/outside EDGE upsert the presence row + append
 /// a coordinate-free `site_attendance_events` row + an audit event. Edge-
 /// triggered, so a steady stream of pings emits nothing.
 ///
