@@ -155,7 +155,7 @@ Five layers, one substrate. **Stop building pages; build objects.**
 2. **Object Views** — ONE reusable `ObjectViewScaffold` + per-type config (identity → properties →
    linked-object rail → timeline → audit/provenance → ActionBar). Not N hand-rolled detail pages.
 3. **Triage Home** (`/home`) — per-role "what needs me now" queues; each row = object + resolving action.
-4. **Four lenses** over the same objects — Map(#29) · Timeline · Graph · Faceted analytics(#24).
+4. **Four lenses** over the same objects — Map(#29) · Timeline · Graph · Faceted analytics.
 5. **Blueprint skin** — `.console`-scoped dense operational-industrial visual system (color=meaning,
    mono/tabular for ids/₩/dates, keyboard-first, ⌘K omnibar, dark-ready) extending the C1–C13 polish.
 Through-line: **closed-loop + provenance** — every screen ends in a named, validated, audited,
@@ -270,7 +270,7 @@ self-approving a review · weakening tenant isolation.
   membership/roles, the consolidate↔single scope selector. Precedes group-consolidated reporting and
   any cross-entity admin; the per-法인 RLS boundary itself is unchanged so it does not block Track A/B.
 - **Track B — PLATFORM ARCHITECTURE (Palantir phases):** P0 Blueprint tokens → P1 Object-View kit →
-  P2 Equipment Object View → P3 ⌘K nav fabric + DataTable → P4 Triage Home → P5 Faceted analytics(#24)
+  P2 Equipment Object View → P3 ⌘K nav fabric + DataTable → P4 Triage Home → P5 Faceted analytics
   → P6 Timeline + Graph lenses → unified inquiry pipeline(#42) + import pipeline(#35/#38).
 - **Track C — HR/PAYROLL/ERP (new domains, each gets a JIT sub-spec in `docs/specs/` before build):**
   C1 HR core (Employee/직급/조직도 #19.11, Attendance/clock-in #29, Leave) → C2 Payroll (regulated;

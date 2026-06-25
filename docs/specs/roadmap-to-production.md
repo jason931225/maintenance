@@ -103,7 +103,7 @@ The 109-gap worklist. Backend `mnt_rt`/unit tests live in disjoint per-crate `te
   HR] · **F3** #19.12 corp-to-corp linking (#37) [feeds org-hierarchy] · **F4** #19.19 sales listing
   autofill + unlimited photos + field set (#41) · **F5** #19.18 거래명세표 upload/scan (#42) · **F6**
   #19.23/24 ticket delete + unify inquiries (#42) · **F7** #23 role-workflow blockers (WO detail, approval
-  queue, MEMBER dead-role) · **F8** #24 analytics drill-down/trend/target · **F9** #19 calendar views ·
+  queue, MEMBER dead-role) · **F8** analytics drill-down/trend/target · **F9** #19 calendar views ·
   **F10** #25 mail/messenger maturity (notify-on-message, send reliability). **Blocked:** #19.13–16 FLMS
   (external Windows MSI — needs the vendor data export, not buildable here).
 

@@ -86,7 +86,7 @@ Existing contexts → **maturity** lanes (mature + close coverage/#19/#20); new 
 | L9 support | `support/*` | identity | ticket delete/unify (#42) |
 | L10 financial | `financial/*` | **S4 aggregate_invoice** | invoice/명세표 (#19.18) |
 | L11 compliance | `compliance/*` | identity, audit-chain | integrity |
-| L12 reporting | `reporting/*` | all (read-only) | SLA/fleet rollup kernel; analytics (#24) |
+| L12 reporting | `reporting/*` | all (read-only) | SLA/fleet rollup kernel; analytics |
 | **L13 HR** 🆕 | `hr/*` | identity | attendance + leave-accrual kernel + leave-request governance workflow; **publishes** attendance event + org-chart/직급 (#36) |
 | **L14 payroll** 🆕 | `payroll/*` | HR attendance event, S4 | KR 4대보험+소득세 brackets (gov data, data-driven) |
 | **L15 ERP** 🆕 | `erp/*` | financial, registry, S4 | GL, AR/AP, 재고, 부가세, purchase-request governance workflow |
@@ -237,10 +237,10 @@ aid); ontology shared (`org_id IS NULL`) rows carry schema metadata only, never 
 
 ## 9. GitHub issue/comment intake (binding live-feedback ledger)
 
-**Last polled:** 2026-06-25T03:28:22Z (2026-06-24 23:28 EDT). Source of truth:
-open GitHub issues + issue comments in `jason931225/maintenance`. PR #21 currently has no comments/reviews;
-re-run this intake before every wave gate, before merging `feat/multi-tenant-phase1` to `main`,
-and before marking an issue-backed lane done.
+**Last polled:** 2026-06-25T14:28:31Z (2026-06-25 10:28 EDT). Source of truth:
+open GitHub issues + issue comments in `jason931225/maintenance`. Open PRs were empty and remote
+branches contained only `main`; re-run this intake before every wave gate and before marking an
+issue-backed lane done.
 
 **Intake rules.**
 - A GitHub issue/comment becomes plan scope when it is actionable, maps to a business workflow, security
@@ -258,6 +258,7 @@ and before marking an issue-backed lane done.
 | [#18](https://github.com/jason931225/maintenance/issues/18) + latest comment | OTP issuance bug; region edit; customer/site creation; intake priority admin-setting; equipment search/list visibility after import. | L1 identity + L3 registry + L2 workorder; Q0/Q1 mnt_rt regressions. |
 | [#19](https://github.com/jason931225/maintenance/issues/19) comments 9-25 | Excel progress import; equipment detail popup; org chart + rank; corporation grouping; intake/approval visibility; FLMS import/export dependency; purchase-request + 거래명세표 upload/scan; sales listing autofill/photos/fields; spare/substitution recommendation; external inquiries → support; PM schedule cycle; inactive-user deletion/archive + PC/QR passkey flow. | L1/L2/L3/L5/L9/L10/L13/L18; Q0 first for broken live loops, then F-track maturity. |
 | [#20](https://github.com/jason931225/maintenance/issues/20) + comments + 2026-06-25 operator field report | Site-scoped substitution dropdown; bulk OTP/passkey defects, including a live lost-device admin credential-reset failure that shows `패스키 재설정에 실패했습니다. 다시 시도하세요.` instead of issuing a replacement code; duplicate-name/deactivated-user archival and role-revocation behavior; intake equipment validation bug; daily-plan equipment selection, plan detail view, auto-review submission, admin visibility; worksite-level org tree/personnel view; customer/site/manufacturer/model/specification fields should be dropdown-first with add-new typing, and fields derivable from a known model should auto-fill where safe; corporate governance workflow/approval graph needs (기안서, 구매요청서, 휴가신청서) without adopting the legacy "groupware" label. | L1 identity/auth Q0 recovery gate, L2 workorder/daily plan, L3 registry, L4 dispatch, L13 HR/org tree + leave workflow, L15 ERP purchase workflow, L18 RBAC/approval graph. |
+| [#24](https://github.com/jason931225/maintenance/issues/24) | Production rollout is not done until `knllogistic.com` and `console.knllogistic.com` serve the current `main` web assets. GitHub state is clean (`main` only, no open PRs, CI/Security/Release Please/Image Release green), but live still served the 2026-06-24 asset set after the `v0.1.3` digest bump; cluster-side Argo may still need the bootstrapped root/maintenance Application `targetRevision` patched/synced to `main`. | Track L launch gate; requires live Argo/kubectl evidence or live asset match before closing. |
 | [#17](https://github.com/jason931225/maintenance/issues/17) comments | Daily backup preferred; weekly acceptable if storage-constrained; server-down/offline-resync concern; document leak prevention/alerting; VPN has access-friction and must not become a blanket requirement without UX/security tradeoff. | Track O resilience/security + Track L launch hardening; backup restore drill and document-access audit/alerting are release gates. |
 | [#6](https://github.com/jason931225/maintenance/issues/6), [#10](https://github.com/jason931225/maintenance/issues/10) | Public landing page + marketing view of sale/rental assets; inquiry/contact/FAQ; payment/subscription interest. | L5 sales + L19 quota/billing-plan; keep payments behind explicit provider/security review. |
 | [#7](https://github.com/jason931225/maintenance/issues/7), [#9](https://github.com/jason931225/maintenance/issues/9) | Daily diary/progress exports for internal reporting/corporate-governance approval; import existing Excel progress so operations continue from current sheets. | L12 reporting + F1 import/export + L18 approval graph; generated XLSX must be tested against sample attachments. |
