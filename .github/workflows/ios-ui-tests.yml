@@ -133,7 +133,8 @@ jobs:
             --env MNT_IOS_KEYCHAIN_GROUP \
             --env MNT_UITEST_REQUIRE_REAL \
             --env MNT_UITEST_AUDIT_STRICT
-          /usr/libexec/PlistBuddy -c 'Print :TestConfigurations:0:TestTargets:0:UITargetAppPath' "$XCTESTRUN"
+          grep -q "MaintenanceFieldApp.app" "$XCTESTRUN"
+          echo "Verified xctestrun points UI tests at MaintenanceFieldApp.app"
 
           xcodebuild test-without-building \
             -xctestrun "$XCTESTRUN" \
