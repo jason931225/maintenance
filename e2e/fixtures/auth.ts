@@ -168,13 +168,31 @@ export async function acceptRequiredPrivacyConsent(page: Page): Promise<void> {
   const desktopMethod = page.getByRole("button", {
     name: /이 기기|이 데스크톱/,
   });
-  if (await desktopMethod.isVisible()) {
-    return;
-  }
-
   const submitConsent = page.getByRole("button", {
     name: /필수 동의 후 계속/,
   });
+
+  const readyState = await Promise.race([
+    desktopMethod
+      .waitFor({ state: "visible", timeout: 15_000 })
+      .then(() => "desktop" as const)
+      .catch(() => undefined),
+    submitConsent
+      .waitFor({ state: "visible", timeout: 15_000 })
+      .then(() => "consent" as const)
+      .catch(() => undefined),
+  ]);
+
+  if (readyState === "desktop") {
+    return;
+  }
+
+  if (readyState !== "consent") {
+    await expect(
+      page.getByText(/패스키 등록|필수 개인정보 수집·이용/),
+    ).toBeVisible({ timeout: 1 });
+  }
+
   await expect(submitConsent).toBeVisible({ timeout: 15_000 });
   await page.getByLabel(/개인정보 수집·이용 안내/).check();
   await page.getByLabel(/서비스 이용약관/).check();

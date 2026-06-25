@@ -42,22 +42,25 @@ test("ADMIN-01 admin creates a user with roles + branches + team → appears in 
     page.getByRole("heading", { name: /사용자 관리/, level: 1 }),
   ).toBeVisible({ timeout: 8_000 });
 
-  // Fill the create form (left form panel). Team defaults to 정비(MAINTENANCE).
-  await page.getByLabel("이름", { exact: true }).fill("E2E생성-정비사");
+  // Open and fill the create drawer. Team defaults to 정비(MAINTENANCE).
+  await page.getByRole("button", { name: "사용자 등록" }).click();
+  const drawer = page.getByRole("dialog");
+  await expect(drawer).toBeVisible({ timeout: 5_000 });
+  await drawer.getByLabel("이름", { exact: true }).fill("E2E생성-정비사");
 
   // Pick the MECHANIC role (정비사) and the seeded E2E Branch.
-  await page.getByLabel("정비사").check();
-  await page.getByLabel("E2E Branch").check();
+  await drawer.getByLabel("정비사").check();
+  await drawer.getByLabel("E2E Branch").check();
 
   // Submit. The create button label is "사용자 등록".
-  await page.getByRole("button", { name: "사용자 등록" }).click();
+  await drawer.getByRole("button", { name: "사용자 등록" }).click();
 
   // Success feedback + the new row appears in the user table.
   await expect(page.getByText(/사용자를 등록했습니다\./)).toBeVisible({
     timeout: 8_000,
   });
   await expect(
-    page.getByRole("cell", { name: "E2E생성-정비사" }),
+    page.getByRole("cell", { name: "E2E생성-정비사", exact: true }),
   ).toBeVisible({ timeout: 8_000 });
 
   // The brand-new user has no credential yet → the "로그인 불가" badge shows.
@@ -76,17 +79,23 @@ test("ADMIN-02 admin issues a one-time sign-in code for a user (shows OTP)", asy
   ).toBeVisible({ timeout: 8_000 });
 
   // Create a user first so we have a fresh target with a branch.
-  await page.getByLabel("이름", { exact: true }).fill("E2E생성-코드대상");
-  await page.getByLabel("접수담당").check();
-  await page.getByLabel("E2E Branch").check();
   await page.getByRole("button", { name: "사용자 등록" }).click();
+  const drawer = page.getByRole("dialog");
+  await expect(drawer).toBeVisible({ timeout: 5_000 });
+  await drawer.getByLabel("이름", { exact: true }).fill("E2E생성-코드대상");
+  await drawer.getByLabel("접수담당").check();
+  await drawer.getByLabel("E2E Branch").check();
+  await drawer.getByRole("button", { name: "사용자 등록" }).click();
   await expect(page.getByText(/사용자를 등록했습니다\./)).toBeVisible({
     timeout: 8_000,
   });
 
   // Open the issue-OTP dialog from the new user's row.
   const row = page.getByRole("row", { name: /E2E생성-코드대상/ });
-  await row.getByRole("button", { name: "일회용 코드 발급" }).click();
+  await row
+    .getByRole("button", { name: "E2E생성-코드대상 추가 작업" })
+    .click();
+  await page.getByRole("menuitem", { name: "일회용 코드 발급" }).click();
 
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible({ timeout: 5_000 });
@@ -109,17 +118,20 @@ test("ADMIN-03 admin edits + deactivates a user", async ({ page, loginAs }) => {
   ).toBeVisible({ timeout: 8_000 });
 
   // Create the target user.
-  await page.getByLabel("이름", { exact: true }).fill("E2E생성-수정대상");
-  await page.getByLabel("정비사").check();
-  await page.getByLabel("E2E Branch").check();
   await page.getByRole("button", { name: "사용자 등록" }).click();
+  const drawer = page.getByRole("dialog");
+  await expect(drawer).toBeVisible({ timeout: 5_000 });
+  await drawer.getByLabel("이름", { exact: true }).fill("E2E생성-수정대상");
+  await drawer.getByLabel("정비사").check();
+  await drawer.getByLabel("E2E Branch").check();
+  await drawer.getByRole("button", { name: "사용자 등록" }).click();
   await expect(page.getByText(/사용자를 등록했습니다\./)).toBeVisible({
     timeout: 8_000,
   });
 
   // ── Edit ──────────────────────────────────────────────────────────────────
   const row = page.getByRole("row", { name: /E2E생성-수정대상/ });
-  await row.getByRole("button", { name: "수정" }).click();
+  await row.getByRole("button", { name: /^수정$/ }).click();
 
   // The form switches to edit mode ("사용자 수정"). Change the phone, save.
   await expect(page.getByRole("heading", { name: /사용자 수정/ })).toBeVisible({
@@ -136,12 +148,14 @@ test("ADMIN-03 admin edits + deactivates a user", async ({ page, loginAs }) => {
   ).toBeVisible({ timeout: 8_000 });
 
   // ── Deactivate ──────────────────────────────────────────────────────────────
-  // window.confirm is auto-accepted.
-  page.on("dialog", (d) => void d.accept());
-  await page
-    .getByRole("row", { name: /E2E생성-수정대상/ })
-    .getByRole("button", { name: "비활성화" })
+  const updatedRow = page.getByRole("row", { name: /E2E생성-수정대상/ });
+  await updatedRow
+    .getByRole("button", { name: "E2E생성-수정대상 추가 작업" })
     .click();
+  await page.getByRole("menuitem", { name: "비활성화" }).click();
+  const confirmDialog = page.getByRole("dialog", { name: "사용자 비활성화" });
+  await expect(confirmDialog).toBeVisible({ timeout: 5_000 });
+  await confirmDialog.getByRole("button", { name: "비활성화" }).click();
   await expect(page.getByText(/사용자를 비활성화했습니다\./)).toBeVisible({
     timeout: 8_000,
   });

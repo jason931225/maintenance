@@ -46,18 +46,21 @@ test("SADMIN SUPER_ADMIN grants an elevated (EXECUTIVE) role on user create", as
     page.getByRole("heading", { name: /사용자 관리/, level: 1 }),
   ).toBeVisible({ timeout: 8_000 });
 
-  await page.getByLabel("이름", { exact: true }).fill("E2E임원-수퍼생성");
-  // Grant the elevated 임원(EXECUTIVE) role — allowed for SUPER_ADMIN.
-  await page.getByLabel("임원").check();
-  await page.getByLabel("E2E Branch").check();
   await page.getByRole("button", { name: "사용자 등록" }).click();
+  const drawer = page.getByRole("dialog");
+  await expect(drawer).toBeVisible({ timeout: 5_000 });
+  await drawer.getByLabel("이름", { exact: true }).fill("E2E임원-수퍼생성");
+  // Grant the elevated 임원(EXECUTIVE) role — allowed for SUPER_ADMIN.
+  await drawer.getByLabel("임원").check();
+  await drawer.getByLabel("E2E Branch").check();
+  await drawer.getByRole("button", { name: "사용자 등록" }).click();
 
   // Success: the elevated grant is permitted for a SUPER_ADMIN.
   await expect(page.getByText(/사용자를 등록했습니다\./)).toBeVisible({
     timeout: 8_000,
   });
   await expect(
-    page.getByRole("cell", { name: "E2E임원-수퍼생성" }),
+    page.getByRole("cell", { name: "E2E임원-수퍼생성", exact: true }),
   ).toBeVisible({ timeout: 8_000 });
 });
 
@@ -71,11 +74,14 @@ test("SADMIN-NEG plain ADMIN cannot grant an elevated (EXECUTIVE) role", async (
     page.getByRole("heading", { name: /사용자 관리/, level: 1 }),
   ).toBeVisible({ timeout: 8_000 });
 
-  await page.getByLabel("이름", { exact: true }).fill("E2E임원-관리자거부");
-  // A plain ADMIN attempts to grant the elevated 임원(EXECUTIVE) role.
-  await page.getByLabel("임원").check();
-  await page.getByLabel("E2E Branch").check();
   await page.getByRole("button", { name: "사용자 등록" }).click();
+  const drawer = page.getByRole("dialog");
+  await expect(drawer).toBeVisible({ timeout: 5_000 });
+  await drawer.getByLabel("이름", { exact: true }).fill("E2E임원-관리자거부");
+  // A plain ADMIN attempts to grant the elevated 임원(EXECUTIVE) role.
+  await drawer.getByLabel("임원").check();
+  await drawer.getByLabel("E2E Branch").check();
+  await drawer.getByRole("button", { name: "사용자 등록" }).click();
 
   // The backend rejects the elevated grant (403) → the create-failed error shows.
   await expect(
