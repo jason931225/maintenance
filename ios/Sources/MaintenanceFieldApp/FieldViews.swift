@@ -486,8 +486,16 @@ struct FieldChip: View {
 }
 
 private func localizedString(_ key: String, _ arguments: CVarArg...) -> String {
-    let format = NSLocalizedString(key, bundle: .module, comment: "")
+    let format = NSLocalizedString(key, bundle: fieldLocalizationBundle, comment: "")
     return String(format: format, locale: Locale.current, arguments: arguments)
+}
+
+private var fieldLocalizationBundle: Bundle {
+    #if SWIFT_PACKAGE
+    .module
+    #else
+    .main
+    #endif
 }
 
 private func locationConsentStateKey(_ state: Components.Schemas.LocationConsentState) -> String {

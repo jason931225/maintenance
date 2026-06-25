@@ -2,6 +2,7 @@ import SwiftUI
 
 #if os(iOS)
 import AVFoundation
+import Foundation
 import UIKit
 
 struct CameraCaptureView: View {
@@ -129,12 +130,11 @@ private struct CameraPreviewController: UIViewControllerRepresentable {
             shutter.heightAnchor.constraint(greaterThanOrEqualToConstant: 80),
         ])
 
-        Task.detached {
-            session.startRunning()
-        }
+        let sessionRunner = CameraSessionRunner(session: session)
+        sessionRunner.start()
 
         context.coordinator.previewLayer = previewLayer
-        context.coordinator.session = session
+        context.coordinator.sessionRunner = sessionRunner
         return controller
     }
 
@@ -147,7 +147,7 @@ private struct CameraPreviewController: UIViewControllerRepresentable {
         let onError: () -> Void
         var photoOutput: AVCapturePhotoOutput?
         var previewLayer: AVCaptureVideoPreviewLayer?
-        var session: AVCaptureSession?
+        var sessionRunner: CameraSessionRunner?
 
         init(onCapture: @escaping (URL) -> Void, onError: @escaping () -> Void) {
             self.onCapture = onCapture
@@ -174,7 +174,30 @@ private struct CameraPreviewController: UIViewControllerRepresentable {
         }
 
         deinit {
-            session?.stopRunning()
+            sessionRunner?.stop()
+        }
+    }
+}
+
+private final class CameraSessionRunner: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "com.maintenance.field.camera-session")
+    private let session: AVCaptureSession
+
+    init(session: AVCaptureSession) {
+        self.session = session
+    }
+
+    func start() {
+        queue.async { [self] in
+            session.startRunning()
+        }
+    }
+
+    func stop() {
+        queue.async { [self] in
+            if session.isRunning {
+                session.stopRunning()
+            }
         }
     }
 }
