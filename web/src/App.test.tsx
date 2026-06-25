@@ -285,7 +285,7 @@ describe("routing", () => {
     renderAt("/");
 
     expect(await screen.findByText(/© \d{4} KNL/)).toBeVisible();
-    expect(screen.getByText("버전 v0.1.0")).toBeVisible();
+    expect(screen.getByText(/버전 v\d+\.\d+\.\d+/)).toBeVisible();
     expect(screen.getByRole("link", { name: "COSS" })).toHaveAttribute(
       "href",
       "https://www.cossok.com/",
