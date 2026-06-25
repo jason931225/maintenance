@@ -5,6 +5,7 @@
 //! runtime, no sqlx, no axum (enforced by the CI layer-boundary gate, T0.2).
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod access_scope;
 pub mod audit;
 pub mod branch;
 pub mod clock;
@@ -16,6 +17,7 @@ pub mod trace;
 pub mod transition;
 pub mod validation;
 
+pub use access_scope::{AccessScope, AccessScopeLevel, BranchProjection, ScopeNodeId};
 pub use audit::{AuditAction, AuditEvent};
 pub use branch::BranchScope;
 pub use clock::{Clock, FixedClock, SystemClock};
