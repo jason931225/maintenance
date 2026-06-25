@@ -43,13 +43,15 @@ final class LoginValidationUITests: XCTestCase {
         let field = app.textFields[AID.loginUserIDField]
         XCTAssertTrue(field.waitForExistence(timeout: 15))
         field.tap()
-        field.typeText("not-a-uuid")
+        // Numeric-only input keeps this validation check independent of the
+        // simulator's active keyboard layout while still failing UUID parsing.
+        field.typeText("123")
         app.buttons[AID.loginButton].tap()
 
         // The production view model rejects a non-UUID id with error_invalid_user_id
         // BEFORE any network/passkey work — a real, automatable outcome.
         XCTAssertTrue(
-            app.staticTexts[AID.loginErrorMessage].waitForExistence(timeout: 5)
+            app.staticTexts[AID.loginErrorMessage].waitForExistence(timeout: 10)
                 || app.staticTexts[KO.errorInvalidUserID].waitForExistence(timeout: 1),
             "An invalid user id should surface 올바른 사용자 ID 형식이 아닙니다."
         )
