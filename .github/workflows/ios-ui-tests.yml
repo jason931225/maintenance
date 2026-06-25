@@ -122,18 +122,23 @@ jobs:
           test -d "$APP_PATH"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist"
 
+          XCTESTRUN="$(find "$DERIVED_DATA_PATH/Build/Products" -name '*.xctestrun' -print -quit)"
+          test -f "$XCTESTRUN"
+          python3 ../scripts/patch-ios-xctestrun.py "$XCTESTRUN" \
+            --target MaintenanceFieldUITests \
+            --ui-target-app-path "__TESTROOT__/Debug-iphonesimulator/MaintenanceFieldApp.app" \
+            --env MNT_UITEST_BASE_URL \
+            --env MNT_UITEST_REFRESH_TOKEN \
+            --env MNT_UITEST_OTP \
+            --env MNT_IOS_KEYCHAIN_GROUP \
+            --env MNT_UITEST_REQUIRE_REAL \
+            --env MNT_UITEST_AUDIT_STRICT
+          /usr/libexec/PlistBuddy -c 'Print :TestConfigurations:0:TestTargets:0:UITargetAppPath' "$XCTESTRUN"
+
           xcodebuild test-without-building \
-            -project MaintenanceField.xcodeproj \
-            -scheme MaintenanceFieldApp \
+            -xctestrun "$XCTESTRUN" \
             -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
-            -derivedDataPath "$DERIVED_DATA_PATH" \
             -resultBundlePath TestResults.xcresult \
-            TEST_RUNNER_MNT_UITEST_BASE_URL="$MNT_UITEST_BASE_URL" \
-            TEST_RUNNER_MNT_UITEST_REFRESH_TOKEN="$MNT_UITEST_REFRESH_TOKEN" \
-            TEST_RUNNER_MNT_UITEST_OTP="$MNT_UITEST_OTP" \
-            TEST_RUNNER_MNT_IOS_KEYCHAIN_GROUP="$MNT_IOS_KEYCHAIN_GROUP" \
-            TEST_RUNNER_MNT_UITEST_REQUIRE_REAL="$MNT_UITEST_REQUIRE_REAL" \
-            TEST_RUNNER_MNT_UITEST_AUDIT_STRICT="$MNT_UITEST_AUDIT_STRICT" \
             | xcbeautify
 
       - name: Upload test results
