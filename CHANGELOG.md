@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/jason931225/maintenance/compare/v0.1.7...v0.1.8) (2026-06-25)
+
+
+### Features
+
+* **db:** add org hierarchy group resolvers ([6c7d121](https://github.com/jason931225/maintenance/commit/6c7d121bccffc6b44b43bebb2fdf4bff4bf3bd2c))
+
 ## [0.1.7](https://github.com/jason931225/maintenance/compare/v0.1.6...v0.1.7) (2026-06-25)
 
 
