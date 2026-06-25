@@ -21,7 +21,7 @@ pub use view_as::{
     VIEW_AS_TOKEN_TTL, with_view_as_read_only_gate,
 };
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch};
@@ -163,6 +163,16 @@ impl From<TenantOnboarding> for OnboardingResponse {
 struct UpdateOrgRequest {
     /// New tenant status: ACTIVE | SUSPENDED | ARCHIVED.
     status: String,
+}
+
+/// Query params for `DELETE /platform/orgs/{id}`.
+#[derive(Debug, Deserialize)]
+struct DeleteOrgQuery {
+    /// Opt-in FORCE removal: when true, take the DESTRUCTIVE path that erases the
+    /// tenant AND all of its data (requires the tenant to be ARCHIVED first).
+    /// Defaults to false — the GUARDED path that removes only an empty shell.
+    #[serde(default)]
+    delete_data: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -313,36 +323,52 @@ async fn update_org(
     Ok(Json(OrgResponse::from(org)).into_response())
 }
 
-/// DELETE /platform/orgs/{id} â GUARDED hard-removal of an empty/test tenant.
+/// DELETE /platform/orgs/{id}[?delete_data=true] â remove a tenant.
 ///
 /// Platform-super-admin (vendor tier) ONLY â identical gate to `update_org`; a
 /// tenant's own admin can never reach this (the platform extractor rejects a
-/// tenant token with 403 before this runs). Audited as `platform.tenant.remove`.
+/// tenant token with 403 before this runs).
 ///
-/// REFUSES with 409 (`conflict`, code `tenant_has_data`) when the tenant owns
-/// real operational data, telling the operator to archive instead. The org and
-/// its empty onboarding shell are deleted in ONE transaction only for an empty
-/// tenant; the tenant's immutable audit trail is preserved (re-homed to the
-/// platform sentinel). A missing tenant is 404.
+/// Two paths, selected by the opt-in `delete_data` query param (default false):
+///   * `delete_data=false` (default) â GUARDED removal (`platform.tenant.remove`).
+///     Removes only an empty/test tenant's onboarding shell; REFUSES with 409
+///     (code `tenant_has_data`) when the tenant owns real operational data,
+///     telling the operator to archive instead. Unchanged behaviour.
+///   * `delete_data=true` â FORCE removal (`platform.tenant.force_remove`). The
+///     DESTRUCTIVE path: erases the org AND all of its data. Fail-closed by a
+///     status rail â REFUSES with 409 (code `tenant_active`) unless the tenant is
+///     ARCHIVED, telling the operator to archive (reversible) before force-
+///     removing. Erasing real data is the whole point, so there is no has_data
+///     guard on this path.
+///
+/// Both paths delete in ONE transaction and preserve the tenant's immutable audit
+/// trail (re-homed to the platform sentinel). A missing tenant is 404.
 async fn delete_org(
     State(state): State<PlatformRestState>,
     Extension(principal): Extension<PlatformPrincipal>,
     Path(id): Path<Uuid>,
+    Query(query): Query<DeleteOrgQuery>,
 ) -> Result<Response, PlatformError> {
+    // Same authz gate for BOTH paths: platform super-admin only. A tenant token is
+    // already rejected (403) by the platform extractor before this handler runs.
     principal
         .authorize(PlatformFeature::TenantRemove)
         .map_err(|_| PlatformError::forbidden("platform principal cannot remove tenants"))?;
 
-    let outcome = state
-        .provisioner
-        .remove_tenant(
-            &state.pool,
-            Some(principal.user_id),
-            id,
-            OffsetDateTime::now_utc(),
-        )
-        .await
-        .map_err(PlatformError::from_provisioning)?;
+    let actor = Some(principal.user_id);
+    let now = OffsetDateTime::now_utc();
+    let outcome = if query.delete_data {
+        state
+            .provisioner
+            .force_remove_tenant(&state.pool, actor, id, now)
+            .await
+    } else {
+        state
+            .provisioner
+            .remove_tenant(&state.pool, actor, id, now)
+            .await
+    }
+    .map_err(PlatformError::from_provisioning)?;
 
     match outcome {
         TenantRemovalOutcome::Removed => Ok(StatusCode::NO_CONTENT.into_response()),
@@ -350,6 +376,11 @@ async fn delete_org(
             StatusCode::CONFLICT,
             "tenant_has_data",
             "tenant has operational data and cannot be removed; archive it instead",
+        )),
+        TenantRemovalOutcome::BlockedActive => Err(PlatformError::new(
+            StatusCode::CONFLICT,
+            "tenant_active",
+            "archive the tenant before force-removing",
         )),
         TenantRemovalOutcome::NotFound => Err(PlatformError::new(
             StatusCode::NOT_FOUND,

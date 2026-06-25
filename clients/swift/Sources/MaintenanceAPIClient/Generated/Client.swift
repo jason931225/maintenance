@@ -18105,11 +18105,17 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// Hard-remove an empty/test tenant (platform vendor tier)
+    /// Remove a tenant — guarded shell removal, or opt-in force-delete with data (platform vendor tier)
     ///
-    /// GUARDED hard-removal of a tenant organization. Platform-super-admin (vendor tier) ONLY: the route sits behind the platform extractor, so a tenant token is rejected with 403 before the handler runs and a tenant's own admin can never reach it. The removal is audited as `platform.tenant.remove`.
+    /// Remove a tenant organization. Platform-super-admin (vendor tier) ONLY: the route sits behind the platform extractor, so a tenant token is rejected with 403 before the handler runs and a tenant's own admin can never reach it.
     ///
-    /// The tenant and its empty onboarding shell (the seeded admin user, its auth credentials, branch memberships, branches, and regions) are deleted in one transaction, and the tenant's immutable audit trail is preserved (re-homed to the platform sentinel). Removal is REFUSED with 409 when the tenant owns real operational data (equipment, work orders, sites, customers, inspections, sales, financial, messenger, consents, attendance, or governance findings) — archive the tenant instead.
+    /// Two paths, selected by the opt-in `delete_data` query parameter (default false):
+    ///
+    /// - `delete_data=false` (default) — GUARDED removal, audited as `platform.tenant.remove`. Deletes only an empty/test tenant's onboarding shell (the seeded admin user, its auth credentials, branch memberships, branches, and regions). REFUSED with 409 (`code` = `tenant_has_data`) when the tenant owns real operational data (equipment, work orders, sites, customers, inspections, sales, financial, messenger, consents, attendance, or governance findings) — archive the tenant instead.
+    ///
+    /// - `delete_data=true` — FORCE removal, audited as `platform.tenant.force_remove`. The DESTRUCTIVE path: erases the org AND all of its data. Fail-closed by a status rail — REFUSED with 409 (`code` = `tenant_active`) unless the tenant is ARCHIVED, so an active tenant can never be force-wiped by a single call; archive it (reversible) first.
+    ///
+    /// Both paths delete in one transaction and preserve the tenant's immutable audit trail (re-homed to the platform sentinel).
     ///
     /// - Remark: HTTP `DELETE /api/platform/orgs/{id}`.
     /// - Remark: Generated from `#/paths//api/platform/orgs/{id}/delete(removePlatformOrg)`.
@@ -18129,6 +18135,13 @@ public struct Client: APIProtocol {
                     method: .delete
                 )
                 suppressMutabilityWarning(&request)
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "delete_data",
+                    value: input.query.deleteData
+                )
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept

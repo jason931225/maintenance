@@ -728,8 +728,14 @@ pub enum TenantRemovalOutcome {
     /// re-homed to the platform sentinel and preserved.
     Removed,
     /// The tenant owns real operational data and was NOT touched; the caller
-    /// surfaces a 409 telling the operator to archive instead.
+    /// surfaces a 409 telling the operator to archive instead. Only the GUARDED
+    /// [`PlatformProvisioner::remove_tenant`] path can return this.
     BlockedHasData,
+    /// The FORCE path was refused because the tenant is not ARCHIVED; nothing was
+    /// touched. The caller surfaces a 409 telling the operator to archive the
+    /// tenant (reversible) before force-removing it. Only the FORCE
+    /// [`PlatformProvisioner::force_remove_tenant`] path can return this.
+    BlockedActive,
     /// No such tenant (or the platform sentinel was targeted); nothing changed.
     NotFound,
 }
@@ -1031,6 +1037,104 @@ impl PlatformProvisioner {
                 "org_id": org_id,
                 "slug": slug,
             })),
+        );
+        insert_audit_event(&mut tx, &event).await?;
+
+        tx.commit().await?;
+        Ok(outcome)
+    }
+
+    /// FORCE hard-removal of a tenant: delete the org AND ALL of its data —
+    /// registry, work orders, financials, messenger, audit, the lot — in ONE
+    /// transaction, AUDITED. The DESTRUCTIVE counterpart to [`Self::remove_tenant`].
+    ///
+    /// Runs the SECURITY DEFINER `platform_force_remove_organization` (migration
+    /// 0059). Unlike the guarded path there is NO has_data guard — erasing real
+    /// data is the point — so the function is fail-closed by a different rail: it
+    /// REFUSES (returns `blocked_active`) unless the tenant is ARCHIVED. Archiving
+    /// (`platform_set_organization_status`) is reversible and is the mandatory
+    /// first step, so an ACTIVE or merely SUSPENDED tenant (e.g. KNL) can never be
+    /// force-wiped by one call; the caller surfaces a 409 telling the operator to
+    /// archive first. The platform sentinel is refused (`not_found`), as in the
+    /// guarded path.
+    ///
+    /// The function deletes every tenant row children-first (a topological sort of
+    /// the ~63 ON DELETE RESTRICT FKs) and re-homes the tenant's immutable
+    /// `audit_events` to the platform sentinel, exactly like the guarded path, so
+    /// the audit trail — including the record of THIS force-wipe — survives the
+    /// tenant.
+    ///
+    /// Before deleting anything we snapshot a small summary (org slug + per-table
+    /// row counts of the operational tables we are about to erase) into the
+    /// DISTINCT `platform.tenant.force_remove` audit event (`org_id = NULL`,
+    /// platform-tier), so the immutable trail records WHAT was wiped even though
+    /// the rows themselves are gone. The removal + audit commit atomically.
+    pub async fn force_remove_tenant(
+        &self,
+        pool: &PgPool,
+        actor: Option<UserId>,
+        org_id: Uuid,
+        now: OffsetDateTime,
+    ) -> Result<TenantRemovalOutcome, ProvisioningError> {
+        let mut tx = pool.begin().await?;
+
+        // Capture the slug + a small summary of what is about to be wiped BEFORE
+        // the function deletes it, so the audit trail records WHAT was force-
+        // removed by name and rough size. `fetch_org_tx` reads via the platform
+        // DEFINER, so it sees the row regardless of the tenant GUC.
+        let org = fetch_org_tx(&mut tx, org_id).await.ok();
+        let slug = org.as_ref().map(|o| o.slug.clone());
+        let name = org.as_ref().map(|o| o.name.clone());
+        let wiped_summary = force_remove_summary_tx(&mut tx, org_id).await?;
+
+        let outcome_code: String =
+            sqlx::query_scalar("SELECT platform_force_remove_organization($1)")
+                .bind(org_id)
+                .fetch_one(tx.as_mut())
+                .await?;
+
+        let outcome = match outcome_code.as_str() {
+            "removed" => TenantRemovalOutcome::Removed,
+            "blocked_active" => {
+                // Nothing was changed by the function; roll back and refuse so the
+                // REST layer returns 409 "archive the tenant before force-removing".
+                tx.rollback().await?;
+                return Ok(TenantRemovalOutcome::BlockedActive);
+            }
+            "not_found" => {
+                tx.rollback().await?;
+                return Ok(TenantRemovalOutcome::NotFound);
+            }
+            other => {
+                tx.rollback().await?;
+                return Err(ProvisioningError::InvalidRoster(format!(
+                    "unexpected tenant force-removal outcome {other:?}"
+                )));
+            }
+        };
+
+        // Audit the FORCE removal as a DISTINCT PLATFORM-tier event (org_id = NULL):
+        // the target org is gone, so a tenant-scoped audit row would fail the org
+        // FK. The GUC is deliberately left unarmed — the `audit_events` WITH CHECK
+        // allows a NULL-org platform row with no tenant armed. The snapshot records
+        // the slug AND the pre-deletion row counts so the force-wipe is fully
+        // accounted for in the immutable trail.
+        let event = AuditEvent::new(
+            actor,
+            AuditAction::new("platform.tenant.force_remove")?,
+            "organizations",
+            org_id.to_string(),
+            TraceContext::generate(),
+            now,
+        )
+        .with_snapshots(
+            Some(serde_json::json!({
+                "org_id": org_id,
+                "slug": slug,
+                "name": name,
+                "wiped": wiped_summary,
+            })),
+            None,
         );
         insert_audit_event(&mut tx, &event).await?;
 
@@ -1370,6 +1474,54 @@ async fn apply_roster_tx(
     }
 
     Ok(report)
+}
+
+/// Snapshot a small, human-meaningful summary of what a FORCE removal is about to
+/// wipe, for the immutable `platform.tenant.force_remove` audit event. Returns a
+/// JSON object of `{ table: count }` for the key operational tables plus users —
+/// enough to account for the force-wipe in the trail without coupling to all ~63
+/// tenant tables (the full erase is the function's job; this is just the receipt).
+///
+/// The counts are read as the runtime role under FORCE RLS, so we arm
+/// `app.current_org` to the TARGET org transaction-locally first (exactly as
+/// `set_tenant_status` arms the target before its audit write) — otherwise a
+/// cross-tenant count would be RLS-filtered to zero. The arm is harmless to the
+/// subsequent DEFINER function (it disables row_security in its own body) and to
+/// the audit insert (a platform-tier NULL-org row is allowed regardless).
+async fn force_remove_summary_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    org_id: Uuid,
+) -> Result<serde_json::Value, ProvisioningError> {
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(org_id.to_string())
+        .execute(tx.as_mut())
+        .await?;
+
+    // The key operational signal tables (the union the guarded has_data guard
+    // checks) plus users. Each name is a hardcoded literal, never request-derived.
+    const SUMMARY_TABLES: &[&str] = &[
+        "users",
+        "registry_customers",
+        "registry_sites",
+        "registry_equipment",
+        "work_orders",
+        "financial_rental_quotes",
+        "financial_purchase_requests",
+        "messenger_threads",
+        "evidence_media",
+        "audit_events",
+    ];
+
+    let mut summary = serde_json::Map::with_capacity(SUMMARY_TABLES.len());
+    for table in SUMMARY_TABLES {
+        let sql = sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {table} WHERE org_id = $1"));
+        let count: i64 = sqlx::query_scalar(sql)
+            .bind(org_id)
+            .fetch_one(tx.as_mut())
+            .await?;
+        summary.insert((*table).to_owned(), serde_json::json!(count));
+    }
+    Ok(serde_json::Value::Object(summary))
 }
 
 /// Read one organization by id via the SECURITY DEFINER `platform_get_organization`

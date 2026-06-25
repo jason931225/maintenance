@@ -149,9 +149,23 @@ async fn onboard(service: &Router, platform_token: &str, slug: &str) -> Uuid {
 }
 
 async fn delete_org(service: &Router, token: &str, org_id: Uuid) -> (StatusCode, Value) {
+    delete_org_inner(service, token, &format!("/api/platform/orgs/{org_id}")).await
+}
+
+/// FORCE delete: `DELETE /api/platform/orgs/{id}?delete_data=true`.
+async fn force_delete_org(service: &Router, token: &str, org_id: Uuid) -> (StatusCode, Value) {
+    delete_org_inner(
+        service,
+        token,
+        &format!("/api/platform/orgs/{org_id}?delete_data=true"),
+    )
+    .await
+}
+
+async fn delete_org_inner(service: &Router, token: &str, uri: &str) -> (StatusCode, Value) {
     let request = Request::builder()
         .method("DELETE")
-        .uri(format!("/api/platform/orgs/{org_id}"))
+        .uri(uri)
         .header(header::AUTHORIZATION, format!("Bearer {token}"))
         .body(Body::empty())
         .unwrap();
@@ -165,6 +179,24 @@ async fn delete_org(service: &Router, token: &str, org_id: Uuid) -> (StatusCode,
             .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()))
     };
     (status, json)
+}
+
+/// Archive a tenant through the platform API (PATCH status=ARCHIVED), the
+/// reversible step that must precede a force-removal.
+async fn archive_org(service: &Router, token: &str, org_id: Uuid) {
+    let request = Request::builder()
+        .method("PATCH")
+        .uri(format!("/api/platform/orgs/{org_id}"))
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(r#"{"status":"ARCHIVED"}"#))
+        .unwrap();
+    let response = service.clone().oneshot(request).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "archiving a tenant must succeed"
+    );
 }
 
 /// Insert the platform-admin user under the sentinel org so the audit-event actor
@@ -260,6 +292,149 @@ async fn seed_real_data(owner_pool: &PgPool, org_id: Uuid) {
         .await
         .unwrap();
     tx.commit().await.unwrap();
+}
+
+/// Seed real operational data spanning SEVERAL tables for `org_id` (a member user,
+/// region, branch, customer, site, equipment, a work order, evidence, and an
+/// audit_events row carrying actor + branch refs). This is the data a FORCE
+/// removal must erase, and that exercises the deep RESTRICT FK chains
+/// (work_orders → equipment/customer/site, evidence → work_order, audit → actor +
+/// branch). Runs as the owner with RLS off so the WITH CHECK + org-immutability +
+/// CHECK constraints accept the inserts. Returns the work_order id.
+async fn seed_force_data(owner_pool: &PgPool, org_id: Uuid) -> Uuid {
+    let mut tx = owner_pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL row_security = off")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let region_id: Uuid =
+        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
+            .bind("Force Region")
+            .bind(org_id)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    let branch_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(region_id)
+    .bind("Force Main")
+    .bind(org_id)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let user_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO users (display_name, roles, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind("Force Mechanic")
+    .bind(vec!["MECHANIC".to_owned()])
+    .bind(org_id)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let customer_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO registry_customers (branch_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(branch_id)
+    .bind("Force Customer")
+    .bind(org_id)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let site_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO registry_sites (branch_id, customer_id, name, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
+    )
+    .bind(branch_id)
+    .bind(customer_id)
+    .bind("Force Site")
+    .bind(org_id)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let equipment_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO registry_equipment
+            (branch_id, customer_id, site_id, equipment_no, manufacturer_code, kind_code,
+             power_code, status, specification, ton_text, source_sheet, source_row, org_id)
+        VALUES ($1, $2, $3, 'ABCDE-0001', 'M', 'K', 'P', '임대', 'spec', '2.5', 'sheet', 1, $4)
+        RETURNING id
+        "#,
+    )
+    .bind(branch_id)
+    .bind(customer_id)
+    .bind(site_id)
+    .bind(org_id)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    // request_no must match ^[0-9]{8}-[0-9]{3}$ (e.g. 20260624-001). Derive a
+    // valid, per-org-unique value from the org id's hex nibbles mapped to decimal
+    // digits so two seeded orgs never collide on the request_no unique index.
+    let digits: String = org_id
+        .simple()
+        .to_string()
+        .chars()
+        .map(|c| {
+            let n = c.to_digit(16).unwrap_or(0) % 10;
+            char::from_digit(n, 10).unwrap_or('0')
+        })
+        .take(11)
+        .collect();
+    let request_no = format!("{}-{}", &digits[..8], &digits[8..11]);
+    let work_order_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO work_orders
+            (request_no, branch_id, equipment_id, customer_id, site_id, requested_by,
+             status, symptom, org_id)
+        VALUES ($1, $2, $3, $4, $5, $6, 'RECEIVED', 'symptom', $7)
+        RETURNING id
+        "#,
+    )
+    .bind(&request_no)
+    .bind(branch_id)
+    .bind(equipment_id)
+    .bind(customer_id)
+    .bind(site_id)
+    .bind(user_id)
+    .bind(org_id)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO evidence_media
+            (org_id, uploaded_by, work_order_id, stage, s3_key, content_type, size_bytes,
+             worm_replica_status, processing_status)
+        VALUES ($1, $2, $3, 'AFTER', $4, 'image/jpeg', 100, 'PENDING', 'READY')
+        "#,
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(work_order_id)
+    .bind(format!("k/{org_id}"))
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    // An audit_events row carrying actor + branch_id, so the force-removal's
+    // re-home must release those tenant FKs before the user/branch deletes.
+    sqlx::query(
+        r#"
+        INSERT INTO audit_events
+            (org_id, actor, branch_id, action, target_type, target_id,
+             trace_id, span_id, occurred_at)
+        VALUES ($1, $2, $3, 'work_order.create', 'work_orders', $4,
+                '00000000000000000000000000000001', '0000000000000001', now())
+        "#,
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(branch_id)
+    .bind(work_order_id.to_string())
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    work_order_id
 }
 
 // ---------------------------------------------------------------------------
@@ -457,4 +632,174 @@ async fn direct_runtime_update_on_audit_events_is_still_rejected(owner_pool: PgP
         "a direct mnt_rt UPDATE on audit_events must be rejected by the append-only trigger"
     );
     let _ = tx.rollback().await;
+}
+
+// ===========================================================================
+// FORCE removal (DELETE /api/platform/orgs/{id}?delete_data=true).
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// (f) THE critical test: force-removing an ARCHIVED tenant WITH data erases ALL
+//     of its rows across every touched table and the org itself; its audit trail
+//     survives re-homed to the sentinel; and a SECOND tenant's data is COMPLETELY
+//     untouched (tenant isolation — a force-delete must never cross orgs).
+// ---------------------------------------------------------------------------
+#[sqlx::test(migrations = "../db/migrations")]
+async fn force_removes_archived_tenant_with_data_and_isolates_other_tenant(owner_pool: PgPool) {
+    let harness = Harness::new(&owner_pool).await;
+    let admin = seed_platform_admin(&owner_pool).await;
+    let platform_token = harness.token(admin, OrgId::platform(), true);
+    let service = harness.service();
+
+    // Org A (to be force-wiped) and org B (the KNL-like bystander).
+    let org_a = onboard(&service, &platform_token, "doomed").await;
+    let org_b = onboard(&service, &platform_token, "keeper").await;
+
+    // Both tenants accumulate real operational data spanning several tables.
+    let wo_a = seed_force_data(&owner_pool, org_a).await;
+    let wo_b = seed_force_data(&owner_pool, org_b).await;
+    assert_ne!(wo_a, wo_b);
+
+    // Snapshot org B's footprint BEFORE the wipe so we can prove byte-for-byte
+    // isolation afterward.
+    let tables = [
+        "users",
+        "regions",
+        "branches",
+        "registry_customers",
+        "registry_sites",
+        "registry_equipment",
+        "work_orders",
+        "evidence_media",
+        "audit_events",
+        "auth_bootstrap_credentials",
+    ];
+    let mut b_before = std::collections::HashMap::new();
+    for table in tables {
+        b_before.insert(table, count_in_org(&owner_pool, table, org_b).await);
+    }
+    let a_audit_before = count_in_org(&owner_pool, "audit_events", org_a).await;
+    assert!(a_audit_before >= 1, "org A has audit rows to re-home");
+    let sentinel_audit_before =
+        count_in_org(&owner_pool, "audit_events", *OrgId::platform().as_uuid()).await;
+
+    // A force-remove on an ACTIVE tenant must be REFUSED (the safety rail): A is
+    // still ACTIVE here, so this proves we cannot force-wipe an unarchived tenant.
+    let (status, body) = force_delete_org(&service, &platform_token, org_a).await;
+    assert_eq!(status, StatusCode::CONFLICT, "active tenant: {body:?}");
+    assert_eq!(
+        body["error"]["code"], "tenant_active",
+        "the 409 must tell the operator to archive first: {body:?}"
+    );
+    assert!(
+        org_exists(&owner_pool, org_a).await,
+        "the refused force-remove must change NOTHING"
+    );
+    assert_eq!(
+        count_in_org(&owner_pool, "work_orders", org_a).await,
+        1,
+        "A's data must be intact after the refused force-remove"
+    );
+
+    // Archive A (the reversible mandatory first step), THEN force-remove it.
+    archive_org(&service, &platform_token, org_a).await;
+    let (status, body) = force_delete_org(&service, &platform_token, org_a).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "force remove: {body:?}");
+
+    // Org A is GONE: the org row and every touched table.
+    assert!(
+        !org_exists(&owner_pool, org_a).await,
+        "org A must be force-removed"
+    );
+    for table in tables {
+        assert_eq!(
+            count_in_org(&owner_pool, table, org_a).await,
+            0,
+            "every {table} row for org A must be erased by the force-remove"
+        );
+    }
+
+    // Org A's audit trail SURVIVES, re-homed to the platform sentinel.
+    let sentinel_audit_after =
+        count_in_org(&owner_pool, "audit_events", *OrgId::platform().as_uuid()).await;
+    assert!(
+        sentinel_audit_after >= sentinel_audit_before + a_audit_before,
+        "org A's audit rows must survive re-homed to the sentinel"
+    );
+
+    // The force-removal itself is audited DISTINCTLY as platform.tenant.force_remove.
+    let force_audits: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_events WHERE action = 'platform.tenant.force_remove' AND actor = $1",
+    )
+    .bind(*admin.as_uuid())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        force_audits, 1,
+        "the force-removal must be audited exactly once, distinctly"
+    );
+
+    // THE CRITICAL ASSERTION: org B is byte-for-byte untouched.
+    assert!(
+        org_exists(&owner_pool, org_b).await,
+        "org B must survive a force-removal of org A"
+    );
+    for table in tables {
+        assert_eq!(
+            count_in_org(&owner_pool, table, org_b).await,
+            b_before[table],
+            "org B's {table} rows must be COMPLETELY untouched by org A's force-removal"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// (g) Force-remove of the platform sentinel is a no-op 404 (never wipe the
+//     platform tier's own anchor row).
+// ---------------------------------------------------------------------------
+#[sqlx::test(migrations = "../db/migrations")]
+async fn force_remove_of_sentinel_is_not_found(owner_pool: PgPool) {
+    let harness = Harness::new(&owner_pool).await;
+    let admin = seed_platform_admin(&owner_pool).await;
+    let platform_token = harness.token(admin, OrgId::platform(), true);
+    let service = harness.service();
+
+    let (status, _body) =
+        force_delete_org(&service, &platform_token, *OrgId::platform().as_uuid()).await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "the platform sentinel must never be force-removable"
+    );
+    assert!(
+        org_exists(&owner_pool, *OrgId::platform().as_uuid()).await,
+        "the sentinel org must still exist"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// (h) A non-platform (tenant) principal cannot reach the force path (403).
+// ---------------------------------------------------------------------------
+#[sqlx::test(migrations = "../db/migrations")]
+async fn tenant_token_cannot_force_remove_a_tenant(owner_pool: PgPool) {
+    let harness = Harness::new(&owner_pool).await;
+    let admin = seed_platform_admin(&owner_pool).await;
+    let platform_token = harness.token(admin, OrgId::platform(), true);
+    let service = harness.service();
+
+    let org_id = onboard(&service, &platform_token, "fvictim").await;
+    archive_org(&service, &platform_token, org_id).await;
+
+    let tenant_token = harness.token(UserId::new(), OrgId::knl(), false);
+    let (status, _body) = force_delete_org(&service, &tenant_token, org_id).await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "a tenant token must never reach the force-remove path"
+    );
+    assert!(
+        org_exists(&owner_pool, org_id).await,
+        "the tenant must be untouched after a rejected force-remove"
+    );
 }

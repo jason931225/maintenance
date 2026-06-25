@@ -274,3 +274,26 @@ export async function removePlatformOrg(
   );
   if (!response.ok) throw await parseError(response);
 }
+
+/**
+ * DELETE /platform/orgs/{id}?delete_data=true — FORCE hard-removal of a tenant
+ * AND all of its data. The DESTRUCTIVE counterpart to {@link removePlatformOrg}.
+ *
+ * Erases the org and every operational row it owns. Fail-closed by a status rail:
+ * the backend refuses with 409 (`PlatformApiError.status === 409`, code
+ * `tenant_active`) unless the tenant is ARCHIVED — archive it (reversible) first.
+ * A missing tenant is 404. Platform-super-admin only.
+ */
+export async function forceRemovePlatformOrg(
+  bearerToken: string | undefined,
+  id: string,
+): Promise<void> {
+  const response = await platformFetch(
+    bearerToken,
+    `/api/platform/orgs/${encodeURIComponent(id)}?delete_data=true`,
+    {
+      method: "DELETE",
+    },
+  );
+  if (!response.ok) throw await parseError(response);
+}

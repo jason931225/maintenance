@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
+  forceRemovePlatformOrg,
   listPlatformOrgs,
   removePlatformOrg,
   setPlatformOrgStatus,
@@ -13,6 +14,7 @@ import { PageError } from "../components/states/PageError";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { useAuth } from "../context/auth";
+import { ForceRemoveTenantDialog } from "../features/platform/ForceRemoveTenantDialog";
 import { RemoveTenantDialog } from "../features/platform/RemoveTenantDialog";
 import { StatusChangeDialog } from "../features/platform/StatusChangeDialog";
 import { TenantTable } from "../features/platform/TenantTable";
@@ -39,6 +41,11 @@ export function PlatformTenantsPage() {
   const [pendingRemoval, setPendingRemoval] = useState<PlatformOrg | undefined>(
     undefined,
   );
+  // The DESTRUCTIVE force-removal flow, entered only from the guarded dialog
+  // after the guarded remove is refused (the tenant has real data).
+  const [pendingForceRemoval, setPendingForceRemoval] = useState<
+    PlatformOrg | undefined
+  >(undefined);
   const [pendingViewAs, setPendingViewAs] = useState<PlatformOrg | undefined>(
     undefined,
   );
@@ -77,10 +84,21 @@ export function PlatformTenantsPage() {
   async function applyRemoval(): Promise<void> {
     if (!pendingRemoval) return;
     // A 409 (tenant has data) / 404 / failure is thrown to the dialog, which
-    // surfaces the "archive instead" guidance and stays open. On success the
-    // tenant is gone, so close and refresh from the server.
+    // surfaces the "archive instead" guidance (and, on 409, reveals the force
+    // escape) and stays open. On success the tenant is gone, so close and refresh.
     await removePlatformOrg(token, pendingRemoval.id);
     setPendingRemoval(undefined);
+    await loadOrgs();
+  }
+
+  async function applyForceRemoval(): Promise<void> {
+    if (!pendingForceRemoval) return;
+    // The DESTRUCTIVE path: erase the tenant AND all its data. A 409
+    // (`tenant_active`, not archived) / 404 / failure is thrown to the force
+    // dialog, which surfaces the "archive first" guidance and stays open. On
+    // success the tenant is gone, so close and refresh from the server.
+    await forceRemovePlatformOrg(token, pendingForceRemoval.id);
+    setPendingForceRemoval(undefined);
     await loadOrgs();
   }
 
@@ -169,8 +187,23 @@ export function PlatformTenantsPage() {
         <RemoveTenantDialog
           org={pendingRemoval}
           onConfirm={applyRemoval}
+          onForceRequested={() => {
+            // Hand off from the guarded dialog to the destructive force flow.
+            setPendingForceRemoval(pendingRemoval);
+            setPendingRemoval(undefined);
+          }}
           onClose={() => {
             setPendingRemoval(undefined);
+          }}
+        />
+      ) : null}
+
+      {pendingForceRemoval ? (
+        <ForceRemoveTenantDialog
+          org={pendingForceRemoval}
+          onConfirm={applyForceRemoval}
+          onClose={() => {
+            setPendingForceRemoval(undefined);
           }}
         />
       ) : null}

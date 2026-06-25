@@ -448,6 +448,29 @@ export const ko = {
         blocked:
           "이 테넌트에는 실제 운영 데이터가 있어 삭제할 수 없습니다. 대신 보관 처리하세요.",
         notFound: "테넌트를 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.",
+        // FORCE removal (데이터까지 영구 삭제): the DESTRUCTIVE path revealed only
+        // after the guarded remove is blocked by real data. Requires the tenant
+        // to be ARCHIVED first and a double confirmation (typing the exact name).
+        force: {
+          reveal: "데이터까지 영구 삭제",
+          title: "테넌트와 모든 데이터 영구 삭제",
+          description:
+            "‘{name}’ 테넌트와 이 조직의 모든 운영 데이터(작업지시, 장비, 고객, 재무, 메신저, 감사 기록 등)를 영구적으로 삭제합니다. 이 작업은 절대 되돌릴 수 없습니다.",
+          warning:
+            "이것은 시스템에서 가장 파괴적인 작업입니다. 삭제된 데이터는 복구할 수 없습니다.",
+          confirmLabel:
+            "확인을 위해 테넌트 이름 ‘{name}’ 을(를) 정확히 입력하세요.",
+          confirmPlaceholder: "테넌트 이름 입력",
+          mismatch: "입력한 이름이 테넌트 이름과 일치하지 않습니다.",
+          cancel: "취소",
+          apply: "영구 삭제",
+          applying: "삭제 중",
+          failed: "테넌트를 삭제하지 못했습니다. 다시 시도하세요.",
+          // The force path's status rail: refused unless the tenant is ARCHIVED.
+          notArchived:
+            "활성 테넌트는 영구 삭제할 수 없습니다. 먼저 이 테넌트를 보관(ARCHIVED) 처리한 뒤 다시 시도하세요.",
+          notFound: "테넌트를 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.",
+        },
       },
     },
     onboard: {

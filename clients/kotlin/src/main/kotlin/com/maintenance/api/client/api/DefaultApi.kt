@@ -8619,9 +8619,10 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
 
     /**
      * DELETE /api/platform/orgs/{id}
-     * Hard-remove an empty/test tenant (platform vendor tier)
-     * GUARDED hard-removal of a tenant organization. Platform-super-admin (vendor tier) ONLY: the route sits behind the platform extractor, so a tenant token is rejected with 403 before the handler runs and a tenant&#39;s own admin can never reach it. The removal is audited as &#x60;platform.tenant.remove&#x60;.  The tenant and its empty onboarding shell (the seeded admin user, its auth credentials, branch memberships, branches, and regions) are deleted in one transaction, and the tenant&#39;s immutable audit trail is preserved (re-homed to the platform sentinel). Removal is REFUSED with 409 when the tenant owns real operational data (equipment, work orders, sites, customers, inspections, sales, financial, messenger, consents, attendance, or governance findings) — archive the tenant instead.
+     * Remove a tenant — guarded shell removal, or opt-in force-delete with data (platform vendor tier)
+     * Remove a tenant organization. Platform-super-admin (vendor tier) ONLY: the route sits behind the platform extractor, so a tenant token is rejected with 403 before the handler runs and a tenant&#39;s own admin can never reach it.  Two paths, selected by the opt-in &#x60;delete_data&#x60; query parameter (default false):  - &#x60;delete_data&#x3D;false&#x60; (default) — GUARDED removal, audited as &#x60;platform.tenant.remove&#x60;. Deletes only an empty/test tenant&#39;s onboarding shell (the seeded admin user, its auth credentials, branch memberships, branches, and regions). REFUSED with 409 (&#x60;code&#x60; &#x3D; &#x60;tenant_has_data&#x60;) when the tenant owns real operational data (equipment, work orders, sites, customers, inspections, sales, financial, messenger, consents, attendance, or governance findings) — archive the tenant instead.  - &#x60;delete_data&#x3D;true&#x60; — FORCE removal, audited as &#x60;platform.tenant.force_remove&#x60;. The DESTRUCTIVE path: erases the org AND all of its data. Fail-closed by a status rail — REFUSED with 409 (&#x60;code&#x60; &#x3D; &#x60;tenant_active&#x60;) unless the tenant is ARCHIVED, so an active tenant can never be force-wiped by a single call; archive it (reversible) first.  Both paths delete in one transaction and preserve the tenant&#39;s immutable audit trail (re-homed to the platform sentinel).
      * @param id
+     * @param deleteData Opt-in FORCE removal. When true, erase the tenant AND all of its data (requires the tenant to be ARCHIVED first). Defaults to false — the guarded path that removes only an empty onboarding shell. (optional, default to false)
      * @return void
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -8630,8 +8631,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * @throws ServerException If the API returns a server error response
      */
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun removePlatformOrg(id: java.util.UUID) : Unit = withContext(Dispatchers.IO) {
-        val localVarResponse = removePlatformOrgWithHttpInfo(id = id)
+    suspend fun removePlatformOrg(id: java.util.UUID, deleteData: kotlin.Boolean? = false) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = removePlatformOrgWithHttpInfo(id = id, deleteData = deleteData)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> Unit
@@ -8650,16 +8651,17 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
 
     /**
      * DELETE /api/platform/orgs/{id}
-     * Hard-remove an empty/test tenant (platform vendor tier)
-     * GUARDED hard-removal of a tenant organization. Platform-super-admin (vendor tier) ONLY: the route sits behind the platform extractor, so a tenant token is rejected with 403 before the handler runs and a tenant&#39;s own admin can never reach it. The removal is audited as &#x60;platform.tenant.remove&#x60;.  The tenant and its empty onboarding shell (the seeded admin user, its auth credentials, branch memberships, branches, and regions) are deleted in one transaction, and the tenant&#39;s immutable audit trail is preserved (re-homed to the platform sentinel). Removal is REFUSED with 409 when the tenant owns real operational data (equipment, work orders, sites, customers, inspections, sales, financial, messenger, consents, attendance, or governance findings) — archive the tenant instead.
+     * Remove a tenant — guarded shell removal, or opt-in force-delete with data (platform vendor tier)
+     * Remove a tenant organization. Platform-super-admin (vendor tier) ONLY: the route sits behind the platform extractor, so a tenant token is rejected with 403 before the handler runs and a tenant&#39;s own admin can never reach it.  Two paths, selected by the opt-in &#x60;delete_data&#x60; query parameter (default false):  - &#x60;delete_data&#x3D;false&#x60; (default) — GUARDED removal, audited as &#x60;platform.tenant.remove&#x60;. Deletes only an empty/test tenant&#39;s onboarding shell (the seeded admin user, its auth credentials, branch memberships, branches, and regions). REFUSED with 409 (&#x60;code&#x60; &#x3D; &#x60;tenant_has_data&#x60;) when the tenant owns real operational data (equipment, work orders, sites, customers, inspections, sales, financial, messenger, consents, attendance, or governance findings) — archive the tenant instead.  - &#x60;delete_data&#x3D;true&#x60; — FORCE removal, audited as &#x60;platform.tenant.force_remove&#x60;. The DESTRUCTIVE path: erases the org AND all of its data. Fail-closed by a status rail — REFUSED with 409 (&#x60;code&#x60; &#x3D; &#x60;tenant_active&#x60;) unless the tenant is ARCHIVED, so an active tenant can never be force-wiped by a single call; archive it (reversible) first.  Both paths delete in one transaction and preserve the tenant&#39;s immutable audit trail (re-homed to the platform sentinel).
      * @param id
+     * @param deleteData Opt-in FORCE removal. When true, erase the tenant AND all of its data (requires the tenant to be ARCHIVED first). Defaults to false — the guarded path that removes only an empty onboarding shell. (optional, default to false)
      * @return ApiResponse<Unit?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun removePlatformOrgWithHttpInfo(id: java.util.UUID) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = removePlatformOrgRequestConfig(id = id)
+    suspend fun removePlatformOrgWithHttpInfo(id: java.util.UUID, deleteData: kotlin.Boolean?) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = removePlatformOrgRequestConfig(id = id, deleteData = deleteData)
 
         return@withContext request<Unit, Unit>(
             localVariableConfig
@@ -8670,11 +8672,17 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * To obtain the request config of the operation removePlatformOrg
      *
      * @param id
+     * @param deleteData Opt-in FORCE removal. When true, erase the tenant AND all of its data (requires the tenant to be ARCHIVED first). Defaults to false — the guarded path that removes only an empty onboarding shell. (optional, default to false)
      * @return RequestConfig
      */
-    fun removePlatformOrgRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+    fun removePlatformOrgRequestConfig(id: java.util.UUID, deleteData: kotlin.Boolean?) : RequestConfig<Unit> {
         val localVariableBody = null
-        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (deleteData != null) {
+                    put("delete_data", listOf(deleteData.toString()))
+                }
+            }
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
         localVariableHeaders["Accept"] = "application/json"
 

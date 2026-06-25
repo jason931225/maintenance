@@ -777,11 +777,17 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `PATCH /api/v1/sales/inquiries/{id}`.
     /// - Remark: Generated from `#/paths//api/v1/sales/inquiries/{id}/patch(updateInquiryStatus)`.
     func updateInquiryStatus(_ input: Operations.UpdateInquiryStatus.Input) async throws -> Operations.UpdateInquiryStatus.Output
-    /// Hard-remove an empty/test tenant (platform vendor tier)
+    /// Remove a tenant — guarded shell removal, or opt-in force-delete with data (platform vendor tier)
     ///
-    /// GUARDED hard-removal of a tenant organization. Platform-super-admin (vendor tier) ONLY: the route sits behind the platform extractor, so a tenant token is rejected with 403 before the handler runs and a tenant's own admin can never reach it. The removal is audited as `platform.tenant.remove`.
+    /// Remove a tenant organization. Platform-super-admin (vendor tier) ONLY: the route sits behind the platform extractor, so a tenant token is rejected with 403 before the handler runs and a tenant's own admin can never reach it.
     ///
-    /// The tenant and its empty onboarding shell (the seeded admin user, its auth credentials, branch memberships, branches, and regions) are deleted in one transaction, and the tenant's immutable audit trail is preserved (re-homed to the platform sentinel). Removal is REFUSED with 409 when the tenant owns real operational data (equipment, work orders, sites, customers, inspections, sales, financial, messenger, consents, attendance, or governance findings) — archive the tenant instead.
+    /// Two paths, selected by the opt-in `delete_data` query parameter (default false):
+    ///
+    /// - `delete_data=false` (default) — GUARDED removal, audited as `platform.tenant.remove`. Deletes only an empty/test tenant's onboarding shell (the seeded admin user, its auth credentials, branch memberships, branches, and regions). REFUSED with 409 (`code` = `tenant_has_data`) when the tenant owns real operational data (equipment, work orders, sites, customers, inspections, sales, financial, messenger, consents, attendance, or governance findings) — archive the tenant instead.
+    ///
+    /// - `delete_data=true` — FORCE removal, audited as `platform.tenant.force_remove`. The DESTRUCTIVE path: erases the org AND all of its data. Fail-closed by a status rail — REFUSED with 409 (`code` = `tenant_active`) unless the tenant is ARCHIVED, so an active tenant can never be force-wiped by a single call; archive it (reversible) first.
+    ///
+    /// Both paths delete in one transaction and preserve the tenant's immutable audit trail (re-homed to the platform sentinel).
     ///
     /// - Remark: HTTP `DELETE /api/platform/orgs/{id}`.
     /// - Remark: Generated from `#/paths//api/platform/orgs/{id}/delete(removePlatformOrg)`.
@@ -2709,20 +2715,28 @@ extension APIProtocol {
             body: body
         ))
     }
-    /// Hard-remove an empty/test tenant (platform vendor tier)
+    /// Remove a tenant — guarded shell removal, or opt-in force-delete with data (platform vendor tier)
     ///
-    /// GUARDED hard-removal of a tenant organization. Platform-super-admin (vendor tier) ONLY: the route sits behind the platform extractor, so a tenant token is rejected with 403 before the handler runs and a tenant's own admin can never reach it. The removal is audited as `platform.tenant.remove`.
+    /// Remove a tenant organization. Platform-super-admin (vendor tier) ONLY: the route sits behind the platform extractor, so a tenant token is rejected with 403 before the handler runs and a tenant's own admin can never reach it.
     ///
-    /// The tenant and its empty onboarding shell (the seeded admin user, its auth credentials, branch memberships, branches, and regions) are deleted in one transaction, and the tenant's immutable audit trail is preserved (re-homed to the platform sentinel). Removal is REFUSED with 409 when the tenant owns real operational data (equipment, work orders, sites, customers, inspections, sales, financial, messenger, consents, attendance, or governance findings) — archive the tenant instead.
+    /// Two paths, selected by the opt-in `delete_data` query parameter (default false):
+    ///
+    /// - `delete_data=false` (default) — GUARDED removal, audited as `platform.tenant.remove`. Deletes only an empty/test tenant's onboarding shell (the seeded admin user, its auth credentials, branch memberships, branches, and regions). REFUSED with 409 (`code` = `tenant_has_data`) when the tenant owns real operational data (equipment, work orders, sites, customers, inspections, sales, financial, messenger, consents, attendance, or governance findings) — archive the tenant instead.
+    ///
+    /// - `delete_data=true` — FORCE removal, audited as `platform.tenant.force_remove`. The DESTRUCTIVE path: erases the org AND all of its data. Fail-closed by a status rail — REFUSED with 409 (`code` = `tenant_active`) unless the tenant is ARCHIVED, so an active tenant can never be force-wiped by a single call; archive it (reversible) first.
+    ///
+    /// Both paths delete in one transaction and preserve the tenant's immutable audit trail (re-homed to the platform sentinel).
     ///
     /// - Remark: HTTP `DELETE /api/platform/orgs/{id}`.
     /// - Remark: Generated from `#/paths//api/platform/orgs/{id}/delete(removePlatformOrg)`.
     public func removePlatformOrg(
         path: Operations.RemovePlatformOrg.Input.Path,
+        query: Operations.RemovePlatformOrg.Input.Query = .init(),
         headers: Operations.RemovePlatformOrg.Input.Headers = .init()
     ) async throws -> Operations.RemovePlatformOrg.Output {
         try await removePlatformOrg(Operations.RemovePlatformOrg.Input(
             path: path,
+            query: query,
             headers: headers
         ))
     }
@@ -39941,11 +39955,17 @@ public enum Operations {
             }
         }
     }
-    /// Hard-remove an empty/test tenant (platform vendor tier)
+    /// Remove a tenant — guarded shell removal, or opt-in force-delete with data (platform vendor tier)
     ///
-    /// GUARDED hard-removal of a tenant organization. Platform-super-admin (vendor tier) ONLY: the route sits behind the platform extractor, so a tenant token is rejected with 403 before the handler runs and a tenant's own admin can never reach it. The removal is audited as `platform.tenant.remove`.
+    /// Remove a tenant organization. Platform-super-admin (vendor tier) ONLY: the route sits behind the platform extractor, so a tenant token is rejected with 403 before the handler runs and a tenant's own admin can never reach it.
     ///
-    /// The tenant and its empty onboarding shell (the seeded admin user, its auth credentials, branch memberships, branches, and regions) are deleted in one transaction, and the tenant's immutable audit trail is preserved (re-homed to the platform sentinel). Removal is REFUSED with 409 when the tenant owns real operational data (equipment, work orders, sites, customers, inspections, sales, financial, messenger, consents, attendance, or governance findings) — archive the tenant instead.
+    /// Two paths, selected by the opt-in `delete_data` query parameter (default false):
+    ///
+    /// - `delete_data=false` (default) — GUARDED removal, audited as `platform.tenant.remove`. Deletes only an empty/test tenant's onboarding shell (the seeded admin user, its auth credentials, branch memberships, branches, and regions). REFUSED with 409 (`code` = `tenant_has_data`) when the tenant owns real operational data (equipment, work orders, sites, customers, inspections, sales, financial, messenger, consents, attendance, or governance findings) — archive the tenant instead.
+    ///
+    /// - `delete_data=true` — FORCE removal, audited as `platform.tenant.force_remove`. The DESTRUCTIVE path: erases the org AND all of its data. Fail-closed by a status rail — REFUSED with 409 (`code` = `tenant_active`) unless the tenant is ARCHIVED, so an active tenant can never be force-wiped by a single call; archive it (reversible) first.
+    ///
+    /// Both paths delete in one transaction and preserve the tenant's immutable audit trail (re-homed to the platform sentinel).
     ///
     /// - Remark: HTTP `DELETE /api/platform/orgs/{id}`.
     /// - Remark: Generated from `#/paths//api/platform/orgs/{id}/delete(removePlatformOrg)`.
@@ -39965,6 +39985,21 @@ public enum Operations {
                 }
             }
             public var path: Operations.RemovePlatformOrg.Input.Path
+            /// - Remark: Generated from `#/paths/api/platform/orgs/{id}/DELETE/query`.
+            public struct Query: Sendable, Hashable {
+                /// Opt-in FORCE removal. When true, erase the tenant AND all of its data (requires the tenant to be ARCHIVED first). Defaults to false — the guarded path that removes only an empty onboarding shell.
+                ///
+                /// - Remark: Generated from `#/paths/api/platform/orgs/{id}/DELETE/query/delete_data`.
+                public var deleteData: Swift.Bool?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - deleteData: Opt-in FORCE removal. When true, erase the tenant AND all of its data (requires the tenant to be ARCHIVED first). Defaults to false — the guarded path that removes only an empty onboarding shell.
+                public init(deleteData: Swift.Bool? = nil) {
+                    self.deleteData = deleteData
+                }
+            }
+            public var query: Operations.RemovePlatformOrg.Input.Query
             /// - Remark: Generated from `#/paths/api/platform/orgs/{id}/DELETE/header`.
             public struct Headers: Sendable, Hashable {
                 public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RemovePlatformOrg.AcceptableContentType>]
@@ -39981,12 +40016,15 @@ public enum Operations {
             ///
             /// - Parameters:
             ///   - path:
+            ///   - query:
             ///   - headers:
             public init(
                 path: Operations.RemovePlatformOrg.Input.Path,
+                query: Operations.RemovePlatformOrg.Input.Query = .init(),
                 headers: Operations.RemovePlatformOrg.Input.Headers = .init()
             ) {
                 self.path = path
+                self.query = query
                 self.headers = headers
             }
         }
@@ -39995,13 +40033,13 @@ public enum Operations {
                 /// Creates a new `NoContent`.
                 public init() {}
             }
-            /// The empty/test tenant and its shell were removed.
+            /// The tenant (and, when forced, all of its data) was removed.
             ///
             /// - Remark: Generated from `#/paths//api/platform/orgs/{id}/delete(removePlatformOrg)/responses/204`.
             ///
             /// HTTP response code: `204 noContent`.
             case noContent(Operations.RemovePlatformOrg.Output.NoContent)
-            /// The empty/test tenant and its shell were removed.
+            /// The tenant (and, when forced, all of its data) was removed.
             ///
             /// - Remark: Generated from `#/paths//api/platform/orgs/{id}/delete(removePlatformOrg)/responses/204`.
             ///
@@ -40123,7 +40161,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// The tenant has operational data and cannot be removed; archive it instead. The error body `code` is `tenant_has_data`.
+            /// The removal was refused. On the guarded path (`delete_data` false), the tenant has operational data and cannot be removed (error body `code` is `tenant_has_data`) — archive it instead. On the force path (`delete_data` true), the tenant is not ARCHIVED (error body `code` is `tenant_active`) — archive the tenant before force-removing.
             ///
             /// - Remark: Generated from `#/paths//api/platform/orgs/{id}/delete(removePlatformOrg)/responses/409`.
             ///
