@@ -6,7 +6,7 @@
 > CAP-1..N (Ontology catalog · Object Views · Object-Set query API · scoped RBAC+RLS · action/write-back
 > engine) + Korean-payroll computation list + vertical object models in
 > `.omc/research/foundry-domain-research.md`.
-> Owner: Jason Lee (KNL). Author: Claude. Branch: `feat/multi-tenant-phase1`.
+> Owner: Jason Lee (KNL). Author: Claude. Branch: `main`.
 > Design north star: `.omc/research/palantir-blueprint.md`. Research + fix plans:
 > `.omc/research/{foundry-domain-research,broken-flows-fix-plan,role-workflow-backlog,
 > analytics-intelligence-roadmap,webmail-build-plan,dispatchmap-build-plan}.md`.

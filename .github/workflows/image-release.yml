@@ -12,7 +12,7 @@ name: Image Release
 
 on:
   push:
-    branches: [main, feat/multi-tenant-phase1]
+    branches: [main]
     tags: ["v*"]
     # Build images only when source/build inputs change. Tag pushes still run
     # regardless of path filters; deploy-only and docs/specs-only pushes should
