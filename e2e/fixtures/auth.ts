@@ -160,14 +160,39 @@ export function readSignupOtpFromLog(email: string): string {
 }
 
 /**
+ * Accept the first-login privacy/terms gate when onboarding requires it. CI role
+ * login ceremonies start from a fresh OTP every time, so they must satisfy the
+ * same required-consent gate a real user sees before passkey enrollment.
+ */
+export async function acceptRequiredPrivacyConsent(page: Page): Promise<void> {
+  const desktopMethod = page.getByRole("button", {
+    name: /이 기기|이 데스크톱/,
+  });
+  if (await desktopMethod.isVisible()) {
+    return;
+  }
+
+  const submitConsent = page.getByRole("button", {
+    name: /필수 동의 후 계속/,
+  });
+  await expect(submitConsent).toBeVisible({ timeout: 15_000 });
+  await page.getByLabel(/개인정보 수집·이용 안내/).check();
+  await page.getByLabel(/서비스 이용약관/).check();
+  await expect(submitConsent).toBeEnabled();
+  await submitConsent.click();
+  await expect(desktopMethod).toBeVisible({ timeout: 15_000 });
+}
+
+/**
  * Enroll a passkey from the OnboardingPage by choosing the desktop (platform)
  * authenticator. The virtual authenticator answers navigator.credentials.create
  * automatically. Returns once enrollment has navigated away from /onboarding.
  */
 export async function enrollPasskey(page: Page): Promise<void> {
   await expect(page).toHaveURL(/\/onboarding/);
-  // "이 데스크톱" desktop / platform-authenticator enrollment.
-  await page.getByRole("button", { name: /이 데스크톱/ }).click();
+  await acceptRequiredPrivacyConsent(page);
+  // "이 기기" desktop / platform-authenticator enrollment.
+  await page.getByRole("button", { name: /이 기기|이 데스크톱/ }).click();
   await expect(page).not.toHaveURL(/\/onboarding/, { timeout: 15_000 });
 }
 

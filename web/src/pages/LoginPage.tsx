@@ -1,6 +1,6 @@
 import { KeyRound, Mail, Ticket } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
@@ -20,13 +20,12 @@ function safeNext(raw: string | null): string {
 }
 
 /**
- * Sanitize an `?otp=` query param (a scanned cross-device enrollment handoff or an
- * admin-issued sign-in code). Returns the code only when it matches the exact
- * server OTP shape — 8 characters over the copy-paste-safe alphabet
- * `A-Za-z0-9!@#$%^&*-_` — so a malformed or injected value is ignored rather than
- * prefilled. Anything else yields undefined.
+ * Sanitize a fragment-carried OTP handoff (`/login#otp=<code>`). Fragments are
+ * client-side only, unlike query strings that often land in server/proxy logs.
  */
-function safeOtpParam(raw: string | null): string | undefined {
+function safeOtpFragment(hash: string): string | undefined {
+  if (!hash.startsWith("#")) return undefined;
+  const raw = new URLSearchParams(hash.slice(1)).get("otp");
   if (!raw) return undefined;
   const trimmed = raw.trim();
   return /^[A-Za-z0-9!@#$%^&*\-_]{8}$/.test(trimmed) ? trimmed : undefined;
@@ -35,15 +34,15 @@ function safeOtpParam(raw: string | null): string | undefined {
 export function LoginPage() {
   const { session, restoring, login, acceptTokens, api } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
 
-  // A scanned cross-device enrollment QR (or an admin-issued code link) lands here
-  // as `?otp=<code>`: derive the initial OTP + open panel from the param ONCE at
-  // first render (a lazy initializer, not an effect, so there is no cascading
-  // render and the user's later edits are never overwritten). We do NOT auto-submit
-  // — redeeming a one-time code is a credential action, so the user taps the
-  // confirm button explicitly. A logged-in user is redirected away by the effect.
-  const scannedOtp = safeOtpParam(searchParams.get("otp"));
+  // A scanned cross-device enrollment QR lands here as `/login#otp=<code>`:
+  // derive the initial OTP + open panel from the fragment ONCE at first render
+  // (a lazy initializer, not an effect, so the user's later edits are never
+  // overwritten). We do NOT auto-submit — redeeming a one-time code is a
+  // credential action, so the user taps the confirm button explicitly.
+  const [scannedOtp] = useState(() => safeOtpFragment(location.hash));
 
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
@@ -54,6 +53,13 @@ export function LoginPage() {
   const [signupOpenForm, setSignupOpenForm] = useState(false);
   const [signupEmail, setSignupEmail] = useState("");
   const [signupPending, setSignupPending] = useState(false);
+
+  useEffect(() => {
+    if (!scannedOtp || !location.hash) return;
+    const cleanPath = `${location.pathname}${location.search}`;
+    window.history.replaceState(window.history.state, "", cleanPath);
+    void navigate(cleanPath, { replace: true });
+  }, [location.hash, location.pathname, location.search, navigate, scannedOtp]);
 
   useEffect(() => {
     // Wait for the boot silent refresh to settle so a logged-in user who hard-

@@ -1316,14 +1316,18 @@ async fn accept_privacy_consent(
     }))
 }
 
-/// Build the QR-encoded enrollment URL `{rp_origin}/login?otp=<handoff>` from the
-/// validated console origin and the freshly minted handoff code. Uses the `url`
-/// crate so the OTP is correctly percent-encoded as a query parameter (the OTP
-/// alphabet includes `#$%^&*` etc.), never string-concatenated.
+/// Build the QR-encoded enrollment URL `{rp_origin}/login#otp=<handoff>` from the
+/// validated console origin and the freshly minted handoff code. The OTP is an
+/// auth secret, so keep it out of query strings that are commonly logged by
+/// servers and proxies; the fragment stays client-side and is cleared by the UI.
 fn build_enroll_url(rp_origin: &Url, otp: &str) -> String {
     let mut url = rp_origin.clone();
     url.set_path("/login");
-    url.query_pairs_mut().clear().append_pair("otp", otp);
+    url.set_query(None);
+    let fragment = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("otp", otp)
+        .finish();
+    url.set_fragment(Some(&fragment));
     url.to_string()
 }
 
@@ -2085,11 +2089,32 @@ fn with_refresh_cookie(mut response: Response, cookie: Option<HeaderValue>) -> R
 
 #[cfg(test)]
 mod tests {
-    use super::{authorizable_target_branches, client_ip};
+    use super::{authorizable_target_branches, build_enroll_url, client_ip};
     use axum::http::HeaderMap;
     use mnt_kernel_core::{BranchId, BranchScope};
     use std::collections::BTreeSet;
+    use url::{Url, form_urlencoded};
     use uuid::Uuid;
+
+    #[test]
+    fn build_enroll_url_keeps_otp_out_of_query_string() -> Result<(), url::ParseError> {
+        let origin = Url::parse("https://console.knllogistic.com/app?ignored=1")?;
+        let otp = "A&c#%_!9";
+
+        let enroll_url = build_enroll_url(&origin, otp);
+        let parsed = Url::parse(&enroll_url)?;
+        let decoded = parsed.fragment().and_then(|fragment| {
+            form_urlencoded::parse(fragment.as_bytes())
+                .find(|(key, _)| key == "otp")
+                .map(|(_, value)| value.into_owned())
+        });
+
+        assert_eq!(parsed.path(), "/login");
+        assert!(parsed.query().is_none());
+        assert_eq!(decoded.as_deref(), Some(otp));
+        assert!(!enroll_url.contains("?otp="));
+        Ok(())
+    }
 
     #[test]
     fn authorizable_branches_all_scope_issuable_only_by_super_admin() {

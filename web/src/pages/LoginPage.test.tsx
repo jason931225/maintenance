@@ -17,6 +17,7 @@ beforeAll(() => {
 });
 afterEach(() => {
   server.resetHandlers();
+  window.history.replaceState(null, "", "/");
 });
 afterAll(() => {
   server.close();
@@ -338,7 +339,7 @@ describe("OnboardingPage enrollment", () => {
         return HttpResponse.json({
           otp: "Abcd1234",
           expires_at: "2026-06-14T00:05:00Z",
-          enroll_url: "https://console.knllogistic.com/login?otp=Abcd1234",
+          enroll_url: "https://console.knllogistic.com/login#otp=Abcd1234",
         });
       }),
     );
@@ -360,18 +361,29 @@ describe("OnboardingPage enrollment", () => {
       expect(handoffCalls).toBe(1);
     });
     expect(link.getAttribute("href")).toBe(
-      "https://console.knllogistic.com/login?otp=Abcd1234",
+      "https://console.knllogistic.com/login#otp=Abcd1234",
     );
   });
 
-  it("prefills and reveals the OTP panel from a scanned ?otp= link", async () => {
-    renderApp("/login?otp=Abcd1234", makeAuthContext({}));
+  it("prefills and clears the OTP panel from a scanned fragment link", async () => {
+    window.history.replaceState(null, "", "/login#otp=Abcd1234");
+    renderApp("/login#otp=Abcd1234", makeAuthContext({}));
     const field = await screen.findByLabelText(/일회용 코드/);
     expect(field).toHaveValue("Abcd1234");
+    await waitFor(() => {
+      expect(window.location.hash).toBe("");
+    });
   });
 
-  it("ignores a malformed ?otp= param", async () => {
-    renderApp("/login?otp=not-valid", makeAuthContext({}));
+  it("ignores query-string OTP links so handoff codes are not accepted from logged URLs", async () => {
+    renderApp("/login?otp=Abcd1234", makeAuthContext({}));
+    expect(
+      await screen.findByRole("button", { name: /일회용 코드로 로그인/ }),
+    ).toBeTruthy();
+  });
+
+  it("ignores a malformed fragment OTP", async () => {
+    renderApp("/login#otp=not-valid", makeAuthContext({}));
     // The login card renders; the OTP panel stays collapsed (reveal button shown).
     expect(
       await screen.findByRole("button", { name: /일회용 코드로 로그인/ }),

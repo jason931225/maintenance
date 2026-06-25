@@ -6854,8 +6854,8 @@ components:
           $ref: '#/components/schemas/Timestamp'
         enroll_url:
           type: string
-          description: The console enrollment URL embedding the handoff code as a query parameter
-            (`{origin}/login?otp=<code>`), to be rendered as a QR and scanned on a phone.
+          description: The console enrollment URL carrying the handoff code in the fragment
+            (`{origin}/login#otp=<code>`), to be rendered as a QR and scanned on a phone.
     PrivacyConsentAcceptRequest:
       type: object
       description: >-

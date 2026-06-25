@@ -33,7 +33,7 @@ import kotlinx.serialization.Contextual
  *
  * @param otp The single-use enrollment handoff code.
  * @param expiresAt
- * @param enrollUrl The console enrollment URL embedding the handoff code as a query parameter (`{origin}/login?otp=<code>`), to be rendered as a QR and scanned on a phone.
+ * @param enrollUrl The console enrollment URL carrying the handoff code in the fragment (`{origin}/login#otp=<code>`), to be rendered as a QR and scanned on a phone.
  */
 @Serializable
 
@@ -46,7 +46,7 @@ data class EnrollHandoffResponse (
     @Contextual @SerialName(value = "expires_at")
     val expiresAt: java.time.OffsetDateTime,
 
-    /* The console enrollment URL embedding the handoff code as a query parameter (`{origin}/login?otp=<code>`), to be rendered as a QR and scanned on a phone. */
+    /* The console enrollment URL carrying the handoff code in the fragment (`{origin}/login#otp=<code>`), to be rendered as a QR and scanned on a phone. */
     @SerialName(value = "enroll_url")
     val enrollUrl: kotlin.String
 

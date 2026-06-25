@@ -6842,7 +6842,7 @@ public enum Components {
             public var otp: Swift.String
             /// - Remark: Generated from `#/components/schemas/EnrollHandoffResponse/expires_at`.
             public var expiresAt: Components.Schemas.Timestamp
-            /// The console enrollment URL embedding the handoff code as a query parameter (`{origin}/login?otp=<code>`), to be rendered as a QR and scanned on a phone.
+            /// The console enrollment URL carrying the handoff code in the fragment (`{origin}/login#otp=<code>`), to be rendered as a QR and scanned on a phone.
             ///
             /// - Remark: Generated from `#/components/schemas/EnrollHandoffResponse/enroll_url`.
             public var enrollUrl: Swift.String
@@ -6851,7 +6851,7 @@ public enum Components {
             /// - Parameters:
             ///   - otp: The single-use enrollment handoff code.
             ///   - expiresAt:
-            ///   - enrollUrl: The console enrollment URL embedding the handoff code as a query parameter (`{origin}/login?otp=<code>`), to be rendered as a QR and scanned on a phone.
+            ///   - enrollUrl: The console enrollment URL carrying the handoff code in the fragment (`{origin}/login#otp=<code>`), to be rendered as a QR and scanned on a phone.
             public init(
                 otp: Swift.String,
                 expiresAt: Components.Schemas.Timestamp,

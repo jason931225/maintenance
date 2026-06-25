@@ -3559,7 +3559,7 @@ export interface components {
             /** @description The single-use enrollment handoff code. */
             otp: string;
             expires_at: components["schemas"]["Timestamp"];
-            /** @description The console enrollment URL embedding the handoff code as a query parameter (`{origin}/login?otp=<code>`), to be rendered as a QR and scanned on a phone. */
+            /** @description The console enrollment URL carrying the handoff code in the fragment (`{origin}/login#otp=<code>`), to be rendered as a QR and scanned on a phone. */
             enroll_url: string;
         };
         /** @description Required initial-login Korean privacy collection/use and service-terms acknowledgement. These required agreements are explicit booleans so the client cannot bundle them into one generic "agree all" flag. Optional marketing consent and GPS/location consent are not collected by this request. */
