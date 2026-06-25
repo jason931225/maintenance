@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/jason931225/maintenance/compare/v0.1.6...v0.1.7) (2026-06-25)
+
+
+### Bug Fixes
+
+* **web:** submit intake equipment branch ([4ebcfe2](https://github.com/jason931225/maintenance/commit/4ebcfe20a81c91341e411f518a136174e89723be))
+
 ## [0.1.6](https://github.com/jason931225/maintenance/compare/v0.1.5...v0.1.6) (2026-06-25)
 
 
