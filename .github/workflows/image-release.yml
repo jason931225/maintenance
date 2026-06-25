@@ -14,14 +14,18 @@ on:
   push:
     branches: [main, feat/multi-tenant-phase1]
     tags: ["v*"]
-    # The auto digest-bump job (below) commits the freshly built digests into
-    # deploy/apps/maintenance/overlays/prod/kustomization.yaml. paths-ignore keeps
-    # that bot commit from retriggering this workflow (an infinite build loop).
-    # A mixed commit that also touches source still rebuilds — paths-ignore only
-    # suppresses when EVERY changed path is under deploy/. ci.yml does not watch
-    # deploy/, so it is unaffected.
-    paths-ignore:
-      - "deploy/**"
+    # Build images only when source/build inputs change. Tag pushes still run
+    # regardless of path filters; deploy-only and docs/specs-only pushes should
+    # not wait for a CI run that intentionally never starts. Keep docs/reference
+    # because the backend reporting crate embeds those templates into the image.
+    paths:
+      - "backend/**"
+      - "clients/**"
+      - "web/**"
+      - "docs/reference/**"
+      - "package.json"
+      - "package-lock.json"
+      - "openapitools.json"
   workflow_dispatch:
 
 permissions:
