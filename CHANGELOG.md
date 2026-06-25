@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/jason931225/maintenance/compare/v0.1.1...v0.1.2) (2026-06-25)
+
+
+### Bug Fixes
+
+* **test:** accept released semver in footer assertion ([22e9985](https://github.com/jason931225/maintenance/commit/22e99859702e7c476803ae747bdf9db9a89a9f2b))
+
 ## [0.1.1](https://github.com/jason931225/maintenance/compare/v0.1.0...v0.1.1) (2026-06-25)
 
 
