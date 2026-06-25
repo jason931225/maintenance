@@ -102,10 +102,27 @@ jobs:
           # shared keychain-access-group entitlement on the Simulator build so the
           # no-fakes seeding works; do NOT force CODE_SIGNING_ALLOWED=NO here or
           # the entitlement is dropped and the session-dependent tests skip.
-          xcodebuild test \
+          DERIVED_DATA_PATH="${RUNNER_TEMP}/maintenance-field-uitests-derived-data"
+          rm -rf "$DERIVED_DATA_PATH" TestResults.xcresult
+
+          # Xcode 16.4 on GitHub's macOS runner can begin the test operation
+          # before the host app product is fully materialized, which fails as:
+          # "The bundle identifier for MaintenanceFieldApp couldn't be read".
+          # Split the operation into build-for-testing + test-without-building
+          # against the same DerivedData path so the app host and .xctestrun are
+          # complete before XCTest starts.
+          xcodebuild build-for-testing \
             -project MaintenanceField.xcodeproj \
             -scheme MaintenanceFieldApp \
             -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
+            | xcbeautify
+
+          xcodebuild test-without-building \
+            -project MaintenanceField.xcodeproj \
+            -scheme MaintenanceFieldApp \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
             -resultBundlePath TestResults.xcresult \
             TEST_RUNNER_MNT_UITEST_BASE_URL="$MNT_UITEST_BASE_URL" \
             TEST_RUNNER_MNT_UITEST_REFRESH_TOKEN="$MNT_UITEST_REFRESH_TOKEN" \
