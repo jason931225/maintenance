@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.10](https://github.com/jason931225/maintenance/compare/v0.1.9...v0.1.10) (2026-06-25)
+
+
+### Features
+
+* **authz:** add hierarchy scope JWT claims ([013852d](https://github.com/jason931225/maintenance/commit/013852ddd3c24b633f35c9d010fbdd9e7ec6f786))
+
 ## [0.1.9](https://github.com/jason931225/maintenance/compare/v0.1.8...v0.1.9) (2026-06-25)
 
 
