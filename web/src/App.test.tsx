@@ -25,7 +25,9 @@ const listRequests: URL[] = [];
 const kpiRequests: URL[] = [];
 const autocompleteRequests: URL[] = [];
 const lookupRequests: URL[] = [];
+let createWorkOrderRequest: unknown;
 let rejectRequest: { url: URL; body: unknown } | undefined;
+const activeBranchId = "00000000-0000-4000-8000-000000000001";
 
 const messengerWs = ws.link("ws://localhost:3000/api/v1/ws*");
 
@@ -54,6 +56,9 @@ const server = setupServer(
     return HttpResponse.json(kpiReport);
   }),
   http.get("*/api/v1/ops/summary", () => HttpResponse.json(opsSummary)),
+  http.get("*/api/v1/branches", () =>
+    HttpResponse.json([{ id: activeBranchId, name: "본사" }]),
+  ),
   http.get("*/api/v1/location/arrival-events", () =>
     HttpResponse.json({ items: [], limit: 20, offset: 0, total: 0 }),
   ),
@@ -87,6 +92,10 @@ const server = setupServer(
     lookupRequests.push(url);
     return HttpResponse.json(equipmentLookup);
   }),
+  http.post("*/api/work-orders", async ({ request }) => {
+    createWorkOrderRequest = await request.json();
+    return HttpResponse.json(workOrders[0], { status: 201 });
+  }),
   http.get("*/api/messenger/threads", () =>
     HttpResponse.json({ items: [] }),
   ),
@@ -107,6 +116,7 @@ afterEach(() => {
   kpiRequests.length = 0;
   autocompleteRequests.length = 0;
   lookupRequests.length = 0;
+  createWorkOrderRequest = undefined;
   rejectRequest = undefined;
 });
 afterAll(() => { server.close(); });
@@ -140,7 +150,7 @@ const authenticatedSession: AuthSession = {
   access_token: tokenPair.access_token,
   user_id: "00000000-0000-4000-8000-000000000002",
   roles: ["MECHANIC"],
-  branches: ["00000000-0000-4000-8000-000000000001"],
+  branches: [activeBranchId],
 };
 
 const adminSession: AuthSession = {
@@ -470,6 +480,7 @@ describe("IntakePage", () => {
     const user = userEvent.setup();
     renderAt("/intake");
 
+    await screen.findByRole("heading", { name: "접수 입력", level: 1 });
     await user.type(screen.getByLabelText(/호기/), "#290");
 
     expect((await screen.findAllByText("GTS25DE"))[0]).toBeVisible();
@@ -491,5 +502,30 @@ describe("IntakePage", () => {
         ),
       ).toBe(true);
     });
+  });
+
+  it("submits the selected equipment 호기", async () => {
+    const user = userEvent.setup();
+    renderAt("/intake");
+
+    await screen.findByRole("heading", { name: "접수 입력", level: 1 });
+    await user.type(screen.getByLabelText(/호기/), "29");
+    await user.click(
+      await screen.findByRole("option", { name: /290.*GTS25DE/ }),
+    );
+    await user.type(screen.getByLabelText(/고장내용/), "시동 불량");
+    await user.type(screen.getByLabelText(/정비문의/), "010-1234-5678");
+    await user.click(screen.getByRole("button", { name: /접수 저장/ }));
+
+    await waitFor(() => {
+      expect(createWorkOrderRequest).toMatchObject({
+        branch_id: activeBranchId,
+        management_no: "290",
+        symptom: "시동 불량",
+      });
+    });
+    expect(
+      await screen.findByText(/접수가 저장되었습니다\. 접수번호/),
+    ).toBeVisible();
   });
 });
