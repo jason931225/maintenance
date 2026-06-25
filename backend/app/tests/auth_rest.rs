@@ -62,6 +62,12 @@ struct AdminIssueOtpResponse {
 }
 
 #[derive(Debug, Deserialize)]
+struct AdminCredentialResetResponse {
+    otp: String,
+    user_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
 struct PrivacyConsentStatusResponse {
     policy_version: String,
     accepted: bool,
@@ -595,6 +601,95 @@ async fn admin_issue_otp_allows_in_branch_subordinate(pool: PgPool) {
     .await;
     assert_eq!(&issued.user_id, subordinate.as_uuid());
     assert_eq!(issued.otp.chars().count(), 8);
+}
+
+/// Lost-device recovery: a branch admin can reset an in-branch subordinate that
+/// already has a passkey. The old passkey is revoked and the fresh one-time code
+/// redeems so the user can enroll a replacement device.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn admin_credential_reset_recovers_in_branch_subordinate(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_id = seed_branch(&pool, "Reset Region", "Reset Branch").await;
+    let admin_id =
+        seed_user_with_branch(&pool, "Reset Admin", "010-6300-0000", "ADMIN", branch_id).await;
+    let subordinate = seed_user_with_branch(
+        &pool,
+        "Locked Mechanic",
+        "010-6300-0001",
+        "MECHANIC",
+        branch_id,
+    )
+    .await;
+    let service = build_router(
+        app_state(
+            pool.clone(),
+            private_key_pem.to_string(),
+            public_key_pem.clone(),
+        )
+        .unwrap(),
+    );
+
+    let subordinate_access = admin_session_via_otp(&service, &pool, subordinate).await;
+    let mut old_authenticator = WebauthnAuthenticator::new(SoftPasskey::new(true));
+    let old_credential_id =
+        enroll_passkey(&service, &mut old_authenticator, &subordinate_access).await;
+
+    let admin_access = admin_session_via_otp(&service, &pool, admin_id).await;
+    let reset: AdminCredentialResetResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/admin/credential-reset",
+        Some(&admin_access),
+        json!({ "user_id": subordinate.as_uuid() }),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(&reset.user_id, subordinate.as_uuid());
+    assert_eq!(reset.otp.chars().count(), 8);
+
+    let remaining_passkeys: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM auth_webauthn_credentials WHERE user_id = $1")
+            .bind(subordinate.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining_passkeys, 0);
+
+    let login_start: LoginStartResponse = post_raw(
+        service.clone(),
+        "/api/v1/auth/passkey/login/start",
+        None,
+        json!({}),
+    )
+    .await
+    .into_json(StatusCode::OK)
+    .await;
+    let challenge = inject_allow_credential(login_start.challenge, &old_credential_id);
+    let assertion = old_authenticator
+        .do_authentication(Url::parse(TEST_ORIGIN).unwrap(), challenge)
+        .unwrap();
+    let old_passkey_login = post_raw(
+        service.clone(),
+        "/api/v1/auth/passkey/login/finish",
+        None,
+        json!({ "ceremony_id": login_start.ceremony_id, "credential": assertion }),
+    )
+    .await;
+    assert_eq!(old_passkey_login.status(), StatusCode::UNAUTHORIZED);
+
+    let recovered: OtpRedeemResponse = post_json(
+        service,
+        "/api/v1/auth/otp/redeem",
+        None,
+        json!({ "otp": reset.otp }),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(recovered.requires_passkey_setup);
 }
 
 /// The DB-backed per-IP rate limit trips a 429 once the window cap is exceeded,
