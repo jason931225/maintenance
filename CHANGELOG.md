@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.11](https://github.com/jason931225/maintenance/compare/v0.1.10...v0.1.11) (2026-06-25)
+
+
+### Features
+
+* **authz:** add group consolidated read helper ([d640d0e](https://github.com/jason931225/maintenance/commit/d640d0e0275058880ac6cf0aedbee7db2c53534c))
+
 ## [0.1.10](https://github.com/jason931225/maintenance/compare/v0.1.9...v0.1.10) (2026-06-25)
 
 
