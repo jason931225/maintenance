@@ -76,6 +76,11 @@ targets:
       - target: MaintenanceFieldApp
     settings:
       base:
+        # Xcode 16.4's XCTest UI APIs are MainActor-isolated in Swift 6 mode,
+        # while XCTest lifecycle hooks remain nonisolated. Keep the CI-only
+        # UI-test harness in Swift 5 compatibility mode; the app target and
+        # SwiftPM packages stay on Swift 6.1 via the global setting above.
+        SWIFT_VERSION: "5.0"
         CODE_SIGN_ENTITLEMENTS: Config/MaintenanceFieldUITests.entitlements
         GENERATE_INFOPLIST_FILE: "YES"
         INFOPLIST_KEY_CFBundleDisplayName: "MaintenanceFieldUITests"

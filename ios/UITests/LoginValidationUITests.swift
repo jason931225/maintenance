@@ -6,7 +6,6 @@ import XCTest
 /// session is seeded here — the app starts at the real login form.
 ///
 /// CI-ONLY.
-@MainActor
 final class LoginValidationUITests: XCTestCase {
     private var app: XCUIApplication!
 
@@ -15,16 +14,12 @@ final class LoginValidationUITests: XCTestCase {
         continueAfterFailure = false
         // Ensure no seeded session lingers from another spec on the same host.
         RealSessionSeed.clear()
-        MainActor.assumeIsolated {
-            app = XCUIApplication()
-            app.launch()
-        }
+        app = XCUIApplication()
+        app.launch()
     }
 
     override func tearDown() {
-        MainActor.assumeIsolated {
-            app = nil
-        }
+        app = nil
         super.tearDown()
     }
 

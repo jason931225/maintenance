@@ -9,7 +9,6 @@ import XCTest
 /// SwiftUI views — not suppressed here.
 ///
 /// CI-ONLY.
-@MainActor
 final class AccessibilityAuditUITests: FieldUITestCase {
     // MARK: Today / dispatch
 

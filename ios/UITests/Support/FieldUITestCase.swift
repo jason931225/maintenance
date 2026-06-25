@@ -148,10 +148,8 @@ class FieldUITestCase: XCTestCase {
         }
         // Appearance is process-global to the Simulator; reset so a dark-mode
         // test cannot bleed into a later light-mode contrast audit.
-        await MainActor.run {
-            XCUIDevice.shared.appearance = .light
-            app = nil
-        }
+        XCUIDevice.shared.appearance = .light
+        app = nil
         try await super.tearDown()
     }
 
@@ -159,7 +157,6 @@ class FieldUITestCase: XCTestCase {
     /// through so the app talks to the same real backend the session was minted
     /// against (`AppContainer.resolveServerURL()` reads `MAINTENANCE_API_BASE_URL`).
     @discardableResult
-    @MainActor
     func launchApp(_ presentation: Presentation = .standard) -> XCUIApplication {
         // Drive light/dark via the supported device-appearance API before launch.
         XCUIDevice.shared.appearance = presentation.deviceAppearance
@@ -179,7 +176,6 @@ class FieldUITestCase: XCTestCase {
     /// containers are not guaranteed to surface their `accessibilityIdentifier`
     /// as queryable elements). Fails the test if the app stays on login.
     @discardableResult
-    @MainActor
     func waitForAuthenticatedShell(timeout: TimeInterval = 20) -> XCUIApplication {
         // Reaching the Today title (오늘 작업) or the tab bar proves we are past
         // the login form. The login user-id field must be absent.
@@ -203,7 +199,6 @@ class FieldUITestCase: XCTestCase {
     /// element resolves under the `tabBars` query or the flat `buttons` query
     /// (SwiftUI's TabView exposes tab items differently across OS versions).
     @discardableResult
-    @MainActor
     func tapTab(_ koreanLabel: String, timeout: TimeInterval = 10) -> Bool {
         let inTabBar = app.tabBars.buttons[koreanLabel]
         if inTabBar.waitForExistence(timeout: timeout) {
@@ -232,7 +227,6 @@ class FieldUITestCase: XCTestCase {
     /// (the default) and the audit becomes a hard gate. This never suppresses a
     /// finding silently — non-strict mode still surfaces every issue in the
     /// result bundle.
-    @MainActor
     func assertNoAccessibilityIssues(
         for auditTypes: XCUIAccessibilityAuditType = [
             .contrast,
