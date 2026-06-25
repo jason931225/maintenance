@@ -169,8 +169,12 @@ describe("EquipmentBrowsePage detail dialog", () => {
     ).not.toBeNull();
     await user.clear(customerInput);
     await user.type(customerInput, "변경고객");
-    await user.clear(within(dialog).getByLabelText("규격"));
-    await user.type(within(dialog).getByLabelText("규격"), "입식");
+
+    await user.clear(within(dialog).getByLabelText("모델"));
+    await user.type(within(dialog).getByLabelText("모델"), "HDF30");
+    expect(within(dialog).getByLabelText("제조사")).toHaveValue("현대");
+    expect(within(dialog).getByLabelText("규격")).toHaveValue("입식");
+    expect(within(dialog).getByLabelText("톤수")).toHaveValue("3.0T");
 
     await user.click(within(dialog).getByRole("button", { name: "저장" }));
 
@@ -180,7 +184,10 @@ describe("EquipmentBrowsePage detail dialog", () => {
           id: equipmentId,
           body: expect.objectContaining({
             customer_name: "변경고객",
+            model: "HDF30",
+            maker: "현대",
             specification: "입식",
+            ton_text: "3.0T",
           }),
         }),
       );

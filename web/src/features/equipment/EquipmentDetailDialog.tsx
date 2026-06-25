@@ -82,6 +82,11 @@ function uniqueStrings(values: Array<string | null | undefined>): string[] {
   ).sort((a, b) => a.localeCompare(b, "ko"));
 }
 
+function onlyValue(values: Array<string | null | undefined>): string | undefined {
+  const unique = uniqueStrings(values);
+  return unique.length === 1 ? unique[0] : undefined;
+}
+
 function statusClassName(status: EquipmentStatus): string {
   switch (status) {
     case "rented":
@@ -170,6 +175,7 @@ export function EquipmentDetailDialog({
   }
 
   if (!item) return null;
+  const currentItem = item;
 
   const suggestions = {
     customers: uniqueStrings(referenceItems.map((row) => row.customer_name)),
@@ -178,6 +184,47 @@ export function EquipmentDetailDialog({
     models: uniqueStrings(referenceItems.map((row) => row.model)),
     specifications: uniqueStrings(referenceItems.map((row) => row.specification)),
   };
+  const modelProfiles = new Map(
+    suggestions.models.map((model) => {
+      const rows = referenceItems.filter((row) => row.model === model);
+      return [
+        model,
+        {
+          maker: onlyValue(rows.map((row) => row.maker)),
+          specification: onlyValue(rows.map((row) => row.specification)),
+          tonText: onlyValue(rows.map((row) => row.ton_text)),
+        },
+      ] as const;
+    }),
+  );
+
+  function setModel(value: string) {
+    setForm((prev) => {
+      if (!prev) return prev;
+      const profile = modelProfiles.get(value.trim());
+      const originalMaker = currentItem.maker ?? "";
+      return {
+        ...prev,
+        model: value,
+        maker:
+          (prev.maker.trim().length === 0 || prev.maker === originalMaker) &&
+          profile?.maker !== undefined
+            ? profile.maker
+            : prev.maker,
+        specification:
+          (prev.specification.trim().length === 0 ||
+            prev.specification === currentItem.specification) &&
+          profile?.specification !== undefined
+            ? profile.specification
+            : prev.specification,
+        ton_text:
+          (prev.ton_text.trim().length === 0 || prev.ton_text === currentItem.ton_text) &&
+          profile?.tonText !== undefined
+            ? profile.tonText
+            : prev.ton_text,
+      };
+    });
+  }
 
   return (
     <Dialog
@@ -247,7 +294,7 @@ export function EquipmentDetailDialog({
               value={form.model}
               suggestions={suggestions.models}
               onChange={(v) => {
-                setField("model", v);
+                setModel(v);
               }}
             />
             <EditField
