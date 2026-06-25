@@ -87,12 +87,12 @@ Existing contexts → **maturity** lanes (mature + close coverage/#19/#20); new 
 | L10 financial | `financial/*` | **S4 aggregate_invoice** | invoice/명세표 (#19.18) |
 | L11 compliance | `compliance/*` | identity, audit-chain | integrity |
 | L12 reporting | `reporting/*` | all (read-only) | SLA/fleet rollup kernel; analytics (#24) |
-| **L13 HR** 🆕 | `hr/*` | identity | attendance + leave-accrual kernel; **publishes** attendance event + org-chart/직급 (#36) |
+| **L13 HR** 🆕 | `hr/*` | identity | attendance + leave-accrual kernel + leave-request governance workflow; **publishes** attendance event + org-chart/직급 (#36) |
 | **L14 payroll** 🆕 | `payroll/*` | HR attendance event, S4 | KR 4대보험+소득세 brackets (gov data, data-driven) |
-| **L15 ERP** 🆕 | `erp/*` | financial, registry, S4 | GL, AR/AP, 재고, 부가세 |
+| **L15 ERP** 🆕 | `erp/*` | financial, registry, S4 | GL, AR/AP, 재고, 부가세, purchase-request governance workflow |
 | **L16 gov-adapters** 🆕 | `govadapter/*` | financial, payroll | 국세청 e-세금계산서, 공공데이터포털 rates, 도로명주소 |
 | **L17 ontology** 🆕 | `ontology/*` | S3 authz overlay, audit-chain | no-code typed entities; jsonb + per-property `data_class`; RLS overlay |
-| L18 authz/RBAC | `platform/authz` + `mnt-authz-cedar` 🆕 | — (S3 owns) | console-managed custom roles |
+| L18 authz/RBAC | `platform/authz` + `mnt-authz-cedar` 🆕 | — (S3 owns) | console-managed custom roles + approval graph policy |
 | L19 quota/billing-plan 🆕 | `platform/quota` | comms, storage | SaaS tiering |
 | L20 audit-chain 🆕 | `mnt-audit-chain` | — | tamper-evident sealing worker |
 
@@ -237,10 +237,10 @@ aid); ontology shared (`org_id IS NULL`) rows carry schema metadata only, never 
 
 ## 9. GitHub issue/comment intake (binding live-feedback ledger)
 
-**Last polled:** 2026-06-25T01:59:37Z (2026-06-24 21:59 ET). Source of truth:
-open GitHub issues + issue comments in `jason931225/maintenance`. Open PR feed is currently empty; PR review
-comment feed is currently empty. Re-run this intake before every wave gate, before merging
-`feat/multi-tenant-phase1` to `main`, and before marking an issue-backed lane done.
+**Last polled:** 2026-06-25T02:25:24Z (2026-06-24 22:25 EDT). Source of truth:
+open GitHub issues + issue comments in `jason931225/maintenance`. PR #21 currently has no comments/reviews;
+re-run this intake before every wave gate, before merging `feat/multi-tenant-phase1` to `main`,
+and before marking an issue-backed lane done.
 
 **Intake rules.**
 - A GitHub issue/comment becomes plan scope when it is actionable, maps to a business workflow, security
@@ -257,19 +257,21 @@ comment feed is currently empty. Re-run this intake before every wave gate, befo
 |---|---|---|
 | [#18](https://github.com/jason931225/maintenance/issues/18) + latest comment | OTP issuance bug; region edit; customer/site creation; intake priority admin-setting; equipment search/list visibility after import. | L1 identity + L3 registry + L2 workorder; Q0/Q1 mnt_rt regressions. |
 | [#19](https://github.com/jason931225/maintenance/issues/19) comments 9-25 | Excel progress import; equipment detail popup; org chart + rank; corporation grouping; intake/approval visibility; FLMS import/export dependency; purchase-request + 거래명세표 upload/scan; sales listing autofill/photos/fields; spare/substitution recommendation; external inquiries → support; PM schedule cycle; inactive-user deletion/archive + PC/QR passkey flow. | L1/L2/L3/L5/L9/L10/L13/L18; Q0 first for broken live loops, then F-track maturity. |
-| [#20](https://github.com/jason931225/maintenance/issues/20) + comments | Site-scoped substitution dropdown; bulk OTP/passkey defects; duplicate-name/deactivated-user archival and role-revocation behavior; intake equipment validation bug; daily-plan equipment selection, plan detail view, auto-review submission, admin visibility; worksite-level org tree/personnel view. | L1 identity/auth, L2 workorder/daily plan, L3 registry, L4 dispatch, L13 HR/org tree, L18 RBAC. |
+| [#20](https://github.com/jason931225/maintenance/issues/20) + comments | Site-scoped substitution dropdown; bulk OTP/passkey defects; duplicate-name/deactivated-user archival and role-revocation behavior; intake equipment validation bug; daily-plan equipment selection, plan detail view, auto-review submission, admin visibility; worksite-level org tree/personnel view; corporate governance workflow/approval graph needs (기안서, 구매요청서, 휴가신청서) without adopting the legacy "groupware" label. | L1 identity/auth, L2 workorder/daily plan, L3 registry, L4 dispatch, L13 HR/org tree + leave workflow, L15 ERP purchase workflow, L18 RBAC/approval graph. |
 | [#17](https://github.com/jason931225/maintenance/issues/17) comments | Daily backup preferred; weekly acceptable if storage-constrained; server-down/offline-resync concern; document leak prevention/alerting; VPN has access-friction and must not become a blanket requirement without UX/security tradeoff. | Track O resilience/security + Track L launch hardening; backup restore drill and document-access audit/alerting are release gates. |
 | [#6](https://github.com/jason931225/maintenance/issues/6), [#10](https://github.com/jason931225/maintenance/issues/10) | Public landing page + marketing view of sale/rental assets; inquiry/contact/FAQ; payment/subscription interest. | L5 sales + L19 quota/billing-plan; keep payments behind explicit provider/security review. |
-| [#7](https://github.com/jason931225/maintenance/issues/7), [#9](https://github.com/jason931225/maintenance/issues/9) | Daily diary/progress exports for internal reporting/groupware approval; import existing Excel progress so operations continue from current sheets. | L12 reporting + F1 import/export; generated XLSX must be tested against sample attachments. |
+| [#7](https://github.com/jason931225/maintenance/issues/7), [#9](https://github.com/jason931225/maintenance/issues/9) | Daily diary/progress exports for internal reporting/corporate-governance approval; import existing Excel progress so operations continue from current sheets. | L12 reporting + F1 import/export + L18 approval graph; generated XLSX must be tested against sample attachments. |
 | [#8](https://github.com/jason931225/maintenance/issues/8), [#15](https://github.com/jason931225/maintenance/issues/15) comments | Equipment master/detail system; residual-value math from depreciation + repair costs; repair/failure history by vehicle; warranty/contract history; mobile-readable equipment tab; simple generic 3D/failure hotspot view if cheap. | L3 registry + L10 financial + L12 reporting + P object view. 3D is optional only if it does not delay core equipment history. |
 | [#11](https://github.com/jason931225/maintenance/issues/11) | User permissions page, create/remove users, lower org groups, edit user details, mobile app linkage, deactivation on leavers. | S3 authz/RBAC + L18; ties to #20 inactive-user/archive comments. |
 | [#12](https://github.com/jason931225/maintenance/issues/12), [#13](https://github.com/jason931225/maintenance/issues/13) | Visual rental dispatch map by province/city/customer site; move/displace assets; customer/site registration with contact/address; arrival/departure location events. | L4 dispatch + L3 registry + C dispatch map; consent-gated arrival/return markers, not 24h live tracking. |
 | [#14](https://github.com/jason931225/maintenance/issues/14) | Intake receipt form with required fields, equipment model pulled from master list, request date, symptom, contact. | L2 workorder intake + OpenAPI/UI tests. |
 | [#16](https://github.com/jason931225/maintenance/issues/16) | AI assistant request for maintenance recommendations and report generation. | **Scope decision required:** current plan says no AI. If accepted, add a separate post-spine AI lane with LLM threat model, tenant data isolation, audit, cost/rate limits, and no direct write actions. |
 
-**Latest #20 clarification:** do not model "groupware user" as a durable taxonomy until clarified; the
-maintainer challenged whether groupware is still used. L13/L18 should classify people by actual product
-access, site/department responsibility, and operational capabilities rather than a legacy groupware label.
+**Latest #20 clarification:** do not adopt "groupware" as the product/domain label. The clarified need is
+corporate governance capabilities: draft requests, purchase requests, leave requests, and other workflow +
+approval-graph flows. L13/L15/L18 should model the actual request/approval capabilities and policies;
+L13/L18 should still classify people by product access, site/department responsibility, and operational
+capabilities rather than a legacy groupware-user taxonomy.
 
 **Bottom line: S‑1 first (prove a red PR blocks deploy), then S6–S12 + freeze the registry/contracts +
 pull L16/L17 out — then the 20 lanes fan out safely.** The architecture stands; only the sequence changes.

@@ -33,7 +33,7 @@ jobs:
       # mirrors the registered app id behind MNT_IOS_APP_IDS in
       # deploy/apps/maintenance/base/configmap.yaml; until it is registered the
       # xcconfig placeholder is used (unsigned Simulator build only).
-      MNT_IOS_BUNDLE_ID: ${{ vars.MNT_IOS_BUNDLE_ID }}
+      MNT_IOS_BUNDLE_ID: ${{ vars.MNT_IOS_BUNDLE_ID || 'com.maintenance.field' }}
       MNT_IOS_TEAM_ID: ${{ vars.MNT_IOS_TEAM_ID || '98Q89GFZWP' }}
       # Real-backend session source for the no-fakes seeding. The suite skips
       # (XCTSkip) the session-dependent tests if these are absent — it never fakes
@@ -117,6 +117,10 @@ jobs:
             -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
             -derivedDataPath "$DERIVED_DATA_PATH" \
             | xcbeautify
+
+          APP_PATH="$DERIVED_DATA_PATH/Build/Products/Debug-iphonesimulator/MaintenanceFieldApp.app"
+          test -d "$APP_PATH"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist"
 
           xcodebuild test-without-building \
             -project MaintenanceField.xcodeproj \
