@@ -1,0 +1,5 @@
+# fastlane 2.236.1 pins faraday ~> 1.0 via faraday_middleware; Trivy marks
+# CVE-2026-54297 fixed only at faraday >= 2.14.3. This bundle is release tooling
+# (fastlane dry-runs/uploads), not application runtime. Remove once fastlane ships
+# a Faraday-2-compatible release or the release lane is replaced.
+CVE-2026-54297
