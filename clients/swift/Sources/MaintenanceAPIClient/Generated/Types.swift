@@ -7837,7 +7837,7 @@ public enum Components {
             public var latitude: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/longitude`.
             public var longitude: Swift.Double?
-            /// Per-site geofence radius in metres for arrival/departure detection; null uses the system default (150 m).
+            /// Per-site geofence radius in metres for arrival/departure detection; null uses the system default (300 m).
             ///
             /// - Remark: Generated from `#/components/schemas/SiteLocationGroup/geofence_radius_m`.
             public var geofenceRadiusM: Swift.Double?
@@ -7875,7 +7875,7 @@ public enum Components {
             ///   - city:
             ///   - latitude:
             ///   - longitude:
-            ///   - geofenceRadiusM: Per-site geofence radius in metres for arrival/departure detection; null uses the system default (150 m).
+            ///   - geofenceRadiusM: Per-site geofence radius in metres for arrival/departure detection; null uses the system default (300 m).
             ///   - contactName: On-site representative contact name (담당자명).
             ///   - contactPhone: On-site contact phone (연락처).
             ///   - contactEmail: Optional contact email (이메일).
@@ -8037,7 +8037,7 @@ public enum Components {
             public var latitude: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/CreateSiteRequest/longitude`.
             public var longitude: Swift.Double?
-            /// Per-site geofence radius in metres (> 0, ≤ 100000). Null uses the system default (150 m).
+            /// Per-site geofence radius in metres (> 0, ≤ 100000). Null uses the system default (300 m).
             ///
             /// - Remark: Generated from `#/components/schemas/CreateSiteRequest/geofence_radius_m`.
             public var geofenceRadiusM: Swift.Double?
@@ -8064,7 +8064,7 @@ public enum Components {
             ///   - postalCode:
             ///   - latitude:
             ///   - longitude:
-            ///   - geofenceRadiusM: Per-site geofence radius in metres (> 0, ≤ 100000). Null uses the system default (150 m).
+            ///   - geofenceRadiusM: Per-site geofence radius in metres (> 0, ≤ 100000). Null uses the system default (300 m).
             ///   - contactName: On-site representative contact name (담당자명).
             ///   - contactPhone: On-site contact phone (연락처).
             ///   - contactEmail: Optional contact email (이메일).
@@ -8221,7 +8221,7 @@ public enum Components {
             public var latitude: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/UpdateSiteRequest/longitude`.
             public var longitude: Swift.Double?
-            /// Per-site geofence radius in metres (> 0, ≤ 100000). Null clears the override so the system default (150 m) applies.
+            /// Per-site geofence radius in metres (> 0, ≤ 100000). Null clears the override so the system default (300 m) applies.
             ///
             /// - Remark: Generated from `#/components/schemas/UpdateSiteRequest/geofence_radius_m`.
             public var geofenceRadiusM: Swift.Double?
@@ -8246,7 +8246,7 @@ public enum Components {
             ///   - postalCode:
             ///   - latitude:
             ///   - longitude:
-            ///   - geofenceRadiusM: Per-site geofence radius in metres (> 0, ≤ 100000). Null clears the override so the system default (150 m) applies.
+            ///   - geofenceRadiusM: Per-site geofence radius in metres (> 0, ≤ 100000). Null clears the override so the system default (300 m) applies.
             ///   - contactName: On-site representative contact name (담당자명). Null clears it.
             ///   - contactPhone: On-site contact phone (연락처). Null clears it.
             ///   - contactEmail: Optional contact email (이메일). Null clears it.

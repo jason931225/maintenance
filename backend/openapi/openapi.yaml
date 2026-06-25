@@ -7409,7 +7409,7 @@ components:
           format: double
           description: >-
             Per-site geofence radius in metres for arrival/departure detection;
-            null uses the system default (150 m).
+            null uses the system default (300 m).
         contact_name:
           type:
           - string
@@ -7529,7 +7529,7 @@ components:
           maximum: 100000
           description: >-
             Per-site geofence radius in metres (> 0, ≤ 100000). Null uses the
-            system default (150 m).
+            system default (300 m).
         contact_name:
           type:
           - string
@@ -7659,7 +7659,7 @@ components:
           maximum: 100000
           description: >-
             Per-site geofence radius in metres (> 0, ≤ 100000). Null clears the
-            override so the system default (150 m) applies.
+            override so the system default (300 m) applies.
         contact_name:
           type:
           - string

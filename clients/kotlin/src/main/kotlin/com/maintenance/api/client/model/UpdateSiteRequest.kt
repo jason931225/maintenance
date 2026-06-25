@@ -37,7 +37,7 @@ import kotlinx.serialization.Contextual
  * @param postalCode
  * @param latitude
  * @param longitude
- * @param geofenceRadiusM Per-site geofence radius in metres (> 0, ≤ 100000). Null clears the override so the system default (150 m) applies.
+ * @param geofenceRadiusM Per-site geofence radius in metres (> 0, ≤ 100000). Null clears the override so the system default (300 m) applies.
  * @param contactName On-site representative contact name (담당자명). Null clears it.
  * @param contactPhone On-site contact phone (연락처). Null clears it.
  * @param contactEmail Optional contact email (이메일). Null clears it.
@@ -64,7 +64,7 @@ data class UpdateSiteRequest (
     @SerialName(value = "longitude")
     val longitude: kotlin.Double? = null,
 
-    /* Per-site geofence radius in metres (> 0, ≤ 100000). Null clears the override so the system default (150 m) applies. */
+    /* Per-site geofence radius in metres (> 0, ≤ 100000). Null clears the override so the system default (300 m) applies. */
     @SerialName(value = "geofence_radius_m")
     val geofenceRadiusM: kotlin.Double? = null,
 
