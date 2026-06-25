@@ -1,8 +1,8 @@
 # Sub-Spec: ORG-HIERARCHY — Conglomerate Group → 법인 → Region → Branch → Worksite
 
 **Story:** G002 (Track B0) · **Status:** P0 schema/resolvers IMPLEMENTED (`6c7d121`); P1 AccessScope
-kernel bridge IMPLEMENTED; P2 JWT claims + principal legacy-default resolution IMPLEMENTED; P3+ helper/API/UI
-scope remains open · **RLS posture:** the per-법인 `app.current_org` boundary is **UNCHANGED**. This spec
+kernel bridge IMPLEMENTED; P2 JWT claims + principal legacy-default resolution IMPLEMENTED; P3
+consolidated-read helper IMPLEMENTED; P4+ authz/API/UI/security-review scope remains open · **RLS posture:** the per-법인 `app.current_org` boundary is **UNCHANGED**. This spec
 adds a *controlled cross-entity scope above* that boundary; it never punches a hole in it.
 
 ## 0. Security-review revisions (applied — review verdict was MUST-REVISE-DESIGN-FIRST)
@@ -15,8 +15,8 @@ These hardening fixes are now binding on implementation:
   `platform_resolve_token_org`'s "nothing but the tenant id" blast radius). `groups` may carry a minimal
   `mnt_rt` SELECT (name/slug/status only — no authorization data) or also go through a resolver.
 - **FIX-2 (was HIGH 8b — gate blind spot):** the consolidated-read helper lives in a **gate-SCANNED**
-  crate (`backend/crates/platform/group/` — new) and *calls* `with_org_conn`/`with_audit` from the db
-  crate; it is NOT placed under `/platform/db/` (which the rls-arming gate skips). So a bare-pool read in
+  crate (`backend/crates/platform/group/` — new) and *calls* `with_org_conn` from the db crate for member
+  reads; it is NOT placed under `/platform/db/` (which the rls-arming gate skips). So a bare-pool read in
   the helper is caught by CI.
 - **FIX-3 (was MEDIUM — C1 unenforced):** `scope_node` is a distinct newtype `ScopeNodeId` with **no**
   `Into<OrgId>` and no path to `CURRENT_ORG.scope`/`set_config('app.current_org')`; add a static-gate
@@ -32,13 +32,13 @@ These hardening fixes are now binding on implementation:
   wraps the body in an `EXCEPTION … restore row_security; RAISE` block.
 - **FIX-7 (was LOW — tier):** a `view_as=true` token may **never** carry `group_roles` (an impersonation
   token can't be widened into a cross-entity writer) — asserted in P2 JWT issuance/verification + a test.
-- **6 NEW mnt_rt TESTS** added to §10: T13 cross-tenant read of group_role_grants returns own/zero rows;
+- **6 NEW mnt_rt TESTS** specified in §10: T13 cross-tenant read of group_role_grants returns own/zero rows;
   T14 group helper file is gate-scanned (bare-pool read flagged); T15 C1 negative — a group id can never
   arm app.current_org; T16 mid-session membership revocation drops the member on the next read AND write;
   T17 view_as+group_roles mutual exclusion; T18 resolver restores row_security on the inner-error path.
 
 > Keystone invariant: *the consolidated group view is an aggregation over per-member ARMED reads, never a
-> `BYPASSRLS` blanket read* — realized in §4, proven by the `mnt_rt` tests in §10. The static gates
+> `BYPASSRLS` blanket read* — realized in §4, with the remaining `mnt_rt` coverage specified in §10. The static gates
 > (`rls-arming`, `tenant-isolation`) stay green (§11).
 
 ## 1. Objective
@@ -251,7 +251,7 @@ resolver_restores_row_security_on_inner_error_path.
 
 ## 11. Static-gate satisfaction
 rls-arming: the helper lives in the new gate-scanned `backend/crates/platform/group/` crate, and every
-member read calls `with_org_conn` / `with_audit` from `mnt-platform-db` (executor `tx.as_mut()`, not a
+member read calls `with_org_conn` from `mnt-platform-db` (executor `tx.as_mut()`, not a
 bare pool). The helper must not live under `platform/db`, because that crate owns the arming primitives and
 receives narrower gate treatment. The DEFINER call carries `// rls-arming: ok identity-only DEFINER resolver`.
 tenant-isolation: only `groups` is added to the GLOBAL allowlist with a rationale comment;
@@ -261,7 +261,7 @@ tenant-isolation: only `groups` is added to the GLOBAL allowlist with a rational
 ## 12. Phased Implementation (each ≤~5 files, mnt_rt tests, separate review pass)
 P0 schema + identity resolver (0060, done) → P1 AccessScope kernel type + BranchScope bridge (pure-logic,
 done in `mnt-kernel-core`) → P2 claims + login resolution + legacy default (done in `mnt-platform-auth` /
-principal adapters) → P3 consolidated-read helper (`platform/group`) → P4 group authz +
+principal adapters) → P3 consolidated-read helper (`platform/group`, done) → P4 group authz +
 group-role principal extension + conjunctive marking → P5 REST consolidated/switch-context/cross-entity + audited
 grant endpoint → P6 scope selector (web, visual-verdict ≥90) → P7 security-review + checklist sign-off.
 
