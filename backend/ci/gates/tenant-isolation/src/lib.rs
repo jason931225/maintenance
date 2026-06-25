@@ -42,6 +42,9 @@ use std::path::{Path, PathBuf};
 #[must_use]
 pub fn global_table_allowlist() -> &'static [(&'static str, &'static str)] {
     &[
+        // Conglomerate grouping identity only. Authorization data is NOT here:
+        // group_memberships and group_role_grants are owner-only resolver tables.
+        ("groups", "group identity metadata only, no tenant data"),
         // Pre-auth throttle: keyed on (ip, purpose), exists before any user/org
         // is resolved. Transient, no tenant.
         ("auth_rate_limit", "pre-auth throttle, no resolved tenant"),
@@ -64,6 +67,25 @@ pub fn global_table_allowlist() -> &'static [(&'static str, &'static str)] {
         // are created dynamically (`CREATE TABLE %I PARTITION OF location_pings`)
         // and inherit RLS from the parent. The parent itself IS tenant-scoped and
         // is checked normally; partition children are not independently scanned.
+    ]
+}
+
+/// Cross-tenant authorization tables that intentionally have no `org_id`, no
+/// RLS policy, and no runtime-role raw table grants. They are not "global read"
+/// tables; `mnt_rt` may only reach them through narrow SECURITY DEFINER
+/// resolvers. A table listed here is classified for the tenant gate, and a
+/// direct GRANT to mnt_rt/PUBLIC is a violation.
+#[must_use]
+pub fn owner_only_table_allowlist() -> &'static [(&'static str, &'static str)] {
+    &[
+        (
+            "group_memberships",
+            "cross-tenant group membership authorization; resolver only",
+        ),
+        (
+            "group_role_grants",
+            "cross-tenant group role authorization; own-grants resolver only",
+        ),
     ]
 }
 
@@ -101,6 +123,8 @@ pub enum ViolationKind {
     NonLocalGucMutation,
     /// `with_audit` source lost the `set_config('app.current_org'` bind.
     MissingGucBindInAuditTx,
+    /// Owner-only cross-tenant table was granted directly to the runtime role.
+    OwnerOnlyTableGrant,
     /// I/O or scan failure.
     ScanError,
 }
@@ -225,6 +249,7 @@ fn scan_file(
     discover_literal_rls(file, sanitized, facts);
     discover_dynamic_rls(file, raw, facts);
     check_non_local_guc(file, raw, result);
+    check_owner_only_table_grants(file, sanitized, result);
 }
 
 // ---------------------------------------------------------------------------
@@ -519,6 +544,42 @@ fn check_non_local_guc(file: &Path, raw: &str, result: &mut GateResult) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Owner-only table grant check.
+// ---------------------------------------------------------------------------
+
+fn check_owner_only_table_grants(file: &Path, sanitized: &str, result: &mut GateResult) {
+    let owner_only: HashSet<&str> = owner_only_table_allowlist()
+        .iter()
+        .map(|(t, _)| *t)
+        .collect();
+
+    for statement in sanitized.split(';') {
+        let tokens = tokenize_sql(statement);
+        if tokens.first().is_none_or(|token| token != "grant") {
+            continue;
+        }
+        let grants_to_runtime = tokens
+            .windows(2)
+            .any(|w| w[0] == "to" && (w[1] == "mnt_rt" || w[1] == "public"));
+        if !grants_to_runtime {
+            continue;
+        }
+        for table in &owner_only {
+            if tokens.iter().any(|token| token == table) {
+                result.violations.push(Violation {
+                    kind: ViolationKind::OwnerOnlyTableGrant,
+                    file: file.to_path_buf(),
+                    detail: format!(
+                        "owner-only table '{table}' must not be granted directly to mnt_rt/PUBLIC; \
+                         expose a narrow SECURITY DEFINER resolver instead"
+                    ),
+                });
+            }
+        }
+    }
+}
+
 /// Inspect a `set_config(...)` call text and decide whether its `is_local` arg
 /// is non-local. We look at the last comma-separated argument before `)`.
 fn call_arg_is_non_local(call: &str) -> bool {
@@ -537,6 +598,10 @@ fn call_arg_is_non_local(call: &str) -> bool {
 
 fn evaluate_facts(facts: &HashMap<String, TableFacts>, result: &mut GateResult) {
     let global: HashSet<&str> = global_table_allowlist().iter().map(|(t, _)| *t).collect();
+    let owner_only: HashSet<&str> = owner_only_table_allowlist()
+        .iter()
+        .map(|(t, _)| *t)
+        .collect();
     // Tables whose org_id is intentionally NULLABLE (audit_events). They are NOT
     // in `global` — they carry org_id and MUST still be RLS-protected — so they
     // flow through the normal org-column → RLS checks below. We surface the set
@@ -586,7 +651,11 @@ fn evaluate_facts(facts: &HashMap<String, TableFacts>, result: &mut GateResult) 
         // (2) org_id column ⇒ RLS enabled (unless allowlisted). When RLS IS
         // enabled, the FORCE + org-policy sub-checks in (1) already cover the
         // rest, so this branch only needs to catch the "org_id but no RLS" gap.
-        if f.has_org_column && !global.contains(table.as_str()) && !f.rls_enabled {
+        if f.has_org_column
+            && !global.contains(table.as_str())
+            && !owner_only.contains(table.as_str())
+            && !f.rls_enabled
+        {
             let nullable_note = if nullable_org.contains(table.as_str()) {
                 " (its org_id is nullable by allowlist, but RLS is still mandatory)"
             } else {
@@ -606,14 +675,18 @@ fn evaluate_facts(facts: &HashMap<String, TableFacts>, result: &mut GateResult) 
         }
 
         // (4) Classification: a CREATE TABLE must be tenant-scoped or allowlisted.
-        if f.created_in.is_some() && !tenant_scoped && !global.contains(table.as_str()) {
+        if f.created_in.is_some()
+            && !tenant_scoped
+            && !global.contains(table.as_str())
+            && !owner_only.contains(table.as_str())
+        {
             result.violations.push(Violation {
                 kind: ViolationKind::UnclassifiedTable,
                 file: f.created_in.clone().unwrap_or(migrations_root),
                 detail: format!(
                     "table '{table}' is unclassified — it has neither an org_id column / RLS nor \
-                     is it in the global allowlist. Add org_id + RLS, or allowlist it in \
-                     global_table_allowlist() with a rationale."
+                     is it in the global/owner-only allowlist. Add org_id + RLS, or allowlist it \
+                     with a rationale."
                 ),
             });
         }
@@ -1159,6 +1232,40 @@ mod tests {
                 .iter()
                 .any(|v| v.kind == ViolationKind::UnclassifiedTable),
             "allowlisted global table must not be unclassified: {:?}",
+            result.violations
+        );
+    }
+
+    #[test]
+    fn owner_only_table_is_classified_but_direct_runtime_grant_is_forbidden() {
+        let dir = tmpdir("owner-only");
+        write(
+            &dir,
+            "0001_w.sql",
+            "CREATE TABLE group_memberships (group_id uuid, org_id uuid);\n",
+        );
+        let result = check_migrations_root(&dir);
+        assert!(
+            !result
+                .violations
+                .iter()
+                .any(|v| v.kind == ViolationKind::UnclassifiedTable),
+            "owner-only allowlisted table must not be unclassified: {:?}",
+            result.violations
+        );
+
+        write(
+            &dir,
+            "0002_bad_grant.sql",
+            "GRANT SELECT ON group_memberships TO mnt_rt;\n",
+        );
+        let result = check_migrations_root(&dir);
+        assert!(
+            result
+                .violations
+                .iter()
+                .any(|v| v.kind == ViolationKind::OwnerOnlyTableGrant),
+            "owner-only table grant should be rejected: {:?}",
             result.violations
         );
     }

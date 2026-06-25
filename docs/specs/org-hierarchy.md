@@ -21,7 +21,7 @@ These hardening fixes are now binding on implementation:
   `Into<OrgId>` and no path to `CURRENT_ORG.scope`/`set_config('app.current_org')`; add a static-gate
   assertion that `app.current_org` is only ever armed from the verified `org` claim or a resolver-returned
   member `OrgId` — never `scope_node`. (Acceptance criterion of P2/P3.)
-- **FIX-4 (was MEDIUM — blocking):** migration renumbered **0052 → 0059** (head is 0058); all §References
+- **FIX-4 (was MEDIUM — blocking):** migration renumbered **0052 → 0060** (head is 0059); all §References
   re-verified against the current tree before P0.
 - **FIX-5 (was MEDIUM — TOCTOU):** the member set is re-resolved LIVE per request for BOTH consolidated
   reads AND cross-entity writes (never cached in token/principal); `switch-context` re-validates the target
@@ -53,14 +53,15 @@ Non-goals: intercompany/elimination accounting (Track C); column/cell masking; n
 The vendor Platform tier (`PlatformPrincipal`, view-as) is a distinct higher tier, unchanged (§6 contrasts).
 
 ## 2. Data Model + Migration
-A Group is NOT a tenant and carries NO tenant data — pure grouping + grant target. `groups`/membership/
-grants are **GLOBAL** tables (not RLS-scoped): the group-admin fan-out must enumerate sibling members
-BEFORE any member GUC is armed (same chicken-and-egg `platform_resolve_token_org` solves in 0036), so
-topology resolution is a narrow SECURITY DEFINER read and these tables join the tenant-isolation GLOBAL
-allowlist (same class as `audit_events`).
+A Group is NOT a tenant and carries NO tenant data — pure grouping + grant target. Only `groups`
+is a GLOBAL allowlisted table, limited to identity columns. `group_memberships` and
+`group_role_grants` are cross-tenant authorization tables but remain owner-only (not RLS-scoped,
+not `mnt_rt`-readable): group-admin fan-out must enumerate sibling members BEFORE any member GUC
+is armed (same chicken-and-egg `platform_resolve_token_org` solves in 0036), so topology/grant
+resolution is a narrow SECURITY DEFINER read, not a raw table grant.
 
 ```sql
--- 0059_create_groups_and_membership.sql  (house style: 0026/0036/0049; migration head is 0058) [FIX-4]
+-- 0060_create_groups_and_membership.sql  (house style: 0026/0036/0049; migration head is 0059) [FIX-4]
 -- mnt-gate: global-table groups (rationale: holding topology — name/slug/status only, NO auth data)
 -- group_memberships + group_role_grants are OWNER-ONLY (NOT global-allowlisted, NO mnt_rt grant): they
 -- are the cross-tenant AUTHORIZATION tables. Runtime reads go ONLY through identity-only SECURITY DEFINER
@@ -91,24 +92,61 @@ GRANT SELECT (id, slug, name, status) ON groups TO mnt_rt;                     -
 -- group_memberships + group_role_grants: NO mnt_rt grant; exposed ONLY via the DEFINER resolvers. [FIX-1]
 -- resolver body must snapshot under row_security=off then restore on (or wrap in EXCEPTION … restore). [FIX-6]
 
--- identity-only cross-group resolver (SECURITY DEFINER, mirrors platform_list_organizations 0036).
-CREATE OR REPLACE FUNCTION group_member_org_ids(p_group UUID)
+-- identity-only own-group resolver (SECURITY DEFINER, mirrors platform_list_organizations 0036).
+CREATE OR REPLACE FUNCTION group_member_org_ids(p_group UUID, p_actor UUID)
 RETURNS TABLE (org_id UUID, slug TEXT, name TEXT, status TEXT)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  result_rows organizations[];
 BEGIN
   SET LOCAL row_security = off;
-  RETURN QUERY SELECT o.id,o.slug,o.name,o.status FROM organizations o
+  SELECT array_agg(o ORDER BY o.created_at ASC, o.id ASC)
+  INTO result_rows
+  FROM organizations o
     JOIN group_memberships m ON m.org_id=o.id
     WHERE m.group_id=p_group AND o.status='ACTIVE'
       AND o.id <> '00000000-0000-0000-0000-00000000face'::uuid   -- never the platform sentinel
-    ORDER BY o.created_at ASC, o.id ASC;
+      AND EXISTS (
+        SELECT 1 FROM group_role_grants g
+        JOIN users u ON u.id=g.user_id
+        WHERE g.group_id=p_group AND g.user_id=p_actor AND u.is_active
+      );
   SET LOCAL row_security = on;                                    -- restore before returning
+
+  RETURN QUERY SELECT r.id,r.slug,r.name,r.status
+  FROM unnest(COALESCE(result_rows, ARRAY[]::organizations[])) AS r;
+EXCEPTION WHEN OTHERS THEN
+  SET LOCAL row_security = on;
+  RAISE;
 END; $$;
-REVOKE ALL ON FUNCTION group_member_org_ids(UUID) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION group_member_org_ids(UUID) TO mnt_rt;
+REVOKE ALL ON FUNCTION group_member_org_ids(UUID, UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION group_member_org_ids(UUID, UUID) TO mnt_rt;
+
+CREATE OR REPLACE FUNCTION group_role_grants_for_user(p_user UUID)
+RETURNS TABLE (group_id UUID, group_role TEXT)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  result_rows group_role_grants[];
+BEGIN
+  SET LOCAL row_security = off;
+  SELECT array_agg(g ORDER BY g.group_id, g.group_role)
+  INTO result_rows
+  FROM group_role_grants g
+    JOIN users u ON u.id=g.user_id
+    WHERE g.user_id=p_user AND u.is_active;
+  SET LOCAL row_security = on;
+
+  RETURN QUERY SELECT r.group_id,r.group_role
+  FROM unnest(COALESCE(result_rows, ARRAY[]::group_role_grants[])) AS r;
+EXCEPTION WHEN OTHERS THEN
+  SET LOCAL row_security = on;
+  RAISE;
+END; $$;
+REVOKE ALL ON FUNCTION group_role_grants_for_user(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION group_role_grants_for_user(UUID) TO mnt_rt;
 ```
 Key decisions: `group_id` NULLABLE → an ungrouped 법인 is unchanged (backward-compat free). Group roles
-live in `group_role_grants` (global), NOT `users.roles` — a tenant role array must never silently confer
+live in the owner-only `group_role_grants`, NOT `users.roles` — a tenant role array must never silently confer
 cross-entity reach (same separation as `PlatformPrincipal` is not a `Role`). `mnt_rt` SELECT-only; grants
 are written via an audited DEFINER path (mirrors `platform_create_organization`). Operational rows carry
 NO `group_id` — a second weaker isolation axis is explicitly rejected; the subtree stays isolated by the
@@ -136,15 +174,15 @@ the tenant middleware arms exactly one real org per request.
 > EXISTING RLS-correct read, and concatenates. NEVER a `BYPASSRLS`/`row_security off` blanket scan. The
 > per-법인 boundary is exercised once per member, unchanged — N invocations of the existing mechanism.
 
-`platform/db/src/group_read.rs` (new, in the `db` crate so the rls-arming gate's "db crate defines the
-arming primitives" exemption applies): `group_member_orgs(pool,group)` (the identity-only DEFINER read →
-ACTIVE members) + `consolidated_read(pool, group, members, read)` that, for each authorized member, awaits
-`read(org)` — which IS `with_org_conn(pool, org, |tx| existing SQL)` — and tags results by source Org. **No
-new SQL/policy/DEFINER for the row data**; only the member-id LIST comes from the DEFINER resolver (exactly
-like view-as resolves the target-org name before flowing through the normal armed path).
+`backend/crates/platform/group/src/lib.rs` (new gate-scanned crate, not under `platform/db`): `group_member_orgs(pool, group, actor)` (the identity-only DEFINER read →
+ACTIVE members only when `actor` has a live group grant) + `consolidated_read(pool, group, members, read)`
+that, for each authorized member, awaits `read(org)` — which IS `with_org_conn(pool, org, |tx| existing
+SQL)` — and tags results by source Org. **No new SQL/policy/DEFINER for the row data**; only the member-id
+LIST comes from the DEFINER resolver (exactly like view-as resolves the target-org name before flowing
+through the normal armed path).
 Fail-closed: empty resolver ⇒ `Ok(vec![])` (never a global scan); each `read(org)` arms its own GUC (FORCE
 RLS returns 0 rows if unarmed); the member set passed in is `group_members ∩ principal.AccessScope reach`
-(a foreign org isn't in `group_member_org_ids(G)` and the principal has no role there anyway); the only
+(a foreign org isn't in `group_member_org_ids(G, actor)` and the principal has no role there anyway); the only
 `row_security off` is the identity-only resolver, restored before return; `mnt_rt` is NOBYPASSRLS.
 
 ## 5. Scope Selector
@@ -159,7 +197,7 @@ and it spans members via fan-out, not a multi-org GUC.
 
 ## 6. Cross-Entity Admin
 A group-admin mutation on a specific member: (1) handler resolves the target Org + verifies it is in the
-principal's group via `group_member_org_ids` (403 otherwise); (2) the mutation arms THAT target 법인 and
+principal's group via `group_member_org_ids(group, actor)` (403 otherwise); (2) the mutation arms THAT target 법인 and
 runs the EXISTING audited write (`with_audit` + `AuditEvent.with_org(target_org)`); the org_id-immutability
 trigger still applies. (3) audit records the REAL group-admin actor + target org + `group.cross_entity.*`.
 Reach: ONLY members of the principal's group; unrelated groups/orgs are absent from the resolver +
@@ -204,18 +242,24 @@ single_entity_scope_isolates (consolidated→403) · T4 cross_group_invisible ·
 worksite_local_least_privilege · T6 no_bypassrls_on_data_path (grep + resolver restores row_security) · T7
 cross_entity_admin_arms_target_and_audits · T8 consolidated_helper_fails_closed_unarmed (never a global
 read) · T9 group_finance_marking_is_conjunctive · T10 mnt_rt_cannot_self_grant_group_role · T11
-legacy_token_without_scope_claims_is_org_scoped · T12 group_id_immutability_and_member_isolation.
+legacy_token_without_scope_claims_is_org_scoped · T12 group_id_immutability_and_member_isolation · T13
+cross_tenant_group_role_grants_raw_read_returns_own_or_zero_rows · T14 group_helper_file_is_gate_scanned
+(bare-pool read flagged) · T15 group_id_cannot_arm_app_current_org · T16 mid_session_membership_revocation
+drops_member_on_next_read_and_write · T17 view_as_and_group_roles_are_mutually_exclusive · T18
+resolver_restores_row_security_on_inner_error_path.
 
 ## 11. Static-gate satisfaction
-rls-arming: the helper lives in the `db` crate (the arming-primitives exemption); each `read(org)` is
-`with_org_conn` (executor `tx.as_mut()`, not bare pool); the DEFINER call carries `// rls-arming: ok
-identity-only DEFINER resolver`. tenant-isolation: the three group tables are added to the GLOBAL allowlist
-with rationale comments; `organizations.group_id` is a nullable add to an already-RLS table (no new
-policy, like 0049).
+rls-arming: the helper lives in the new gate-scanned `backend/crates/platform/group/` crate, and every
+member read calls `with_org_conn` / `with_audit` from `mnt-platform-db` (executor `tx.as_mut()`, not a
+bare pool). The helper must not live under `platform/db`, because that crate owns the arming primitives and
+receives narrower gate treatment. The DEFINER call carries `// rls-arming: ok identity-only DEFINER resolver`.
+tenant-isolation: only `groups` is added to the GLOBAL allowlist with a rationale comment;
+`group_memberships` and `group_role_grants` stay owner-only and are exposed only through resolvers.
+`organizations.group_id` is a nullable add to an already-RLS table (no new policy, like 0049).
 
 ## 12. Phased Implementation (each ≤~5 files, mnt_rt tests, separate review pass)
-P0 schema + identity resolver (0052) → P1 AccessScope kernel type + BranchScope bridge (pure-logic) → P2
-claims + login resolution + legacy default → P3 consolidated-read helper (db crate) → P4 group authz +
+P0 schema + identity resolver (0060) → P1 AccessScope kernel type + BranchScope bridge (pure-logic) → P2
+claims + login resolution + legacy default → P3 consolidated-read helper (`platform/group`) → P4 group authz +
 Principal extension + conjunctive marking → P5 REST consolidated/switch-context/cross-entity + audited
 grant endpoint → P6 scope selector (web, visual-verdict ≥90) → P7 security-review + checklist sign-off.
 
@@ -237,5 +281,4 @@ kernel/core/src/branch.rs:14-47; request-context/src/lib.rs:93-97,141-142,200-20
 219-241 (with_audit/with_org_conn); migrations 0030:13-19,31-84 / 0031:37,69-70,94-129 / 0036:65-130
 (platform_resolve_token_org + list_organizations DEFINER + row_security off→on) / 0037 / 0049;
 platform-rest/src/view_as.rs:219-235,298-340,380-411; auth/src/jwt.rs:57-95,211-213; auth-rest/src/lib.rs:
-1368-1389; region_branch_..._runtime_role.rs:46-59,265-297,458-483; ci/gates/{rls-arming:13-19,218-265,
-tenant-isolation:15-26,38}; docs/specs/knl-business-os.md §Tenancy; .omc/research/foundry-domain-research.md CAP-4.
+1368-1389; region_branch_..._runtime_role.rs:46-59,265-297,458-483; backend/ci/gates/{rls-arming,tenant-isolation}; docs/specs/knl-business-os.md §Tenancy; .omc/research/foundry-domain-research.md CAP-4.
