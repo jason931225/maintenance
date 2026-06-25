@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.4](https://github.com/jason931225/maintenance/compare/v0.1.3...v0.1.4) (2026-06-25)
+
+
+### Bug Fixes
+
+* **api:** document 300m default geofence radius ([2a27e43](https://github.com/jason931225/maintenance/commit/2a27e43bb19b1a9d9a4b69b6bfc6af9460fa533e))
+* **web:** keep location consent status resilient ([0c5bd67](https://github.com/jason931225/maintenance/commit/0c5bd67012d1098894b0af1661a18e62ac3abcf6))
+
 ## [0.1.3](https://github.com/jason931225/maintenance/compare/v0.1.2...v0.1.3) (2026-06-25)
 
 
