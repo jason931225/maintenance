@@ -3021,6 +3021,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-platform-group"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-platform-db",
+ "serde",
+ "sqlx 0.9.0",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "mnt-platform-jobs"
 version = "0.1.0"
 dependencies = [
