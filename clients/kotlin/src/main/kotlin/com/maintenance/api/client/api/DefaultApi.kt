@@ -130,6 +130,8 @@ import com.maintenance.api.client.model.PasskeyRegisterStartResponse
 import com.maintenance.api.client.model.PasskeySummary
 import com.maintenance.api.client.model.PrepareExpenditureRequest
 import com.maintenance.api.client.model.PriorityLevel
+import com.maintenance.api.client.model.PrivacyConsentAcceptRequest
+import com.maintenance.api.client.model.PrivacyConsentStatusResponse
 import com.maintenance.api.client.model.PurchaseRequestSummary
 import com.maintenance.api.client.model.RefreshTokenRequest
 import com.maintenance.api.client.model.RegionSummary
@@ -1118,6 +1120,150 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/auth/passkey/register/start",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/auth/privacy-consent/accept
+     * Accept required first-login privacy terms
+     * Persists the authenticated user&#39;s required initial-login acknowledgement of the privacy collection/use notice and service terms as a tenant-scoped audit event. Both required agreements must be accepted explicitly; optional marketing and GPS/location consent are excluded.
+     * @param privacyConsentAcceptRequest
+     * @return PrivacyConsentStatusResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun apiV1AuthPrivacyConsentAcceptPost(privacyConsentAcceptRequest: PrivacyConsentAcceptRequest) : PrivacyConsentStatusResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = apiV1AuthPrivacyConsentAcceptPostWithHttpInfo(privacyConsentAcceptRequest = privacyConsentAcceptRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PrivacyConsentStatusResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/privacy-consent/accept
+     * Accept required first-login privacy terms
+     * Persists the authenticated user&#39;s required initial-login acknowledgement of the privacy collection/use notice and service terms as a tenant-scoped audit event. Both required agreements must be accepted explicitly; optional marketing and GPS/location consent are excluded.
+     * @param privacyConsentAcceptRequest
+     * @return ApiResponse<PrivacyConsentStatusResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun apiV1AuthPrivacyConsentAcceptPostWithHttpInfo(privacyConsentAcceptRequest: PrivacyConsentAcceptRequest) : ApiResponse<PrivacyConsentStatusResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = apiV1AuthPrivacyConsentAcceptPostRequestConfig(privacyConsentAcceptRequest = privacyConsentAcceptRequest)
+
+        return@withContext request<PrivacyConsentAcceptRequest, PrivacyConsentStatusResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation apiV1AuthPrivacyConsentAcceptPost
+     *
+     * @param privacyConsentAcceptRequest
+     * @return RequestConfig
+     */
+    fun apiV1AuthPrivacyConsentAcceptPostRequestConfig(privacyConsentAcceptRequest: PrivacyConsentAcceptRequest) : RequestConfig<PrivacyConsentAcceptRequest> {
+        val localVariableBody = privacyConsentAcceptRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/privacy-consent/accept",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/auth/privacy-consent/status
+     * Read required first-login privacy consent status
+     * Returns whether the authenticated user has accepted the current required Korean privacy collection/use notice and service terms version. This status is checked before initial passkey enrollment. Optional marketing consent and GPS/location consent are not bundled here and remain separate flows.
+     * @return PrivacyConsentStatusResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun apiV1AuthPrivacyConsentStatusPost() : PrivacyConsentStatusResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = apiV1AuthPrivacyConsentStatusPostWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PrivacyConsentStatusResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/privacy-consent/status
+     * Read required first-login privacy consent status
+     * Returns whether the authenticated user has accepted the current required Korean privacy collection/use notice and service terms version. This status is checked before initial passkey enrollment. Optional marketing consent and GPS/location consent are not bundled here and remain separate flows.
+     * @return ApiResponse<PrivacyConsentStatusResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun apiV1AuthPrivacyConsentStatusPostWithHttpInfo() : ApiResponse<PrivacyConsentStatusResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = apiV1AuthPrivacyConsentStatusPostRequestConfig()
+
+        return@withContext request<Unit, PrivacyConsentStatusResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation apiV1AuthPrivacyConsentStatusPost
+     *
+     * @return RequestConfig
+     */
+    fun apiV1AuthPrivacyConsentStatusPostRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/privacy-consent/status",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

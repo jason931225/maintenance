@@ -419,8 +419,13 @@ async fn create_customer_and_site_appear_in_location_list_and_are_audited(pool: 
             .as_array()
             .unwrap()
             .iter()
-            .any(|item| item["site_id"].as_str() == Some(site_id.as_str()));
-        assert!(found, "newly created site must appear in the location list");
+            .find(|item| item["site_id"].as_str() == Some(site_id.as_str()))
+            .expect("newly created site must appear in the location list");
+        assert_eq!(
+            found["address"].as_str(),
+            Some("경기도 안산시 단원구 1로 1")
+        );
+        assert_eq!(found["postal_code"].as_str(), Some("15433"));
 
         // Both creates were audited exactly once.
         assert_eq!(audit_count(&pool, "customer.create").await, 1);

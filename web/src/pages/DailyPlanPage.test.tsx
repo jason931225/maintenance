@@ -132,10 +132,8 @@ describe("DailyPlanPage", () => {
 
     // Create
     await screen.findByRole("option", { name: "김정비" });
-    await user.selectOptions(
-      screen.getByLabelText("담당 정비사"),
-      primaryMechanicId,
-    );
+    expect(screen.queryByLabelText("담당 정비사")).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("정비사"), primaryMechanicId);
     const dateInput = screen.getByLabelText("계획 일자");
     await user.clear(dateInput);
     await user.type(dateInput, "2026-06-16");

@@ -2,9 +2,14 @@ import { useEffect, useState } from "react";
 import { Menu, X } from "lucide-react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 
+import webPackage from "../../../package.json";
 import { consoleHref } from "../../lib/consoleUrl";
 import { ko } from "../../i18n/ko";
 import { cn } from "../../lib/utils";
+
+const COOKIE_NOTICE_KEY = "knl_cookie_notice_v1";
+const COPYRIGHT_YEAR = new Date().getFullYear();
+const WEB_VERSION = webPackage.version;
 
 const NAV_ITEMS = [
   { to: "/", label: ko.storefront.nav.home, end: true },
@@ -25,6 +30,15 @@ const SERVICES_LINKS = [
 const COMPANY_LINKS = [
   { to: "/about", label: ko.storefront.nav.about },
   { to: "/contact", label: ko.storefront.nav.contact },
+  { to: "/privacy", label: ko.storefront.nav.privacy },
+] as const;
+
+const FAMILY_LINKS = [
+  { href: "https://www.cossok.com/", label: ko.storefront.footer.family.coss },
+  {
+    href: "https://www.bestec-kr.com/",
+    label: ko.storefront.footer.family.bestec,
+  },
 ] as const;
 
 /**
@@ -38,6 +52,7 @@ const COMPANY_LINKS = [
  */
 export function PublicLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [cookieNoticeVisible, setCookieNoticeVisible] = useState(false);
   const { pathname } = useLocation();
 
   // Operator-console (staff) link target: crosses to console.knllogistic.com in
@@ -51,6 +66,26 @@ export function PublicLayout() {
       setMenuOpen(false);
     });
   }, [pathname]);
+
+  useEffect(() => {
+    void Promise.resolve().then(() => {
+      try {
+        setCookieNoticeVisible(
+          window.localStorage.getItem(COOKIE_NOTICE_KEY) !== "accepted",
+        );
+      } catch {
+        setCookieNoticeVisible(true);
+      }
+    });
+  }, []);
+
+  function acceptCookieNotice() {
+    try {
+      window.localStorage.setItem(COOKIE_NOTICE_KEY, "accepted");
+    } finally {
+      setCookieNoticeVisible(false);
+    }
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-[#f6f8fa] text-ink">
@@ -307,19 +342,72 @@ export function PublicLayout() {
               </ul>
             </nav>
 
-            {/* Column: family sites — listed as plain captions, not links */}
-            <div>
+            {/* Column: family sites */}
+            <nav aria-label={ko.storefront.footer.sitemap.family}>
               <p className="mb-3 text-[12px] font-black uppercase tracking-[0.14em] text-signal">
                 {ko.storefront.footer.sitemap.family}
               </p>
-              <ul className="m-0 grid list-none gap-2 p-0 text-sm text-white/40">
-                <li>{ko.storefront.footer.family.koss}</li>
-                <li>{ko.storefront.footer.family.bestec}</li>
+              <ul className="m-0 grid list-none gap-2 p-0 text-sm">
+                {FAMILY_LINKS.map((item) => (
+                  <li key={item.href}>
+                    <a
+                      href={item.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex min-h-[32px] items-center transition-colors hover:text-signal focus-visible:text-signal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+                    >
+                      {item.label}
+                    </a>
+                  </li>
+                ))}
               </ul>
-            </div>
+            </nav>
+          </div>
+          <div className="mt-10 flex flex-col gap-2 border-t border-white/10 pt-6 text-xs text-white/45 sm:flex-row sm:items-center sm:justify-between">
+            <p className="m-0">
+              {ko.storefront.footer.copyright.replace(
+                "{year}",
+                String(COPYRIGHT_YEAR),
+              )}
+            </p>
+            <p className="m-0">
+              {ko.storefront.footer.version.replace("{version}", WEB_VERSION)}
+            </p>
           </div>
         </div>
       </footer>
+
+      {cookieNoticeVisible ? (
+        <section
+          role="region"
+          aria-label={ko.storefront.cookie.aria}
+          className="fixed bottom-4 left-4 right-4 z-50 mx-auto grid max-w-[920px] gap-4 rounded-2xl border border-white/20 bg-ink p-5 text-white shadow-2xl sm:grid-cols-[1fr_auto] sm:items-center"
+        >
+          <div className="grid gap-1.5">
+            <p className="m-0 text-sm font-extrabold text-signal">
+              {ko.storefront.cookie.title}
+            </p>
+            <p className="m-0 text-sm leading-6 text-white/75">
+              {ko.storefront.cookie.body}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              to="/privacy"
+              className="inline-flex min-h-[40px] items-center text-sm font-bold text-white/75 underline-offset-4 transition-colors hover:text-signal hover:underline focus-visible:text-signal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+            >
+              {ko.storefront.cookie.details}
+            </Link>
+            <button
+              type="button"
+              onClick={acceptCookieNotice}
+              className="inline-flex min-h-[40px] items-center rounded bg-signal px-4 text-sm font-extrabold text-[#14120c] transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-safe:hover:-translate-y-0.5"
+            >
+              {ko.storefront.cookie.accept}
+            </button>
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

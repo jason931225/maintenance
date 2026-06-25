@@ -47,6 +47,7 @@ export function DailyPlanPage() {
   const branchId = session?.branches?.[0];
   const canRequest = hasAnyRole(session?.roles, PLAN_REQUEST_ROLES);
   const canReview = hasAnyRole(session?.roles, PLAN_REVIEW_ROLES);
+  const isMechanic = hasAnyRole(session?.roles, [ROLES.MECHANIC]);
 
   const [mechanics, setMechanics] = useState<UserSummary[]>([]);
   const [mechanicId, setMechanicId] = useState("");
@@ -147,7 +148,7 @@ export function DailyPlanPage() {
     setNotice(undefined);
     if (!branchId) return;
     if (!mechanicId) {
-      setErrorKey("needMechanic");
+      setErrorKey(isMechanic ? "needMechanic" : "needMechanicAdmin");
       return;
     }
     const cleanItems = items
@@ -268,7 +269,9 @@ export function DailyPlanPage() {
                   className="text-sm font-medium text-steel"
                   htmlFor="plan-mechanic"
                 >
-                  {ko.dailyPlan.mechanic}
+                  {isMechanic
+                    ? ko.dailyPlan.mechanic
+                    : ko.dailyPlan.mechanicAdmin}
                 </label>
                 <Select
                   id="plan-mechanic"
@@ -277,7 +280,11 @@ export function DailyPlanPage() {
                     setMechanicId(event.currentTarget.value);
                   }}
                 >
-                  <option value="">{ko.dailyPlan.mechanicPlaceholder}</option>
+                  <option value="">
+                    {isMechanic
+                      ? ko.dailyPlan.mechanicPlaceholder
+                      : ko.dailyPlan.mechanicAdminPlaceholder}
+                  </option>
                   {mechanics.map((mechanic) => (
                     <option key={mechanic.id} value={mechanic.id}>
                       {mechanic.display_name}

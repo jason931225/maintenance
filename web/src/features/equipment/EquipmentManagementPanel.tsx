@@ -1,11 +1,12 @@
-import { Pencil, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { ChevronsUpDown, Pencil, Plus, Trash2 } from "lucide-react";
+import type { KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import type { ConsoleApiClient } from "../../api/client";
 import type {
   CreateEquipmentRequest,
+  EquipmentLookupResponse,
   EquipmentStatus,
-  EquipmentSummary,
   UpdateEquipmentRequest,
 } from "../../api/types";
 import { Badge } from "../../components/ui/badge";
@@ -16,11 +17,12 @@ import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { ko } from "../../i18n/ko";
+import { cn } from "../../lib/utils";
 
 interface EquipmentManagementPanelProps {
   api: ConsoleApiClient;
   /** Equipment rows surfaced by the autocomplete search on the page. */
-  results: EquipmentSummary[];
+  results: EquipmentLookupResponse[];
   /** Re-runs the page search so the list reflects the latest writes. */
   onMutated: () => void;
 }
@@ -68,15 +70,18 @@ function emptyForm(): FormState {
   };
 }
 
-function seedFromSummary(summary: EquipmentSummary): FormState {
+function seedFromSummary(summary: EquipmentLookupResponse): FormState {
   return {
     ...emptyForm(),
     equipment_no: summary.equipment_no,
+    customer_name: summary.customer.name,
+    site_name: summary.site.name,
     status: normalizeStatus(summary.status),
     specification: summary.specification,
     ton_text: summary.ton_text,
     management_no: summary.management_no ?? "",
     model: summary.model ?? "",
+    maker: summary.maker ?? "",
   };
 }
 
@@ -90,6 +95,21 @@ function normalizeStatus(raw: string): EquipmentStatus {
 function nullableTrim(value: string): string | null {
   const trimmed = value.trim();
   return trimmed.length === 0 ? null : trimmed;
+}
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ).sort((a, b) => a.localeCompare(b, "ko"));
+}
+
+function onlyValue(values: Array<string | null | undefined>): string | undefined {
+  const unique = uniqueStrings(values);
+  return unique.length === 1 ? unique[0] : undefined;
 }
 
 /**
@@ -114,8 +134,36 @@ export function EquipmentManagementPanel({
   const [form, setForm] = useState<FormState>(emptyForm);
   const [writeState, setWriteState] = useState<WriteState>("idle");
   const [notice, setNotice] = useState<string>();
-  const [deleteTarget, setDeleteTarget] = useState<EquipmentSummary>();
+  const [deleteTarget, setDeleteTarget] = useState<EquipmentLookupResponse>();
   const [deleting, setDeleting] = useState(false);
+  const referenceOptions = useMemo(() => {
+    const customerMatches = form.customer_name.trim()
+      ? results.filter((row) => row.customer.name === form.customer_name.trim())
+      : results;
+    return {
+      customers: uniqueStrings(results.map((row) => row.customer.name)),
+      sites: uniqueStrings(customerMatches.map((row) => row.site.name)),
+      makers: uniqueStrings(results.map((row) => row.maker)),
+      models: uniqueStrings(results.map((row) => row.model)),
+      specifications: uniqueStrings(results.map((row) => row.specification)),
+    };
+  }, [form.customer_name, results]);
+  const modelProfiles = useMemo(() => {
+    const models = uniqueStrings(results.map((row) => row.model));
+    return new Map(
+      models.map((model) => {
+        const rows = results.filter((row) => row.model === model);
+        return [
+          model,
+          {
+            maker: onlyValue(rows.map((row) => row.maker)),
+            specification: onlyValue(rows.map((row) => row.specification)),
+            tonText: onlyValue(rows.map((row) => row.ton_text)),
+          },
+        ] as const;
+      }),
+    );
+  }, [results]);
 
   function startCreate() {
     setMode("create");
@@ -125,7 +173,7 @@ export function EquipmentManagementPanel({
     setNotice(undefined);
   }
 
-  function startEdit(summary: EquipmentSummary) {
+  function startEdit(summary: EquipmentLookupResponse) {
     setMode("edit");
     setEditingId(summary.id);
     setForm(seedFromSummary(summary));
@@ -141,6 +189,29 @@ export function EquipmentManagementPanel({
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function setModel(value: string) {
+    setForm((prev) => {
+      const profile = modelProfiles.get(value.trim());
+      return {
+        ...prev,
+        model: value,
+        maker:
+          prev.maker.trim().length > 0 || profile?.maker === undefined
+            ? prev.maker
+            : profile.maker,
+        specification:
+          prev.specification.trim().length > 0 ||
+          profile?.specification === undefined
+            ? prev.specification
+            : profile.specification,
+        ton_text:
+          prev.ton_text.trim().length > 0 || profile?.tonText === undefined
+            ? prev.ton_text
+            : profile.tonText,
+      };
+    });
   }
 
   async function handleSubmit() {
@@ -301,26 +372,29 @@ export function EquipmentManagementPanel({
                 ))}
               </Select>
             </div>
-            <Field
+            <SuggestionField
               id="eq-customer-name"
               label={ko.equipment.fields.customerName}
               value={form.customer_name}
+              options={referenceOptions.customers}
               onChange={(v) => {
                 setField("customer_name", v);
               }}
             />
-            <Field
+            <SuggestionField
               id="eq-site-name"
               label={ko.equipment.fields.siteName}
               value={form.site_name}
+              options={referenceOptions.sites}
               onChange={(v) => {
                 setField("site_name", v);
               }}
             />
-            <Field
+            <SuggestionField
               id="eq-specification"
               label={ko.equipment.fields.specification}
               value={form.specification}
+              options={referenceOptions.specifications}
               onChange={(v) => {
                 setField("specification", v);
               }}
@@ -341,18 +415,19 @@ export function EquipmentManagementPanel({
                 setField("management_no", v);
               }}
             />
-            <Field
+            <SuggestionField
               id="eq-model"
               label={ko.equipment.fields.model}
               value={form.model}
-              onChange={(v) => {
-                setField("model", v);
-              }}
+              options={referenceOptions.models}
+              help={ko.equipment.reference.derivedFromModel}
+              onChange={setModel}
             />
-            <Field
+            <SuggestionField
               id="eq-maker"
               label={ko.equipment.fields.maker}
               value={form.maker}
+              options={referenceOptions.makers}
               onChange={(v) => {
                 setField("maker", v);
               }}
@@ -519,6 +594,203 @@ function Field({ id, label, value, onChange, disabled }: FieldProps) {
           onChange(event.currentTarget.value);
         }}
       />
+    </div>
+  );
+}
+
+interface SuggestionFieldProps extends FieldProps {
+  options: string[];
+  help?: string;
+}
+
+function SuggestionField({
+  id,
+  label,
+  value,
+  options,
+  help = ko.equipment.reference.help,
+  onChange,
+  disabled = false,
+}: SuggestionFieldProps) {
+  const listboxId = useId();
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const query = value.trim();
+  const filtered = useMemo(() => {
+    const lowerQuery = query.toLowerCase();
+    if (lowerQuery.length === 0) return options;
+    return options.filter((option) => option.toLowerCase().includes(lowerQuery));
+  }, [options, query]);
+  const hasExactMatch = options.some(
+    (option) => option.toLowerCase() === query.toLowerCase(),
+  );
+  const canCreate = query.length > 0 && !hasExactMatch;
+  const rowCount = filtered.length + (canCreate ? 1 : 0);
+  const safeActiveIndex =
+    rowCount === 0 ? 0 : Math.min(activeIndex, rowCount - 1);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(event: PointerEvent) {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [open]);
+
+  function commit(nextValue: string) {
+    onChange(nextValue);
+    setOpen(false);
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (disabled) return;
+    switch (event.key) {
+      case "ArrowDown":
+        if (rowCount === 0) return;
+        event.preventDefault();
+        setOpen(true);
+        setActiveIndex((current) => (current + 1) % rowCount);
+        break;
+      case "ArrowUp":
+        if (rowCount === 0) return;
+        event.preventDefault();
+        setOpen(true);
+        setActiveIndex((current) => (current - 1 + rowCount) % rowCount);
+        break;
+      case "Enter":
+        if (open && rowCount > 0) {
+          event.preventDefault();
+          const selected =
+            safeActiveIndex < filtered.length
+              ? filtered[safeActiveIndex]
+              : query;
+          commit(selected);
+        }
+        break;
+      case "Escape":
+        if (open) {
+          event.preventDefault();
+          setOpen(false);
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  const newValueLabel = ko.equipment.reference.useNewValue.replace(
+    "{value}",
+    query,
+  );
+  const activeOptionId =
+    open && rowCount > 0
+      ? `${listboxId}-opt-${String(safeActiveIndex)}`
+      : undefined;
+
+  return (
+    <div ref={containerRef} className="relative grid gap-2">
+      <label className="text-sm font-medium text-steel" htmlFor={id}>
+        {label}
+      </label>
+      <div className="relative">
+        <Input
+          id={id}
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          aria-activedescendant={activeOptionId}
+          aria-describedby={`${id}-help`}
+          autoComplete="off"
+          value={value}
+          disabled={disabled}
+          className="pr-10"
+          onChange={(event) => {
+            onChange(event.currentTarget.value);
+            setActiveIndex(0);
+            setOpen(true);
+          }}
+          onFocus={() => {
+            setOpen(true);
+          }}
+          onKeyDown={onKeyDown}
+        />
+        <ChevronsUpDown
+          aria-hidden="true"
+          size={16}
+          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-steel"
+        />
+      </div>
+      <p id={`${id}-help`} className="text-xs text-steel">
+        {help}
+      </p>
+      {open ? (
+        <ul
+          id={listboxId}
+          role="listbox"
+          aria-label={label}
+          className="absolute left-0 right-0 top-[72px] z-20 max-h-64 overflow-y-auto rounded-md border border-line bg-white py-1 shadow-lg"
+        >
+          {filtered.map((option, index) => (
+            <li
+              key={option}
+              id={`${listboxId}-opt-${String(index)}`}
+              role="option"
+              aria-selected={option === value}
+              className={cn(
+                "cursor-pointer px-3 py-2 text-sm",
+                index === safeActiveIndex ? "bg-muted-panel" : "bg-white",
+              )}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                commit(option);
+              }}
+              onMouseEnter={() => {
+                setActiveIndex(index);
+              }}
+            >
+              <span className="block truncate font-medium text-ink">
+                {option}
+              </span>
+            </li>
+          ))}
+          {canCreate ? (
+            <li
+              id={`${listboxId}-opt-${String(filtered.length)}`}
+              role="option"
+              aria-selected={false}
+              className={cn(
+                "cursor-pointer px-3 py-2 text-sm",
+                safeActiveIndex === filtered.length
+                  ? "bg-muted-panel"
+                  : "bg-white",
+              )}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                commit(query);
+              }}
+              onMouseEnter={() => {
+                setActiveIndex(filtered.length);
+              }}
+            >
+              <span className="block truncate font-semibold text-brand-teal">
+                {newValueLabel}
+              </span>
+            </li>
+          ) : null}
+          {rowCount === 0 ? (
+            <li className="px-3 py-2 text-sm text-steel" role="presentation">
+              {ko.combobox.empty}
+            </li>
+          ) : null}
+        </ul>
+      ) : null}
     </div>
   );
 }

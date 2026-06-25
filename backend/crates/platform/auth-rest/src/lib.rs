@@ -58,6 +58,8 @@ pub const OTP_REDEEM_PATH: &str = "/api/v1/auth/otp/redeem";
 pub const ADMIN_OTP_ISSUE_PATH: &str = "/api/v1/auth/admin/otp/issue";
 pub const ADMIN_CREDENTIAL_RESET_PATH: &str = "/api/v1/auth/admin/credential-reset";
 pub const PASSKEY_ENROLL_HANDOFF_PATH: &str = "/api/v1/auth/passkey/enroll-handoff";
+pub const PRIVACY_CONSENT_STATUS_PATH: &str = "/api/v1/auth/privacy-consent/status";
+pub const PRIVACY_CONSENT_ACCEPT_PATH: &str = "/api/v1/auth/privacy-consent/accept";
 pub const TOKEN_REFRESH_PATH: &str = "/api/v1/auth/token/refresh";
 pub const LOGOUT_PATH: &str = "/api/v1/auth/logout";
 pub const AUTH_ROUTE_PATHS: &[&str] = &[
@@ -70,6 +72,8 @@ pub const AUTH_ROUTE_PATHS: &[&str] = &[
     ADMIN_OTP_ISSUE_PATH,
     ADMIN_CREDENTIAL_RESET_PATH,
     PASSKEY_ENROLL_HANDOFF_PATH,
+    PRIVACY_CONSENT_STATUS_PATH,
+    PRIVACY_CONSENT_ACCEPT_PATH,
     TOKEN_REFRESH_PATH,
     LOGOUT_PATH,
 ];
@@ -94,6 +98,12 @@ const MAX_OTP_TTL: Duration = Duration::hours(24);
 /// themselves and scanned onto a second device within seconds, so a tight window
 /// keeps the leaked-code blast radius minimal for this credential-handoff path.
 const ENROLL_HANDOFF_TTL: Duration = Duration::minutes(5);
+
+/// Required first-login privacy/terms notice version. This is an engineering
+/// control, not a substitute for counsel-approved policy text: bump it whenever
+/// the required collection/use notice or service terms materially change so users
+/// must accept the new version before initial passkey enrollment.
+const REQUIRED_PRIVACY_TERMS_VERSION: &str = "kr-pipa-v1-2026-06-25";
 
 /// Fixed-window length for the DB-backed unauthenticated-endpoint rate limiter.
 const RATE_LIMIT_WINDOW: Duration = Duration::minutes(1);
@@ -259,6 +269,8 @@ pub fn router(state: AuthRestState) -> Router {
         .route(ADMIN_OTP_ISSUE_PATH, post(issue_admin_otp))
         .route(ADMIN_CREDENTIAL_RESET_PATH, post(admin_credential_reset))
         .route(PASSKEY_ENROLL_HANDOFF_PATH, post(enroll_handoff))
+        .route(PRIVACY_CONSENT_STATUS_PATH, post(privacy_consent_status))
+        .route(PRIVACY_CONSENT_ACCEPT_PATH, post(accept_privacy_consent))
         .route(TOKEN_REFRESH_PATH, post(refresh_token))
         .route(LOGOUT_PATH, post(logout))
         .with_state(state)
@@ -416,6 +428,23 @@ struct EnrollHandoffResponse {
     otp: String,
     expires_at: OffsetDateTime,
     enroll_url: String,
+}
+
+/// Required first-login privacy/terms acceptance. The booleans are deliberately
+/// explicit and separate so the client cannot send one bundled "agree all" flag
+/// for legally distinct items.
+#[derive(Debug, Deserialize)]
+struct PrivacyConsentAcceptRequest {
+    policy_version: String,
+    privacy_collection: bool,
+    terms_of_service: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct PrivacyConsentStatusResponse {
+    policy_version: &'static str,
+    accepted: bool,
+    accepted_at: Option<OffsetDateTime>,
 }
 
 /// A minted access/refresh pair. `refresh_token` is `null` in the cookie
@@ -611,7 +640,9 @@ async fn start_registration(
         .count_user_passkeys(&state.pool, org_id, user_id)
         .await
         .map_err(|err| RestError::internal(err.to_string()))?;
-    if existing_passkeys > 0 {
+    if existing_passkeys == 0 {
+        ensure_required_privacy_consent(&state.pool, org_id, user_id).await?;
+    } else {
         let step_up = body.step_up.ok_or_else(|| {
             RestError::unauthorized(
                 "adding a passkey requires a step-up assertion of an existing passkey",
@@ -660,6 +691,14 @@ async fn finish_registration(
     let services = state.services()?;
     let (user_id, org_id) = authenticated_user_context(services, &headers)?;
     ensure_registration_ceremony_owner(&state.pool, body.ceremony_id, user_id).await?;
+    let existing_passkeys = services
+        .passkeys
+        .count_user_passkeys(&state.pool, org_id, user_id)
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
+    if existing_passkeys == 0 {
+        ensure_required_privacy_consent(&state.pool, org_id, user_id).await?;
+    }
     let now = OffsetDateTime::now_utc();
 
     // Insert the passkey AND consume the user's open one-time code in ONE transaction,
@@ -1172,7 +1211,9 @@ async fn enroll_handoff(
         .count_user_passkeys(&state.pool, org_id, user_id)
         .await
         .map_err(|err| RestError::internal(err.to_string()))?;
-    if existing_passkeys > 0 {
+    if existing_passkeys == 0 {
+        ensure_required_privacy_consent(&state.pool, org_id, user_id).await?;
+    } else {
         let step_up = body.step_up.ok_or_else(|| {
             RestError::unauthorized(
                 "minting an enrollment handoff requires a step-up assertion of an existing passkey",
@@ -1201,6 +1242,77 @@ async fn enroll_handoff(
         enroll_url: build_enroll_url(&services.rp_origin, issue.token.as_str()),
         otp: issue.token.as_str().to_owned(),
         expires_at: issue.expires_at,
+    }))
+}
+
+/// Read whether the authenticated user has accepted the current required
+/// first-login privacy/terms notice. Served as POST instead of GET to stay within
+/// the auth router's existing verb/import surface and avoid changing generated
+/// client assumptions for an authenticated pre-shell call.
+async fn privacy_consent_status(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+) -> Result<Json<PrivacyConsentStatusResponse>, RestError> {
+    let services = state.services()?;
+    let (user_id, org_id) = authenticated_user_context(services, &headers)?;
+    let accepted_at = required_privacy_consent_accepted_at(&state.pool, org_id, user_id).await?;
+    Ok(Json(PrivacyConsentStatusResponse {
+        policy_version: REQUIRED_PRIVACY_TERMS_VERSION,
+        accepted: accepted_at.is_some(),
+        accepted_at,
+    }))
+}
+
+/// Persist required first-login privacy/terms acceptance as an append-only,
+/// tenant-scoped audit event. No marketing/location consent is collected here:
+/// those remain separate optional flows.
+async fn accept_privacy_consent(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+    Json(body): Json<PrivacyConsentAcceptRequest>,
+) -> Result<Json<PrivacyConsentStatusResponse>, RestError> {
+    let services = state.services()?;
+    let (user_id, org_id) = authenticated_user_context(services, &headers)?;
+    if body.policy_version != REQUIRED_PRIVACY_TERMS_VERSION {
+        return Err(RestError::bad_request(
+            "unsupported privacy consent version",
+        ));
+    }
+    if !body.privacy_collection || !body.terms_of_service {
+        return Err(RestError::bad_request(
+            "required privacy and terms agreements must be accepted separately",
+        ));
+    }
+
+    let now = OffsetDateTime::now_utc();
+    let event = AuditEvent::new(
+        Some(UserId::from_uuid(user_id)),
+        AuditAction::new("privacy.required_accept")
+            .map_err(|err| RestError::internal(err.to_string()))?,
+        "privacy_terms",
+        REQUIRED_PRIVACY_TERMS_VERSION,
+        TraceContext::generate(),
+        now,
+    )
+    .with_org(org_id)
+    .with_snapshots(
+        None,
+        Some(serde_json::json!({
+            "policy_version": REQUIRED_PRIVACY_TERMS_VERSION,
+            "privacy_collection": true,
+            "terms_of_service": true,
+            "optional_marketing": "not_requested",
+            "gps_location": "separate_consent_flow",
+        })),
+    );
+
+    with_audit::<_, (), RestError>(&state.pool, event, |_tx| Box::pin(async move { Ok(()) }))
+        .await?;
+
+    Ok(Json(PrivacyConsentStatusResponse {
+        policy_version: REQUIRED_PRIVACY_TERMS_VERSION,
+        accepted: true,
+        accepted_at: Some(now),
     }))
 }
 
@@ -1586,6 +1698,49 @@ fn authenticated_user_context(
 
 fn user_id_from_claims(claims: AccessClaims) -> Result<Uuid, RestError> {
     Uuid::from_str(&claims.sub).map_err(|_| RestError::unauthorized("token subject is invalid"))
+}
+
+async fn ensure_required_privacy_consent(
+    pool: &PgPool,
+    org_id: OrgId,
+    user_id: Uuid,
+) -> Result<(), RestError> {
+    required_privacy_consent_accepted_at(pool, org_id, user_id)
+        .await?
+        .map(|_| ())
+        .ok_or_else(|| RestError::forbidden("required privacy consent has not been accepted"))
+}
+
+async fn required_privacy_consent_accepted_at(
+    pool: &PgPool,
+    org_id: OrgId,
+    user_id: Uuid,
+) -> Result<Option<OffsetDateTime>, RestError> {
+    let org_uuid = *org_id.as_uuid();
+    with_org_conn(pool, org_id, |tx| {
+        Box::pin(async move {
+            sqlx::query_scalar::<_, OffsetDateTime>(
+                r#"
+                SELECT occurred_at
+                FROM audit_events
+                WHERE org_id = $1
+                  AND actor = $2
+                  AND action = 'privacy.required_accept'
+                  AND target_type = 'privacy_terms'
+                  AND target_id = $3
+                ORDER BY occurred_at DESC
+                LIMIT 1
+                "#,
+            )
+            .bind(org_uuid)
+            .bind(user_id)
+            .bind(REQUIRED_PRIVACY_TERMS_VERSION)
+            .fetch_optional(tx.as_mut())
+            .await
+            .map_err(|err| RestError::internal(err.to_string()))
+        })
+    })
+    .await
 }
 
 fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {

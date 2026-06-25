@@ -257,7 +257,7 @@ and before marking an issue-backed lane done.
 |---|---|---|
 | [#18](https://github.com/jason931225/maintenance/issues/18) + latest comment | OTP issuance bug; region edit; customer/site creation; intake priority admin-setting; equipment search/list visibility after import. | L1 identity + L3 registry + L2 workorder; Q0/Q1 mnt_rt regressions. |
 | [#19](https://github.com/jason931225/maintenance/issues/19) comments 9-25 | Excel progress import; equipment detail popup; org chart + rank; corporation grouping; intake/approval visibility; FLMS import/export dependency; purchase-request + 거래명세표 upload/scan; sales listing autofill/photos/fields; spare/substitution recommendation; external inquiries → support; PM schedule cycle; inactive-user deletion/archive + PC/QR passkey flow. | L1/L2/L3/L5/L9/L10/L13/L18; Q0 first for broken live loops, then F-track maturity. |
-| [#20](https://github.com/jason931225/maintenance/issues/20) + comments + 2026-06-25 operator field report | Site-scoped substitution dropdown; bulk OTP/passkey defects, including a live lost-device admin credential-reset failure that shows `패스키 재설정에 실패했습니다. 다시 시도하세요.` instead of issuing a replacement code; duplicate-name/deactivated-user archival and role-revocation behavior; intake equipment validation bug; daily-plan equipment selection, plan detail view, auto-review submission, admin visibility; worksite-level org tree/personnel view; corporate governance workflow/approval graph needs (기안서, 구매요청서, 휴가신청서) without adopting the legacy "groupware" label. | L1 identity/auth Q0 recovery gate, L2 workorder/daily plan, L3 registry, L4 dispatch, L13 HR/org tree + leave workflow, L15 ERP purchase workflow, L18 RBAC/approval graph. |
+| [#20](https://github.com/jason931225/maintenance/issues/20) + comments + 2026-06-25 operator field report | Site-scoped substitution dropdown; bulk OTP/passkey defects, including a live lost-device admin credential-reset failure that shows `패스키 재설정에 실패했습니다. 다시 시도하세요.` instead of issuing a replacement code; duplicate-name/deactivated-user archival and role-revocation behavior; intake equipment validation bug; daily-plan equipment selection, plan detail view, auto-review submission, admin visibility; worksite-level org tree/personnel view; customer/site/manufacturer/model/specification fields should be dropdown-first with add-new typing, and fields derivable from a known model should auto-fill where safe; corporate governance workflow/approval graph needs (기안서, 구매요청서, 휴가신청서) without adopting the legacy "groupware" label. | L1 identity/auth Q0 recovery gate, L2 workorder/daily plan, L3 registry, L4 dispatch, L13 HR/org tree + leave workflow, L15 ERP purchase workflow, L18 RBAC/approval graph. |
 | [#17](https://github.com/jason931225/maintenance/issues/17) comments | Daily backup preferred; weekly acceptable if storage-constrained; server-down/offline-resync concern; document leak prevention/alerting; VPN has access-friction and must not become a blanket requirement without UX/security tradeoff. | Track O resilience/security + Track L launch hardening; backup restore drill and document-access audit/alerting are release gates. |
 | [#6](https://github.com/jason931225/maintenance/issues/6), [#10](https://github.com/jason931225/maintenance/issues/10) | Public landing page + marketing view of sale/rental assets; inquiry/contact/FAQ; payment/subscription interest. | L5 sales + L19 quota/billing-plan; keep payments behind explicit provider/security review. |
 | [#7](https://github.com/jason931225/maintenance/issues/7), [#9](https://github.com/jason931225/maintenance/issues/9) | Daily diary/progress exports for internal reporting/corporate-governance approval; import existing Excel progress so operations continue from current sheets. | L12 reporting + F1 import/export + L18 approval graph; generated XLSX must be tested against sample attachments. |
@@ -278,6 +278,24 @@ fail with `패스키 재설정에 실패했습니다. 다시 시도하세요.` i
 replacement one-time code. Treat this as a Q0/L1 recovery gate: identify the server/API failure class, add
 a regression for the affected authorization/branch/role path, and keep personally identifying details out
 of docs and fixtures.
+
+**2026-06-25 legal/privacy release gate:** initial console login now needs an engineering control that
+records separate required acceptance of 개인정보 수집·이용 and service terms before first passkey
+enrollment. Public storefront work also needs cookie/privacy notice, footer copyright, semver display, and
+family-site links (COSS + Bestec). This control is not legal sign-off: the go-live checklist still blocks
+production until counsel/management approve and publish the formal privacy policy, location terms, and
+cookie notice.
+
+**2026-06-25 mechanic-facing copy refinement:** the exact "담당 정비사" label is mechanic-facing copy only.
+Admin/planner/inspection assignment surfaces should use "정비사" while preserving the assignment selector and
+validation behavior, so non-mechanic screens do not present the field as if the current operator is the
+assigned mechanic.
+
+**2026-06-25 reference-data UI clarification:** customer name, site/worksite name, manufacturer, model,
+and specification should not be raw memory-only text fields. Prefer searchable dropdown/typeahead controls
+that still allow a new value to be saved when it is missing from the list. A known model may derive safe
+defaults such as manufacturer, specification, and tonnage, but derivation must not overwrite a value the
+operator has already typed.
 
 **Bottom line: S‑1 first (prove a red PR blocks deploy), then S6–S12 + freeze the registry/contracts +
 pull L16/L17 out — then the 20 lanes fan out safely.** The architecture stands; only the sequence changes.

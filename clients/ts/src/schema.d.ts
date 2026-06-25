@@ -1360,6 +1360,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/privacy-consent/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read required first-login privacy consent status
+         * @description Returns whether the authenticated user has accepted the current required Korean privacy collection/use notice and service terms version. This status is checked before initial passkey enrollment. Optional marketing consent and GPS/location consent are not bundled here and remain separate flows.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Current required privacy consent status. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PrivacyConsentStatusResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/privacy-consent/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept required first-login privacy terms
+         * @description Persists the authenticated user's required initial-login acknowledgement of the privacy collection/use notice and service terms as a tenant-scoped audit event. Both required agreements must be accepted explicitly; optional marketing and GPS/location consent are excluded.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PrivacyConsentAcceptRequest"];
+                };
+            };
+            responses: {
+                /** @description The accepted current required privacy consent status. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PrivacyConsentStatusResponse"];
+                    };
+                };
+                400: components["responses"]["ValidationError"];
+                401: components["responses"]["Unauthorized"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/token/refresh": {
         parameters: {
             query?: never;
@@ -3476,6 +3561,27 @@ export interface components {
             expires_at: components["schemas"]["Timestamp"];
             /** @description The console enrollment URL embedding the handoff code as a query parameter (`{origin}/login?otp=<code>`), to be rendered as a QR and scanned on a phone. */
             enroll_url: string;
+        };
+        /** @description Required initial-login Korean privacy collection/use and service-terms acknowledgement. These required agreements are explicit booleans so the client cannot bundle them into one generic "agree all" flag. Optional marketing consent and GPS/location consent are not collected by this request. */
+        PrivacyConsentAcceptRequest: {
+            /** @description Required privacy/terms notice version being accepted. */
+            policy_version: string;
+            /** @description Required acknowledgement of collection/use purpose, items, retention period, refusal right, and refusal consequence. */
+            privacy_collection: boolean;
+            /** @description Required acknowledgement of service terms, security controls, and audit-log processing needed to operate the console. */
+            terms_of_service: boolean;
+        };
+        /** @description Current required first-login privacy/terms consent status. */
+        PrivacyConsentStatusResponse: {
+            /** @description Current required privacy/terms notice version. */
+            policy_version: string;
+            /** @description True when the authenticated user has accepted the current version. */
+            accepted: boolean;
+            /**
+             * Format: date-time
+             * @description UTC timestamp of the latest acceptance for the current version.
+             */
+            accepted_at?: string | null;
         };
         PasskeyLoginStartResponse: {
             ceremony_id: components["schemas"]["Uuid"];

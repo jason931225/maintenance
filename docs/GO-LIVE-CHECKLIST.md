@@ -64,6 +64,12 @@ infra + secrets) · **경영/법무** = business/legal (filings, approvals).
   production.
 - [ ] **개인정보 처리방침 / 위치정보 이용약관** published and consent copy
   legally reviewed — 경영/법무.
+- [x] **Engineering consent controls wired** — Eng. Console initial login now
+  blocks first passkey enrollment until the current required 개인정보 수집·이용
+  notice and service terms are accepted as separate required items; acceptance is
+  tenant-scoped audit evidence. Public storefront has a cookie/privacy notice and
+  footer copyright/version. This does **not** replace the 경영/법무 sign-off item
+  above.
 
 ## 3. Infrastructure & deployment — 운영
 

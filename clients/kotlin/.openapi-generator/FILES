@@ -183,6 +183,8 @@ src/main/kotlin/com/maintenance/api/client/model/Period.kt
 src/main/kotlin/com/maintenance/api/client/model/PrepareExpenditureRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PresignedUpload.kt
 src/main/kotlin/com/maintenance/api/client/model/PriorityLevel.kt
+src/main/kotlin/com/maintenance/api/client/model/PrivacyConsentAcceptRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/PrivacyConsentStatusResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/ProcessingStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/PurchaseRequestSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/PurchaseStatus.kt

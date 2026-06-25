@@ -40,6 +40,9 @@ const equipmentLookup: components["schemas"]["EquipmentLookupResponse"] = {
   status: "rented",
   specification: "좌식",
   ton_text: "2.5T",
+  maker: "현대",
+  vin: null,
+  vehicle_registration_no: null,
   customer: { id: "c1", name: "케이앤엘" },
   site: { id: "s1", name: "본사" },
 };

@@ -144,6 +144,7 @@ describe("InspectionPage", () => {
     expect(screen.getByText(/본사현장/)).toBeVisible();
     // The assigned mechanic renders by display name (never a raw UUID).
     expect(screen.getByText(/홍정비/)).toBeVisible();
+    expect(screen.queryByLabelText("담당 정비사")).not.toBeInTheDocument();
 
     // Branch picker: type to filter, then pick the human-named option.
     await user.type(screen.getByLabelText("지점"), "창원");
@@ -154,7 +155,7 @@ describe("InspectionPage", () => {
     await user.click(await screen.findByRole("option", { name: /290/ }));
 
     // Mechanic picker: filter and select the assigned mechanic by name.
-    await user.type(screen.getByLabelText("담당 정비사"), "홍정비");
+    await user.type(screen.getByLabelText("정비사"), "홍정비");
     await user.click(await screen.findByRole("option", { name: /홍정비/ }));
 
     await user.click(screen.getByRole("button", { name: "일정 등록" }));

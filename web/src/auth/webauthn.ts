@@ -133,6 +133,10 @@ type AdminCredentialResetRequest =
   components["schemas"]["AdminCredentialResetRequest"];
 type AdminCredentialResetResponse =
   components["schemas"]["AdminCredentialResetResponse"];
+type PrivacyConsentAcceptRequest =
+  components["schemas"]["PrivacyConsentAcceptRequest"];
+type PrivacyConsentStatusResponse =
+  components["schemas"]["PrivacyConsentStatusResponse"];
 
 /**
  * Admin-only account recovery: revoke ALL of a user's passkeys AND mint a fresh
@@ -147,6 +151,28 @@ export async function resetUserCredentials(
     body,
   });
   return requireData<AdminCredentialResetResponse>(result.data);
+}
+
+/**
+ * Required initial-login Korean privacy/terms gate. The backend stores the
+ * acceptance as a tenant-scoped audit event before any zero-passkey user can
+ * enroll a passkey.
+ */
+export async function getPrivacyConsentStatus(
+  api: WebAuthnApi,
+): Promise<PrivacyConsentStatusResponse> {
+  const result = await api.POST("/api/v1/auth/privacy-consent/status", {});
+  return requireData<PrivacyConsentStatusResponse>(result.data);
+}
+
+export async function acceptPrivacyConsent(
+  api: WebAuthnApi,
+  body: PrivacyConsentAcceptRequest,
+): Promise<PrivacyConsentStatusResponse> {
+  const result = await api.POST("/api/v1/auth/privacy-consent/accept", {
+    body,
+  });
+  return requireData<PrivacyConsentStatusResponse>(result.data);
 }
 
 type EnrollHandoffResponse = components["schemas"]["EnrollHandoffResponse"];

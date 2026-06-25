@@ -48,6 +48,9 @@ export const equipmentLookup: components["schemas"]["EquipmentLookupResponse"] =
     status: "임대",
     specification: "좌식",
     ton_text: "2.5",
+    maker: "현대",
+    vin: null,
+    vehicle_registration_no: null,
     customer: {
       id: "55555555-5555-4555-8555-555555555555",
       name: "케이앤엘",

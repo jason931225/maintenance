@@ -144,7 +144,36 @@ export const ko = {
   onboarding: {
     title: "패스키 등록",
     subtitle:
-      "다음 로그인부터 코드 없이 바로 로그인할 수 있도록 패스키를 등록하세요. 등록 위치를 선택하세요.",
+      "첫 로그인 설정을 완료하려면 필수 개인정보 수집·이용 및 서비스 약관 동의 후 패스키를 등록하세요.",
+    privacy: {
+      title: "필수 개인정보 수집·이용 및 약관 동의",
+      intro:
+        "계정 활성화와 서비스 보안을 위해 아래 필수 항목을 확인하고 각각 동의해야 합니다.",
+      purposeTitle: "수집·이용 목적",
+      purpose:
+        "계정 인증, 조직·지점·역할 권한 확인, 작업 배정, 서비스 보안, 장애 대응 및 감사 기록 관리",
+      itemsTitle: "수집 항목",
+      items:
+        "이름, 이메일 또는 연락처, 소속 조직·지점·역할, 로그인·패스키·기기 식별 정보, 접속 및 감사 기록",
+      retentionTitle: "보유 및 이용 기간",
+      retention:
+        "계정 이용 기간 동안 보관하며, 퇴사·계정 삭제 후에는 법령 준수, 분쟁 대응, 감사 보존에 필요한 범위에서만 분리 보관 후 파기합니다.",
+      refusalTitle: "동의 거부권 및 불이익",
+      refusal:
+        "필수 동의를 거부할 수 있으나, 거부하면 계정 활성화, 패스키 등록, 콘솔 서비스 이용을 진행할 수 없습니다.",
+      privacyCheckbox:
+        "[필수] 개인정보 수집·이용 안내를 확인했고 동의합니다.",
+      termsCheckbox:
+        "[필수] 서비스 이용약관과 보안·감사 로그 처리를 확인했습니다.",
+      optionalNote:
+        "광고·마케팅 동의와 현장 위치정보 동의는 이 화면에서 받지 않으며, 필요한 경우 별도 화면에서 선택적으로 안내합니다.",
+      submit: "필수 동의 후 계속",
+      submitting: "동의 저장 중",
+      loading: "동의 상태를 확인하는 중",
+      loadFailed: "동의 상태를 확인하지 못했습니다. 다시 시도하세요.",
+      acceptFailed: "필수 동의를 저장하지 못했습니다. 다시 시도하세요.",
+      retry: "다시 확인",
+    },
     enrolling: "등록 중",
     enrollingHint: "브라우저 안내에 따라 패스키를 등록하세요.",
     enrollFailed: "패스키 등록에 실패했습니다. 다시 시도하세요.",
@@ -1184,6 +1213,12 @@ export const ko = {
     updateFailed: "장비 정보를 수정하지 못했습니다.",
     deleteFailed: "장비를 폐기하지 못했습니다.",
     searchToManage: "수정·폐기할 장비를 호기 번호로 검색하세요.",
+    reference: {
+      help: "목록에서 선택하거나 새 값을 입력해 저장할 수 있습니다.",
+      useNewValue: "새 값으로 저장: {value}",
+      derivedFromModel:
+        "모델을 선택하면 기존 장비와 일치하는 제조사·규격·톤수를 자동으로 채웁니다.",
+    },
     fields: {
       equipmentNo: "호기 번호",
       customerName: "고객명",
@@ -1286,7 +1321,7 @@ export const ko = {
       branchPlaceholder: "지점을 검색하세요.",
       equipment: "장비 (호기 번호)",
       equipmentPlaceholder: "관리 번호 또는 모델로 검색하세요.",
-      mechanic: "담당 정비사",
+      mechanic: "정비사",
       mechanicPlaceholder: "정비사를 검색하세요.",
       cycle: "주기",
       intervalDays: "주기(일)",
@@ -1334,6 +1369,8 @@ export const ko = {
     createTitle: "계획 작성",
     mechanic: "담당 정비사",
     mechanicPlaceholder: "정비사를 선택하세요.",
+    mechanicAdmin: "정비사",
+    mechanicAdminPlaceholder: "정비사를 선택하세요.",
     planDate: "계획 일자",
     items: "작업 항목",
     itemDescription: "작업 내용",
@@ -1356,6 +1393,7 @@ export const ko = {
     statusLabel: "계획 상태",
     noPlan: "작성된 계획이 없습니다. 새 계획을 작성하세요.",
     needMechanic: "담당 정비사를 선택하세요.",
+    needMechanicAdmin: "정비사를 선택하세요.",
     needItem: "작업 항목을 한 개 이상 입력하세요.",
     createFailed: "계획을 생성하지 못했습니다.",
     requestFailed: "검토 요청을 보내지 못했습니다.",
@@ -1734,7 +1772,7 @@ export const ko = {
       submitted: "접수가 완료되었습니다.",
       submittedDetail: "담당자가 확인 후 빠르게 연락드리겠습니다. 접수 내용은 등록하신 연락처로 안내됩니다.",
       another: "새 접수 작성",
-      phoneFallbackLabel: "급한 경우 전화 상담",
+      phoneFallbackLabel: "전화 상담",
       phoneFallback: SALES_PHONE_DISPLAY,
       phoneFallbackHref: SALES_PHONE_HREF,
     },
@@ -2121,6 +2159,7 @@ export const ko = {
       maintenance: "정비",
       about: "회사소개",
       contact: "고객센터",
+      privacy: "개인정보·쿠키 안내",
       phoneLabel: "사업 문의",
       phoneHref: SALES_PHONE_HREF,
       openMenu: "메뉴 열기",
@@ -2147,8 +2186,55 @@ export const ko = {
         console: "운영자 로그인",
       },
       family: {
-        koss: "COSS",
-        bestec: "Bestec",
+        coss: "COSS",
+        bestec: "Bestec Family Site",
+      },
+      copyright: "© {year} KNL. 모든 권리 보유.",
+      version: "버전 v{version}",
+    },
+    cookie: {
+      aria: "쿠키 안내",
+      title: "쿠키 및 저장소 안내",
+      body: "이 웹사이트는 문의 접수와 보안에 필요한 필수 쿠키·브라우저 저장소만 사용합니다. 광고·마케팅 쿠키나 분석 도구는 별도 동의 없이 사용하지 않습니다.",
+      details: "자세히 보기",
+      accept: "확인",
+    },
+    privacyNotice: {
+      hero: {
+        eyebrow: "Privacy & Cookies",
+        title: "개인정보·쿠키 안내",
+        copy: "KNL 공개 웹사이트와 운영 콘솔의 필수 개인정보 처리, 보안 기록, 쿠키 사용 방침을 한곳에서 확인합니다.",
+      },
+      required: {
+        eyebrow: "Initial Login",
+        title: "초기 로그인 필수 동의",
+        copy: "콘솔 최초 로그인 시 계정 인증, 조직·지점·역할 권한 확인, 서비스 보안, 장애 대응 및 감사 기록 관리를 위해 필요한 개인정보 수집·이용 안내와 서비스 약관을 각각 확인하고 동의해야 합니다.",
+        itemsTitle: "필수 처리 항목",
+        items:
+          "이름, 이메일 또는 연락처, 소속 조직·지점·역할, 로그인·패스키·기기 식별 정보, 접속 및 감사 기록",
+        retentionTitle: "보유 및 거부 안내",
+        retention:
+          "계정 이용 기간 동안 보관하며, 계정 삭제 후에는 법령 준수·분쟁 대응·감사 보존에 필요한 범위에서만 분리 보관 후 파기합니다. 필수 동의를 거부할 수 있으나 콘솔 계정 활성화와 패스키 등록은 진행할 수 없습니다.",
+      },
+      cookies: {
+        eyebrow: "Cookies",
+        title: "필수 쿠키와 브라우저 저장소만 사용",
+        copy: "공개 웹사이트는 쿠키 안내 확인 상태처럼 서비스 제공에 필요한 브라우저 저장소만 사용합니다. 운영 콘솔의 로그인 유지 쿠키는 HttpOnly 보안 쿠키로 처리되며, 광고·마케팅 쿠키 또는 분석 도구는 별도 동의 없이 사용하지 않습니다.",
+      },
+      location: {
+        eyebrow: "Location",
+        title: "위치정보는 별도 선택 동의",
+        copy: "현장 도착 확인 등 위치 기반 기능은 콘솔의 별도 위치정보 동의 화면에서 수집 목적, 항목, 보유 기간, 철회 방법을 안내한 뒤 선택적으로 동의받습니다.",
+      },
+      security: {
+        eyebrow: "Security",
+        title: "보안 및 접속 기록",
+        copy: "인증 실패, 패스키 등록, 권한 변경, 주요 업무 처리 기록은 보안 사고 예방, 부정 이용 탐지, 장애 대응, 감사 추적을 위해 최소 범위로 기록합니다.",
+      },
+      formalPolicy: {
+        eyebrow: "Release Gate",
+        title: "정식 정책 게시 전 확인 사항",
+        copy: "운영 배포 전 개인정보 처리방침, 서비스 이용약관, 위치정보 약관, 쿠키 고지 문구는 법무·보안 검토 후 최신 게시본으로 확정해야 합니다.",
       },
     },
     home: {

@@ -53,6 +53,27 @@ function renderApp(path: string, ctx: AuthContextValue) {
   );
 }
 
+function usePrivacyConsentHandlers(initialAccepted = false) {
+  let accepted = initialAccepted;
+  server.use(
+    http.post("*/api/v1/auth/privacy-consent/status", () =>
+      HttpResponse.json({
+        policy_version: "kr-pipa-v1-2026-06-25",
+        accepted,
+        accepted_at: accepted ? "2026-06-25T00:00:00Z" : null,
+      }),
+    ),
+    http.post("*/api/v1/auth/privacy-consent/accept", () => {
+      accepted = true;
+      return HttpResponse.json({
+        policy_version: "kr-pipa-v1-2026-06-25",
+        accepted: true,
+        accepted_at: "2026-06-25T00:00:00Z",
+      });
+    }),
+  );
+}
+
 describe("LoginPage sign-in", () => {
   it("shows a sign-in card with a primary passkey button and no UUID field", () => {
     renderApp("/login", makeAuthContext({}));
@@ -134,6 +155,7 @@ describe("LoginPage sign-in", () => {
 
 describe("requires_passkey_setup routing", () => {
   it("forces an OTP-first session into /onboarding", async () => {
+    usePrivacyConsentHandlers();
     const session: AuthSession = {
       access_token: "a",
       requires_passkey_setup: true,
@@ -142,6 +164,12 @@ describe("requires_passkey_setup routing", () => {
 
     expect(
       await screen.findByRole("heading", { name: "패스키 등록", level: 1 }),
+    ).toBeVisible();
+    expect(
+      await screen.findByRole("heading", {
+        name: "필수 개인정보 수집·이용 및 약관 동의",
+        level: 2,
+      }),
     ).toBeVisible();
   });
 });
@@ -176,9 +204,45 @@ describe("admin security page gating", () => {
 });
 
 describe("OnboardingPage enrollment", () => {
+  it("blocks enrollment until the two required agreements are accepted separately", async () => {
+    const user = userEvent.setup();
+    usePrivacyConsentHandlers(false);
+
+    renderApp(
+      "/onboarding",
+      makeAuthContext({
+        session: {
+          access_token: "a",
+          requires_passkey_setup: true,
+        },
+      }),
+    );
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "필수 개인정보 수집·이용 및 약관 동의",
+        level: 2,
+      }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: /이 기기/ })).toBeNull();
+
+    const submit = screen.getByRole("button", { name: "필수 동의 후 계속" });
+    expect(submit).toBeDisabled();
+    await user.click(screen.getByLabelText(/\[필수\] 개인정보 수집·이용/));
+    expect(submit).toBeDisabled();
+    await user.click(screen.getByLabelText(/\[필수\] 서비스 이용약관/));
+    expect(submit).toBeEnabled();
+    await user.click(submit);
+
+    expect(
+      await screen.findByRole("button", { name: /이 기기/ }),
+    ).toBeVisible();
+  });
+
   it("enrolls a passkey then clears the flag and continues", async () => {
     const user = userEvent.setup();
     const clearPasskeySetup = vi.fn();
+    usePrivacyConsentHandlers(true);
 
     class FakeAttestationResponse {
       attestationObject = Uint8Array.from([1]).buffer;
@@ -241,6 +305,7 @@ describe("OnboardingPage enrollment", () => {
   });
 
   it("offers exactly the this-device and phone-QR enrollment methods", async () => {
+    usePrivacyConsentHandlers(true);
     renderApp(
       "/onboarding",
       makeAuthContext({
@@ -266,6 +331,7 @@ describe("OnboardingPage enrollment", () => {
   it("renders a QR handoff when the phone-QR method is chosen", async () => {
     const user = userEvent.setup();
     let handoffCalls = 0;
+    usePrivacyConsentHandlers(true);
     server.use(
       http.post("*/api/v1/auth/passkey/enroll-handoff", () => {
         handoffCalls += 1;

@@ -36,6 +36,9 @@ const equipment: EquipmentLookupResponse = {
   status: "rented",
   specification: "좌식",
   ton_text: "2.5T",
+  maker: "현대",
+  vin: null,
+  vehicle_registration_no: null,
   customer: { id: "c1", name: "케이앤엘" },
   site: { id: "s1", name: "본사" },
 };
@@ -159,6 +162,7 @@ describe("EquipmentManagementPanel", () => {
     await user.click(await screen.findByRole("button", { name: "D-25-290 수정" }));
 
     const customerInput = screen.getByLabelText("고객명");
+    await user.clear(customerInput);
     await user.type(customerInput, "변경고객");
     await user.click(screen.getByRole("button", { name: "저장" }));
 
@@ -170,6 +174,30 @@ describe("EquipmentManagementPanel", () => {
         }),
       );
     });
+  });
+
+  it("uses reference dropdowns and derives known fields from the selected model", async () => {
+    const user = userEvent.setup();
+    server.use(...searchHandlers());
+
+    renderApp(makeAuthContext(adminSession));
+    await typeSearch(user);
+    await user.click(await screen.findByRole("button", { name: "장비 등록" }));
+
+    await user.click(screen.getByLabelText("모델"));
+    await user.click(await screen.findByRole("option", { name: "GTS25DE" }));
+
+    expect(screen.getByLabelText("제조사")).toHaveValue("현대");
+    expect(screen.getByLabelText("규격")).toHaveValue("좌식");
+    expect(screen.getByLabelText("톤수")).toHaveValue("2.5T");
+
+    await user.click(screen.getByLabelText("고객명"));
+    await user.click(await screen.findByRole("option", { name: "케이앤엘" }));
+    expect(screen.getByLabelText("고객명")).toHaveValue("케이앤엘");
+
+    await user.click(screen.getByLabelText("현장명"));
+    await user.click(await screen.findByRole("option", { name: "본사" }));
+    expect(screen.getByLabelText("현장명")).toHaveValue("본사");
   });
 
   it("soft-deletes equipment behind a confirm dialog", async () => {

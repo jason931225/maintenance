@@ -25,6 +25,7 @@ import UsedSalesPage from "./pages/UsedSalesPage";
 import MaintenancePage from "./pages/MaintenancePage";
 import AboutPage from "./pages/AboutPage";
 import ContactPage from "./pages/ContactPage";
+import PrivacyNoticePage from "./pages/PrivacyNoticePage";
 import PlatformFsmPage from "./pages/PlatformFsmPage";
 
 // Authenticated-shell pages are code-split so the login / wallboard / public
@@ -163,6 +164,7 @@ export function AppRouter() {
         <Route path="/maintenance" element={<MaintenancePage />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="/contact" element={<ContactPage />} />
+        <Route path="/privacy" element={<PrivacyNoticePage />} />
         {/* Public FSM-platform showcase. The gated console owns /platform; this
             public marketing surface is mounted at /platform-fsm so it stays
             unauthenticated. */}

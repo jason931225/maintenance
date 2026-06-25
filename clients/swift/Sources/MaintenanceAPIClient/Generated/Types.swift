@@ -397,6 +397,20 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/auth/passkey/enroll-handoff`.
     /// - Remark: Generated from `#/paths//api/v1/auth/passkey/enroll-handoff/post`.
     func postApiV1AuthPasskeyEnrollHandoff(_ input: Operations.PostApiV1AuthPasskeyEnrollHandoff.Input) async throws -> Operations.PostApiV1AuthPasskeyEnrollHandoff.Output
+    /// Read required first-login privacy consent status
+    ///
+    /// Returns whether the authenticated user has accepted the current required Korean privacy collection/use notice and service terms version. This status is checked before initial passkey enrollment. Optional marketing consent and GPS/location consent are not bundled here and remain separate flows.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/privacy-consent/status`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/privacy-consent/status/post`.
+    func postApiV1AuthPrivacyConsentStatus(_ input: Operations.PostApiV1AuthPrivacyConsentStatus.Input) async throws -> Operations.PostApiV1AuthPrivacyConsentStatus.Output
+    /// Accept required first-login privacy terms
+    ///
+    /// Persists the authenticated user's required initial-login acknowledgement of the privacy collection/use notice and service terms as a tenant-scoped audit event. Both required agreements must be accepted explicitly; optional marketing and GPS/location consent are excluded.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/privacy-consent/accept`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/privacy-consent/accept/post`.
+    func postApiV1AuthPrivacyConsentAccept(_ input: Operations.PostApiV1AuthPrivacyConsentAccept.Input) async throws -> Operations.PostApiV1AuthPrivacyConsentAccept.Output
     /// Rotate refresh token
     ///
     /// Rotates an opaque refresh token; reuse of an old token revokes the whole family and returns 401.
@@ -1795,6 +1809,30 @@ extension APIProtocol {
         body: Operations.PostApiV1AuthPasskeyEnrollHandoff.Input.Body? = nil
     ) async throws -> Operations.PostApiV1AuthPasskeyEnrollHandoff.Output {
         try await postApiV1AuthPasskeyEnrollHandoff(Operations.PostApiV1AuthPasskeyEnrollHandoff.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Read required first-login privacy consent status
+    ///
+    /// Returns whether the authenticated user has accepted the current required Korean privacy collection/use notice and service terms version. This status is checked before initial passkey enrollment. Optional marketing consent and GPS/location consent are not bundled here and remain separate flows.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/privacy-consent/status`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/privacy-consent/status/post`.
+    public func postApiV1AuthPrivacyConsentStatus(headers: Operations.PostApiV1AuthPrivacyConsentStatus.Input.Headers = .init()) async throws -> Operations.PostApiV1AuthPrivacyConsentStatus.Output {
+        try await postApiV1AuthPrivacyConsentStatus(Operations.PostApiV1AuthPrivacyConsentStatus.Input(headers: headers))
+    }
+    /// Accept required first-login privacy terms
+    ///
+    /// Persists the authenticated user's required initial-login acknowledgement of the privacy collection/use notice and service terms as a tenant-scoped audit event. Both required agreements must be accepted explicitly; optional marketing and GPS/location consent are excluded.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/privacy-consent/accept`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/privacy-consent/accept/post`.
+    public func postApiV1AuthPrivacyConsentAccept(
+        headers: Operations.PostApiV1AuthPrivacyConsentAccept.Input.Headers = .init(),
+        body: Operations.PostApiV1AuthPrivacyConsentAccept.Input.Body
+    ) async throws -> Operations.PostApiV1AuthPrivacyConsentAccept.Output {
+        try await postApiV1AuthPrivacyConsentAccept(Operations.PostApiV1AuthPrivacyConsentAccept.Input(
             headers: headers,
             body: body
         ))
@@ -6827,6 +6865,80 @@ public enum Components {
                 case otp
                 case expiresAt = "expires_at"
                 case enrollUrl = "enroll_url"
+            }
+        }
+        /// Required initial-login Korean privacy collection/use and service-terms acknowledgement. These required agreements are explicit booleans so the client cannot bundle them into one generic "agree all" flag. Optional marketing consent and GPS/location consent are not collected by this request.
+        ///
+        /// - Remark: Generated from `#/components/schemas/PrivacyConsentAcceptRequest`.
+        public struct PrivacyConsentAcceptRequest: Codable, Hashable, Sendable {
+            /// Required privacy/terms notice version being accepted.
+            ///
+            /// - Remark: Generated from `#/components/schemas/PrivacyConsentAcceptRequest/policy_version`.
+            public var policyVersion: Swift.String
+            /// Required acknowledgement of collection/use purpose, items, retention period, refusal right, and refusal consequence.
+            ///
+            /// - Remark: Generated from `#/components/schemas/PrivacyConsentAcceptRequest/privacy_collection`.
+            public var privacyCollection: Swift.Bool
+            /// Required acknowledgement of service terms, security controls, and audit-log processing needed to operate the console.
+            ///
+            /// - Remark: Generated from `#/components/schemas/PrivacyConsentAcceptRequest/terms_of_service`.
+            public var termsOfService: Swift.Bool
+            /// Creates a new `PrivacyConsentAcceptRequest`.
+            ///
+            /// - Parameters:
+            ///   - policyVersion: Required privacy/terms notice version being accepted.
+            ///   - privacyCollection: Required acknowledgement of collection/use purpose, items, retention period, refusal right, and refusal consequence.
+            ///   - termsOfService: Required acknowledgement of service terms, security controls, and audit-log processing needed to operate the console.
+            public init(
+                policyVersion: Swift.String,
+                privacyCollection: Swift.Bool,
+                termsOfService: Swift.Bool
+            ) {
+                self.policyVersion = policyVersion
+                self.privacyCollection = privacyCollection
+                self.termsOfService = termsOfService
+            }
+            public enum CodingKeys: String, CodingKey {
+                case policyVersion = "policy_version"
+                case privacyCollection = "privacy_collection"
+                case termsOfService = "terms_of_service"
+            }
+        }
+        /// Current required first-login privacy/terms consent status.
+        ///
+        /// - Remark: Generated from `#/components/schemas/PrivacyConsentStatusResponse`.
+        public struct PrivacyConsentStatusResponse: Codable, Hashable, Sendable {
+            /// Current required privacy/terms notice version.
+            ///
+            /// - Remark: Generated from `#/components/schemas/PrivacyConsentStatusResponse/policy_version`.
+            public var policyVersion: Swift.String
+            /// True when the authenticated user has accepted the current version.
+            ///
+            /// - Remark: Generated from `#/components/schemas/PrivacyConsentStatusResponse/accepted`.
+            public var accepted: Swift.Bool
+            /// UTC timestamp of the latest acceptance for the current version.
+            ///
+            /// - Remark: Generated from `#/components/schemas/PrivacyConsentStatusResponse/accepted_at`.
+            public var acceptedAt: Foundation.Date?
+            /// Creates a new `PrivacyConsentStatusResponse`.
+            ///
+            /// - Parameters:
+            ///   - policyVersion: Current required privacy/terms notice version.
+            ///   - accepted: True when the authenticated user has accepted the current version.
+            ///   - acceptedAt: UTC timestamp of the latest acceptance for the current version.
+            public init(
+                policyVersion: Swift.String,
+                accepted: Swift.Bool,
+                acceptedAt: Foundation.Date? = nil
+            ) {
+                self.policyVersion = policyVersion
+                self.accepted = accepted
+                self.acceptedAt = acceptedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case policyVersion = "policy_version"
+                case accepted
+                case acceptedAt = "accepted_at"
             }
         }
         /// - Remark: Generated from `#/components/schemas/PasskeyLoginStartResponse`.
@@ -25345,6 +25457,310 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Read required first-login privacy consent status
+    ///
+    /// Returns whether the authenticated user has accepted the current required Korean privacy collection/use notice and service terms version. This status is checked before initial passkey enrollment. Optional marketing consent and GPS/location consent are not bundled here and remain separate flows.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/privacy-consent/status`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/privacy-consent/status/post`.
+    public enum PostApiV1AuthPrivacyConsentStatus {
+        public static let id: Swift.String = "post/api/v1/auth/privacy-consent/status"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/auth/privacy-consent/status/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PostApiV1AuthPrivacyConsentStatus.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PostApiV1AuthPrivacyConsentStatus.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.PostApiV1AuthPrivacyConsentStatus.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.PostApiV1AuthPrivacyConsentStatus.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/privacy-consent/status/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/auth/privacy-consent/status/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PrivacyConsentStatusResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PrivacyConsentStatusResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PostApiV1AuthPrivacyConsentStatus.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PostApiV1AuthPrivacyConsentStatus.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Current required privacy consent status.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/privacy-consent/status/post/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.PostApiV1AuthPrivacyConsentStatus.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.PostApiV1AuthPrivacyConsentStatus.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/privacy-consent/status/post/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Accept required first-login privacy terms
+    ///
+    /// Persists the authenticated user's required initial-login acknowledgement of the privacy collection/use notice and service terms as a tenant-scoped audit event. Both required agreements must be accepted explicitly; optional marketing and GPS/location consent are excluded.
+    ///
+    /// - Remark: HTTP `POST /api/v1/auth/privacy-consent/accept`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/privacy-consent/accept/post`.
+    public enum PostApiV1AuthPrivacyConsentAccept {
+        public static let id: Swift.String = "post/api/v1/auth/privacy-consent/accept"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/auth/privacy-consent/accept/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PostApiV1AuthPrivacyConsentAccept.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PostApiV1AuthPrivacyConsentAccept.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.PostApiV1AuthPrivacyConsentAccept.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/auth/privacy-consent/accept/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/privacy-consent/accept/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.PrivacyConsentAcceptRequest)
+            }
+            public var body: Operations.PostApiV1AuthPrivacyConsentAccept.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.PostApiV1AuthPrivacyConsentAccept.Input.Headers = .init(),
+                body: Operations.PostApiV1AuthPrivacyConsentAccept.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/privacy-consent/accept/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/auth/privacy-consent/accept/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PrivacyConsentStatusResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PrivacyConsentStatusResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PostApiV1AuthPrivacyConsentAccept.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PostApiV1AuthPrivacyConsentAccept.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The accepted current required privacy consent status.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/privacy-consent/accept/post/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.PostApiV1AuthPrivacyConsentAccept.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.PostApiV1AuthPrivacyConsentAccept.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/privacy-consent/accept/post/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/privacy-consent/accept/post/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
                             response: self
                         )
                     }

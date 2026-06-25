@@ -2006,6 +2006,50 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '409':
           $ref: '#/components/responses/Conflict'
+  /api/v1/auth/privacy-consent/status:
+    post:
+      summary: Read required first-login privacy consent status
+      description: Returns whether the authenticated user has accepted the current
+        required Korean privacy collection/use notice and service terms version.
+        This status is checked before initial passkey enrollment. Optional marketing
+        consent and GPS/location consent are not bundled here and remain separate flows.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current required privacy consent status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrivacyConsentStatusResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/privacy-consent/accept:
+    post:
+      summary: Accept required first-login privacy terms
+      description: Persists the authenticated user's required initial-login
+        acknowledgement of the privacy collection/use notice and service terms as
+        a tenant-scoped audit event. Both required agreements must be accepted
+        explicitly; optional marketing and GPS/location consent are excluded.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrivacyConsentAcceptRequest'
+      responses:
+        '200':
+          description: The accepted current required privacy consent status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrivacyConsentStatusResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/v1/auth/token/refresh:
     post:
       summary: Rotate refresh token
@@ -6812,6 +6856,48 @@ components:
           type: string
           description: The console enrollment URL embedding the handoff code as a query parameter
             (`{origin}/login?otp=<code>`), to be rendered as a QR and scanned on a phone.
+    PrivacyConsentAcceptRequest:
+      type: object
+      description: >-
+        Required initial-login Korean privacy collection/use and service-terms
+        acknowledgement. These required agreements are explicit booleans so the
+        client cannot bundle them into one generic "agree all" flag. Optional
+        marketing consent and GPS/location consent are not collected by this
+        request.
+      required:
+      - policy_version
+      - privacy_collection
+      - terms_of_service
+      properties:
+        policy_version:
+          type: string
+          description: Required privacy/terms notice version being accepted.
+        privacy_collection:
+          type: boolean
+          description: Required acknowledgement of collection/use purpose, items,
+            retention period, refusal right, and refusal consequence.
+        terms_of_service:
+          type: boolean
+          description: Required acknowledgement of service terms, security controls,
+            and audit-log processing needed to operate the console.
+    PrivacyConsentStatusResponse:
+      type: object
+      description: Current required first-login privacy/terms consent status.
+      required:
+      - policy_version
+      - accepted
+      properties:
+        policy_version:
+          type: string
+          description: Current required privacy/terms notice version.
+        accepted:
+          type: boolean
+          description: True when the authenticated user has accepted the current version.
+        accepted_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: UTC timestamp of the latest acceptance for the current version.
     PasskeyLoginStartResponse:
       type: object
       required:

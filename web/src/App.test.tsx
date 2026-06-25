@@ -102,6 +102,7 @@ const server = setupServer(
 beforeAll(() => { server.listen({ onUnhandledRequest: "error" }); });
 afterEach(() => {
   server.resetHandlers();
+  window.localStorage.removeItem("knl_cookie_notice_v1");
   listRequests.length = 0;
   kpiRequests.length = 0;
   autocompleteRequests.length = 0;
@@ -246,6 +247,52 @@ describe("routing", () => {
     expect(
       (await screen.findAllByText("지게차 렌탈·정비·운영을 하나로"))[0],
     ).toBeVisible();
+  });
+
+  it("shows the public cookie notice until acknowledged", async () => {
+    const user = userEvent.setup();
+    renderAt("/");
+
+    const notice = await screen.findByRole("region", { name: "쿠키 안내" });
+    expect(notice).toBeVisible();
+    expect(
+      within(notice).getByRole("link", { name: "자세히 보기" }),
+    ).toHaveAttribute("href", "/privacy");
+
+    await user.click(within(notice).getByRole("button", { name: "확인" }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("region", { name: "쿠키 안내" }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("renders the public privacy notice page", async () => {
+    renderAt("/privacy");
+    expect(
+      await screen.findByRole("heading", {
+        name: "개인정보·쿠키 안내",
+        level: 1,
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "초기 로그인 필수 동의", level: 2 }),
+    ).toBeVisible();
+  });
+
+  it("renders footer legal/version text and family-site links", async () => {
+    renderAt("/");
+
+    expect(await screen.findByText(/© \d{4} KNL/)).toBeVisible();
+    expect(screen.getByText("버전 v0.1.0")).toBeVisible();
+    expect(screen.getByRole("link", { name: "COSS" })).toHaveAttribute(
+      "href",
+      "https://www.cossok.com/",
+    );
+    expect(
+      screen.getByRole("link", { name: "Bestec Family Site" }),
+    ).toHaveAttribute("href", "https://www.bestec-kr.com/");
   });
 
   it("renders the public /platform-fsm showcase", async () => {

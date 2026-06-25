@@ -8,6 +8,12 @@ const port = Number(process.env.OPENAPI_DRIFT_PORT ?? "18080");
 const baseUrl = `http://127.0.0.1:${port}`;
 const expected = readFileSync(resolve(root, "backend/openapi/openapi.yaml"), "utf8");
 
+await runCommand("cargo", ["build", "-p", "mnt-app"], {
+  cwd: backendDir,
+  env: process.env,
+  label: "cargo build -p mnt-app",
+});
+
 const child = spawn("cargo", ["run", "-p", "mnt-app", "--quiet"], {
   cwd: backendDir,
   env: {
@@ -64,4 +70,27 @@ async function waitForApp(url) {
     await new Promise((resolveTimer) => setTimeout(resolveTimer, 500));
   }
   throw new Error(`Timed out waiting for mnt-app\n${appOutput}`);
+}
+
+async function runCommand(command, args, options) {
+  const child = spawn(command, args, {
+    cwd: options.cwd,
+    env: options.env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  const capture = (chunk) => {
+    const text = chunk.toString();
+    output += text;
+    process.stderr.write(text);
+  };
+  child.stdout.on("data", capture);
+  child.stderr.on("data", capture);
+  const code = await new Promise((resolveCode, reject) => {
+    child.on("error", reject);
+    child.on("close", resolveCode);
+  });
+  if (code !== 0) {
+    throw new Error(`${options.label} exited with ${code}\n${output}`);
+  }
 }
