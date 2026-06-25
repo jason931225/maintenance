@@ -80,9 +80,9 @@ const mechanicSession: AuthSession = {
   branches: [branchId],
 };
 
-function listHandler() {
+function listHandler(rows: EquipmentListItem[] = [item]) {
   return http.get("*/api/v1/equipment/list", () =>
-    HttpResponse.json({ items: [item], total: 1, limit: 50, offset: 0 }),
+    HttpResponse.json({ items: rows, total: rows.length, limit: 50, offset: 0 }),
   );
 }
 
@@ -130,8 +130,19 @@ describe("EquipmentBrowsePage detail dialog", () => {
   it("lets a manager edit the equipment in place and PATCHes the change", async () => {
     const user = userEvent.setup();
     const patched = vi.fn();
+    const otherItem: EquipmentListItem = {
+      ...item,
+      equipment_id: "55555555-5555-4555-8555-555555555555",
+      equipment_no: "D-25-291",
+      model: "HDF30",
+      maker: "현대",
+      specification: "입식",
+      ton_text: "3.0T",
+      customer_name: "다른고객",
+      site_name: "다른현장",
+    };
     server.use(
-      listHandler(),
+      listHandler([item, otherItem]),
       http.patch("*/api/v1/equipment/:id", async ({ request, params }) => {
         patched({ id: params.id, body: await request.json() });
         return new HttpResponse(null, { status: 204 });
@@ -149,8 +160,17 @@ describe("EquipmentBrowsePage detail dialog", () => {
     await user.click(within(dialog).getByRole("button", { name: "수정" }));
 
     const customerInput = within(dialog).getByLabelText("고객명");
+    expect(customerInput).toHaveAttribute("list");
+    const listId = customerInput.getAttribute("list") ?? "";
+    expect(
+      document
+        .getElementById(listId)
+        ?.querySelector('option[value="다른고객"]'),
+    ).not.toBeNull();
     await user.clear(customerInput);
     await user.type(customerInput, "변경고객");
+    await user.clear(within(dialog).getByLabelText("규격"));
+    await user.type(within(dialog).getByLabelText("규격"), "입식");
 
     await user.click(within(dialog).getByRole("button", { name: "저장" }));
 
@@ -158,7 +178,10 @@ describe("EquipmentBrowsePage detail dialog", () => {
       expect(patched).toHaveBeenCalledWith(
         expect.objectContaining({
           id: equipmentId,
-          body: expect.objectContaining({ customer_name: "변경고객" }),
+          body: expect.objectContaining({
+            customer_name: "변경고객",
+            specification: "입식",
+          }),
         }),
       );
     });

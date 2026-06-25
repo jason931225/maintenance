@@ -362,6 +362,7 @@ export function EquipmentBrowsePage() {
         item={detailItem}
         canManage={canManage}
         api={api}
+        referenceItems={items}
         onClose={() => { setDetailItem(undefined); }}
         onUpdated={handleRowUpdated}
       />

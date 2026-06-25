@@ -34,6 +34,8 @@ interface EquipmentDetailDialogProps {
   onClose: () => void;
   /** Called with the patched row after a successful edit so the list refreshes. */
   onUpdated: (item: EquipmentListItem) => void;
+  /** Current page rows: enough reference data for native dropdown suggestions. */
+  referenceItems?: EquipmentListItem[];
 }
 
 type EditState = "idle" | "saving" | "error";
@@ -43,6 +45,8 @@ interface FormState {
   management_no: string;
   model: string;
   maker: string;
+  specification: string;
+  ton_text: string;
   customer_name: string;
   site_name: string;
   vin: string;
@@ -54,6 +58,8 @@ function seedForm(item: EquipmentListItem): FormState {
     management_no: item.management_no ?? "",
     model: item.model ?? "",
     maker: item.maker ?? "",
+    specification: item.specification,
+    ton_text: item.ton_text,
     customer_name: item.customer_name,
     site_name: item.site_name,
     vin: item.vin ?? "",
@@ -64,6 +70,16 @@ function seedForm(item: EquipmentListItem): FormState {
 function nullableTrim(value: string): string | null {
   const trimmed = value.trim();
   return trimmed.length === 0 ? null : trimmed;
+}
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ).sort((a, b) => a.localeCompare(b, "ko"));
 }
 
 function statusClassName(status: EquipmentStatus): string {
@@ -92,6 +108,7 @@ export function EquipmentDetailDialog({
   api,
   onClose,
   onUpdated,
+  referenceItems = [],
 }: EquipmentDetailDialogProps) {
   const titleId = useId();
   const [editing, setEditing] = useState(false);
@@ -115,6 +132,8 @@ export function EquipmentDetailDialog({
       status: form.status,
       customer_name: form.customer_name.trim() || undefined,
       site_name: form.site_name.trim() || undefined,
+      specification: form.specification.trim() || undefined,
+      ton_text: form.ton_text.trim() || undefined,
       management_no: nullableTrim(form.management_no),
       model: nullableTrim(form.model),
       maker: nullableTrim(form.maker),
@@ -140,15 +159,25 @@ export function EquipmentDetailDialog({
       management_no: body.management_no ?? null,
       model: body.model ?? null,
       maker: body.maker ?? null,
+      specification: body.specification ?? item.specification,
+      ton_text: body.ton_text ?? item.ton_text,
       vin: body.vin ?? null,
-      customer_name: form.customer_name.trim(),
-      site_name: form.site_name.trim(),
+      customer_name: body.customer_name ?? item.customer_name,
+      site_name: body.site_name ?? item.site_name,
     });
     setEditState("idle");
     setEditing(false);
   }
 
   if (!item) return null;
+
+  const suggestions = {
+    customers: uniqueStrings(referenceItems.map((row) => row.customer_name)),
+    sites: uniqueStrings(referenceItems.map((row) => row.site_name)),
+    makers: uniqueStrings(referenceItems.map((row) => row.maker)),
+    models: uniqueStrings(referenceItems.map((row) => row.model)),
+    specifications: uniqueStrings(referenceItems.map((row) => row.specification)),
+  };
 
   return (
     <Dialog
@@ -216,6 +245,7 @@ export function EquipmentDetailDialog({
               id={`${titleId}-model`}
               label={ko.equipment.detail.fields.model}
               value={form.model}
+              suggestions={suggestions.models}
               onChange={(v) => {
                 setField("model", v);
               }}
@@ -224,8 +254,26 @@ export function EquipmentDetailDialog({
               id={`${titleId}-maker`}
               label={ko.equipment.detail.fields.maker}
               value={form.maker}
+              suggestions={suggestions.makers}
               onChange={(v) => {
                 setField("maker", v);
+              }}
+            />
+            <EditField
+              id={`${titleId}-specification`}
+              label={ko.equipment.detail.fields.specification}
+              value={form.specification}
+              suggestions={suggestions.specifications}
+              onChange={(v) => {
+                setField("specification", v);
+              }}
+            />
+            <EditField
+              id={`${titleId}-ton-text`}
+              label={ko.equipment.detail.fields.tonText}
+              value={form.ton_text}
+              onChange={(v) => {
+                setField("ton_text", v);
               }}
             />
             <EditField
@@ -240,6 +288,7 @@ export function EquipmentDetailDialog({
               id={`${titleId}-customer-name`}
               label={ko.equipment.detail.fields.customerName}
               value={form.customer_name}
+              suggestions={suggestions.customers}
               onChange={(v) => {
                 setField("customer_name", v);
               }}
@@ -248,6 +297,7 @@ export function EquipmentDetailDialog({
               id={`${titleId}-site-name`}
               label={ko.equipment.detail.fields.siteName}
               value={form.site_name}
+              suggestions={suggestions.sites}
               onChange={(v) => {
                 setField("site_name", v);
               }}
@@ -382,10 +432,12 @@ interface EditFieldProps {
   id: string;
   label: string;
   value: string;
+  suggestions?: string[];
   onChange: (value: string) => void;
 }
 
-function EditField({ id, label, value, onChange }: EditFieldProps) {
+function EditField({ id, label, value, suggestions = [], onChange }: EditFieldProps) {
+  const listId = suggestions.length > 0 ? `${id}-suggestions` : undefined;
   return (
     <div className="grid gap-2">
       <label className="text-sm font-medium text-steel" htmlFor={id}>
@@ -393,11 +445,19 @@ function EditField({ id, label, value, onChange }: EditFieldProps) {
       </label>
       <Input
         id={id}
+        list={listId}
         value={value}
         onChange={(event) => {
           onChange(event.currentTarget.value);
         }}
       />
+      {listId ? (
+        <datalist id={listId}>
+          {suggestions.map((option) => (
+            <option key={option} value={option} />
+          ))}
+        </datalist>
+      ) : null}
     </div>
   );
 }
