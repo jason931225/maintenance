@@ -237,7 +237,7 @@ aid); ontology shared (`org_id IS NULL`) rows carry schema metadata only, never 
 
 ## 9. GitHub issue/comment intake (binding live-feedback ledger)
 
-**Last polled:** 2026-06-25T02:25:24Z (2026-06-24 22:25 EDT). Source of truth:
+**Last polled:** 2026-06-25T03:28:22Z (2026-06-24 23:28 EDT). Source of truth:
 open GitHub issues + issue comments in `jason931225/maintenance`. PR #21 currently has no comments/reviews;
 re-run this intake before every wave gate, before merging `feat/multi-tenant-phase1` to `main`,
 and before marking an issue-backed lane done.
@@ -257,7 +257,7 @@ and before marking an issue-backed lane done.
 |---|---|---|
 | [#18](https://github.com/jason931225/maintenance/issues/18) + latest comment | OTP issuance bug; region edit; customer/site creation; intake priority admin-setting; equipment search/list visibility after import. | L1 identity + L3 registry + L2 workorder; Q0/Q1 mnt_rt regressions. |
 | [#19](https://github.com/jason931225/maintenance/issues/19) comments 9-25 | Excel progress import; equipment detail popup; org chart + rank; corporation grouping; intake/approval visibility; FLMS import/export dependency; purchase-request + 거래명세표 upload/scan; sales listing autofill/photos/fields; spare/substitution recommendation; external inquiries → support; PM schedule cycle; inactive-user deletion/archive + PC/QR passkey flow. | L1/L2/L3/L5/L9/L10/L13/L18; Q0 first for broken live loops, then F-track maturity. |
-| [#20](https://github.com/jason931225/maintenance/issues/20) + comments | Site-scoped substitution dropdown; bulk OTP/passkey defects; duplicate-name/deactivated-user archival and role-revocation behavior; intake equipment validation bug; daily-plan equipment selection, plan detail view, auto-review submission, admin visibility; worksite-level org tree/personnel view; corporate governance workflow/approval graph needs (기안서, 구매요청서, 휴가신청서) without adopting the legacy "groupware" label. | L1 identity/auth, L2 workorder/daily plan, L3 registry, L4 dispatch, L13 HR/org tree + leave workflow, L15 ERP purchase workflow, L18 RBAC/approval graph. |
+| [#20](https://github.com/jason931225/maintenance/issues/20) + comments + 2026-06-25 operator field report | Site-scoped substitution dropdown; bulk OTP/passkey defects, including a live lost-device admin credential-reset failure that shows `패스키 재설정에 실패했습니다. 다시 시도하세요.` instead of issuing a replacement code; duplicate-name/deactivated-user archival and role-revocation behavior; intake equipment validation bug; daily-plan equipment selection, plan detail view, auto-review submission, admin visibility; worksite-level org tree/personnel view; corporate governance workflow/approval graph needs (기안서, 구매요청서, 휴가신청서) without adopting the legacy "groupware" label. | L1 identity/auth Q0 recovery gate, L2 workorder/daily plan, L3 registry, L4 dispatch, L13 HR/org tree + leave workflow, L15 ERP purchase workflow, L18 RBAC/approval graph. |
 | [#17](https://github.com/jason931225/maintenance/issues/17) comments | Daily backup preferred; weekly acceptable if storage-constrained; server-down/offline-resync concern; document leak prevention/alerting; VPN has access-friction and must not become a blanket requirement without UX/security tradeoff. | Track O resilience/security + Track L launch hardening; backup restore drill and document-access audit/alerting are release gates. |
 | [#6](https://github.com/jason931225/maintenance/issues/6), [#10](https://github.com/jason931225/maintenance/issues/10) | Public landing page + marketing view of sale/rental assets; inquiry/contact/FAQ; payment/subscription interest. | L5 sales + L19 quota/billing-plan; keep payments behind explicit provider/security review. |
 | [#7](https://github.com/jason931225/maintenance/issues/7), [#9](https://github.com/jason931225/maintenance/issues/9) | Daily diary/progress exports for internal reporting/corporate-governance approval; import existing Excel progress so operations continue from current sheets. | L12 reporting + F1 import/export + L18 approval graph; generated XLSX must be tested against sample attachments. |
@@ -272,6 +272,12 @@ corporate governance capabilities: draft requests, purchase requests, leave requ
 approval-graph flows. L13/L15/L18 should model the actual request/approval capabilities and policies;
 L13/L18 should still classify people by product access, site/department responsibility, and operational
 capabilities rather than a legacy groupware-user taxonomy.
+
+**2026-06-25 field report tied to #20 auth recovery:** the admin lost-device credential-reset dialog can
+fail with `패스키 재설정에 실패했습니다. 다시 시도하세요.` instead of revoking passkeys and returning a
+replacement one-time code. Treat this as a Q0/L1 recovery gate: identify the server/API failure class, add
+a regression for the affected authorization/branch/role path, and keep personally identifying details out
+of docs and fixtures.
 
 **Bottom line: S‑1 first (prove a red PR blocks deploy), then S6–S12 + freeze the registry/contracts +
 pull L16/L17 out — then the 20 lanes fan out safely.** The architecture stands; only the sequence changes.
