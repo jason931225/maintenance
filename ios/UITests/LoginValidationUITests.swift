@@ -15,12 +15,16 @@ final class LoginValidationUITests: XCTestCase {
         continueAfterFailure = false
         // Ensure no seeded session lingers from another spec on the same host.
         RealSessionSeed.clear()
-        app = XCUIApplication()
-        app.launch()
+        MainActor.assumeIsolated {
+            app = XCUIApplication()
+            app.launch()
+        }
     }
 
     override func tearDown() {
-        app = nil
+        MainActor.assumeIsolated {
+            app = nil
+        }
         super.tearDown()
     }
 
