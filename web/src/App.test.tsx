@@ -247,6 +247,7 @@ describe("routing", () => {
     expect(
       (await screen.findAllByText("지게차 렌탈·정비·운영을 하나로"))[0],
     ).toBeVisible();
+    expect(screen.queryByText(/급한 경우/)).not.toBeInTheDocument();
   });
 
   it("shows the public cookie notice until acknowledged", async () => {
