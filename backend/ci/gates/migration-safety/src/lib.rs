@@ -1,10 +1,15 @@
 //! Migration-safety gate.
 
 use std::path::{Path, PathBuf};
-use std::{collections::HashSet, fs};
+use std::{
+    collections::{BTreeMap, HashSet},
+    fs,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ViolationKind {
+    DuplicateMigrationVersion,
+    NonContiguousMigrationVersion,
     DropAuditedTable,
     DropAuditedColumn,
     GrantAuditEventsMutation,
@@ -69,6 +74,8 @@ fn check_files(files: Vec<PathBuf>) -> GateResult {
     let mut readable_files = Vec::new();
     let mut result = GateResult::default();
 
+    check_migration_versions(&files, &mut result);
+
     for file in files {
         match fs::read_to_string(&file) {
             Ok(content) => {
@@ -88,6 +95,68 @@ fn check_files(files: Vec<PathBuf>) -> GateResult {
     }
 
     result
+}
+
+fn check_migration_versions(files: &[PathBuf], result: &mut GateResult) {
+    let mut by_root: BTreeMap<PathBuf, BTreeMap<u32, Vec<PathBuf>>> = BTreeMap::new();
+
+    for file in files {
+        let Some(version) = migration_version(file) else {
+            continue;
+        };
+        let root = file.parent().unwrap_or_else(|| Path::new("")).to_path_buf();
+        by_root
+            .entry(root)
+            .or_default()
+            .entry(version)
+            .or_default()
+            .push(file.clone());
+    }
+
+    for (root, versions) in by_root {
+        for (version, files) in &versions {
+            if files.len() > 1 {
+                result.violations.push(Violation {
+                    kind: ViolationKind::DuplicateMigrationVersion,
+                    file: files[0].clone(),
+                    detail: format!(
+                        "migration version {version:04} is used more than once: {}",
+                        display_file_list(files)
+                    ),
+                });
+            }
+        }
+
+        let mut expected = 1u32;
+        for version in versions.keys().copied() {
+            while expected < version {
+                result.violations.push(Violation {
+                    kind: ViolationKind::NonContiguousMigrationVersion,
+                    file: root.clone(),
+                    detail: format!("missing migration version {expected:04} before {version:04}"),
+                });
+                expected += 1;
+            }
+            expected = version.saturating_add(1);
+        }
+    }
+}
+
+fn migration_version(file: &Path) -> Option<u32> {
+    let name = file.file_name()?.to_str()?;
+    let (prefix, _) = name.split_once('_')?;
+    if prefix.len() != 4 || !prefix.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    prefix.parse().ok()
+}
+
+fn display_file_list(files: &[PathBuf]) -> String {
+    files
+        .iter()
+        .map(|file| file.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn built_in_audited_tables() -> &'static [&'static str] {

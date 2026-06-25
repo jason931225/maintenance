@@ -139,6 +139,62 @@ fn gate_rejects_disable_trigger_on_audit_events() -> Result<(), Box<dyn std::err
 }
 
 #[test]
+fn gate_rejects_duplicate_migration_versions() -> Result<(), Box<dyn std::error::Error>> {
+    let ws = temp_workspace("duplicate-version")?;
+    write_file(
+        &ws.join("crates/platform/db/migrations/0001_first.sql"),
+        "SELECT 1;\n",
+    )?;
+    write_file(
+        &ws.join("crates/platform/db/migrations/0001_second.sql"),
+        "SELECT 2;\n",
+    )?;
+
+    let result = check_migrations_root(&ws);
+    assert!(
+        !result.passed(),
+        "expected duplicate migration version violation"
+    );
+    assert!(
+        result
+            .violations
+            .iter()
+            .any(|v| v.kind == ViolationKind::DuplicateMigrationVersion),
+        "expected DuplicateMigrationVersion, got {:#?}",
+        result.violations
+    );
+    Ok(())
+}
+
+#[test]
+fn gate_rejects_non_contiguous_migration_versions() -> Result<(), Box<dyn std::error::Error>> {
+    let ws = temp_workspace("non-contiguous")?;
+    write_file(
+        &ws.join("crates/platform/db/migrations/0001_first.sql"),
+        "SELECT 1;\n",
+    )?;
+    write_file(
+        &ws.join("crates/platform/db/migrations/0003_third.sql"),
+        "SELECT 3;\n",
+    )?;
+
+    let result = check_migrations_root(&ws);
+    assert!(
+        !result.passed(),
+        "expected non-contiguous migration version violation"
+    );
+    assert!(
+        result
+            .violations
+            .iter()
+            .any(|v| v.kind == ViolationKind::NonContiguousMigrationVersion),
+        "expected NonContiguousMigrationVersion, got {:#?}",
+        result.violations
+    );
+    Ok(())
+}
+
+#[test]
 fn gate_passes_safe_migration() -> Result<(), Box<dyn std::error::Error>> {
     let ws = temp_workspace("safe")?;
     write_file(
