@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/jason931225/maintenance/compare/v0.1.5...v0.1.6) (2026-06-25)
+
+
+### Bug Fixes
+
+* **web:** derive equipment fields from model ([052fe2e](https://github.com/jason931225/maintenance/commit/052fe2e6ef947fc6d642909259d6c88b367645f2))
+
 ## [0.1.5](https://github.com/jason931225/maintenance/compare/v0.1.4...v0.1.5) (2026-06-25)
 
 
