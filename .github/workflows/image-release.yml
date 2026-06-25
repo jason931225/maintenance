@@ -52,7 +52,7 @@ jobs:
         run: |
           deadline=$((SECONDS + 3600))
           while (( SECONDS < deadline )); do
-            runs="$(gh run list --repo "$REPO" --workflow ci.yml --commit "$SHA" --event push --limit 5 --json status,conclusion,url)"
+            runs="$(gh run list --repo "$REPO" --workflow ci.yml --commit "$SHA" --limit 5 --json status,conclusion,url)"
             if [[ "$(jq 'length' <<<"$runs")" -gt 0 ]]; then
               status="$(jq -r '.[0].status' <<<"$runs")"
               conclusion="$(jq -r '.[0].conclusion // ""' <<<"$runs")"

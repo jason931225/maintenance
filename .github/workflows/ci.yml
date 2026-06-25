@@ -41,6 +41,7 @@ on:
       - "openapitools.json"
       - "tsconfig.json"
       - ".github/workflows/ci.yml"
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
