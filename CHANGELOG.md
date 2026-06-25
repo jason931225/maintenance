@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/jason931225/maintenance/compare/v0.1.2...v0.1.3) (2026-06-25)
+
+
+### Bug Fixes
+
+* **deploy:** point Argo apps at main ([c6568ab](https://github.com/jason931225/maintenance/commit/c6568ab7b6781c133610a2159ed7a4a322ef436c))
+
 ## [0.1.2](https://github.com/jason931225/maintenance/compare/v0.1.1...v0.1.2) (2026-06-25)
 
 
