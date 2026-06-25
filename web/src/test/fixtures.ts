@@ -3,6 +3,34 @@ import type { components } from "@maintenance/api-client-ts";
 export const branchId = "11111111-1111-4111-8111-111111111111";
 export const primaryMechanicId = "22222222-2222-4222-8222-222222222222";
 
+// ---------------------------------------------------------------------------
+// Paginated-envelope helpers. The list endpoints now return
+// `{ items, limit, offset, total }` (or a keyset variant), so tests wrap their
+// fixture arrays through these instead of returning a bare array.
+// ---------------------------------------------------------------------------
+
+export function userPage(
+  items: components["schemas"]["UserSummary"][],
+  total = items.length,
+): components["schemas"]["UserPage"] {
+  return { items, limit: 200, offset: 0, total };
+}
+
+export function supportTicketPage(
+  items: components["schemas"]["SupportTicketSummary"][],
+  total = items.length,
+  nextCursor: string | null = null,
+): components["schemas"]["SupportTicketPage"] {
+  return { items, next_cursor: nextCursor, total };
+}
+
+export function inspectionSchedulePage(
+  items: components["schemas"]["InspectionScheduleSummary"][],
+  total = items.length,
+): components["schemas"]["InspectionSchedulePage"] {
+  return { items, limit: 200, offset: 0, total };
+}
+
 export const tokenPair: components["schemas"]["TokenPairResponse"] = {
   access_token: "test-access-token",
   refresh_token: "test-refresh-token",
@@ -20,6 +48,9 @@ export const equipmentLookup: components["schemas"]["EquipmentLookupResponse"] =
     status: "임대",
     specification: "좌식",
     ton_text: "2.5",
+    maker: "현대",
+    vin: null,
+    vehicle_registration_no: null,
     customer: {
       id: "55555555-5555-4555-8555-555555555555",
       name: "케이앤엘",
@@ -52,6 +83,7 @@ export const workOrderListItems: components["schemas"]["WorkOrderListItem"][] = 
     },
     customer: equipmentLookup.customer,
     site: equipmentLookup.site,
+    site_contact: { name: "현장담당 김씨", phone: "010-2625-0987", email: null },
     assignments: [],
   },
   {
@@ -75,12 +107,13 @@ export const workOrderListItems: components["schemas"]["WorkOrderListItem"][] = 
     },
     customer: {
       id: "99999999-9999-4999-8999-999999999999",
-      name: "한빛물류",
+      name: "Acme Corporation",
     },
     site: {
       id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       name: "인천센터",
     },
+    site_contact: null,
     assignments: [
       {
         id: "12121212-1212-4212-8212-121212121212",
@@ -192,6 +225,7 @@ export const kpiReport: components["schemas"]["KpiReport"] = {
         kind: "branch",
         id: branchId,
       },
+      scope_display_name: "창원지점",
       approved_report_count: 8,
       completed_count: 7,
       weighted_completed_points: 10,
@@ -209,6 +243,7 @@ export const kpiReport: components["schemas"]["KpiReport"] = {
         kind: "region",
         id: "abababab-abab-4bab-8bab-abababababab",
       },
+      scope_display_name: "경남권역",
       approved_report_count: 14,
       completed_count: 12,
       weighted_completed_points: 18,
@@ -226,6 +261,7 @@ export const kpiReport: components["schemas"]["KpiReport"] = {
         kind: "technician",
         id: primaryMechanicId,
       },
+      scope_display_name: "김정비",
       approved_report_count: 4,
       completed_count: 4,
       weighted_completed_points: 6,

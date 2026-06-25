@@ -4,11 +4,15 @@ import { cn } from "../../lib/utils";
 
 export function Card({
   className,
+  ref,
   ...props
-}: React.HTMLAttributes<HTMLDivElement>) {
+}: React.HTMLAttributes<HTMLDivElement> & {
+  ref?: React.Ref<HTMLElement>;
+}) {
   return (
     <section
-      className={cn("rounded-lg border border-slate-200 bg-white p-4", className)}
+      ref={ref}
+      className={cn("rounded-xl border border-line bg-white p-4", className)}
       {...props}
     />
   );

@@ -1,4 +1,4 @@
-use mnt_kernel_core::{AuditAction, AuditEvent, TraceContext, UserId};
+use mnt_kernel_core::{AuditAction, AuditEvent, OrgId, TraceContext, UserId};
 use mnt_platform_db::with_audit;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
@@ -23,6 +23,7 @@ pub struct RefreshTokenIssue {
     pub family_id: Uuid,
     pub token_id: Uuid,
     pub user_id: Uuid,
+    pub org_id: OrgId,
     pub expires_at: OffsetDateTime,
 }
 
@@ -48,6 +49,7 @@ impl RefreshTokenStore {
         &self,
         pool: &PgPool,
         user_id: Uuid,
+        org_id: OrgId,
         now: OffsetDateTime,
         ttl: Duration,
     ) -> Result<RefreshTokenIssue, AuthError> {
@@ -56,7 +58,11 @@ impl RefreshTokenStore {
         let token = generate_refresh_token();
         let token_hash = hash_token(token.as_str());
         let expires_at = now + ttl;
+        let org_uuid = *org_id.as_uuid();
 
+        // `with_org` arms `app.current_org` for the transaction, so the RLS
+        // WITH CHECK on `auth_refresh_token_families`/`auth_refresh_tokens`
+        // accepts these tenant rows when the app writes as the non-owner role.
         let audit = AuditEvent::new(
             Some(UserId::from_uuid(user_id)),
             AuditAction::new("auth.refresh.issue")?,
@@ -65,6 +71,7 @@ impl RefreshTokenStore {
             TraceContext::generate(),
             now,
         )
+        .with_org(org_id)
         .with_snapshots(
             None,
             Some(serde_json::json!({
@@ -79,21 +86,22 @@ impl RefreshTokenStore {
             Box::pin(async move {
                 sqlx::query(
                     r#"
-                    INSERT INTO auth_refresh_token_families (id, user_id, created_at)
-                    VALUES ($1, $2, $3)
+                    INSERT INTO auth_refresh_token_families (id, user_id, created_at, org_id)
+                    VALUES ($1, $2, $3, $4)
                     "#,
                 )
                 .bind(family_id)
                 .bind(user_id)
                 .bind(now)
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
 
                 sqlx::query(
                     r#"
                     INSERT INTO auth_refresh_tokens (
-                        id, family_id, user_id, token_hash, issued_at, expires_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6)
+                        id, family_id, user_id, token_hash, issued_at, expires_at, org_id
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7)
                     "#,
                 )
                 .bind(token_id)
@@ -102,6 +110,7 @@ impl RefreshTokenStore {
                 .bind(token_hash)
                 .bind(now)
                 .bind(expires_at)
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
 
@@ -115,6 +124,7 @@ impl RefreshTokenStore {
             family_id,
             token_id,
             user_id,
+            org_id,
             expires_at,
         })
     }
@@ -125,8 +135,9 @@ impl RefreshTokenStore {
         presented_token: &str,
         now: OffsetDateTime,
         ttl: Duration,
+        absolute_ttl: Duration,
     ) -> Result<RefreshTokenIssue, RefreshTokenUseError> {
-        self.rotate_inner(pool, presented_token, now, ttl)
+        self.rotate_inner(pool, presented_token, now, ttl, absolute_ttl)
             .await
             .map_err(|err| match err {
                 AuthError::Refresh(refresh) => refresh,
@@ -140,9 +151,26 @@ impl RefreshTokenStore {
         presented_token: &str,
         now: OffsetDateTime,
         ttl: Duration,
+        absolute_ttl: Duration,
     ) -> Result<RefreshTokenIssue, AuthError> {
         let token_hash = hash_token(presented_token);
         let mut tx = pool.begin().await?;
+
+        // Resolve the family's tenant from the token hash FIRST, then arm the
+        // GUC, THEN do the RLS-gated read. `auth_refresh_tokens` is FORCE RLS
+        // (migration 0035), so as the non-owner `mnt_rt` role a lookup-by-hash
+        // returns ZERO rows until `app.current_org` is set — but the org is what
+        // we need to set it. The narrow SECURITY DEFINER resolver
+        // `platform_resolve_token_org` returns only the family's org_id, breaking
+        // that chicken-and-egg so refresh works for ANY tenant (not just KNL).
+        let Some(org_uuid) = resolve_token_org(&mut tx, &token_hash).await? else {
+            tx.rollback().await?;
+            return Err(RefreshTokenUseError::InvalidToken.into());
+        };
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(org_uuid.to_string())
+            .execute(tx.as_mut())
+            .await?;
 
         let row = sqlx::query(
             r#"
@@ -153,7 +181,8 @@ impl RefreshTokenStore {
                 t.expires_at,
                 t.used_at,
                 t.revoked_at AS token_revoked_at,
-                f.revoked_at AS family_revoked_at
+                f.revoked_at AS family_revoked_at,
+                f.created_at AS family_created_at
             FROM auth_refresh_tokens t
             JOIN auth_refresh_token_families f ON f.id = t.family_id
             WHERE t.token_hash = $1
@@ -176,9 +205,53 @@ impl RefreshTokenStore {
         let used_at: Option<OffsetDateTime> = row.try_get("used_at")?;
         let token_revoked_at: Option<OffsetDateTime> = row.try_get("token_revoked_at")?;
         let family_revoked_at: Option<OffsetDateTime> = row.try_get("family_revoked_at")?;
+        let family_created_at: OffsetDateTime = row.try_get("family_created_at")?;
 
         if family_revoked_at.is_some() {
             tx.rollback().await?;
+            return Err(RefreshTokenUseError::FamilyRevoked.into());
+        }
+
+        // Absolute session-lifetime cap (NIST 800-63B AAL2 reauthentication):
+        // a refresh family may rotate freely within `absolute_ttl` of its
+        // creation, but past that hard ceiling every rotation is rejected and the
+        // family is revoked — forcing a fresh primary authentication. This bounds
+        // the lifetime of a silently-rotating session even if individual tokens
+        // never expire from inactivity. The revoke commits so a subsequent
+        // presentation of any sibling token also fails closed.
+        if now > family_created_at + absolute_ttl {
+            sqlx::query(
+                r#"
+                UPDATE auth_refresh_token_families
+                SET revoked_at = $1, revoked_reason = 'absolute_ttl_exceeded'
+                WHERE id = $2 AND revoked_at IS NULL
+                "#,
+            )
+            .bind(now)
+            .bind(family_id)
+            .execute(tx.as_mut())
+            .await?;
+            sqlx::query(
+                "UPDATE auth_refresh_tokens SET revoked_at = COALESCE(revoked_at, $1) WHERE family_id = $2",
+            )
+            .bind(now)
+            .bind(family_id)
+            .execute(tx.as_mut())
+            .await?;
+            insert_audit_in_tx(
+                &mut tx,
+                user_id,
+                family_id,
+                "auth.refresh.absolute_ttl_revoked",
+                now,
+                serde_json::json!({
+                    "family_id": family_id,
+                    "revoked_reason": "absolute_ttl_exceeded",
+                    "family_created_at": family_created_at,
+                }),
+            )
+            .await?;
+            tx.commit().await?;
             return Err(RefreshTokenUseError::FamilyRevoked.into());
         }
 
@@ -219,8 +292,8 @@ impl RefreshTokenStore {
         sqlx::query(
             r#"
             INSERT INTO auth_refresh_tokens (
-                id, family_id, user_id, token_hash, issued_at, expires_at
-            ) VALUES ($1, $2, $3, $4, $5, $6)
+                id, family_id, user_id, token_hash, issued_at, expires_at, org_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
         )
         .bind(replacement_id)
@@ -229,6 +302,7 @@ impl RefreshTokenStore {
         .bind(replacement_hash)
         .bind(now)
         .bind(replacement_expires_at)
+        .bind(org_uuid)
         .execute(tx.as_mut())
         .await?;
 
@@ -267,6 +341,7 @@ impl RefreshTokenStore {
             family_id,
             token_id: replacement_id,
             user_id,
+            org_id: OrgId::from_uuid(org_uuid),
             expires_at: replacement_expires_at,
         })
     }
@@ -293,6 +368,18 @@ impl RefreshTokenStore {
     ) -> Result<(), AuthError> {
         let token_hash = hash_token(presented_token);
         let mut tx = pool.begin().await?;
+
+        // Resolve the family's tenant from the token hash and arm the GUC BEFORE
+        // the RLS-gated read, so logout works under `mnt_rt` for any tenant.
+        // See `rotate_inner` for the chicken-and-egg rationale.
+        let Some(org_uuid) = resolve_token_org(&mut tx, &token_hash).await? else {
+            tx.rollback().await?;
+            return Err(RefreshTokenUseError::InvalidToken.into());
+        };
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(org_uuid.to_string())
+            .execute(tx.as_mut())
+            .await?;
 
         let row = sqlx::query(
             r#"
@@ -364,6 +451,24 @@ impl RefreshTokenStore {
         tx.commit().await?;
         Ok(())
     }
+}
+
+/// Resolve a refresh-token family's tenant from a token hash, via the narrow
+/// SECURITY DEFINER resolver `platform_resolve_token_org` (migration 0036).
+///
+/// `auth_refresh_tokens` is FORCE RLS, so the app's non-owner `mnt_rt` role
+/// cannot read a token row by hash until `app.current_org` is armed — but the
+/// org is exactly what we need to arm it. This resolver returns ONLY the org_id
+/// (nothing else), breaking that chicken-and-egg without widening any read
+/// surface. Returns `None` for an unknown hash.
+async fn resolve_token_org(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    token_hash: &[u8],
+) -> Result<Option<Uuid>, AuthError> {
+    Ok(sqlx::query_scalar("SELECT platform_resolve_token_org($1)")
+        .bind(token_hash)
+        .fetch_one(tx.as_mut())
+        .await?)
 }
 
 async fn revoke_family_for_reuse(

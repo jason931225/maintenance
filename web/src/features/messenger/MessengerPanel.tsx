@@ -1,24 +1,35 @@
 import {
   MessageSquare,
   Paperclip,
+  Plus,
   RefreshCw,
   Search,
   Send,
 } from "lucide-react";
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 
 import type { ConsoleApiClient } from "../../api/client";
 import type {
   EvidencePresignResponse,
   MessengerMessageSummary,
   MessengerThreadSummary,
+  UserSummary,
 } from "../../api/types";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import { Dialog } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
-import { cn } from "../../lib/utils";
+import { SkeletonCards } from "../../components/states/Skeleton";
+import { cn, safeLabel } from "../../lib/utils";
 import { ko } from "../../i18n/ko";
 import {
   createMessengerState,
@@ -31,6 +42,21 @@ interface MessengerPanelProps {
   api: ConsoleApiClient;
   accessToken?: string;
   apiBaseUrl: string;
+  /** Branch the new thread is scoped to (first JWT branch claim). */
+  branchId?: string;
+  /** Signed-in member id, excluded from the participant picker. */
+  currentUserId?: string;
+}
+
+/**
+ * The human label for a thread: its title when set, otherwise a generic
+ * kind-based label. NEVER the raw thread/work-order UUID. (A real work-order
+ * NUMBER would require a backend schema addition — `work_order_id` is a UUID.)
+ */
+function threadTitle(thread: MessengerThreadSummary): string {
+  const title = thread.title?.trim();
+  if (title) return title;
+  return ko.messenger.untitled[thread.kind];
 }
 
 type LoadState = "idle" | "loading" | "error";
@@ -39,6 +65,8 @@ export function MessengerPanel({
   api,
   accessToken,
   apiBaseUrl,
+  branchId,
+  currentUserId,
 }: MessengerPanelProps) {
   const [state, dispatch] = useReducer(
     messengerReducer,
@@ -53,7 +81,15 @@ export function MessengerPanel({
   const [isSending, setIsSending] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [isComposingThread, setIsComposingThread] = useState(false);
+  const [members, setMembers] = useState<UserSummary[]>([]);
+  const [newSubject, setNewSubject] = useState("");
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [isCreatingThread, setIsCreatingThread] = useState(false);
+  const [createError, setCreateError] = useState<string>();
+  const newThreadTitleId = useId();
   const cursorRef = useRef<string | undefined>(undefined);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const selectedThread = state.threads.find(
     (thread) => thread.id === state.selectedThreadId,
   );
@@ -64,6 +100,16 @@ export function MessengerPanel({
   useEffect(() => {
     cursorRef.current = resumeCursor(state);
   }, [state]);
+
+  // Auto-grow the chat composer from one line up to its CSS max-height, so a
+  // short message stays compact but a longer draft expands instead of forcing
+  // an inner scrollbar from the first character.
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${String(el.scrollHeight)}px`;
+  }, [composer]);
 
   const markRead = useCallback(
     async (threadId: string, messageId: string) => {
@@ -194,6 +240,60 @@ export function MessengerPanel({
     }
   }
 
+  async function openThreadComposer() {
+    setIsComposingThread(true);
+    setCreateError(undefined);
+    setNewSubject("");
+    setSelectedMemberIds([]);
+    const response = await api
+      .GET("/api/v1/users", { params: { query: { include_inactive: false } } })
+      .catch(() => undefined);
+    if (response?.data) {
+      setMembers(
+        response.data.items.filter((user) => user.id !== currentUserId),
+      );
+    }
+  }
+
+  function toggleMember(id: string) {
+    setSelectedMemberIds((prev) =>
+      prev.includes(id)
+        ? prev.filter((value) => value !== id)
+        : [...prev, id],
+    );
+  }
+
+  async function handleCreateThread() {
+    if (!branchId || selectedMemberIds.length === 0 || isCreatingThread) {
+      if (selectedMemberIds.length === 0) {
+        setCreateError(ko.messenger.participantsRequired);
+      }
+      return;
+    }
+    setCreateError(undefined);
+    setIsCreatingThread(true);
+    try {
+      const subject = newSubject.trim();
+      const response = await api.POST("/api/messenger/threads", {
+        body: {
+          branch_id: branchId,
+          kind: selectedMemberIds.length > 1 ? "group" : "dm",
+          title: subject.length > 0 ? subject : null,
+          member_ids: selectedMemberIds,
+        },
+      });
+      if (!response.data) {
+        throw new Error("create messenger thread response missing data");
+      }
+      dispatch({ type: "threadCreated", thread: response.data });
+      setIsComposingThread(false);
+    } catch {
+      setCreateError(ko.messenger.createFailed);
+    } finally {
+      setIsCreatingThread(false);
+    }
+  }
+
   async function handleSend() {
     if (!selectedThread || !composer.trim() || isSending) {
       return;
@@ -264,13 +364,11 @@ export function MessengerPanel({
 
   return (
     <Card className="grid gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-950">
-            {ko.messenger.title}
-          </h2>
-          <p className="text-sm text-slate-600">{ko.messenger.messages}</p>
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button type="button" onClick={() => void openThreadComposer()}>
+          <Plus aria-hidden="true" size={16} />
+          {ko.messenger.newThread}
+        </Button>
         <Button type="button" variant="secondary" onClick={() => void loadThreads()}>
           <RefreshCw aria-hidden="true" size={16} />
           {ko.messenger.refresh}
@@ -304,17 +402,17 @@ export function MessengerPanel({
             </Button>
           </div>
           {isSearching ? (
-            <p role="status" className="text-sm text-slate-600">
+            <p role="status" className="text-sm text-steel">
               {ko.messenger.searching}
             </p>
           ) : null}
           {!isSearching && hasSearched ? (
             <div className="grid gap-2">
-              <h3 className="text-sm font-semibold text-slate-800">
+              <h3 className="text-sm font-semibold text-steel">
                 {ko.messenger.searchResults}
               </h3>
               {state.searchResults.length === 0 ? (
-                <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+                <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
                   {ko.messenger.searchEmpty}
                 </p>
               ) : (
@@ -324,11 +422,15 @@ export function MessengerPanel({
               )}
             </div>
           ) : null}
-          <h3 className="text-sm font-semibold text-slate-800">
+          <h3 className="text-sm font-semibold text-steel">
             {ko.messenger.threads}
           </h3>
-          {state.threads.length === 0 ? (
-            <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+          {/* First load shows a skeleton so an in-flight fetch is not mistaken
+              for an empty thread list (stale-while-revalidate on refetch). */}
+          {loadState === "loading" && state.threads.length === 0 ? (
+            <SkeletonCards count={4} lines={1} />
+          ) : state.threads.length === 0 ? (
+            <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
               {ko.messenger.emptyThreads}
             </p>
           ) : null}
@@ -337,10 +439,10 @@ export function MessengerPanel({
               key={thread.id}
               type="button"
               className={cn(
-                "rounded-md border p-3 text-left transition hover:border-slate-400",
+                "rounded-md border p-3 text-left transition hover:border-steel",
                 state.selectedThreadId === thread.id
-                  ? "border-slate-900 bg-slate-100 ring-1 ring-slate-300"
-                  : "border-slate-200 bg-white",
+                  ? "border-ink bg-muted-panel ring-1 ring-signal"
+                  : "border-line bg-white",
               )}
               aria-pressed={state.selectedThreadId === thread.id}
               onClick={() => {
@@ -349,12 +451,12 @@ export function MessengerPanel({
               }}
             >
               <span className="flex items-center justify-between gap-2">
-                <span className="font-semibold text-slate-950">
-                  {thread.title?.trim() || `WO ${thread.work_order_id ?? thread.id}`}
+                <span className="font-semibold text-ink">
+                  {threadTitle(thread)}
                 </span>
                 <Badge>{ko.messenger.kinds[thread.kind]}</Badge>
               </span>
-              <span className="mt-2 block text-sm text-slate-600">
+              <span className="mt-2 block text-sm text-steel">
                 {thread.member_count}
                 {ko.messenger.memberCount}
               </span>
@@ -362,19 +464,18 @@ export function MessengerPanel({
           ))}
         </section>
 
-        <section className="grid min-h-[32rem] content-between gap-3 rounded-md border border-slate-200 p-3">
+        <section className="grid min-h-[32rem] content-between gap-3 rounded-md border border-line p-3">
           {!selectedThread ? (
-            <p className="self-center text-center text-sm text-slate-600">
+            <p className="self-center text-center text-sm text-steel">
               {ko.messenger.selectThread}
             </p>
           ) : (
             <>
               <div className="grid gap-2">
                 <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-base font-semibold text-slate-950">
+                  <h3 className="text-base font-semibold text-ink">
                     <MessageSquare aria-hidden="true" className="mr-2 inline" size={18} />
-                    {selectedThread.title?.trim() ||
-                      `WO ${selectedThread.work_order_id ?? selectedThread.id}`}
+                    {threadTitle(selectedThread)}
                   </h3>
                   {state.nextCursorByThread[selectedThread.id] ? (
                     <Button
@@ -393,7 +494,7 @@ export function MessengerPanel({
                 </div>
                 <div className="grid max-h-[26rem] gap-2 overflow-y-auto pr-1">
                   {selectedMessages.length === 0 ? (
-                    <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+                    <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
                       {ko.messenger.emptyMessages}
                     </p>
                   ) : null}
@@ -404,12 +505,12 @@ export function MessengerPanel({
               </div>
               <div className="grid gap-2">
                 {attachment ? (
-                  <p className="text-sm text-slate-600">
+                  <p className="text-sm text-steel">
                     {ko.messenger.attachmentReady}: {attachment.name}
                   </p>
                 ) : null}
                 {selectedThread.work_order_id ? (
-                  <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700">
+                  <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-md border border-line px-3 py-2 text-sm font-medium text-steel">
                     <Paperclip aria-hidden="true" size={16} />
                     {ko.messenger.attachment}
                     <input
@@ -422,7 +523,10 @@ export function MessengerPanel({
                   </label>
                 ) : null}
                 <Textarea
+                  ref={composerRef}
                   aria-label={ko.messenger.composer}
+                  rows={1}
+                  className="min-h-9 max-h-32 resize-none"
                   value={composer}
                   onChange={(event) => {
                     setComposer(event.currentTarget.value);
@@ -446,15 +550,101 @@ export function MessengerPanel({
           )}
         </section>
       </div>
+
+      <Dialog
+        open={isComposingThread}
+        onClose={() => {
+          if (!isCreatingThread) setIsComposingThread(false);
+        }}
+        titleId={newThreadTitleId}
+        closeOnScrimClick={!isCreatingThread}
+      >
+        <h2
+          id={newThreadTitleId}
+          className="text-lg font-semibold text-ink"
+        >
+          {ko.messenger.newThreadTitle}
+        </h2>
+        <div className="grid gap-2">
+          <label
+            className="text-sm font-medium text-steel"
+            htmlFor="new-thread-subject"
+          >
+            {ko.messenger.subject}
+          </label>
+          <Input
+            id="new-thread-subject"
+            value={newSubject}
+            placeholder={ko.messenger.subjectPlaceholder}
+            onChange={(event) => {
+              setNewSubject(event.currentTarget.value);
+            }}
+          />
+        </div>
+        <div className="grid gap-2">
+          <span className="text-sm font-medium text-steel">
+            {ko.messenger.participants}
+          </span>
+          <p className="text-xs text-steel">
+            {ko.messenger.participantsHint}
+          </p>
+          <div className="grid max-h-56 gap-1 overflow-y-auto">
+            {members.map((member) => (
+              <label
+                key={member.id}
+                className="flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedMemberIds.includes(member.id)}
+                  onChange={() => {
+                    toggleMember(member.id);
+                  }}
+                />
+                <span className="font-medium text-ink">
+                  {member.display_name}
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+        {createError ? (
+          <p role="alert" className="text-sm font-semibold text-red-700">
+            {createError}
+          </p>
+        ) : null}
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={isCreatingThread}
+            onClick={() => {
+              setIsComposingThread(false);
+            }}
+          >
+            {ko.messenger.createCancel}
+          </Button>
+          <Button
+            type="button"
+            disabled={isCreatingThread || selectedMemberIds.length === 0}
+            onClick={() => void handleCreateThread()}
+          >
+            {isCreatingThread ? ko.messenger.creating : ko.messenger.create}
+          </Button>
+        </div>
+      </Dialog>
     </Card>
   );
 }
 
 function MessageRow({ message }: { message: MessengerMessageSummary }) {
   return (
-    <article className="rounded-md border border-slate-200 bg-white p-3">
-      <p className="whitespace-pre-wrap text-sm text-slate-950">{message.body}</p>
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+    <article className="rounded-md border border-line bg-white p-3">
+      <p className="whitespace-pre-wrap text-sm text-ink">{message.body}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-steel">
+        <span className="font-medium text-ink">
+          {safeLabel(message.sender_name)}
+        </span>
         <time dateTime={message.sent_at}>
           {new Date(message.sent_at).toLocaleTimeString("ko-KR", {
             hour: "2-digit",

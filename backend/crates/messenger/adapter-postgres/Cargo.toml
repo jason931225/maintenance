@@ -12,6 +12,7 @@ mnt-kernel-core = { workspace = true }
 mnt-messenger-application = { workspace = true }
 mnt-messenger-domain = { workspace = true }
 mnt-platform-db = { workspace = true }
+mnt-platform-request-context = { workspace = true }
 mnt-workorder-application = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }

@@ -1,0 +1,19 @@
+[package]
+name = "mnt-gate-tenant-isolation"
+version = "0.1.0"
+description = "CI gate: every tenant table carries org_id + RLS (ENABLED, FORCED, org policy); GUC is never set non-locally; with_audit keeps the app.current_org bind."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "mnt-gate-tenant-isolation"
+path = "src/main.rs"
+
+[lib]
+name = "mnt_gate_tenant_isolation"
+path = "src/lib.rs"
+
+[lints]
+workspace = true

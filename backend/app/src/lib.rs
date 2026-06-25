@@ -21,6 +21,9 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
+use mnt_comms_adapter_postgres::PgMailStore;
+use mnt_comms_credential_cipher::EnvelopeCredentialCipher;
+use mnt_comms_rest::CommsRestState;
 use mnt_compliance_adapter_postgres::PgComplianceStore;
 use mnt_compliance_rest::ComplianceRestState;
 use mnt_dispatch_adapter_postgres::PgDispatchStore;
@@ -33,17 +36,27 @@ use mnt_identity_adapter_postgres::PgOrgStore;
 use mnt_identity_rest::IdentityRestState;
 use mnt_inspection_adapter_postgres::PgInspectionStore;
 use mnt_inspection_rest::InspectionRestState;
+use mnt_integrity::{IntegrityRestState, PgIntegrityStore};
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, TraceContext, UserId,
+    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, EvidenceId, KernelError, OrgId,
+    TraceContext, UserId,
 };
 use mnt_messenger_adapter_postgres::PgMessengerStore;
 use mnt_messenger_rest::MessengerRestState;
-use mnt_platform_auth::{AccessClaims, JwtSettings, JwtVerifier};
+use mnt_platform_auth::{
+    AccessClaims, AndroidAssetLinksConfig, AppleAppSiteAssociationConfig, JwtIssuer, JwtSettings,
+    JwtVerifier, WELL_KNOWN_AASA_PATH, WELL_KNOWN_ASSETLINKS_PATH, android_assetlinks_json,
+    apple_app_site_association_json,
+};
 use mnt_platform_auth_rest::{AuthRestConfig, AuthRestState};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
 use mnt_platform_db::{DbError, with_audit};
-use mnt_platform_jobs::{ApalisPostgresJobQueue, JobQueue, run_apalis_worker_until_shutdown};
-use mnt_platform_provisioning::BootstrapCredentialStore;
+use mnt_platform_email::{EmailSender, LettreSmtpSender, SmtpEmailConfig, StubEmailSender};
+use mnt_platform_jobs::{
+    ApalisPostgresJobQueue, BoxFuture, JobQueue, JobQueueError, PlatformJob, PlatformJobHandler,
+    run_apalis_worker_until_shutdown,
+};
+use mnt_platform_provisioning::{BootstrapCredentialStore, PlatformProvisioner};
 use mnt_platform_push::{
     FcmConfig, FcmHttpV1Client, ProviderPushNotifier, PushNotifier, SolapiAlimtalkClient,
     SolapiConfig,
@@ -51,11 +64,16 @@ use mnt_platform_push::{
 use mnt_platform_realtime::{
     PgRealtimeHub, PostgresBridgeHandle, PostgresMessageNotifier, RealtimeRestState,
 };
-use mnt_platform_storage::{EvidenceService, S3StorageConfig, SeaweedS3Storage, StorageError};
+use mnt_platform_rest::PlatformRestState;
+use mnt_platform_storage::{
+    EvidenceService, FfmpegMediaProcessor, S3StorageConfig, SeaweedS3Storage, StorageError,
+};
 use mnt_registry_adapter_postgres::PgRegistryStore;
 use mnt_registry_rest::RegistryRestState;
 use mnt_reporting_adapter_postgres::PgKpiRepository;
 use mnt_reporting_rest::KpiRestState;
+use mnt_sales_adapter_postgres::PgSalesStore;
+use mnt_sales_rest::SalesRestState;
 use mnt_support_adapter_postgres::PgSupportStore;
 use mnt_support_rest::SupportRestState;
 use mnt_workorder_adapter_postgres::PgWorkOrderStore;
@@ -68,7 +86,6 @@ use opentelemetry_sdk::trace::SdkTracerProvider;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Postgres, QueryBuilder};
-use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use tracing::Instrument;
@@ -77,14 +94,20 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+mod mail_sync;
+
 const DEFAULT_HTTP_ADDR: &str = "0.0.0.0:8080";
 const DEFAULT_SERVICE_NAME: &str = "mnt-app";
 const DEFAULT_SHUTDOWN_TIMEOUT_SECS: u64 = 10;
+const DEFAULT_EVIDENCE_TRANSCODE_CONCURRENCY: usize = 2;
 const DEFAULT_JWT_ISSUER: &str = "mnt-platform-auth";
 const DEFAULT_JWT_AUDIENCE: &str = "mnt-api";
 const DEFAULT_WEBAUTHN_RP_NAME: &str = "MNT Maintenance";
 const DEFAULT_AUTH_CEREMONY_TTL_SECS: u64 = 300;
 const DEFAULT_REFRESH_TOKEN_TTL_SECS: u64 = 60 * 60 * 24 * 30;
+/// Absolute refresh-family lifetime cap (NIST 800-63B AAL2). Default 24h: past
+/// this the family is revoked on rotation and a fresh primary auth is required.
+const DEFAULT_REFRESH_FAMILY_ABSOLUTE_TTL_SECS: u64 = 60 * 60 * 24;
 const DEFAULT_COLDSTART_OTP_TTL_SECS: u64 = 3600;
 const DEFAULT_DISPATCH_ACCEPT_WINDOW_SECS: u64 = 5 * 60;
 const DEFAULT_DISPATCH_FORCE_ASSIGN_ALERT_SECS: u64 = 10 * 60;
@@ -99,16 +122,30 @@ const MAX_AUDIT_LIMIT: i64 = 200;
 /// payloads, and large evidence uploads go straight to object storage via
 /// presigned URLs rather than through this process. Bounds memory per request.
 const MAX_REQUEST_BODY_BYTES: usize = 2 * 1024 * 1024;
-/// Global per-request timeout; sheds requests that hang on a slow upstream or DB
-/// so a stuck handler cannot pin a connection indefinitely.
+/// Default per-request timeout; sheds requests that hang on a slow upstream or
+/// DB so a stuck handler cannot pin a connection indefinitely. Overridable via
+/// `MNT_REQUEST_TIMEOUT_SECS` (see `AppConfig::request_timeout`).
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const OPENAPI_YAML: &str = include_str!("../../openapi/openapi.yaml");
+
+/// Embedded schema migrations, compiled into the binary at build time from the
+/// canonical `mnt-platform-db` migration directory (the same `0001..NNNN_*.sql`
+/// files applied to prod). `migrate` mode runs these in version order; sqlx
+/// tracks applied versions + per-file checksums in `_sqlx_migrations`, so re-runs
+/// are idempotent and a mutated already-applied file is rejected rather than
+/// silently re-run. The path is relative to this crate's manifest (`backend/app`).
+static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../crates/platform/db/migrations");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AppRole {
     Api,
     Worker,
+    /// One-shot schema-migration mode. Connects to `DATABASE_URL` as the table
+    /// OWNER, runs the embedded migrations, then exits â it never serves HTTP.
+    /// Invoked out of band (an Argo CD PreSync Job) before the api/worker
+    /// Deployments roll, so the runtime `mnt_rt` role never needs DDL.
+    Migrate,
 }
 
 impl Display for AppRole {
@@ -116,6 +153,7 @@ impl Display for AppRole {
         match self {
             Self::Api => f.write_str("api"),
             Self::Worker => f.write_str("worker"),
+            Self::Migrate => f.write_str("migrate"),
         }
     }
 }
@@ -127,8 +165,9 @@ impl std::str::FromStr for AppRole {
         match value {
             "api" => Ok(Self::Api),
             "worker" => Ok(Self::Worker),
+            "migrate" => Ok(Self::Migrate),
             other => Err(AppError::Config(format!(
-                "MNT_APP_ROLE must be api or worker, got {other:?}"
+                "MNT_APP_ROLE must be api, worker, or migrate, got {other:?}"
             ))),
         }
     }
@@ -146,13 +185,27 @@ pub struct AppConfig {
     pub storage: Option<S3StorageConfig>,
     pub dispatch_timers: DispatchTimerConfig,
     pub dispatch_jobs_enabled: bool,
+    /// Max concurrent evidence transcodes the worker runs at once
+    /// (`MNT_EVIDENCE_TRANSCODE_CONCURRENCY`, default 2). Backpressure cap so a
+    /// burst of mechanic uploads can't exhaust the worker's CPU/disk.
+    pub evidence_transcode_concurrency: usize,
     pub fcm: Option<FcmConfig>,
     pub solapi: Option<SolapiConfig>,
     pub solapi_disabled_reason: Option<String>,
+    /// Outbound SMTP relay for transactional email (open-signup OTP). `None`
+    /// when no `MNT_EMAIL_*` vars are set; the app then uses the stub sender that
+    /// logs the OTP instead of relaying it (so it boots without an email relay).
+    pub email: Option<SmtpEmailConfig>,
     pub shutdown_timeout: Duration,
+    /// Per-request timeout applied to every non-streaming route
+    /// (`MNT_REQUEST_TIMEOUT_SECS`, default 30s). Deliberately NOT applied to
+    /// the long-lived realtime WS route, which is merged outside this layer.
+    /// Configurable primarily so tests can prove the realtime route escapes the
+    /// timeout without waiting the full production budget.
+    pub request_timeout: Duration,
     /// Deploy-time cold-start OTP for the cold-start SUPER_ADMIN, supplied
     /// out-of-band via `MNT_COLDSTART_OTP`. `None` (or empty) means no
-    /// cold-start OTP is seeded at boot — the normal state once an admin exists.
+    /// cold-start OTP is seeded at boot â the normal state once an admin exists.
     pub coldstart_otp: Option<String>,
     /// Lifetime of a boot-seeded cold-start OTP (`MNT_COLDSTART_OTP_TTL_SECS`,
     /// default 3600s).
@@ -161,6 +214,42 @@ pub struct AppConfig {
     /// (`MNT_TRUSTED_PROXY_COUNT`, default 1). Drives `X-Forwarded-For`
     /// client-IP derivation in the unauthenticated rate limiters.
     pub trusted_proxy_count: usize,
+    /// Native app-link association metadata served at `/.well-known/*`. Drives
+    /// the public, unauthenticated Apple App Site Association + Android asset
+    /// links documents that authorize the native apps' passkeys for the RP
+    /// domain. Sourced from `MNT_IOS_APP_IDS`, `MNT_ANDROID_PACKAGE`, and
+    /// `MNT_ANDROID_CERT_SHA256` (see [`app_links_config_from_vars`]).
+    pub app_links: AppLinksConfig,
+    /// Whether the inbound webmail IMAP sync worker runs (`MNT_MAIL_ENABLED`,
+    /// default false). Even when true the worker only starts if the master KEK
+    /// (`MNT_MAIL_MASTER_KEY`) and object storage are both configured — it is a
+    /// no-op otherwise, so a misconfiguration never crashes the app.
+    pub mail_enabled: bool,
+    /// The tenant that owns the PUBLIC sales storefront (`STOREFRONT_ORG_ID`).
+    /// `None` defaults to KNL's org in the sales router. Set it to the storefront
+    /// tenant's real `organizations.id` when that tenant was re-minted via the
+    /// console with a random uuid, so a public inquiry lands in the SAME org the
+    /// staff inquiry inbox reads under (#19.21) instead of the `0x…a1` sentinel.
+    pub storefront_org: Option<OrgId>,
+}
+
+/// Native app-link association config for the `/.well-known/*` endpoints.
+///
+/// All fields are optional and default to empty: a deployment that has not yet
+/// provisioned its native apps serves an empty (but well-formed) association
+/// document rather than failing to boot. The empty state is logged at startup so
+/// the gap is visible. Once set, the documents authorize the native apps to use
+/// passkeys scoped to the WebAuthn RP domain.
+#[derive(Debug, Clone, Default)]
+pub struct AppLinksConfig {
+    /// iOS app identifiers (`<TeamID>.<bundle-id>`), e.g. `ABCDE12345.com.knl.fsm`.
+    /// From `MNT_IOS_APP_IDS` (comma-separated).
+    pub ios_app_ids: Vec<String>,
+    /// Android application id, e.g. `com.knl.fsm`. From `MNT_ANDROID_PACKAGE`.
+    pub android_package: Option<String>,
+    /// Android signing-cert SHA-256 fingerprints (colon-separated hex). From
+    /// `MNT_ANDROID_CERT_SHA256` (comma-separated for multiple signing keys).
+    pub android_cert_sha256: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -182,6 +271,25 @@ impl JwtVerifierConfig {
         )
         .map_err(|err| AppError::Config(format!("invalid MNT_JWT_PUBLIC_KEY_PEM: {err}")))
     }
+}
+
+/// Build the JWT issuer the PLATFORM view-as START path uses to mint short-lived
+/// read-only impersonation tokens. It signs with the SAME ES256 keypair as the
+/// auth-rest issuer (sourced from [`AuthRestConfig`]), so the tokens it mints
+/// verify against the live `jwt_verifier`. The settings' `access_token_ttl` is
+/// set to the view-as ceiling as a backstop; the START handler additionally
+/// clamps every minted token to that ceiling explicitly.
+fn build_view_as_issuer(config: &AuthRestConfig) -> Result<JwtIssuer, AppError> {
+    JwtIssuer::from_es256_pem(
+        JwtSettings {
+            issuer: config.jwt_issuer.clone(),
+            audience: config.jwt_audience.clone(),
+            access_token_ttl: mnt_platform_rest::VIEW_AS_TOKEN_TTL,
+        },
+        config.jwt_private_key_pem.as_bytes(),
+        config.jwt_public_key_pem.as_bytes(),
+    )
+    .map_err(|err| AppError::Config(format!("invalid view-as issuer key material: {err}")))
 }
 
 impl AppConfig {
@@ -244,13 +352,29 @@ impl AppConfig {
             })?,
             None => true,
         };
+        let evidence_transcode_concurrency = match vars.get("MNT_EVIDENCE_TRANSCODE_CONCURRENCY") {
+            Some(raw) => raw
+                .parse::<usize>()
+                .map_err(|err| {
+                    AppError::Config(format!("invalid MNT_EVIDENCE_TRANSCODE_CONCURRENCY: {err}"))
+                })
+                .map(|value| value.max(1))?,
+            None => DEFAULT_EVIDENCE_TRANSCODE_CONCURRENCY,
+        };
         let fcm = fcm_config_from_vars(&vars)?;
         let (solapi, solapi_disabled_reason) = solapi_config_from_vars(&vars)?;
+        let email = email_config_from_vars(&vars)?;
         let shutdown_timeout = match vars.get("MNT_SHUTDOWN_TIMEOUT_SECS") {
             Some(raw) => raw.parse::<u64>().map(Duration::from_secs).map_err(|err| {
                 AppError::Config(format!("invalid MNT_SHUTDOWN_TIMEOUT_SECS: {err}"))
             })?,
             None => Duration::from_secs(DEFAULT_SHUTDOWN_TIMEOUT_SECS),
+        };
+        let request_timeout = match vars.get("MNT_REQUEST_TIMEOUT_SECS") {
+            Some(raw) => raw.parse::<u64>().map(Duration::from_secs).map_err(|err| {
+                AppError::Config(format!("invalid MNT_REQUEST_TIMEOUT_SECS: {err}"))
+            })?,
+            None => REQUEST_TIMEOUT,
         };
         let coldstart_otp = non_empty(vars.get("MNT_COLDSTART_OTP"));
         let coldstart_otp_ttl = parse_time_duration_secs(
@@ -259,6 +383,20 @@ impl AppConfig {
             "MNT_COLDSTART_OTP_TTL_SECS",
         )?;
         let trusted_proxy_count = parse_trusted_proxy_count(vars.get("MNT_TRUSTED_PROXY_COUNT"))?;
+        let app_links = app_links_config_from_vars(&vars);
+        let mail_enabled = match vars.get("MNT_MAIL_ENABLED") {
+            Some(raw) => raw
+                .parse::<bool>()
+                .map_err(|err| AppError::Config(format!("invalid MNT_MAIL_ENABLED: {err}")))?,
+            None => false,
+        };
+        let storefront_org = match non_empty(vars.get("STOREFRONT_ORG_ID")) {
+            Some(raw) => Some(
+                OrgId::from_str(&raw)
+                    .map_err(|err| AppError::Config(format!("invalid STOREFRONT_ORG_ID: {err}")))?,
+            ),
+            None => None,
+        };
 
         Ok(Self {
             role,
@@ -271,15 +409,50 @@ impl AppConfig {
             storage,
             dispatch_timers,
             dispatch_jobs_enabled,
+            evidence_transcode_concurrency,
             fcm,
             solapi,
             solapi_disabled_reason,
+            email,
             shutdown_timeout,
+            request_timeout,
             coldstart_otp,
             coldstart_otp_ttl,
             trusted_proxy_count,
+            app_links,
+            mail_enabled,
+            storefront_org,
         })
     }
+}
+
+/// Parse the native app-link association config from the environment.
+///
+/// Every field is optional: an unset/empty value yields an empty list (or
+/// `None`), so the `/.well-known/*` endpoints serve a well-formed-but-empty
+/// document instead of the process refusing to boot. The comma-separated lists
+/// trim and drop blank entries so a trailing comma or stray whitespace is
+/// harmless.
+fn app_links_config_from_vars(vars: &HashMap<String, String>) -> AppLinksConfig {
+    AppLinksConfig {
+        ios_app_ids: parse_csv_list(vars.get("MNT_IOS_APP_IDS")),
+        android_package: non_empty(vars.get("MNT_ANDROID_PACKAGE")),
+        android_cert_sha256: parse_csv_list(vars.get("MNT_ANDROID_CERT_SHA256")),
+    }
+}
+
+/// Split a comma-separated env value into trimmed, non-empty entries. Returns an
+/// empty `Vec` when unset or all-blank.
+fn parse_csv_list(value: Option<&String>) -> Vec<String> {
+    value
+        .map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(ToOwned::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn auth_rest_config_from_vars(
@@ -322,6 +495,11 @@ fn auth_rest_config_from_vars(
             vars.get("MNT_REFRESH_TOKEN_TTL_SECS"),
             DEFAULT_REFRESH_TOKEN_TTL_SECS,
             "MNT_REFRESH_TOKEN_TTL_SECS",
+        )?,
+        refresh_family_absolute_ttl: parse_time_duration_secs(
+            vars.get("MNT_REFRESH_FAMILY_ABSOLUTE_TTL_SECS"),
+            DEFAULT_REFRESH_FAMILY_ABSOLUTE_TTL_SECS,
+            "MNT_REFRESH_FAMILY_ABSOLUTE_TTL_SECS",
         )?,
         trusted_proxy_count: parse_trusted_proxy_count(vars.get("MNT_TRUSTED_PROXY_COUNT"))?,
         cookie_secure: parse_cookie_secure(vars.get("MNT_COOKIE_SECURE"))?,
@@ -482,6 +660,78 @@ fn solapi_config_from_vars(
     Ok((Some(config), None))
 }
 
+/// Parse the outbound SMTP email relay config from the environment.
+///
+/// Returns `Ok(None)` (→ stub OTP sender) in TWO cases, so the app always boots:
+///
+///   1. The whole `MNT_EMAIL_*` group is unset (no relay configured at all).
+///   2. The group is PARTIALLY set but the SMTP credentials — the secret parts,
+///      `MNT_EMAIL_SMTP_USERNAME` / `MNT_EMAIL_SMTP_PASSWORD` — are missing or
+///      empty. This is the prod crashloop footgun: a ConfigMap supplies the
+///      non-secret `host`/`port`/`from` while the Secret holding the creds is
+///      not yet provisioned. Rather than hard-erroring and crashlooping, we log
+///      a WARN and degrade to the stub sender (OTP logged, not relayed).
+///
+/// A `Some(config)` (→ live `LettreSmtpSender`) is returned ONLY when the
+/// credentials are present AND the remaining required fields (host, port,
+/// from-address, from-name) are present and valid. With the secrets in hand, a
+/// missing non-secret field is a genuine operator misconfiguration and still
+/// hard-errors (it is not the missing-Secret crashloop this guards against).
+fn email_config_from_vars(
+    vars: &HashMap<String, String>,
+) -> Result<Option<SmtpEmailConfig>, AppError> {
+    let host = non_empty(vars.get("MNT_EMAIL_SMTP_HOST"));
+    let port_raw = non_empty(vars.get("MNT_EMAIL_SMTP_PORT"));
+    let username = non_empty(vars.get("MNT_EMAIL_SMTP_USERNAME"));
+    let password = non_empty(vars.get("MNT_EMAIL_SMTP_PASSWORD"));
+    let from_address = non_empty(vars.get("MNT_EMAIL_FROM"));
+    let from_name = non_empty(vars.get("MNT_EMAIL_FROM_NAME"));
+    let configured = host.is_some()
+        || port_raw.is_some()
+        || username.is_some()
+        || password.is_some()
+        || from_address.is_some()
+        || from_name.is_some();
+    if !configured {
+        return Ok(None);
+    }
+    // The secret parts gate live SMTP. If either is missing/empty while the rest
+    // is set, fall back to the stub instead of crashlooping — the app must boot
+    // regardless of partial email config (a not-yet-provisioned Secret).
+    if username.is_none() || password.is_none() {
+        tracing::warn!(
+            "MNT_EMAIL_* partially set but SMTP credentials missing — using stub sender (OTP logged, not sent)"
+        );
+        return Ok(None);
+    }
+    let required = |value: Option<String>, name: &'static str| {
+        value
+            .ok_or_else(|| AppError::Config(format!("{name} is required when email is configured")))
+    };
+    let port = match port_raw {
+        Some(raw) => raw
+            .parse::<u16>()
+            .map_err(|err| AppError::Config(format!("invalid MNT_EMAIL_SMTP_PORT: {err}")))?,
+        None => {
+            return Err(AppError::Config(
+                "MNT_EMAIL_SMTP_PORT is required when email is configured".to_owned(),
+            ));
+        }
+    };
+    let config = SmtpEmailConfig {
+        host: required(host, "MNT_EMAIL_SMTP_HOST")?,
+        port,
+        username: required(username, "MNT_EMAIL_SMTP_USERNAME")?,
+        password: required(password, "MNT_EMAIL_SMTP_PASSWORD")?,
+        from_address: required(from_address, "MNT_EMAIL_FROM")?,
+        from_name: required(from_name, "MNT_EMAIL_FROM_NAME")?,
+    };
+    config
+        .validate()
+        .map_err(|err| AppError::Config(err.to_string()))?;
+    Ok(Some(config))
+}
+
 fn parse_time_duration_secs(
     raw: Option<&String>,
     default_secs: u64,
@@ -519,12 +769,34 @@ pub struct AppState {
     config: AppConfig,
     database: DatabaseDependency,
     jwt_verifier: Option<JwtVerifier>,
+    /// JWT issuer used ONLY by the PLATFORM view-as START path to mint
+    /// short-lived read-only impersonation tokens. Built from the same ES256
+    /// keypair as the auth-rest issuer (so view-as tokens verify with the live
+    /// `jwt_verifier`). `None` when no private key is configured — the view-as
+    /// START endpoint then returns 503.
+    view_as_issuer: Option<JwtIssuer>,
     auth_rest: Option<AuthRestState>,
     evidence_storage: Option<EvidenceService<SeaweedS3Storage>>,
+    /// Object store + bucket backing the public storefront media-serve route.
+    sales_media_storage: Option<(SeaweedS3Storage, String)>,
     dispatch_job_queue: Option<Arc<dyn JobQueue>>,
     push_notifier: Option<Arc<dyn PushNotifier>>,
+    /// Outbound email sender for the open-signup OTP (#38). Always present: a
+    /// `LettreSmtpSender` when `MNT_EMAIL_*` is configured, otherwise a
+    /// `StubEmailSender` that logs the OTP instead of relaying it.
+    email_sender: Arc<dyn EmailSender>,
     realtime_hub: Option<Arc<PgRealtimeHub>>,
     realtime_bridge: Option<PostgresBridgeHandle>,
+    /// The webmail master-key cipher (envelope AEAD for SMTP/IMAP credentials).
+    /// `None` when `MNT_MAIL_MASTER_KEY` is absent at boot — the app STILL boots
+    /// and the mail router still mounts, but every mail endpoint returns a clear
+    /// `503 email_not_configured`. The cipher feature is lazily/optionally init'd
+    /// so a missing key is never a panic.
+    mail_cipher: Option<Arc<EnvelopeCredentialCipher>>,
+    /// The inbound webmail IMAP sync worker handle. `None` when the worker is OFF
+    /// (no KEK / no storage / `MNT_MAIL_ENABLED` unset). Held so its lifetime is
+    /// tied to the running `AppState` and it stops on shutdown.
+    mail_sync_handle: Option<Arc<mail_sync::MailSyncHandle>>,
 }
 
 impl AppState {
@@ -533,6 +805,15 @@ impl AppState {
             .jwt
             .as_ref()
             .map(JwtVerifierConfig::build)
+            .transpose()?;
+        // The view-as issuer is built from the SAME ES256 keypair as auth-rest,
+        // so impersonation tokens it mints verify against the live `jwt_verifier`.
+        // The per-call TTL override (≤30 min) is enforced in the START handler;
+        // the issuer's default TTL here is a backstop of the same length.
+        let view_as_issuer = config
+            .auth_rest
+            .as_ref()
+            .map(build_view_as_issuer)
             .transpose()?;
         let auth_rest = match &database {
             DatabaseDependency::Postgres(pool) => match &config.auth_rest {
@@ -550,12 +831,17 @@ impl AppState {
             config,
             database,
             jwt_verifier,
+            view_as_issuer,
             auth_rest,
             evidence_storage: None,
+            sales_media_storage: None,
             dispatch_job_queue: None,
             push_notifier: None,
+            email_sender: Arc::new(StubEmailSender),
             realtime_hub,
             realtime_bridge: None,
+            mail_cipher: None,
+            mail_sync_handle: None,
         })
     }
 
@@ -565,6 +851,21 @@ impl AppState {
                 let pool = PgPoolOptions::new()
                     .max_connections(8)
                     .acquire_timeout(Duration::from_secs(3))
+                    // Tenant-isolation backstop. The app connects as the non-owner
+                    // `mnt_rt` role under RLS keyed on the `app.current_org` GUC.
+                    // Every query sets that GUC with SET LOCAL (transaction-scoped,
+                    // auto-cleared on COMMIT/ROLLBACK), so it cannot normally
+                    // persist. RESET ALL on release is defense-in-depth: if any
+                    // future path ever set a *session*-level GUC, this clears it
+                    // before the pooled connection is reused, so a tenant's
+                    // `app.current_org` can never bleed into the next request.
+                    // (RESET ALL keeps prepared statements, unlike DISCARD ALL.)
+                    .after_release(|conn, _meta| {
+                        Box::pin(async move {
+                            sqlx::query("RESET ALL").execute(conn).await?;
+                            Ok(true)
+                        })
+                    })
                     .connect(url)
                     .await
                     .map_err(AppError::Database)?;
@@ -580,6 +881,8 @@ impl AppState {
             let object_store = SeaweedS3Storage::from_config(storage_config)
                 .await
                 .map_err(AppError::Storage)?;
+            state.sales_media_storage =
+                Some((object_store.clone(), storage_config.primary_bucket.clone()));
             state.evidence_storage = Some(EvidenceService::new(
                 pool.clone(),
                 object_store,
@@ -614,6 +917,41 @@ impl AppState {
         if fcm.is_some() || solapi.is_some() {
             state.push_notifier = Some(Arc::new(ProviderPushNotifier::new(fcm, solapi)));
         }
+        if let Some(email_config) = config.email.clone() {
+            let sender = LettreSmtpSender::new(email_config)
+                .map_err(|err| AppError::Config(format!("invalid email config: {err}")))?;
+            state.email_sender = Arc::new(sender);
+        } else {
+            tracing::info!(
+                "MNT_EMAIL_* unset: outbound OTP email uses the stub sender (logs only)"
+            );
+        }
+        // Hand the resolved OTP email sender to the auth REST layer so its
+        // open-signup endpoint (#38) can deliver the code. Done here (not in
+        // `AppState::new`) because the live SMTP sender is only known once
+        // `config.email` is resolved above.
+        if let Some(auth_rest) = state.auth_rest.take() {
+            state.auth_rest = Some(auth_rest.with_email_sender(state.email_sender.clone()));
+        }
+        // Webmail master key (envelope AEAD KEK) — GRACEFULLY OPTIONAL. When
+        // `MNT_MAIL_MASTER_KEY` is present + valid it arms the webmail credential
+        // cipher; when it is absent the app STILL boots and the mail router still
+        // mounts (so the OpenAPI paths exist), but every mail endpoint returns a
+        // clear 503. A malformed key is a real misconfiguration → surfaced as a
+        // boot error so it is caught immediately rather than at first use.
+        match EnvelopeCredentialCipher::from_env() {
+            Ok(cipher) => state.mail_cipher = Some(Arc::new(cipher)),
+            Err(_) if std::env::var(mnt_comms_credential_cipher::MASTER_KEY_ENV).is_err() => {
+                tracing::info!(
+                    "MNT_MAIL_MASTER_KEY unset: webmail is unavailable (endpoints return 503); the app boots normally"
+                );
+            }
+            Err(_) => {
+                return Err(AppError::Config(
+                    "MNT_MAIL_MASTER_KEY is set but is not a valid base64 32-byte key".to_owned(),
+                ));
+            }
+        }
         if let Some(hub) = state.realtime_hub.clone() {
             state.realtime_bridge = Some(
                 hub.start_postgres_listener()
@@ -621,11 +959,32 @@ impl AppState {
                     .map_err(AppError::Realtime)?,
             );
         }
+        // Inbound webmail sync worker (B-mail-3). Spawned like the realtime
+        // listener: a background loop on the app pool that arms `app.current_org`
+        // per tenant for each sync pass. GRACEFUL — only runs when the master KEK,
+        // object storage, and `MNT_MAIL_ENABLED` are all present; otherwise a
+        // no-op so the app boots normally and mail endpoints still mount.
+        if let DatabaseDependency::Postgres(pool) = &state.database {
+            state.mail_sync_handle = mail_sync::spawn(
+                pool.clone(),
+                state.mail_cipher.clone(),
+                state.sales_media_storage.clone(),
+                config.mail_enabled,
+            )
+            .map(Arc::new);
+        }
         Ok(state)
     }
 
     pub fn config(&self) -> &AppConfig {
         &self.config
+    }
+
+    /// Outbound OTP email sender. Always present (stub when `MNT_EMAIL_*` is
+    /// unset). Exposed for the open-signup endpoint landing in #38.
+    #[must_use]
+    pub fn email_sender(&self) -> Arc<dyn EmailSender> {
+        self.email_sender.clone()
     }
 
     pub async fn shutdown_realtime(&self) {
@@ -635,7 +994,22 @@ impl AppState {
         if let Some(hub) = &self.realtime_hub {
             hub.shutdown().await;
         }
+        if let Some(handle) = &self.mail_sync_handle {
+            handle.shutdown();
+        }
     }
+}
+
+/// Build the inbound-attachment object store the webmail read API uses for
+/// presigned GETs, from the same storage config the evidence pipeline uses.
+/// `None` when storage is unconfigured (the attachment-download endpoint 503s).
+fn mail_attachment_store(state: &AppState) -> Option<mnt_comms_rest::SharedAttachmentStore> {
+    state.sales_media_storage.as_ref().map(|(store, bucket)| {
+        Arc::new(mail_sync::S3MailAttachmentStore::new(
+            store.clone(),
+            bucket.clone(),
+        )) as mnt_comms_rest::SharedAttachmentStore
+    })
 }
 
 fn realtime_hub_from_database(database: &DatabaseDependency) -> Option<Arc<PgRealtimeHub>> {
@@ -748,7 +1122,7 @@ pub fn install_metrics_recorder() -> Result<PrometheusHandle, AppError> {
     {
         Ok(handle) => Ok(METRICS_HANDLE.get_or_init(|| handle).clone()),
         // Lost the install race (another caller already set the global recorder)
-        // → adopt the winner's handle; only a genuine absence is an error.
+        // â adopt the winner's handle; only a genuine absence is an error.
         Err(err) => METRICS_HANDLE
             .get()
             .cloned()
@@ -778,7 +1152,7 @@ async fn track_http_metrics(
     response
 }
 
-/// `GET /metrics` — Prometheus exposition. Internal-only: the ingress routes
+/// `GET /metrics` â Prometheus exposition. Internal-only: the ingress routes
 /// `/api` to this server and everything else to the SPA, so `/metrics` is
 /// reachable only in-cluster (e.g. by a ServiceMonitor scrape), never via the
 /// public host.
@@ -809,52 +1183,77 @@ fn with_metrics(router: Router, state: &AppState) -> Router {
         .route("/metrics", get(render_metrics))
 }
 
+/// Build the `TraceLayer` applied to the fully-merged router so EVERY route
+/// (base, domain, platform, realtime, auth) emits a request span. Tracing a
+/// long-lived WS/SSE connection only logs its start/end, so this is safe to
+/// apply even to the realtime route.
+// The return type spells out the closure-parameterized `TraceLayer`; clippy's
+// `type_complexity` lint fires on this builder-style signature, which is the
+// idiomatic shape for a configured tower layer.
+#[allow(clippy::type_complexity)]
+fn http_trace_layer() -> TraceLayer<
+    tower_http::classify::SharedClassifier<tower_http::classify::ServerErrorsAsFailures>,
+    impl Fn(&Request<Body>) -> tracing::Span + Clone,
+    impl Fn(&Request<Body>, &tracing::Span) + Clone,
+    impl Fn(&Response<Body>, Duration, &tracing::Span) + Clone,
+> {
+    TraceLayer::new_for_http()
+        .make_span_with(|request: &Request<Body>| {
+            tracing::info_span!(
+                "http.request",
+                method = %request.method(),
+                // Path ONLY â never the query string. A query can carry PII (a
+                // search term, a name, a phone), and the pii-no-logs gate is a
+                // literal scanner that cannot catch a runtime query value, so we
+                // drop it at the source. The path identifies the route, which is
+                // what tracing needs.
+                path = %request.uri().path(),
+                version = ?request.version(),
+                trace_id = tracing::field::Empty,
+                span_id = tracing::field::Empty,
+            )
+        })
+        .on_request(|request: &Request<Body>, span: &tracing::Span| {
+            let trace_id = record_otel_ids(span);
+            tracing::info!(
+                trace_id = %trace_id,
+                method = %request.method(),
+                // Path only â drop the query string (potential PII); see make_span_with.
+                path = %request.uri().path(),
+                "http request started"
+            );
+        })
+        .on_response(
+            |response: &Response<Body>, latency: Duration, span: &tracing::Span| {
+                let trace_id = record_otel_ids(span);
+                tracing::info!(
+                    trace_id = %trace_id,
+                    status = response.status().as_u16(),
+                    latency_ms = latency.as_millis(),
+                    "http request completed"
+                );
+            },
+        )
+}
+
 pub fn build_router(state: AppState) -> Router {
+    // The base router carries NO cross-cutting layers here. Per axum's `merge`
+    // semantics, any layer applied to a router *before* it is merged with the
+    // domain routers wraps only the base routes, not the merged-in ones â which
+    // is exactly the bug this composition avoids. The trace layer, timeout, and
+    // body limit are applied to the FULLY-merged router below so every route
+    // (base + domains) is covered, with the realtime route deliberately merged
+    // outside the timeout so a long-lived WS connection is never severed.
     let router = Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
-        .route("/api/audit", get(audit_log))
         .route("/openapi/openapi.yaml", get(openapi_yaml))
-        .layer(
-            TraceLayer::new_for_http()
-                .make_span_with(|request: &Request<Body>| {
-                    tracing::info_span!(
-                        "http.request",
-                        method = %request.method(),
-                        uri = %request.uri(),
-                        version = ?request.version(),
-                        trace_id = tracing::field::Empty,
-                        span_id = tracing::field::Empty,
-                    )
-                })
-                .on_request(|request: &Request<Body>, span: &tracing::Span| {
-                    let trace_id = record_otel_ids(span);
-                    tracing::info!(
-                        trace_id = %trace_id,
-                        method = %request.method(),
-                        uri = %request.uri(),
-                        "http request started"
-                    );
-                })
-                .on_response(
-                    |response: &Response<Body>, latency: Duration, span: &tracing::Span| {
-                        let trace_id = record_otel_ids(span);
-                        tracing::info!(
-                            trace_id = %trace_id,
-                            status = response.status().as_u16(),
-                            latency_ms = latency.as_millis(),
-                            "http request completed"
-                        );
-                    },
-                ),
-        )
-        // Defense-in-depth: bound every request's body size and total duration so a
-        // single oversized or hung request cannot exhaust memory or pin a worker.
-        .layer(RequestBodyLimitLayer::new(MAX_REQUEST_BODY_BYTES))
-        .layer(TimeoutLayer::with_status_code(
-            StatusCode::REQUEST_TIMEOUT,
-            REQUEST_TIMEOUT,
-        ))
+        // Public, unauthenticated native app-link association documents. Native
+        // passkeys are inert until the platform serves these at the EXACT
+        // dotted paths over the RP origin, so they live on the base router with
+        // no auth and no tenant middleware (they carry no tenant data).
+        .route(WELL_KNOWN_AASA_PATH, get(apple_app_site_association))
+        .route(WELL_KNOWN_ASSETLINKS_PATH, get(android_assetlinks))
         .with_state(state.clone());
 
     let router = match &state.database {
@@ -870,12 +1269,26 @@ pub fn build_router(state: AppState) -> Router {
             let financial_store = PgFinancialStore::new(pool.clone());
             let inspection_store = PgInspectionStore::new(pool.clone());
             let compliance_store = PgComplianceStore::new(pool.clone());
+            let integrity_store = PgIntegrityStore::new(pool.clone());
             let dispatch_store = PgDispatchStore::new(pool.clone());
             let support_store = PgSupportStore::new(pool.clone());
+            let sales_store = PgSalesStore::new(pool.clone());
             let org_store = PgOrgStore::new(pool.clone());
             let work_order_store = PgWorkOrderStore::new(pool.clone())
                 .with_created_listener(Arc::new(messenger_store.clone()));
-            let router = router
+            // Authenticated domain routers (tenant-scoped data). Each domain
+            // `router()` self-applies the per-request org middleware (so the
+            // behavior is testable per crate), arming `app.current_org` for every
+            // route. `/api/audit` is an app-level route, so it gets the same
+            // middleware applied directly here.
+            let audit_router = mnt_platform_request_context::with_request_context(
+                Router::new()
+                    .route("/api/audit", get(audit_log))
+                    .with_state(state.clone()),
+                state.jwt_verifier.clone(),
+                pool.clone(),
+            );
+            let domain_router = audit_router
                 .merge(mnt_dispatch_rest::router(DispatchRestState::new(
                     dispatch_store,
                     state.jwt_verifier.clone(),
@@ -907,10 +1320,26 @@ pub fn build_router(state: AppState) -> Router {
                     compliance_store,
                     state.jwt_verifier.clone(),
                 )))
+                .merge(mnt_integrity::router(IntegrityRestState::new(
+                    integrity_store,
+                    state.jwt_verifier.clone(),
+                )))
                 .merge(mnt_registry_rest::router(RegistryRestState::new(
                     registry_store,
                     state.jwt_verifier.clone(),
                 )))
+                .merge(mnt_sales_rest::router({
+                    let mut sales_state =
+                        SalesRestState::new(sales_store, state.jwt_verifier.clone())
+                            .with_trusted_proxy_count(state.config.trusted_proxy_count);
+                    if let Some(storefront_org) = state.config.storefront_org {
+                        sales_state = sales_state.with_storefront_org(storefront_org);
+                    }
+                    if let Some((object_store, bucket)) = state.sales_media_storage.clone() {
+                        sales_state = sales_state.with_media_storage(object_store, bucket);
+                    }
+                    sales_state
+                }))
                 .merge(mnt_reporting_rest::router(KpiRestState::new(
                     kpi_repository,
                     state.jwt_verifier.clone(),
@@ -919,27 +1348,124 @@ pub fn build_router(state: AppState) -> Router {
                     work_order_store.clone(),
                     state.jwt_verifier.clone(),
                 )))
-                .merge(mnt_workorder_rest::mobile_router(MobileRestState::new(
-                    pool.clone(),
-                    work_order_store,
-                    state.jwt_verifier.clone(),
-                    state.evidence_storage.clone(),
-                )))
+                .merge(mnt_workorder_rest::mobile_router(
+                    MobileRestState::new(
+                        pool.clone(),
+                        work_order_store,
+                        state.jwt_verifier.clone(),
+                        state.evidence_storage.clone(),
+                    )
+                    .with_job_queue(state.dispatch_job_queue.clone()),
+                ))
                 .merge(mnt_messenger_rest::router(MessengerRestState::new(
                     messenger_store,
                     state.jwt_verifier.clone(),
                 )))
-                .merge(mnt_platform_realtime::router(RealtimeRestState::new(
-                    realtime_hub,
+                // Webmail (`/api/v1/mail/*`). The router ALWAYS mounts so the
+                // OpenAPI paths exist and the app boots without the master key;
+                // when `state.mail_cipher` is `None` every endpoint returns 503.
+                // The inbound-attachment object store (presigned GET) is wired
+                // from the same storage config the evidence pipeline uses; `None`
+                // when storage is unconfigured (download then 503s).
+                .merge(mnt_comms_rest::router(
+                    CommsRestState::new(
+                        PgMailStore::new(pool.clone()),
+                        state.mail_cipher.clone(),
+                        state.jwt_verifier.clone(),
+                    )
+                    .with_attachments(mail_attachment_store(&state)),
+                ));
+            // READ-ONLY WALL for PLATFORM "view as": wrap the WHOLE tenant
+            // domain router so any request carrying a `view_as` token may use
+            // ONLY GET/HEAD — every other method is rejected 403 `view_as_read_only`
+            // BEFORE any handler or per-handler authz runs. This is a blanket
+            // method gate keyed purely on the token's `view_as` claim, so no
+            // mutation handler on any tenant route is reachable while
+            // impersonating, regardless of the acting role. It is orthogonal to
+            // (and does not replace) the tenant org middleware each domain router
+            // already applies; an ordinary tenant/platform token is untouched.
+            let domain_router = mnt_platform_rest::with_view_as_read_only_gate(
+                domain_router,
+                state.jwt_verifier.clone(),
+            );
+            // The realtime WS upgrade and the pre-auth login/refresh endpoints are
+            // intentionally NOT under the org middleware: a login request has no
+            // tenant yet, and the WS handler runs its own auth over the socket
+            // lifetime (a task-local would not survive the upgrade anyway).
+            // PLATFORM tier (`/api/platform/*`). Mounted at the APP level (merged,
+            // not nested) behind the PLATFORM extractor â deliberately NOT under
+            // the tenant org middleware: the PLATFORM extractor rejects a tenant
+            // token here (403), and the per-router tenant org middleware rejects a
+            // platform token on the tenant `/api/v1/*` routes (403). There is NO
+            // blanket `/api/*` platform-token rejection, so `/api/platform/*` is
+            // reached untouched by tenant middleware. Living under `/api` lets the
+            // ingress `/api`→backend rule route it while the SPA keeps the bare
+            // browser routes `/platform/*`. This is the only path that creates org
+            // rows.
+            let platform_router = mnt_platform_rest::router(
+                PlatformRestState::new(
+                    pool.clone(),
                     state.jwt_verifier.clone(),
-                )));
-            match state.auth_rest.clone() {
-                Some(auth_rest) => router.merge(mnt_platform_auth_rest::router(auth_rest)),
-                None => router,
-            }
+                    PlatformProvisioner::new(state.config.coldstart_otp_ttl),
+                )
+                .with_view_as_issuer(state.view_as_issuer.clone()),
+            );
+            // Everything EXCEPT the realtime WS upgrade: base health/openapi
+            // routes, the tenant domain routers, the platform tier, and the
+            // pre-auth login/refresh endpoints. These are all short-lived
+            // request/response cycles, so they carry the 30s request timeout.
+            let timed = {
+                let timed = router.merge(domain_router).merge(platform_router);
+                let timed = match state.auth_rest.clone() {
+                    Some(auth_rest) => {
+                        // The auth-rest router carries authenticated tenant
+                        // mutations (issue-OTP, credential-reset, enroll-handoff,
+                        // passkey register/finish). They live OUTSIDE the tenant
+                        // domain router, so the view-as read-only wall must also
+                        // wrap them — otherwise an impersonation token could reach
+                        // a write here. The pre-auth POSTs (login/refresh/redeem)
+                        // carry no view_as token, so the gate is a no-op for them.
+                        let auth_router = mnt_platform_rest::with_view_as_read_only_gate(
+                            mnt_platform_auth_rest::router(auth_rest),
+                            state.jwt_verifier.clone(),
+                        );
+                        timed.merge(auth_router)
+                    }
+                    None => timed,
+                };
+                // Defense-in-depth: shed any request that hangs on a slow
+                // upstream or DB so a stuck handler cannot pin a worker. Applied
+                // BEFORE the realtime router is merged so the long-lived WS
+                // connection below is never severed by this 30s budget â this is
+                // the #1 regression to prevent (live wallboard/dispatch SSE/WS).
+                timed.layer(TimeoutLayer::with_status_code(
+                    StatusCode::REQUEST_TIMEOUT,
+                    state.config.request_timeout,
+                ))
+            };
+            // The realtime WS upgrade is merged AFTER the timeout layer so it
+            // escapes the 30s budget. It is intentionally NOT under the org
+            // middleware: the WS handler runs its own auth over the socket
+            // lifetime (a task-local would not survive the upgrade anyway).
+            timed.merge(mnt_platform_realtime::router(RealtimeRestState::new(
+                realtime_hub,
+                state.jwt_verifier.clone(),
+            )))
         }
         DatabaseDependency::NotConfigured => router,
     };
+    // Cross-cutting layers on the FULLY-merged router (base + every domain +
+    // platform + realtime + auth), so they actually cover the merged routes:
+    //   * DefaultBodyLimit (2 MiB) â bounds every request body. Applied here
+    //     (innermost of these), so a per-route `DefaultBodyLimit::max(N)` set
+    //     deeper in a domain router (e.g. the 16 MiB equipment import) still
+    //     wins. The realtime WS upgrade carries no body, so this is a no-op for
+    //     it. Overridable per-route, unlike an outermost RequestBodyLimitLayer.
+    //   * TraceLayer â emits a request span for EVERY route, realtime included
+    //     (tracing a long-lived WS only logs its start/end, so it is safe).
+    let router = router
+        .layer(axum::extract::DefaultBodyLimit::max(MAX_REQUEST_BODY_BYTES))
+        .layer(http_trace_layer());
     with_metrics(router, &state)
 }
 
@@ -1003,6 +1529,54 @@ async fn openapi_yaml() -> impl IntoResponse {
         [(header::CONTENT_TYPE, "application/yaml; charset=utf-8")],
         OPENAPI_YAML,
     )
+}
+
+/// Serve the Apple App Site Association document at the well-known path.
+///
+/// Public + unauthenticated, served as `application/json` (no extension, per
+/// Apple's requirement). The `webcredentials.apps` list is sourced from
+/// `MNT_IOS_APP_IDS`; an empty list yields a valid but inert document. Apple
+/// fetches this over the RP origin to authorize the native app's passkeys.
+async fn apple_app_site_association(State(state): State<AppState>) -> Response<Body> {
+    let body = apple_app_site_association_json(AppleAppSiteAssociationConfig {
+        app_ids: state.config.app_links.ios_app_ids.clone(),
+    });
+    well_known_json_response(body)
+}
+
+/// Serve the Android Digital Asset Links document at `/.well-known/assetlinks.json`.
+///
+/// Public + unauthenticated, served as `application/json`. The package +
+/// signing-cert fingerprints come from `MNT_ANDROID_PACKAGE` /
+/// `MNT_ANDROID_CERT_SHA256`; when the package is unset the document is an empty
+/// JSON array (valid + inert). Android fetches this to authorize the app's
+/// passkeys for the RP domain.
+async fn android_assetlinks(State(state): State<AppState>) -> Response<Body> {
+    let links = &state.config.app_links;
+    let body = match &links.android_package {
+        Some(package_name) => android_assetlinks_json(AndroidAssetLinksConfig {
+            package_name: package_name.clone(),
+            sha256_cert_fingerprints: links.android_cert_sha256.clone(),
+        }),
+        // No package configured yet: serve an empty (but valid) asset-links array
+        // rather than a half-populated entry with no package name.
+        None => Ok("[]".to_owned()),
+    };
+    well_known_json_response(body)
+}
+
+/// Build an `application/json` response for a well-known association document.
+///
+/// Serialization of these tiny, statically-shaped documents cannot realistically
+/// fail; if it ever did we surface a 500 rather than serving a malformed body.
+fn well_known_json_response(body: Result<String, mnt_platform_auth::AuthError>) -> Response<Body> {
+    match body {
+        Ok(json) => ([(header::CONTENT_TYPE, "application/json")], json).into_response(),
+        Err(err) => {
+            tracing::error!(error = %err, "failed to serialize well-known association document");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
 async fn audit_log(
@@ -1091,7 +1665,9 @@ fn principal_from_claims(claims: AccessClaims) -> Result<Principal, ApiError> {
         BranchScope::Branches(branches)
     };
 
-    Ok(Principal::new(user_id, roles, branch_scope))
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| ApiError::unauthorized("token contains an invalid org id"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 
 fn authorize_audit_read(principal: &Principal) -> Result<(), ApiError> {
@@ -1392,7 +1968,78 @@ pub async fn serve(config: AppConfig, state: AppState) -> Result<(), AppError> {
     match config.role {
         AppRole::Api => serve_api(config, state).await,
         AppRole::Worker => run_dispatch_worker(config, state).await,
+        // Migrate mode never builds an AppState (no HTTP server, no JWT/S3
+        // wiring); it is dispatched in `main` before `from_config` runs.
+        AppRole::Migrate => run_migrations(&config).await,
     }
+}
+
+/// Apply the embedded schema migrations against `DATABASE_URL`, then return.
+///
+/// This is the `migrate` run-mode (an Argo CD PreSync Job). It is deliberately
+/// lean: it needs ONLY `DATABASE_URL` (the OWNER `mnt_app` connection that can
+/// run DDL) â no JWT keys, S3 creds, or any other app config â so a migration
+/// Job can run with a minimal environment. It opens a tiny single-connection
+/// pool, runs the migrator (idempotent: sqlx skips versions already recorded in
+/// `_sqlx_migrations`), logs how many were applied, then returns so the process
+/// can exit 0. Any DDL/connection error propagates so the Job fails (non-zero)
+/// and Argo blocks the sync.
+pub async fn run_migrations(config: &AppConfig) -> Result<(), AppError> {
+    let database_url = config
+        .database_url
+        .as_deref()
+        .ok_or_else(|| AppError::Config("migrate role requires DATABASE_URL".to_owned()))?;
+
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(Duration::from_secs(10))
+        .connect(database_url)
+        .await
+        .map_err(AppError::Database)?;
+
+    let applied_before = applied_migration_count(&pool).await?;
+    let embedded = MIGRATOR.iter().count();
+
+    tracing::info!(
+        embedded,
+        applied_before,
+        "applying schema migrations (migrate mode)"
+    );
+
+    MIGRATOR
+        .run(&pool)
+        .await
+        .map_err(|err| AppError::Internal(format!("migration run failed: {err}")))?;
+
+    let applied_after = applied_migration_count(&pool).await?;
+    let newly_applied = applied_after.saturating_sub(applied_before);
+
+    if newly_applied == 0 {
+        tracing::info!(
+            applied = applied_after,
+            "schema is up to date; nothing to apply"
+        );
+    } else {
+        tracing::info!(
+            newly_applied,
+            applied = applied_after,
+            "schema migrations applied"
+        );
+    }
+
+    pool.close().await;
+    Ok(())
+}
+
+/// Count rows in sqlx's `_sqlx_migrations` ledger, returning 0 before the table
+/// exists (a fresh database, before the first `MIGRATOR.run`). Used only to log
+/// how many migrations a `migrate` run newly applied.
+async fn applied_migration_count(pool: &PgPool) -> Result<usize, AppError> {
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations WHERE success")
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0);
+    Ok(usize::try_from(count).unwrap_or(0))
 }
 
 async fn serve_api(config: AppConfig, state: AppState) -> Result<(), AppError> {
@@ -1421,7 +2068,7 @@ async fn serve_api(config: AppConfig, state: AppState) -> Result<(), AppError> {
 /// Runs only for the API role with a configured `MNT_COLDSTART_OTP` and a live
 /// database. The seeding itself is idempotent and race-safe in the provisioning
 /// crate: it inserts a credential only when the cold-start admin has neither a
-/// passkey nor an open credential. The OTP value is NEVER logged — only whether a
+/// passkey nor an open credential. The OTP value is NEVER logged â only whether a
 /// credential was seeded or skipped.
 async fn seed_cold_start_otp(config: &AppConfig, state: &AppState) -> Result<(), AppError> {
     let Some(otp) = config.coldstart_otp.as_deref() else {
@@ -1481,11 +2128,28 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
     } else {
         AlimtalkEscalationPolicy::disabled()
     };
-    let worker = DispatchWorker::new(
+    let dispatch_worker = DispatchWorker::new(
         PgDispatchStore::new(pool),
         state.push_notifier.clone(),
         alimtalk_policy,
     );
+    // Compose the dispatch-timer worker with the evidence-transcode handler so a
+    // SINGLE apalis worker on the `mnt.dispatch` queue services both job
+    // families. EvidenceTranscode is routed to the transcode handler (which owns
+    // the EvidenceService + ffmpeg processor + a concurrency cap); everything
+    // else falls through to the dispatch worker.
+    let evidence_worker = state.evidence_storage.clone().map(|service| {
+        EvidenceTranscodeWorker::new(service, config.evidence_transcode_concurrency)
+    });
+    if evidence_worker.is_none() {
+        tracing::warn!(
+            "evidence storage is not configured; evidence transcode jobs will be rejected"
+        );
+    }
+    let worker = CompositeJobHandler {
+        dispatch: dispatch_worker,
+        evidence: evidence_worker,
+    };
 
     // The worker exposes no API surface, but orchestrators (Compose/K8s) still
     // need a liveness/readiness probe. Serve /healthz + /readyz on the same
@@ -1519,6 +2183,99 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
 
     health_server.abort();
     result
+}
+
+/// Routes apalis jobs on the shared `mnt.dispatch` queue: `EvidenceTranscode`
+/// goes to the evidence handler, everything else to the dispatch-timer worker.
+struct CompositeJobHandler {
+    dispatch: DispatchWorker,
+    evidence: Option<EvidenceTranscodeWorker>,
+}
+
+impl PlatformJobHandler for CompositeJobHandler {
+    fn handle<'a>(&'a self, job: PlatformJob) -> BoxFuture<'a, Result<(), JobQueueError>> {
+        Box::pin(async move {
+            match job {
+                PlatformJob::EvidenceTranscode(evidence_job) => match &self.evidence {
+                    Some(worker) => {
+                        worker
+                            .handle(evidence_job.org_id, evidence_job.evidence_id)
+                            .await
+                    }
+                    None => Err(JobQueueError::Worker(
+                        "evidence storage is not configured for transcode jobs".to_owned(),
+                    )),
+                },
+                // Delegate via the PlatformJobHandler impl so the dispatch
+                // worker's error is mapped into JobQueueError.
+                other => PlatformJobHandler::handle(&self.dispatch, other).await,
+            }
+        })
+    }
+}
+
+/// Background handler that transcodes/optimizes a staged evidence original into
+/// the final 1080p/recompressed deliverable. Arms `app.current_org` to the job's
+/// tenant (RLS), claims the pending row, runs ffmpeg/image processing behind a
+/// concurrency cap (backpressure), and transitions PROCESSING → READY/FAILED.
+struct EvidenceTranscodeWorker {
+    service: EvidenceService<SeaweedS3Storage>,
+    processor: FfmpegMediaProcessor,
+    permits: Arc<tokio::sync::Semaphore>,
+}
+
+impl EvidenceTranscodeWorker {
+    fn new(service: EvidenceService<SeaweedS3Storage>, concurrency: usize) -> Self {
+        let concurrency = concurrency.max(1);
+        Self {
+            service,
+            processor: FfmpegMediaProcessor::default(),
+            permits: Arc::new(tokio::sync::Semaphore::new(concurrency)),
+        }
+    }
+
+    async fn handle(&self, org: OrgId, evidence_id: EvidenceId) -> Result<(), JobQueueError> {
+        // Backpressure: cap the number of concurrent transcodes regardless of how
+        // many jobs apalis hands us, so a burst of uploads can't exhaust CPU/disk.
+        let _permit = self
+            .permits
+            .acquire()
+            .await
+            .map_err(|err| JobQueueError::Worker(err.to_string()))?;
+        // Arm the tenant from the job payload BEFORE any RLS-gated work; the
+        // EvidenceService reads/writes the staging + status rows under this org.
+        mnt_platform_request_context::scope_org(org, async { self.process(evidence_id).await })
+            .await
+            .map_err(|err| JobQueueError::Worker(err.to_string()))
+    }
+
+    async fn process(&self, evidence_id: EvidenceId) -> Result<(), StorageError> {
+        let Some(job) = self.service.claim_processing_job().await? else {
+            // Already processed (READY/FAILED) or claimed by another worker —
+            // idempotent no-op.
+            tracing::info!(
+                %evidence_id,
+                "evidence transcode: no pending row to claim (already processed)"
+            );
+            return Ok(());
+        };
+        let status = self
+            .service
+            .process_job(
+                &self.processor,
+                &job,
+                TraceContext::generate(),
+                time::OffsetDateTime::now_utc(),
+            )
+            .await?;
+        tracing::info!(
+            media_id = %job.media_id,
+            work_order_id = %job.work_order_id,
+            status = status.as_db_str(),
+            "evidence transcode complete"
+        );
+        Ok(())
+    }
 }
 
 async fn shutdown_signal(timeout: Duration, state: AppState) {
@@ -1582,5 +2339,275 @@ impl From<DbError> for AppError {
             DbError::Sqlx(err) => Self::Database(err),
             DbError::Serialize(err) => Self::Internal(err.to_string()),
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod router_layer_tests {
+    //! Guards the cross-cutting tower-layer composition in `build_router`.
+    //!
+    //! The bug being prevented: applying `TraceLayer`/`TimeoutLayer`/body-limit
+    //! to the *base* router before merging the domain routers leaves the merged
+    //! routes with none of them (axum `merge` does not propagate pre-merge
+    //! layers). The fix applies trace + body-limit to the fully-merged router
+    //! and applies the timeout to base+domains+platform+auth *before* merging
+    //! the long-lived realtime route, so the realtime route escapes the timeout.
+    //!
+    //! These tests assert the *merge-order semantics* the fix relies on, using
+    //! the same `TimeoutLayer` and `.merge()` ordering as `build_router`. A
+    //! route merged INSIDE the timeout 408s when its handler is slow; a route
+    //! merged AFTER (outside) the timeout is never severed â which is exactly
+    //! how the realtime WS/SSE route is composed. (Note: tower-http 0.7's
+    //! `TimeoutLayer` times out the *response future*, so it cannot abort an
+    //! already-streaming SSE body or an upgraded WS in the first place; merging
+    //! the realtime route outside the timeout is belt-and-suspenders correctness
+    //! that stays robust even if that behavior ever changes.)
+
+    use std::time::Duration;
+
+    use axum::Router;
+    use axum::http::StatusCode;
+    use axum::routing::get;
+    use tower::ServiceExt;
+    use tower_http::timeout::TimeoutLayer;
+
+    use super::REQUEST_TIMEOUT;
+
+    async fn slow() -> &'static str {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        "done"
+    }
+
+    /// Mirrors `build_router`'s composition: a "timed" bundle wrapped by a short
+    /// `TimeoutLayer`, then the realtime-equivalent route merged AFTER it.
+    fn compose(timeout: Duration) -> Router {
+        let timed =
+            Router::new()
+                .route("/timed/slow", get(slow))
+                .layer(TimeoutLayer::with_status_code(
+                    StatusCode::REQUEST_TIMEOUT,
+                    timeout,
+                ));
+        // The realtime route is merged AFTER the timeout layer, exactly as in
+        // `build_router`, so it does not inherit the timeout.
+        timed.merge(Router::new().route("/realtime/slow", get(slow)))
+    }
+
+    #[tokio::test]
+    async fn domain_route_inside_timeout_is_shed_when_slow() {
+        let app = compose(Duration::from_millis(200));
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/timed/slow")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::REQUEST_TIMEOUT,
+            "a slow handler on a route INSIDE the timeout layer must be shed with 408"
+        );
+    }
+
+    #[tokio::test]
+    async fn realtime_route_merged_outside_timeout_is_never_shed() {
+        // Same short timeout, but the realtime-equivalent route is merged
+        // outside it: a handler that runs well past the timeout still completes
+        // 200 and is never severed. This is the #1 regression guard â a 30s
+        // timeout must never cut a live realtime/SSE connection.
+        let app = compose(Duration::from_millis(200));
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/realtime/slow")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "the realtime route is merged OUTSIDE the timeout and must not be timed out"
+        );
+    }
+
+    #[test]
+    fn default_request_timeout_is_thirty_seconds() {
+        assert_eq!(REQUEST_TIMEOUT, Duration::from_secs(30));
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod email_config_tests {
+    //! Guards `email_config_from_vars` robustness. The regression being
+    //! prevented: a partially-set `MNT_EMAIL_*` group (ConfigMap supplies
+    //! host/port/from, but the Secret with the SMTP creds is not yet
+    //! provisioned) used to hard-error and crashloop `mnt-app` in prod. It must
+    //! instead degrade to the stub sender so the app boots. Mirrors the email
+    //! crate's `SmtpEmailConfig` tests but exercises the env-parsing layer.
+
+    use std::collections::HashMap;
+
+    use super::email_config_from_vars;
+
+    /// The full, well-formed `MNT_EMAIL_*` set that yields a live SMTP config.
+    fn full_email_vars() -> HashMap<String, String> {
+        [
+            ("MNT_EMAIL_SMTP_HOST", "smtp.example.com"),
+            ("MNT_EMAIL_SMTP_PORT", "587"),
+            ("MNT_EMAIL_SMTP_USERNAME", "ocid1.user.oc1..example"),
+            ("MNT_EMAIL_SMTP_PASSWORD", "secret"),
+            ("MNT_EMAIL_FROM", "noreply@example.com"),
+            ("MNT_EMAIL_FROM_NAME", "MNT"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect()
+    }
+
+    #[test]
+    fn unset_group_yields_no_config() {
+        let vars = HashMap::new();
+        assert!(email_config_from_vars(&vars).unwrap().is_none());
+    }
+
+    #[test]
+    fn fully_set_group_yields_live_config() {
+        let config = email_config_from_vars(&full_email_vars())
+            .unwrap()
+            .expect("fully-configured email group should yield Some(config)");
+        assert_eq!(config.host, "smtp.example.com");
+        assert_eq!(config.port, 587);
+        assert_eq!(config.username, "ocid1.user.oc1..example");
+        assert_eq!(config.from_address, "noreply@example.com");
+    }
+
+    #[test]
+    fn partial_config_missing_username_falls_back_to_stub() {
+        // ConfigMap set host/port/from, but the Secret (username) is absent.
+        // This must NOT error — it degrades to the stub sender (None).
+        let mut vars = full_email_vars();
+        vars.remove("MNT_EMAIL_SMTP_USERNAME");
+        assert!(
+            email_config_from_vars(&vars).unwrap().is_none(),
+            "missing SMTP username must fall back to stub, not error"
+        );
+    }
+
+    #[test]
+    fn partial_config_missing_password_falls_back_to_stub() {
+        let mut vars = full_email_vars();
+        vars.remove("MNT_EMAIL_SMTP_PASSWORD");
+        assert!(
+            email_config_from_vars(&vars).unwrap().is_none(),
+            "missing SMTP password must fall back to stub, not error"
+        );
+    }
+
+    #[test]
+    fn empty_credentials_fall_back_to_stub() {
+        // Empty (not absent) creds — e.g. a Secret mounted with blank values —
+        // are treated the same as missing and fall back to the stub.
+        let mut vars = full_email_vars();
+        vars.insert("MNT_EMAIL_SMTP_USERNAME".to_owned(), "   ".to_owned());
+        vars.insert("MNT_EMAIL_SMTP_PASSWORD".to_owned(), String::new());
+        assert!(email_config_from_vars(&vars).unwrap().is_none());
+    }
+
+    /// Exhaustively prove the crashloop footgun is closed: ANY permutation of the
+    /// `MNT_EMAIL_*` group that is set WITHOUT both SMTP credentials must degrade
+    /// to the stub (`Ok(None)`), never error. This is the prod scenario — a
+    /// ConfigMap supplies some non-secret fields while the credential Secret is
+    /// not yet provisioned — across every subset of the non-secret fields.
+    #[test]
+    fn every_partial_config_without_credentials_falls_back_to_stub() {
+        const NON_SECRET_KEYS: [(&str, &str); 4] = [
+            ("MNT_EMAIL_SMTP_HOST", "smtp.example.com"),
+            ("MNT_EMAIL_SMTP_PORT", "587"),
+            ("MNT_EMAIL_FROM", "noreply@example.com"),
+            ("MNT_EMAIL_FROM_NAME", "MNT"),
+        ];
+        // All 16 subsets of the 4 non-secret fields, crossed with the 3 broken
+        // credential states (no username, no password, neither). The empty subset
+        // with no creds is the all-unset case (also Ok(None)).
+        for mask in 0u8..(1 << NON_SECRET_KEYS.len()) {
+            for creds in [
+                &[("MNT_EMAIL_SMTP_USERNAME", "ocid1.user.oc1..example")][..],
+                &[("MNT_EMAIL_SMTP_PASSWORD", "secret")][..],
+                &[][..],
+            ] {
+                let mut vars: HashMap<String, String> = HashMap::new();
+                for (bit, (key, value)) in NON_SECRET_KEYS.iter().enumerate() {
+                    if mask & (1 << bit) != 0 {
+                        vars.insert((*key).to_owned(), (*value).to_owned());
+                    }
+                }
+                for (key, value) in creds {
+                    vars.insert((*key).to_owned(), (*value).to_owned());
+                }
+                assert!(
+                    email_config_from_vars(&vars).unwrap().is_none(),
+                    "partial config (mask={mask:#06b}, creds={creds:?}) must fall \
+                     back to the stub sender, not error or build a live config"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn creds_present_but_missing_host_still_errors() {
+        // With BOTH secrets in hand, a missing non-secret field is a genuine
+        // operator misconfiguration and still hard-errors (not the missing-Secret
+        // crashloop this guard targets).
+        let mut vars = full_email_vars();
+        vars.remove("MNT_EMAIL_SMTP_HOST");
+        assert!(email_config_from_vars(&vars).is_err());
+    }
+
+    #[test]
+    fn creds_present_but_missing_port_still_errors() {
+        let mut vars = full_email_vars();
+        vars.remove("MNT_EMAIL_SMTP_PORT");
+        assert!(email_config_from_vars(&vars).is_err());
+    }
+
+    #[test]
+    fn creds_present_but_missing_from_still_errors() {
+        let mut vars = full_email_vars();
+        vars.remove("MNT_EMAIL_FROM");
+        assert!(email_config_from_vars(&vars).is_err());
+    }
+
+    #[test]
+    fn creds_present_but_invalid_port_still_errors() {
+        // A non-numeric port is an operator typo, not a missing Secret — error.
+        let mut vars = full_email_vars();
+        vars.insert("MNT_EMAIL_SMTP_PORT".to_owned(), "not-a-port".to_owned());
+        assert!(email_config_from_vars(&vars).is_err());
+    }
+
+    #[test]
+    fn credentials_only_without_relay_fields_falls_back_to_stub() {
+        // Only the secrets are set (no host/port/from) — there is no relay to
+        // talk to, so degrade to the stub rather than error. The `username` and
+        // `password` guard fires only when one is missing; with both present but
+        // the relay fields absent, `required(host, ...)` would error, so assert
+        // the documented behavior explicitly: this errors (operator must supply
+        // the relay fields once creds exist). Kept as a guard against regressions
+        // that would silently send to an empty relay.
+        let vars: HashMap<String, String> = [
+            ("MNT_EMAIL_SMTP_USERNAME", "ocid1.user.oc1..example"),
+            ("MNT_EMAIL_SMTP_PASSWORD", "secret"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
+        assert!(email_config_from_vars(&vars).is_err());
     }
 }

@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
+    id("io.github.takahirom.roborazzi")
 }
 
 val androidKeystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH")
@@ -35,6 +36,28 @@ android {
     buildFeatures {
         buildConfig = true
         compose = true
+    }
+
+    testOptions {
+        unitTests {
+            // Robolectric needs the merged Android resources (strings.xml, theme) on the
+            // JVM classpath so the real composables resolve stringResource(...) and render
+            // the Korean labels exactly as on-device.
+            isIncludeAndroidResources = true
+            isReturnDefaultValues = true
+        }
+
+        managedDevices {
+            allDevices {
+                // CI-only Gradle Managed Device for the instrumented post-login E2E.
+                // Run with: ./gradlew fieldApi34DebugAndroidTest (needs KVM).
+                create<com.android.build.api.dsl.ManagedVirtualDevice>("fieldApi34") {
+                    device = "Pixel 6"
+                    apiLevel = 34
+                    systemImageSource = "google_apis_playstore"
+                }
+            }
+        }
     }
 
     signingConfigs {
@@ -114,4 +137,36 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+
+    // Robolectric-backed Compose UI tests (src/test, JVM, no emulator). The compose-bom
+    // pins ui-test-junit4 / ui-test-junit4-accessibility (1.11.2) so no explicit versions.
+    testImplementation("org.robolectric:robolectric:4.15.1")
+    testImplementation("androidx.test.ext:junit:1.3.0")
+    testImplementation("androidx.test:core-ktx:1.7.0")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    // ATF-backed accessibility checks: ui-test-junit4-accessibility carries the
+    // Accessibility Test Framework transitively, so enableAccessibilityChecks() works
+    // without pinning ATF directly.
+    testImplementation("androidx.compose.ui:ui-test-junit4-accessibility")
+    // Roborazzi screenshot testing (record goldens / verify as the gate).
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.64.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.64.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.64.0")
+
+    // ui-test-manifest provides the empty Activity that createComposeRule() launches.
+    // debugImplementation is the canonical scope: AGP merges the manifest into the debug
+    // unit-test binary (packageDebugUnitTestForUnitTest) so Robolectric resolves
+    // ComponentActivity. CI runs only testDebugUnitTest (not testReleaseUnitTest), so this
+    // covers the full test scope. See the `build -x test` note in ci.yml.
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    // Instrumented post-login E2E (src/androidTest) — CI-only (needs an emulator).
+    // The compose-bom must be on the androidTest classpath too so ui-test-junit4 resolves.
+    androidTestImplementation(platform("androidx.compose:compose-bom:2026.05.01"))
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:core-ktx:1.7.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test:rules:1.7.0")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 }

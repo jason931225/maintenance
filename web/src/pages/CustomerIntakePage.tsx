@@ -2,8 +2,6 @@ import { CheckCircle2 } from "lucide-react";
 import { useState } from "react";
 
 import type { CustomerIntakeRequest } from "../api/types";
-import { Button } from "../components/ui/button";
-import { Card } from "../components/ui/card";
 import { useAuth } from "../context/auth";
 import {
   CustomerIntakeForm,
@@ -11,10 +9,14 @@ import {
 } from "../features/support/CustomerIntakeForm";
 import { ko } from "../i18n/ko";
 
+const t = ko.support.intake;
+
 /**
- * Public, unauthenticated customer support intake. Mounted outside the auth
- * guard; it uses the (token-less) API client to POST the rate-limited
- * `/api/v1/support/intake` endpoint.
+ * Public, unauthenticated customer support intake (#6 KNL storefront). Routed
+ * child of PublicLayout — returns only its own <main>, so the KNL dark
+ * site-header and footer wrap it. The dominant storefront CTA target. Uses the
+ * (token-less) API client to POST the rate-limited `/api/v1/support/intake`
+ * endpoint. All copy comes from ko.support.intake.* / ko.support.form.*.
  */
 export function CustomerIntakePage() {
   const { api } = useAuth();
@@ -41,43 +43,64 @@ export function CustomerIntakePage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center bg-slate-50 px-4 py-12">
-      <div className="grid w-full max-w-xl gap-6">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-slate-950">
-            {ko.support.intake.title}
-          </h1>
-          <p className="mt-1 text-sm text-slate-600">
-            {ko.support.intake.subtitle}
+    <main className="flex-1 bg-muted-panel">
+      <div className="mx-auto w-full max-w-[760px] px-5 py-[clamp(48px,7vw,96px)] sm:px-8">
+        {/* Intro */}
+        <section aria-labelledby="intake-title" className="mb-8">
+          <p className="mb-3 text-[13px] font-black uppercase tracking-[0.14em] text-brand-teal">
+            {t.eyebrow}
           </p>
-        </div>
-        <Card className="grid gap-5">
+          <h1
+            id="intake-title"
+            className="m-0 text-[clamp(28px,4vw,44px)] font-extrabold leading-[1.12] text-ink"
+          >
+            {t.title}
+          </h1>
+          <p className="mt-4 text-[18px] leading-[1.7] text-steel">
+            {t.subtitle}
+          </p>
+        </section>
+
+        <div className="rounded-xl border border-line bg-white p-6 shadow-[0_22px_70px_rgba(5,18,32,0.08)] sm:p-8">
           {submitted ? (
-            <div className="grid gap-4 text-center">
+            <div className="grid gap-4 py-6 text-center">
               <CheckCircle2
                 aria-hidden="true"
-                className="mx-auto text-emerald-600"
-                size={40}
+                className="mx-auto text-brand-teal"
+                size={48}
               />
-              <p role="status" className="text-base font-semibold text-slate-900">
-                {ko.support.intake.submitted}
+              <h2 className="m-0 text-2xl font-extrabold text-ink" role="status">
+                {t.submitted}
+              </h2>
+              <p className="m-0 text-[17px] leading-[1.7] text-steel">
+                {t.submittedDetail}
               </p>
-              <Button
+              <button
                 type="button"
-                variant="secondary"
-                className="justify-self-center"
                 onClick={() => {
                   setSubmitted(false);
                 }}
+                className="mx-auto mt-2 inline-flex min-h-[48px] items-center justify-center rounded border border-line bg-white px-6 font-bold text-ink transition-colors hover:border-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
               >
-                {ko.support.intake.another}
-              </Button>
+                {t.another}
+              </button>
             </div>
           ) : (
             <CustomerIntakeForm onSubmit={submitIntake} />
           )}
-        </Card>
+        </div>
+
+        {/* Phone is the last resort, demoted below the online form. */}
+        <p className="mt-6 text-center text-[15px] text-steel">
+          {t.phoneFallbackLabel}{" "}
+          <a
+            href={t.phoneFallbackHref}
+            className="font-bold text-ink underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+          >
+            {t.phoneFallback}
+          </a>
+        </p>
       </div>
-    </div>
+    </main>
   );
 }

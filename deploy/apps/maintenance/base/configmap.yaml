@@ -13,8 +13,27 @@ data:
   MNT_JWT_ISSUER: "mnt-platform-auth"
   MNT_JWT_AUDIENCE: "mnt-api"
   MNT_WEBAUTHN_RP_NAME: "MNT 정비 콘솔"
-  MNT_WEBAUTHN_RP_ID: "fsm.knllogistic.com" # overridden in overlays/prod
-  MNT_WEBAUTHN_RP_ORIGIN: "https://fsm.knllogistic.com" # overridden in overlays/prod
+  # RP id is the APEX domain so a passkey enrolled today on console.knllogistic.com
+  # stays valid across every current/future subdomain of the org. The RP ORIGIN
+  # stays the exact served origin (https://console.knllogistic.com): WebAuthn requires
+  # the origin's host to equal the rp id OR be a subdomain of it, which the apex
+  # satisfies. Prod has no enrolled passkeys yet, so this is a clean switch.
+  MNT_WEBAUTHN_RP_ID: "knllogistic.com" # apex; overridden in overlays/prod
+  MNT_WEBAUTHN_RP_ORIGIN: "https://console.knllogistic.com" # overridden in overlays/prod
+  # Absolute refresh-family lifetime cap (NIST 800-63B AAL2). Past this ceiling a
+  # rotation is rejected and the family revoked, forcing a fresh sign-in. 24h.
+  MNT_REFRESH_FAMILY_ABSOLUTE_TTL_SECS: "86400"
+  # Native app-link association (served public + unauthenticated at /.well-known/*
+  # so native passkeys validate). Comma-separated lists; leave empty until the
+  # native apps are provisioned (the endpoints then serve a valid empty document).
+  # See deploy/SECRETS.md "Native app-link association" for how to source these.
+  #   MNT_IOS_APP_IDS: "<TeamID>.<bundle-id>" — Apple Team ID is 98Q89GFZWP;
+  #     awaiting the registered iOS bundle id to form "98Q89GFZWP.<bundle-id>".
+  #   MNT_ANDROID_CERT_SHA256: the release signing-cert SHA-256 (colon-hex);
+  #     awaiting the keystore fingerprint. assetlinks serves once package+cert set.
+  MNT_IOS_APP_IDS: "98Q89GFZWP.com.maintenance.field"
+  MNT_ANDROID_PACKAGE: "com.maintenance.field"
+  MNT_ANDROID_CERT_SHA256: ""
   # Evidence object storage — OCI Object Storage (S3-compatible), Chuncheon.
   MNT_S3_ENDPOINT_URL: "https://axdotp9iv3ua.compat.objectstorage.ap-chuncheon-1.oraclecloud.com"
   MNT_S3_REGION: "ap-chuncheon-1"
@@ -23,6 +42,18 @@ data:
   # financial operations proceed (data resiliency + tamper-evidence).
   MNT_S3_REPLICA_BUCKET: "mnt-evidence-replica"
   MNT_S3_FORCE_PATH_STYLE: "true"
+  # Outbound transactional email (open-signup OTP + admin one-time codes) — OCI
+  # Email Delivery SMTP. Non-secret host/port/sender live here; the SMTP
+  # credentials (MNT_EMAIL_SMTP_USERNAME / MNT_EMAIL_SMTP_PASSWORD) are on the
+  # mnt-secrets Secret, provisioned from OCI Vault. ACTIVE: the OCI email domain
+  # knllogistic.com (DKIM knl1 + SPF + DMARC in Cloudflare) and the approved
+  # sender are live, so the group is enabled and the app relays OTPs over SMTP
+  # (and still logs them as a fallback). Setting any member requires all of them.
+  # MNT_EMAIL_FROM must equal an OCI-approved sender — note the hyphen in no-reply.
+  MNT_EMAIL_SMTP_HOST: "smtp.email.ap-chuncheon-1.oci.oraclecloud.com"
+  MNT_EMAIL_SMTP_PORT: "587"
+  MNT_EMAIL_FROM: "no-reply@knllogistic.com"
+  MNT_EMAIL_FROM_NAME: "MNT 정비 콘솔"
   # OTLP trace export (opt-in). Leave unset to keep tracing as JSON-to-stdout
   # only. Uncommenting enables gRPC OTLP export to an in-cluster collector — the
   # OTel collector MUST be deployed first, otherwise every request will attempt

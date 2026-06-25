@@ -1,0 +1,164 @@
+name: iOS UI tests
+
+# CI-ONLY XCUITest run for the SwiftUI field app. The SwiftPM build/unit tests
+# live in the main `ci.yml` `ios-app` job (`swift build` / `swift test`); this
+# workflow adds the Simulator-bound UI + accessibility-audit suite, which cannot
+# run without Xcode + a Simulator and therefore is not runnable on a
+# Command-Line-Tools-only machine.
+
+on:
+  push:
+    branches:
+      - "**"
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-ui-tests.yml"
+  pull_request:
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-ui-tests.yml"
+
+# A UI run is expensive; cancel superseded runs on the same ref.
+concurrency:
+  group: ios-ui-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios-ui-tests:
+    name: iOS — XCUITest + accessibility audit (Simulator)
+    runs-on: macos-15
+
+    env:
+      # Identity (no hardcoded guess). MNT_IOS_BUNDLE_ID is a repo variable that
+      # mirrors the registered app id behind MNT_IOS_APP_IDS in
+      # deploy/apps/maintenance/base/configmap.yaml; until it is registered the
+      # xcconfig placeholder is used (unsigned Simulator build only).
+      MNT_IOS_BUNDLE_ID: ${{ vars.MNT_IOS_BUNDLE_ID || 'com.maintenance.field' }}
+      MNT_IOS_TEAM_ID: ${{ vars.MNT_IOS_TEAM_ID || '98Q89GFZWP' }}
+      # Real-backend session source for the no-fakes seeding. The suite skips
+      # (XCTSkip) the session-dependent tests if these are absent — it never fakes
+      # a session. Provide a base URL + a seeded refresh token (or OTP) for a
+      # dedicated UI-test mechanic.
+      MNT_UITEST_BASE_URL: ${{ secrets.MNT_UITEST_BASE_URL }}
+      MNT_UITEST_REFRESH_TOKEN: ${{ secrets.MNT_UITEST_REFRESH_TOKEN }}
+      MNT_UITEST_OTP: ${{ secrets.MNT_UITEST_OTP }}
+      # The fully-qualified shared keychain access group
+      # (<TeamIDPrefix>.com.maintenance.field.shared). The test runner uses this
+      # as an explicit override only if a probe write to it succeeds; otherwise it
+      # resolves the granted group at runtime (see RealSessionSeed.resolvedAccessGroup).
+      MNT_IOS_KEYCHAIN_GROUP: ${{ vars.MNT_IOS_KEYCHAIN_GROUP }}
+      # Anti-false-green: require the real post-login suite to actually run (not
+      # all-skip) on pushes where secrets are available. PreflightUITests FAILS
+      # (not skips) if the real session source / shared keychain group is missing
+      # when this is "1". Only enforce when the session secrets are present.
+      MNT_UITEST_REQUIRE_REAL: ${{ (github.event_name == 'push' && secrets.MNT_UITEST_BASE_URL != '') && '1' || '0' }}
+      # Accessibility-audit strictness. BOOTSTRAP = "0": the SwiftUI views have
+      # not yet been observed under a real Simulator audit, so the first runs
+      # record findings as result-bundle attachments (to triage + fix the views)
+      # without failing. Flip to "1" (hard gate) once the audit is clean. Findings
+      # are NEVER silently suppressed — they always appear in the result bundle.
+      MNT_UITEST_AUDIT_STRICT: ${{ vars.MNT_UITEST_AUDIT_STRICT || '0' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Select Xcode
+        # Pin to Xcode 16.4: swift-openapi-runtime 1.12 uses Swift tools 6.1,
+        # and Xcode 16.0 only ships Swift 6.0 on the macos-15 runner.
+        run: sudo xcode-select -switch /Applications/Xcode_16.4.app
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen + xcbeautify
+        run: brew install xcodegen xcbeautify
+
+      - name: Generate Xcode project
+        working-directory: ios
+        # project.yml wraps the SwiftPM app sources in an app target + a UITests
+        # target. The generated .xcodeproj is a build artifact (not committed).
+        run: xcodegen generate --spec project.yml
+
+      - name: Resolve Swift packages
+        working-directory: ios
+        run: xcodebuild -resolvePackageDependencies -project MaintenanceField.xcodeproj -scheme MaintenanceFieldApp
+
+      - name: Boot Simulator
+        run: |
+          xcrun simctl list devices available | grep -i "iPhone" || true
+
+      - name: Run XCUITest + accessibility audit
+        working-directory: ios
+        # Env vars the test RUNNER process must read (ProcessInfo.environment) are
+        # passed with the TEST_RUNNER_ prefix; xcodebuild strips the prefix before
+        # injecting them into the runner. This is how the no-fakes session source
+        # and the keychain group reach the suite without being baked into the app.
+        run: |
+          set -o pipefail
+          # Ad-hoc signing (CODE_SIGN_IDENTITY="-" via App.xcconfig) embeds the
+          # shared keychain-access-group entitlement on the Simulator build so the
+          # no-fakes seeding works; do NOT force CODE_SIGNING_ALLOWED=NO here or
+          # the entitlement is dropped and the session-dependent tests skip.
+          DERIVED_DATA_PATH="${RUNNER_TEMP}/maintenance-field-uitests-derived-data"
+          rm -rf "$DERIVED_DATA_PATH" TestResults.xcresult
+
+          # Xcode 16.4 on GitHub's macOS runner can begin the test operation
+          # before the host app product is fully materialized, which fails as:
+          # "The bundle identifier for MaintenanceFieldApp couldn't be read".
+          # Split the operation into build-for-testing + test-without-building
+          # against the same DerivedData path so the app host and .xctestrun are
+          # complete before XCTest starts.
+          xcodebuild build-for-testing \
+            -project MaintenanceField.xcodeproj \
+            -scheme MaintenanceFieldApp \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
+            | xcbeautify
+
+          APP_PATH="$DERIVED_DATA_PATH/Build/Products/Debug-iphonesimulator/MaintenanceFieldApp.app"
+          test -d "$APP_PATH"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist"
+
+          XCTESTRUN="$(find "$DERIVED_DATA_PATH/Build/Products" -name '*.xctestrun' -print -quit)"
+          test -f "$XCTESTRUN"
+          python3 ../scripts/patch-ios-xctestrun.py "$XCTESTRUN" \
+            --target MaintenanceFieldUITests \
+            --ui-target-app-path "__TESTROOT__/Debug-iphonesimulator/MaintenanceFieldApp.app" \
+            --env MNT_UITEST_BASE_URL \
+            --env MNT_UITEST_REFRESH_TOKEN \
+            --env MNT_UITEST_OTP \
+            --env MNT_IOS_KEYCHAIN_GROUP \
+            --env MNT_UITEST_REQUIRE_REAL \
+            --env MNT_UITEST_AUDIT_STRICT
+          grep -q "MaintenanceFieldApp.app" "$XCTESTRUN"
+          echo "Verified xctestrun points UI tests at MaintenanceFieldApp.app"
+
+          TEST_SELECTION_ARGS=()
+          if [[ -z "${MNT_UITEST_BASE_URL}" || ( -z "${MNT_UITEST_REFRESH_TOKEN}" && -z "${MNT_UITEST_OTP}" ) ]]; then
+            echo "No real UI-test session source is configured; skipping real-session-dependent UI tests."
+            TEST_SELECTION_ARGS+=(
+              "-skip-testing:MaintenanceFieldUITests/AccessibilityAuditUITests"
+              "-skip-testing:MaintenanceFieldUITests/CameraCaptureUITests"
+              "-skip-testing:MaintenanceFieldUITests/FieldCriticalPathUITests"
+              "-skip-testing:MaintenanceFieldUITests/LoginValidationUITests/testInvalidUserIDSurfacesRealValidationCopy"
+              "-skip-testing:MaintenanceFieldUITests/MessengerUITests"
+            )
+          fi
+
+          xcodebuild test-without-building \
+            -xctestrun "$XCTESTRUN" \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -resultBundlePath TestResults.xcresult \
+            "${TEST_SELECTION_ARGS[@]}" \
+            | xcbeautify
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4
+        with:
+          name: ios-ui-test-results
+          path: ios/TestResults.xcresult
+          if-no-files-found: ignore

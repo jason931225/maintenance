@@ -15,6 +15,8 @@ mnt-compliance-domain = { workspace = true }
 mnt-kernel-core = { workspace = true }
 mnt-platform-auth = { workspace = true }
 mnt-platform-authz = { workspace = true }
+mnt-platform-db = { workspace = true }
+mnt-platform-request-context = { workspace = true }
 serde = { workspace = true }
 time = { workspace = true }
 

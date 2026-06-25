@@ -29,6 +29,7 @@ import com.maintenance.api.client.model.EquipmentSummary
 import com.maintenance.api.client.model.EvidenceSummary
 import com.maintenance.api.client.model.NamedEntity
 import com.maintenance.api.client.model.PriorityLevel
+import com.maintenance.api.client.model.SiteContact
 import com.maintenance.api.client.model.StatusHistorySummary
 import com.maintenance.api.client.model.WorkOrderStatus
 import com.maintenance.api.client.model.WorkResultType
@@ -52,6 +53,7 @@ import kotlinx.serialization.Contextual
  * @param equipment
  * @param customer
  * @param site
+ * @param siteContact 사업장 대표 담당자 연락처 (#13). 등록된 연락처가 없으면 null.
  * @param assignments
  * @param symptom
  * @param customerRequest
@@ -106,6 +108,10 @@ data class WorkOrderDetail (
 
     @SerialName(value = "site")
     val site: NamedEntity,
+
+    /* 사업장 대표 담당자 연락처 (#13). 등록된 연락처가 없으면 null. */
+    @SerialName(value = "site_contact")
+    val siteContact: SiteContact,
 
     @SerialName(value = "assignments")
     val assignments: kotlin.collections.List<AssignmentSummary>,

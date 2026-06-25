@@ -1,0 +1,4 @@
+# Generated at runtime by the harness — never commit.
+.auth/
+.artifacts/
+node_modules/

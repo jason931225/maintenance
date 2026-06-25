@@ -15,11 +15,13 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use mnt_kernel_core::{BranchId, BranchScope, MessageId, ThreadId, UserId};
+use mnt_kernel_core::{BranchId, BranchScope, MessageId, OrgId, ThreadId, UserId};
 use mnt_messenger_application::{
     MessageNotifier, MessageNotifyFuture, MessagePostedNotification, MessageSummary,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
+use mnt_platform_db::{DbError, with_org_conn};
+use mnt_platform_request_context::{RequestContextError, current_org};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgListener;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
@@ -37,14 +39,20 @@ pub const WS_ROUTE_PATHS: &[&str] = &["/api/v1/ws"];
 pub struct MessageNotifyPayload {
     pub message_id: MessageId,
     pub thread_id: ThreadId,
+    /// The tenant that owns the posted message. Realtime is a background
+    /// LISTEN/NOTIFY task with NO request context, so `current_org()` is not
+    /// available in the listener; the publisher carries the org here so the
+    /// listener can arm `app.current_org` before reading FORCE-RLS tables.
+    pub org_id: OrgId,
 }
 
 impl MessageNotifyPayload {
     #[must_use]
-    pub fn from_notification(notification: MessagePostedNotification) -> Self {
+    pub fn from_notification(notification: MessagePostedNotification, org_id: OrgId) -> Self {
         Self {
             message_id: notification.message_id,
             thread_id: notification.thread_id,
+            org_id,
         }
     }
 
@@ -70,6 +78,9 @@ pub enum NotifyPayloadError {
 
     #[error(transparent)]
     Database(#[from] sqlx::Error),
+
+    #[error(transparent)]
+    RequestContext(#[from] RequestContextError),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -82,6 +93,12 @@ pub enum RealtimeError {
 
     #[error(transparent)]
     NotifyPayload(#[from] NotifyPayloadError),
+
+    #[error(transparent)]
+    Db(#[from] DbError),
+
+    #[error(transparent)]
+    RequestContext(#[from] RequestContextError),
 
     #[error("realtime connection closed during replay")]
     ConnectionClosed,
@@ -105,7 +122,12 @@ impl PostgresMessageNotifier {
         &self,
         notification: MessagePostedNotification,
     ) -> Result<(), NotifyPayloadError> {
-        let payload = MessageNotifyPayload::from_notification(notification).to_json_bytes()?;
+        // The publisher runs inside the message-send request task, where the
+        // tenant is armed, so `current_org()` resolves the org to stamp onto the
+        // payload. The background listener has no request context and reads it
+        // back to arm `app.current_org` before any FORCE-RLS table read.
+        let org = current_org()?;
+        let payload = MessageNotifyPayload::from_notification(notification, org).to_json_bytes()?;
         Self::validate_payload_size_for_test(&payload)?;
         let payload = String::from_utf8(payload).map_err(|err| {
             serde_json::Error::io(std::io::Error::new(std::io::ErrorKind::InvalidData, err))
@@ -114,6 +136,7 @@ impl PostgresMessageNotifier {
         sqlx::query("SELECT pg_notify($1, $2)")
             .bind(MESSAGE_POSTED_CHANNEL)
             .bind(payload)
+            // rls-arming: ok pg_notify is not a tenant-table read
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -203,6 +226,11 @@ impl Default for RealtimeHubConfig {
 pub struct RealtimePrincipal {
     pub user_id: UserId,
     pub branch_scope: BranchScope,
+    /// The subscriber's tenant, taken from the authenticated WS session's JWT
+    /// `org` claim. Replay reads run in a background task with no request
+    /// context, so this org arms `app.current_org` for the subscriber's own
+    /// FORCE-RLS reads.
+    pub org_id: OrgId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -347,8 +375,12 @@ impl PgRealtimeHub {
         self.connections.lock().await.remove(&connection_id);
     }
 
-    pub async fn dispatch_local_for_test(&self, event: RealtimeEvent) -> Result<(), RealtimeError> {
-        self.dispatch_event(event, None).await
+    pub async fn dispatch_local_for_test(
+        &self,
+        org: OrgId,
+        event: RealtimeEvent,
+    ) -> Result<(), RealtimeError> {
+        self.dispatch_event(org, event, None).await
     }
 
     pub async fn shutdown(&self) {
@@ -406,10 +438,13 @@ impl PgRealtimeHub {
 
     async fn handle_notify_payload(&self, payload: &str) -> Result<(), RealtimeError> {
         let payload = MessageNotifyPayload::from_json_bytes(payload.as_bytes())?;
+        // The listener has no request context; the org rides on the payload and
+        // scopes every FORCE-RLS read triggered by this notification.
+        let org = payload.org_id;
         let message = self
-            .fetch_message(payload.message_id, payload.thread_id)
+            .fetch_message(org, payload.message_id, payload.thread_id)
             .await?;
-        self.dispatch_event(RealtimeEvent::MessagePosted { message }, None)
+        self.dispatch_event(org, RealtimeEvent::MessagePosted { message }, None)
             .await
     }
 
@@ -444,11 +479,23 @@ impl PgRealtimeHub {
             .pool
             .as_ref()
             .ok_or(RealtimeError::DatabaseNotConfigured)?;
-        let cursor = sqlx::query("SELECT sent_at, id FROM messenger_messages WHERE id = $1")
-            .bind(*last_message_id.as_uuid())
-            .fetch_optional(pool)
-            .await?;
-        let Some(cursor) = cursor else {
+        // Replay runs in a spawned task with no request context, so the org is
+        // carried from the authenticated subscriber session (`principal.org_id`)
+        // and arms `app.current_org` for every FORCE-RLS read below.
+        let org = principal.org_id;
+        let last_message_uuid = *last_message_id.as_uuid();
+        let cursor_row = with_org_conn::<_, _, RealtimeError>(pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(
+                    sqlx::query("SELECT sent_at, id FROM messenger_messages WHERE id = $1")
+                        .bind(last_message_uuid)
+                        .fetch_optional(tx.as_mut())
+                        .await?,
+                )
+            })
+        })
+        .await?;
+        let Some(cursor) = cursor_row else {
             return Ok(());
         };
         let mut cursor = MessageCursor {
@@ -457,25 +504,33 @@ impl PgRealtimeHub {
         };
 
         loop {
-            let mut builder = message_select_builder();
-            builder.push(
-                r#"
+            let cursor_sent_at = cursor.sent_at;
+            let cursor_id = *cursor.id.as_uuid();
+            let branch_scope = principal.branch_scope.clone();
+            let user_uuid = *principal.user_id.as_uuid();
+            let rows = with_org_conn::<_, _, RealtimeError>(pool, org, move |tx| {
+                Box::pin(async move {
+                    let mut builder = message_select_builder();
+                    builder.push(
+                        r#"
                 JOIN messenger_thread_members tm
                   ON tm.thread_id = m.thread_id
                  AND tm.user_id =
                 "#,
-            );
-            builder.push_bind(*principal.user_id.as_uuid());
-            builder.push(" WHERE (m.sent_at, m.id) > (");
-            builder.push_bind(cursor.sent_at);
-            builder.push(", ");
-            builder.push_bind(*cursor.id.as_uuid());
-            builder.push(")");
-            push_scope_filter(&mut builder, "m.branch_id", &principal.branch_scope);
-            builder.push(" GROUP BY m.id ORDER BY m.sent_at ASC, m.id ASC LIMIT ");
-            builder.push_bind(REPLAY_PAGE_SIZE);
-
-            let rows = builder.build().fetch_all(pool).await?;
+                    );
+                    builder.push_bind(user_uuid);
+                    builder.push(" WHERE (m.sent_at, m.id) > (");
+                    builder.push_bind(cursor_sent_at);
+                    builder.push(", ");
+                    builder.push_bind(cursor_id);
+                    builder.push(")");
+                    push_scope_filter(&mut builder, "m.branch_id", &branch_scope);
+                    builder.push(" GROUP BY m.id, sender.display_name ORDER BY m.sent_at ASC, m.id ASC LIMIT ");
+                    builder.push_bind(REPLAY_PAGE_SIZE);
+                    Ok(builder.build().fetch_all(tx.as_mut()).await?)
+                })
+            })
+            .await?;
             if rows.is_empty() {
                 break;
             }
@@ -502,6 +557,7 @@ impl PgRealtimeHub {
 
     async fn fetch_message(
         &self,
+        org: OrgId,
         message_id: MessageId,
         thread_id: ThreadId,
     ) -> Result<MessageSummary, RealtimeError> {
@@ -509,18 +565,28 @@ impl PgRealtimeHub {
             .pool
             .as_ref()
             .ok_or(RealtimeError::DatabaseNotConfigured)?;
-        let mut builder = message_select_builder();
-        builder.push(" WHERE m.id = ");
-        builder.push_bind(*message_id.as_uuid());
-        builder.push(" AND m.thread_id = ");
-        builder.push_bind(*thread_id.as_uuid());
-        builder.push(" GROUP BY m.id");
-        let row = builder.build().fetch_one(pool).await?;
-        message_summary_from_row(&row).map_err(RealtimeError::Database)
+        let message_uuid = *message_id.as_uuid();
+        let thread_uuid = *thread_id.as_uuid();
+        // The org is carried from the NOTIFY payload; arm it so this read sees
+        // the publishing tenant's FORCE-RLS rows.
+        with_org_conn::<_, _, RealtimeError>(pool, org, move |tx| {
+            Box::pin(async move {
+                let mut builder = message_select_builder();
+                builder.push(" WHERE m.id = ");
+                builder.push_bind(message_uuid);
+                builder.push(" AND m.thread_id = ");
+                builder.push_bind(thread_uuid);
+                builder.push(" GROUP BY m.id, sender.display_name");
+                let row = builder.build().fetch_one(tx.as_mut()).await?;
+                message_summary_from_row(&row).map_err(|err| RealtimeError::Db(DbError::Sqlx(err)))
+            })
+        })
+        .await
     }
 
     async fn dispatch_event(
         &self,
+        org: OrgId,
         event: RealtimeEvent,
         authorized_users: Option<HashSet<UserId>>,
     ) -> Result<(), RealtimeError> {
@@ -537,7 +603,7 @@ impl PgRealtimeHub {
                     .collect::<Vec<_>>()
             };
             Some(
-                self.authorized_thread_members(event.thread_id(), candidates)
+                self.authorized_thread_members(org, event.thread_id(), candidates)
                     .await?,
             )
         };
@@ -720,6 +786,7 @@ impl PgRealtimeHub {
 
     async fn authorized_thread_members(
         &self,
+        org: OrgId,
         thread_id: ThreadId,
         candidates: Vec<UserId>,
     ) -> Result<HashSet<UserId>, RealtimeError> {
@@ -733,17 +800,25 @@ impl PgRealtimeHub {
             .into_iter()
             .map(|user_id| *user_id.as_uuid())
             .collect::<Vec<_>>();
-        let rows: Vec<uuid::Uuid> = sqlx::query_scalar(
-            r#"
+        let thread_uuid = *thread_id.as_uuid();
+        // The org is carried from the NOTIFY payload; arm it so the membership
+        // read sees the publishing tenant's FORCE-RLS rows.
+        let rows: Vec<uuid::Uuid> = with_org_conn::<_, _, RealtimeError>(pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query_scalar(
+                    r#"
             SELECT user_id
             FROM messenger_thread_members
             WHERE thread_id = $1
               AND user_id = ANY($2)
             "#,
-        )
-        .bind(*thread_id.as_uuid())
-        .bind(candidate_ids)
-        .fetch_all(pool)
+                )
+                .bind(thread_uuid)
+                .bind(candidate_ids)
+                .fetch_all(tx.as_mut())
+                .await?)
+            })
+        })
         .await?;
 
         Ok(rows.into_iter().map(UserId::from_uuid).collect())
@@ -798,6 +873,12 @@ async fn websocket_handler(
 ) -> Result<Response, RealtimeApiError> {
     let principal = principal_from_headers(&state, &headers)?;
     Ok(ws
+        // Browser clients carry the bearer token as a `Sec-WebSocket-Protocol`
+        // subprotocol pair (`bearer, <token>`); the WebSocket handshake REQUIRES
+        // the server to echo one offered subprotocol, so select `bearer` to
+        // complete the handshake (without this the browser aborts with "Sent
+        // non-empty 'Sec-WebSocket-Protocol' header but no response was received").
+        .protocols(["bearer"])
         .on_upgrade(move |socket| {
             websocket_session(state, principal, query.last_message_id, socket)
         })
@@ -943,6 +1024,11 @@ fn websocket_protocol_bearer_token(headers: &HeaderMap) -> Result<Option<&str>, 
 fn principal_from_claims(claims: AccessClaims) -> Result<RealtimePrincipal, RealtimeApiError> {
     let user_id = UserId::from_str(&claims.sub)
         .map_err(|_| RealtimeApiError::unauthorized("token subject is not a valid user id"))?;
+    // The realtime router runs OUTSIDE the tenant org middleware, so the
+    // subscriber's org is taken straight from the verified JWT `org` claim and
+    // carried on the principal for replay reads.
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RealtimeApiError::unauthorized("token contains an invalid org id"))?;
     let has_global_scope = claims
         .roles
         .iter()
@@ -965,6 +1051,7 @@ fn principal_from_claims(claims: AccessClaims) -> Result<RealtimePrincipal, Real
     Ok(RealtimePrincipal {
         user_id,
         branch_scope,
+        org_id,
     })
 }
 
@@ -1019,7 +1106,7 @@ fn message_select_builder() -> QueryBuilder<Postgres> {
     QueryBuilder::<Postgres>::new(
         r#"
         SELECT m.id, m.thread_id, m.branch_id, m.sender_id, m.body,
-               m.sent_at, m.created_at,
+               m.sent_at, m.created_at, sender.display_name AS sender_name,
                COALESCE(
                    array_agg(a.evidence_id ORDER BY a.sort_order)
                        FILTER (WHERE a.evidence_id IS NOT NULL),
@@ -1027,6 +1114,9 @@ fn message_select_builder() -> QueryBuilder<Postgres> {
                ) AS attachment_evidence_ids
         FROM messenger_messages m
         LEFT JOIN messenger_message_attachments a ON a.message_id = m.id
+        -- Same-org JOIN: `users` is RLS-scoped to app.current_org like the
+        -- messages, so a sender only resolves within the caller's tenant.
+        LEFT JOIN users sender ON sender.id = m.sender_id
         "#,
     )
 }
@@ -1038,6 +1128,7 @@ fn message_summary_from_row(row: &sqlx::postgres::PgRow) -> Result<MessageSummar
         thread_id: ThreadId::from_uuid(row.try_get("thread_id")?),
         branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
         sender_id: UserId::from_uuid(row.try_get("sender_id")?),
+        sender_name: row.try_get("sender_name")?,
         body: row.try_get("body")?,
         attachment_evidence_ids: attachment_ids
             .into_iter()

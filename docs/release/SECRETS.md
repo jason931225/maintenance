@@ -9,6 +9,26 @@ Uploads are intentionally not faked. On a `v*` tag, the workflow fails before up
 
 Add these in GitHub repository settings as Actions secrets.
 
+### Release Please
+
+The `.github/workflows/release-please.yml` workflow opens/updates release PRs on
+pushes to `main`.
+
+- Repository Actions setting: keep **Allow GitHub Actions to create and approve
+  pull requests** enabled. The workflow-level `contents: write` and
+  `pull-requests: write` permissions are not enough when that repo setting is
+  disabled.
+- Optional `RELEASE_PLEASE_TOKEN`: fine-grained PAT used instead of
+  `GITHUB_TOKEN` when automatic downstream tag workflows should chain after
+  release-please creates a tag. Grant repository permissions:
+  - Contents: Read and write
+  - Pull requests: Read and write
+
+Without `RELEASE_PLEASE_TOKEN`, release PR/tag creation can still work through
+`GITHUB_TOKEN` after the repo setting above is enabled, but tag-triggered image
+and mobile release workflows must be triggered manually because GitHub suppresses
+recursive workflow triggers from `GITHUB_TOKEN`.
+
 ### Android / Play Internal Track
 
 - `ANDROID_KEYSTORE_BASE64`: base64 of the production Android upload keystore (`.jks` or `.keystore`). Obtain or create this as the Play upload key; keep the original outside the repo.

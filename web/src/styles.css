@@ -1,6 +1,22 @@
 @import "tailwindcss";
 
 /*
+ * KNL storefront design tokens (#6). Tailwind v4 reads custom properties named
+ * `--color-*` inside @theme and generates the matching utilities, so these emit
+ * bg-ink / text-signal / border-line / bg-brand-teal etc. for the public
+ * storefront pages. The console palette (slate-*) is unchanged.
+ */
+@theme {
+  --color-ink: #101820;
+  --color-signal: #f6b521;
+  --color-signal-dark: #c88800;
+  --color-brand-teal: #0f766e;
+  --color-steel: #51606c;
+  --color-muted-panel: #eef2f5;
+  --color-line: #d7dee5;
+}
+
+/*
  * Pretendard, woff2-only. The @fontsource/pretendard CSS entrypoints ship both
  * woff2 and a legacy .woff per weight (~2x the bytes); every browser we target
  * supports woff2, so we declare the faces ourselves and reference only the woff2
@@ -56,6 +72,30 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+}
+
+/*
+ * App-wide Korean line-breaking. `keep-all` stops Hangul (and CJK) from breaking
+ * mid-word — e.g. "솔루션" never splits to "솔루"/"션" — while `overflow-wrap:
+ * anywhere` still lets long unbroken Latin tokens and URLs wrap so they can't
+ * blow out the layout. Set on the root so every storefront and console surface
+ * inherits it.
+ */
+@layer base {
+  html,
+  body {
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+  }
+}
+
+/*
+ * Display headings (hero H1s carry the `balance-text` class): balance the rag so
+ * a tight one-or-two-line headline never leaves a single orphaned word on its
+ * own line.
+ */
+.balance-text {
+  text-wrap: balance;
 }
 
 button,

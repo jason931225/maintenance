@@ -2,6 +2,7 @@ import SwiftUI
 
 #if os(iOS)
 import AVFoundation
+import Foundation
 import UIKit
 
 struct CameraCaptureView: View {
@@ -34,6 +35,7 @@ private struct CameraPermissionRequestView: View {
     var body: some View {
         ProgressView("capturing")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier(FieldAccessibilityID.cameraPermissionRequesting)
     }
 }
 
@@ -47,12 +49,15 @@ private struct CameraPermissionDeniedView: View {
                 .foregroundStyle(.secondary)
             Text("camera_permission_denied")
                 .multilineTextAlignment(.center)
+                .accessibilityIdentifier(FieldAccessibilityID.cameraPermissionDenied)
             Button("camera_open_settings") {
                 if let url = URL(string: UIApplication.openSettingsURLString) {
                     UIApplication.shared.open(url)
                 }
             }
+            .accessibilityIdentifier(FieldAccessibilityID.cameraOpenSettingsButton)
             Button("camera_cancel", action: onCancel)
+                .accessibilityIdentifier(FieldAccessibilityID.cameraCancelButton)
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -98,6 +103,7 @@ private struct CameraPreviewController: UIViewControllerRepresentable {
         var cancelConfiguration = UIButton.Configuration.gray()
         cancelConfiguration.title = String(localized: "camera_cancel")
         let cancel = UIButton(configuration: cancelConfiguration)
+        cancel.accessibilityIdentifier = FieldAccessibilityID.cameraCancelButton
         cancel.addAction(UIAction { _ in onCancel() }, for: .touchUpInside)
         cancel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -105,6 +111,7 @@ private struct CameraPreviewController: UIViewControllerRepresentable {
         shutterConfiguration.title = String(localized: "camera_shutter")
         shutterConfiguration.cornerStyle = .capsule
         let shutter = UIButton(configuration: shutterConfiguration)
+        shutter.accessibilityIdentifier = FieldAccessibilityID.cameraShutterButton
         shutter.addAction(UIAction { _ in
             photoOutput.capturePhoto(with: AVCapturePhotoSettings(), delegate: context.coordinator)
         }, for: .touchUpInside)
@@ -123,12 +130,11 @@ private struct CameraPreviewController: UIViewControllerRepresentable {
             shutter.heightAnchor.constraint(greaterThanOrEqualToConstant: 80),
         ])
 
-        Task.detached {
-            session.startRunning()
-        }
+        let sessionRunner = CameraSessionRunner(session: session)
+        sessionRunner.start()
 
         context.coordinator.previewLayer = previewLayer
-        context.coordinator.session = session
+        context.coordinator.sessionRunner = sessionRunner
         return controller
     }
 
@@ -141,7 +147,7 @@ private struct CameraPreviewController: UIViewControllerRepresentable {
         let onError: () -> Void
         var photoOutput: AVCapturePhotoOutput?
         var previewLayer: AVCaptureVideoPreviewLayer?
-        var session: AVCaptureSession?
+        var sessionRunner: CameraSessionRunner?
 
         init(onCapture: @escaping (URL) -> Void, onError: @escaping () -> Void) {
             self.onCapture = onCapture
@@ -168,7 +174,30 @@ private struct CameraPreviewController: UIViewControllerRepresentable {
         }
 
         deinit {
-            session?.stopRunning()
+            sessionRunner?.stop()
+        }
+    }
+}
+
+private final class CameraSessionRunner: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "com.maintenance.field.camera-session")
+    private let session: AVCaptureSession
+
+    init(session: AVCaptureSession) {
+        self.session = session
+    }
+
+    func start() {
+        queue.async { [self] in
+            session.startRunning()
+        }
+    }
+
+    func stop() {
+        queue.async { [self] in
+            if session.isRunning {
+                session.stopRunning()
+            }
         }
     }
 }
@@ -181,7 +210,9 @@ struct CameraCaptureView: View {
     var body: some View {
         VStack(spacing: 16) {
             Text("camera_unavailable")
+                .accessibilityIdentifier(FieldAccessibilityID.cameraUnavailable)
             Button("camera_cancel", action: onCancel)
+                .accessibilityIdentifier(FieldAccessibilityID.cameraCancelButton)
         }
         .padding()
     }

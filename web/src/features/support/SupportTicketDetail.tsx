@@ -12,6 +12,7 @@ import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Textarea } from "../../components/ui/textarea";
 import { ko } from "../../i18n/ko";
+import { safeLabel } from "../../lib/utils";
 import {
   allowedTransitions,
   categoryLabel,
@@ -28,6 +29,20 @@ interface SupportTicketDetailProps {
   detail: SupportTicketDetailModel;
   /** Current principal — enables the self-assign ("claim") triage action. */
   currentUserId?: string;
+  /**
+   * Whether the principal may triage the ticket (assign/claim + status
+   * transitions). These map to the backend `AssigneeManage` feature, which is
+   * admin-only; mechanics can read + comment but never claim or transition, so
+   * the triage controls are hidden from them rather than 403-ing on click.
+   */
+  canAssign: boolean;
+  /**
+   * Whether the principal may post a comment. Maps to the backend
+   * `WorkOrderStart` feature (Allow): MECHANIC / ADMIN / SUPER_ADMIN. A
+   * receptionist (Limited) can read the thread but the composer is hidden rather
+   * than 403-ing on submit.
+   */
+  canComment: boolean;
   onTransition: (to: SupportTicketStatus) => Promise<void>;
   onAddComment: (body: string, isInternalNote: boolean) => Promise<void>;
   onAssignSelf: () => Promise<void>;
@@ -36,6 +51,8 @@ interface SupportTicketDetailProps {
 export function SupportTicketDetail({
   detail,
   currentUserId,
+  canAssign,
+  canComment,
   onTransition,
   onAddComment,
   onAssignSelf,
@@ -88,39 +105,50 @@ export function SupportTicketDetail({
           <Badge>{categoryLabel(ticket.category)}</Badge>
         </div>
 
-        <h2 className="text-xl font-semibold text-slate-950">{ticket.title}</h2>
+        <h2 className="text-xl font-semibold text-ink">{ticket.title}</h2>
 
         <dl className="grid gap-3 text-sm sm:grid-cols-2">
           <div>
-            <dt className="font-semibold text-slate-600">
+            <dt className="font-semibold text-steel">
               {ko.support.requester}
             </dt>
-            <dd className="text-slate-950">
+            <dd className="text-ink">
               {ticket.requester_name ?? ko.common.unknown}
             </dd>
           </div>
           <div>
-            <dt className="font-semibold text-slate-600">
-              {ko.support.dueAt}
+            <dt className="font-semibold text-steel">
+              {ko.support.assignee}
             </dt>
-            <dd className="text-slate-950">{formatDateTime(ticket.due_at)}</dd>
+            <dd className="text-ink">
+              {ticket.assignee_user_id
+                ? safeLabel(ticket.assignee_name)
+                : ko.support.unassigned}
+            </dd>
           </div>
           <div>
-            <dt className="font-semibold text-slate-600">
+            <dt className="font-semibold text-steel">
+              {ko.support.dueAt}
+            </dt>
+            <dd className="text-ink">{formatDateTime(ticket.due_at)}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-steel">
               {ko.support.createdAt}
             </dt>
-            <dd className="text-slate-950">
+            <dd className="text-ink">
               {formatDateTime(ticket.created_at)}
             </dd>
           </div>
         </dl>
 
-        <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4">
-          <span className="text-sm font-semibold text-slate-700">
+        {canAssign ? (
+        <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
+          <span className="text-sm font-semibold text-steel">
             {ko.support.transition.title}
           </span>
           {transitions.length === 0 ? (
-            <span className="text-sm text-slate-600">
+            <span className="text-sm text-steel">
               {ko.support.transition.none}
             </span>
           ) : (
@@ -158,6 +186,7 @@ export function SupportTicketDetail({
             </Button>
           ) : null}
         </div>
+        ) : null}
         {transitionFailed ? (
           <p role="alert" className="text-sm font-semibold text-red-700">
             {ko.support.transition.failed}
@@ -171,11 +200,11 @@ export function SupportTicketDetail({
       </Card>
 
       <Card className="grid gap-4">
-        <h3 className="text-lg font-semibold text-slate-950">
+        <h3 className="text-lg font-semibold text-ink">
           {ko.support.comments.title}
         </h3>
         <CommentThread comments={comments} />
-        <AddCommentForm onAddComment={onAddComment} />
+        {canComment ? <AddCommentForm onAddComment={onAddComment} /> : null}
       </Card>
     </div>
   );
@@ -184,7 +213,7 @@ export function SupportTicketDetail({
 function CommentThread({ comments }: { comments: SupportTicketComment[] }) {
   if (comments.length === 0) {
     return (
-      <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+      <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
         {ko.support.comments.empty}
       </p>
     );
@@ -197,7 +226,7 @@ function CommentThread({ comments }: { comments: SupportTicketComment[] }) {
           className={`grid gap-1 rounded-md border p-3 ${
             comment.is_internal_note
               ? "border-amber-200 bg-amber-50"
-              : "border-slate-200 bg-white"
+              : "border-line bg-white"
           }`}
         >
           <div className="flex flex-wrap items-center gap-2">
@@ -206,11 +235,16 @@ function CommentThread({ comments }: { comments: SupportTicketComment[] }) {
                 {ko.support.comments.internalNote}
               </Badge>
             ) : null}
-            <span className="text-xs text-slate-500">
+            <span className="text-xs font-medium text-ink">
+              {comment.author_user_id
+                ? safeLabel(comment.author_name)
+                : ko.support.comments.systemAuthor}
+            </span>
+            <span className="text-xs text-steel">
               {formatDateTime(comment.created_at)}
             </span>
           </div>
-          <p className="whitespace-pre-wrap text-sm text-slate-900">
+          <p className="whitespace-pre-wrap text-sm text-ink">
             {comment.body}
           </p>
         </li>
@@ -246,7 +280,7 @@ function AddCommentForm({
 
   return (
     <form
-      className="grid gap-3 border-t border-slate-200 pt-4"
+      className="grid gap-3 border-t border-line pt-4"
       onSubmit={(event) => {
         void handleSubmit(event);
       }}
@@ -262,10 +296,10 @@ function AddCommentForm({
           setBody(event.currentTarget.value);
         }}
       />
-      <label className="flex items-center gap-2 text-sm text-slate-700">
+      <label className="flex items-center gap-2 text-sm text-steel">
         <input
           type="checkbox"
-          className="size-4 rounded border-slate-300"
+          className="size-4 rounded border-line"
           checked={isInternal}
           onChange={(event) => {
             setIsInternal(event.currentTarget.checked);

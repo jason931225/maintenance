@@ -60,6 +60,41 @@ macro_rules! typed_id {
 }
 
 typed_id!(
+    /// A tenant — one maintenance company (정비 회사). The top of the
+    /// hierarchy (org → region → branch → user) and the hard multi-tenant
+    /// isolation boundary: every tenant-scoped row carries an `org_id`, and
+    /// Postgres RLS keyed on `app.current_org` makes cross-tenant access
+    /// impossible. KNL Logistics is tenant #1.
+    OrgId
+);
+
+impl OrgId {
+    /// Tenant #1 — KNL Logistics. The deployment is single-tenant until the
+    /// per-request tenant resolver lands, so every server-side write path arms
+    /// `app.current_org` with this fixed id. It MUST byte-for-byte match the id
+    /// seeded by migration `0028_backfill_org_id.sql`.
+    #[must_use]
+    pub const fn knl() -> Self {
+        Self(uuid::Uuid::from_u128(0xa1))
+    }
+
+    /// The PLATFORM sentinel — the SaaS-vendor tier that sits ABOVE every
+    /// tenant. It is deliberately NOT a real tenant: no `organizations` row has
+    /// this id, no tenant data carries it as `org_id`, and arming it as
+    /// `app.current_org` selects ZERO tenant rows (every RLS policy compares the
+    /// GUC to a real per-tenant `org_id`, which can never equal this marker).
+    ///
+    /// A platform token stamps this into its `org` claim purely so the claim is
+    /// a valid UUID; the platform tier is authorized by the `platform = true`
+    /// claim, never by this value. Distinct from `knl()` (`0xa1`) and from the
+    /// nil UUID so it can never be confused with an unset/zeroed id. The marker
+    /// is `0x...00face` (a recognizable non-tenant byte pattern).
+    #[must_use]
+    pub const fn platform() -> Self {
+        Self(uuid::Uuid::from_u128(0x00face_u128))
+    }
+}
+typed_id!(
     /// An organizational branch (지점). Day-1 scoping concept: every
     /// work order, user membership, equipment row, KPI rollup, and chat
     /// team-channel carries one.
@@ -93,6 +128,8 @@ typed_id!(PurchaseRequestId);
 typed_id!(InspectionId);
 typed_id!(InspectionScheduleId);
 typed_id!(InspectionRoundId);
+typed_id!(SalesListingId);
+typed_id!(CustomerInquiryId);
 typed_id!(SupportTicketId);
 typed_id!(SupportTicketCommentId);
 typed_id!(AuditEventId);

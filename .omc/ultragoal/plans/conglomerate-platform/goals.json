@@ -1,0 +1,151 @@
+{
+  "version": 1,
+  "planId": "conglomerate-platform",
+  "createdAt": "2026-06-24T04:23:29.185Z",
+  "updatedAt": "2026-06-24T18:52:50.510Z",
+  "briefPath": ".omc/ultragoal/plans/conglomerate-platform/brief.md",
+  "goalsPath": ".omc/ultragoal/plans/conglomerate-platform/goals.json",
+  "ledgerPath": ".omc/ultragoal/plans/conglomerate-platform/ledger.jsonl",
+  "claudeGoalMode": "aggregate",
+  "goals": [
+    {
+      "id": "G001-track-a-stabilize-live-ops",
+      "title": "Track A — Stabilize live ops",
+      "objective": "Fix issue-#19 broken-loop flows (#40 batches) + remaining #19; every flow create→admin-visible round-trip tested as real mnt_rt",
+      "status": "complete",
+      "attempt": 1,
+      "createdAt": "2026-06-24T04:23:29.185Z",
+      "updatedAt": "2026-06-24T18:52:50.510Z",
+      "startedAt": "2026-06-24T04:23:36.927Z",
+      "completedAt": "2026-06-24T18:52:50.510Z",
+      "evidence": "Active aggregate /goal in .omc/ultragoal/plans/conglomerate-platform/goals.json + ledger.jsonl covers G001-G015; marking story G001-track-a-stabilize-live-ops COMPLETE (G002-G015 remain active). IMPLEMENTATION: #19 core flows fixed+deployed (#19.13 mgmt_no normalize, #19.17 daily-plan visibility, #19.18 purchase create WORM-defer + error surfacing, #19.21 inquiry org-scope/storefront_org, #19.22 PM-schedule); codex P0 authz (OrgWideQueueTriage replaces is_admin_like widen; daily-plan gate; mgmt_no exact-then-unique binding+preview). Commits 3a87533..0755965. VALIDATION/REVIEW: review-gate (correctness+RLS-as-mnt_rt+codex cross-model+web) = GO-with-fixes, 2 mediums landed; security-reviewer on RBAC sub-spec (separate goal); real mnt_rt tests; backend gates PASSED; full workspace cargo test green after org_setup pagination fix. DEPLOYED LIVE: blue-green /readyz-smoke promotion to mnt-app@804d601+mnt-web@a28c85d, rollouts Healthy, live triager diagnostic done (1/9 admins low-risk). Blocked-external: #19.14 FLMS (Windows MSI). Orthogonal pre-existing CI debt (api-clients/E2E/Android) = task #47."
+    },
+    {
+      "id": "G002-track-b0-org-hierarchy-security",
+      "title": "Track B0 — Org-hierarchy security",
+      "objective": "Write org-hierarchy.md sub-spec + architect + security-review; AccessScope (Group→법인→branch→worksite) generalizing BranchScope + RLS-preserving consolidated reads",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-24T04:23:29.185Z",
+      "updatedAt": "2026-06-24T04:23:29.185Z"
+    },
+    {
+      "id": "G003-p0-blueprint-tokens",
+      "title": "P0 — Blueprint tokens",
+      "objective": "Semantic tone/color map + Mono/Won + .console scope; re-pin priority/status/SLA color helpers (extends C1-C13)",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-24T04:23:29.185Z",
+      "updatedAt": "2026-06-24T04:23:29.185Z"
+    },
+    {
+      "id": "G004-p1-object-view-kit",
+      "title": "P1 — Object-View kit",
+      "objective": "Extract ObjectViewScaffold from WorkOrderDetail (no behavior change) + timeline/approval/evidence panels (CAP-2)",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-24T04:23:29.185Z",
+      "updatedAt": "2026-06-24T04:23:29.185Z"
+    },
+    {
+      "id": "G005-p2-equipment-object-view",
+      "title": "P2 — Equipment Object View",
+      "objective": "/equipment/:id via scaffold + links rail + actions; closes imported-equipment-not-viewable (#8)",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-24T04:23:29.185Z",
+      "updatedAt": "2026-06-24T04:23:29.185Z"
+    },
+    {
+      "id": "G006-p3-nav-fabric",
+      "title": "P3 — Nav fabric",
+      "objective": "ObjectLink + back-stack breadcrumb + Cmd-K command palette + shared DataTable",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-24T04:23:29.185Z",
+      "updatedAt": "2026-06-24T04:23:29.185Z"
+    },
+    {
+      "id": "G007-p4-triage-home",
+      "title": "P4 — Triage Home",
+      "objective": "/home per-role what-needs-me-now queues (role-workflow backlog as a surface)",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-24T04:23:29.185Z",
+      "updatedAt": "2026-06-24T04:23:29.185Z"
+    },
+    {
+      "id": "G008-p5-object-set-query-api-faceted-lens",
+      "title": "P5 — Object-Set query API + faceted lens",
+      "objective": "filter/histogram/listogram/aggregate/search-around (CAP-3) + #24 analytics tiles drill-to-act",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-24T04:23:29.185Z",
+      "updatedAt": "2026-06-24T04:23:29.185Z"
+    },
+    {
+      "id": "G009-p6-timeline-graph-lenses",
+      "title": "P6 — Timeline + graph lenses",
+      "objective": "Equipment lifecycle ribbon + Customer-Site-Equipment-WO graph",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-24T04:23:29.185Z",
+      "updatedAt": "2026-06-24T04:23:29.185Z"
+    },
+    {
+      "id": "G010-action-write-back-engine",
+      "title": "Action/write-back engine",
+      "objective": "CAP-5 transactional audited action executor + generated forms (closed-loop)",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-24T04:23:29.185Z",
+      "updatedAt": "2026-06-24T04:23:29.185Z"
+    },
+    {
+      "id": "G011-track-c-hr-core",
+      "title": "Track C — HR core",
+      "objective": "Employee/직급/조직도 (#36) + Attendance(clock-in) + Leave",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-24T04:23:29.185Z",
+      "updatedAt": "2026-06-24T04:23:29.185Z"
+    },
+    {
+      "id": "G012-track-c-korean-payroll",
+      "title": "Track C — Korean payroll",
+      "objective": "JIT sub-spec + effective-dated rate tables + golden-case tests + 노무사 validation gate",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-24T04:23:29.185Z",
+      "updatedAt": "2026-06-24T04:23:29.185Z"
+    },
+    {
+      "id": "G013-track-c-erp",
+      "title": "Track C — ERP",
+      "objective": "회계 double-entry + 부가세 + 전자세금계산서 relay; 구매매입/AP; 재고; 영업매출/AR (JIT sub-specs)",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-24T04:23:29.185Z",
+      "updatedAt": "2026-06-24T04:23:29.185Z"
+    },
+    {
+      "id": "G014-track-d-webmail-enable",
+      "title": "Track D — Webmail enable",
+      "objective": "#28 Vault key + #39 inbound hardening + webmail client UI (DOMPurify gate) + unify inquiries (#42)",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-24T04:23:29.185Z",
+      "updatedAt": "2026-06-24T04:23:29.185Z"
+    },
+    {
+      "id": "G015-track-d-dispatch-map",
+      "title": "Track D — Dispatch map",
+      "objective": "#29 clock-in-gated live location + arrival/return markers + routing",
+      "status": "pending",
+      "attempt": 0,
+      "createdAt": "2026-06-24T04:23:29.185Z",
+      "updatedAt": "2026-06-24T04:23:29.185Z"
+    }
+  ],
+  "claudeObjective": "Complete all ultragoal stories in .omc/ultragoal/plans/conglomerate-platform/goals.json: G001-track-a-stabilize-live-ops Track A — Stabilize live ops; G002-track-b0-org-hierarchy-security Track B0 — Org-hierarchy security; G003-p0-blueprint-tokens P0 — Blueprint tokens; G004-p1-object-view-kit P1 — Object-View kit; G005-p2-equipment-object-view P2 — Equipment Object View; G006-p3-nav-fabric P3 — Nav fabric; G007-p4-triage-home P4 — Triage Home; G008-p5-object-set-query-api-faceted-lens P5 — Object-Set query API + faceted lens; G009-p6-timeline-graph-lenses P6 — Timeline + graph lenses; G010-action-write-back-engine Action/write-back engine; G011-track-c-hr-core Track C — HR core; G012-track-c-korean-payroll Track C — Korean payroll; G013-track-c-erp Track C — ERP; G014-track-d-webmail-enable Track D — Webmail enable; G015-track-d-dispatch-map Track D — Dispatch map"
+}

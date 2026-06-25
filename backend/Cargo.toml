@@ -2,7 +2,7 @@
 resolver = "3"
 # Member globs are added as their first crate lands (an unmatched glob fails the build):
 #   "crates/<domain>/*"  mnt-<domain>-{domain,application,adapter-postgres,rest,worker}
-#   "crates/platform/*"  mnt-platform-{auth,authz,storage,push,realtime,excel}
+#   "crates/platform/*"  mnt-platform-{auth,authz,storage,push,email,realtime,excel}
 #   "ci/gates/*"         CI gate binaries (layer-boundary, audit-coverage, ...)
 #   "app"                mnt-app composition root
 members = [
@@ -14,9 +14,11 @@ members = [
   "crates/inspection/*",
   "crates/registry/*",
   "crates/reporting/*",
+  "crates/sales/*",
   "crates/support/*",
   "crates/workorder/*",
   "crates/messenger/*",
+  "crates/comms/*",
   "crates/platform/*",
   "ci/gates/*",
 ]
@@ -34,7 +36,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
-time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
+time = { version = "0.3", features = ["serde", "serde-well-known", "formatting", "parsing", "macros"] }
 # Versions verified live against crates.io 2026-06-12: sqlx 0.9.0, tokio 1.52.3
 sqlx = { version = "0.9.0", default-features = false, features = [
     "runtime-tokio",
@@ -64,6 +66,11 @@ apalis-postgres = { version = "=1.0.0-rc.8" }
 apalis-sql = { version = "=1.0.0-rc.9" }
 # Version verified live against crates.io 2026-06-12: calamine 0.35.0
 calamine = { version = "0.35.0", features = ["dates"] }
+# Magic-number file-type sniffing for evidence content re-validation (the
+# downloaded staging bytes are authoritative; the declared content_type is
+# advisory). Pure-Rust, no extra runtime binary. Version verified live against
+# crates.io 2026-06-23: infer 0.19.0.
+infer = { version = "0.19.0", default-features = false, features = ["std"] }
 # Versions verified live against crates.io 2026-06-12:
 # axum 0.8.9, tower-http 0.7.0, tower 0.5.3, http 1.4.2,
 # tracing 0.1.44, tracing-subscriber 0.3.23,
@@ -85,12 +92,64 @@ opentelemetry-otlp = "0.32.0"
 # (no built-in HTTP listener / push-gateway, which would pull extra hyper deps).
 metrics = "0.24.6"
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
+# Outbound SMTP for transactional email (OCI Email Delivery relay). Version
+# verified live against crates.io 2026-06-22: lettre 0.11.22 (latest stable).
+# The workspace ships NO TLS backend (reqwest is default-features = false; no
+# rustls/native-tls elsewhere), so lettre MUST bring its own — we select the
+# bundled rustls stack via `tokio1-rustls-tls` and disable defaults so no
+# system-native TLS (openssl) is pulled in.
+lettre = { version = "0.11.22", default-features = false, features = [
+    "tokio1-rustls-tls",
+    "builder",
+    "smtp-transport",
+] }
+# Webmail credential cipher (envelope AEAD for SMTP/IMAP passwords at rest).
+# Versions verified live against the crates.io index 2026-06-23:
+#   chacha20poly1305 0.10.1, secrecy 0.10.3, zeroize 1.9.0, base64 0.22.1.
+# `chacha20poly1305` 0.10.1 builds on `aead` 0.5, whose `OsRng` (the bundled
+# `getrandom` feature, on by default) is the version-matched CSPRNG — we use it
+# for per-row DEK + nonce generation rather than adding the standalone `rand`
+# crate (rand 0.10 would pull a SECOND, incompatible `rand_core` major). No
+# async-imap / tokio-rustls is added in this batch (those land in B-mail-3).
+chacha20poly1305 = "0.10.1"
+secrecy = "0.10.3"
+zeroize = "1.9.0"
+base64 = "0.22.1"
+# SSRF guard for outbound webmail connections (B-mail-2). Versions verified live
+# against the crates.io index 2026-06-23: hickory-resolver 0.26.1 (latest
+# stable), ipnet 2.12.0 (latest stable). The resolver gives us a resolve-once,
+# validate-the-IP, then dial-the-pinned-IP path (DNS-rebinding safe); ipnet
+# matches the resolved IP against the RFC1918 / loopback / link-local / ULA /
+# CGNAT denylist. hickory-resolver brings its own tokio runtime integration and
+# does NOT add a second rustls stack (it speaks plain UDP/TCP DNS by default).
+hickory-resolver = "0.26.1"
+ipnet = "2.12.0"
+# Inbound IMAP sync (B-mail-3). Versions verified live against the crates.io
+# index 2026-06-23: async-imap 0.11.2, mail-parser 0.11.4, tokio-rustls 0.26.4,
+# rustls 0.23 (workspace already resolves 0.23.x via lettre's tokio1-rustls-tls),
+# webpki-roots 1.0.8, futures 0.3.32.
+#
+# R1 SINGLE-STACK GATE: `async-imap` is TLS-AGNOSTIC — it speaks IMAP over any
+# `tokio::io::AsyncRead + AsyncWrite` (feature `runtime-tokio`, default off so
+# `async-std` is never pulled). We supply the TLS layer ourselves with
+# `tokio-rustls` 0.26 on `rustls` 0.23 + the `ring` provider — the EXACT rustls
+# major/minor + ring that `lettre 0.11.22`'s `tokio1-rustls-tls` already pulls,
+# so `cargo tree -d` stays single-stack (one rustls, one ring, no native-tls /
+# openssl). `mail-parser` is the inbound MIME parser; both appear ONLY in
+# `mnt-comms-adapter-imap`.
+async-imap = { version = "0.11.2", default-features = false, features = ["runtime-tokio"] }
+mail-parser = "0.11.4"
+tokio-rustls = { version = "0.26.4", default-features = false, features = ["ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1.0.8"
+futures = { version = "0.3.32", default-features = false, features = ["std"] }
 
 mnt-kernel-core = { path = "crates/kernel/core" }
 mnt-compliance-domain = { path = "crates/compliance/domain" }
 mnt-compliance-application = { path = "crates/compliance/application" }
 mnt-compliance-adapter-postgres = { path = "crates/compliance/adapter-postgres" }
 mnt-compliance-rest = { path = "crates/compliance/rest" }
+mnt-integrity = { path = "crates/compliance/integrity" }
 mnt-financial-domain = { path = "crates/financial/domain" }
 mnt-financial-application = { path = "crates/financial/application" }
 mnt-financial-adapter-postgres = { path = "crates/financial/adapter-postgres" }
@@ -107,6 +166,10 @@ mnt-support-domain = { path = "crates/support/domain" }
 mnt-support-application = { path = "crates/support/application" }
 mnt-support-adapter-postgres = { path = "crates/support/adapter-postgres" }
 mnt-support-rest = { path = "crates/support/rest" }
+mnt-sales-domain = { path = "crates/sales/domain" }
+mnt-sales-application = { path = "crates/sales/application" }
+mnt-sales-adapter-postgres = { path = "crates/sales/adapter-postgres" }
+mnt-sales-rest = { path = "crates/sales/rest" }
 mnt-registry-domain = { path = "crates/registry/domain" }
 mnt-registry-application = { path = "crates/registry/application" }
 mnt-reporting-domain = { path = "crates/reporting/domain" }
@@ -123,6 +186,13 @@ mnt-messenger-domain = { path = "crates/messenger/domain" }
 mnt-messenger-application = { path = "crates/messenger/application" }
 mnt-messenger-adapter-postgres = { path = "crates/messenger/adapter-postgres" }
 mnt-messenger-rest = { path = "crates/messenger/rest" }
+mnt-comms-domain = { path = "crates/comms/domain" }
+mnt-comms-credential-cipher = { path = "crates/comms/credential-cipher" }
+mnt-comms-application = { path = "crates/comms/application" }
+mnt-comms-adapter-postgres = { path = "crates/comms/adapter-postgres" }
+mnt-comms-adapter-smtp = { path = "crates/comms/adapter-smtp" }
+mnt-comms-adapter-imap = { path = "crates/comms/adapter-imap" }
+mnt-comms-rest = { path = "crates/comms/rest" }
 mnt-dispatch-domain = { path = "crates/dispatch/domain" }
 mnt-dispatch-application = { path = "crates/dispatch/application" }
 mnt-dispatch-adapter-postgres = { path = "crates/dispatch/adapter-postgres" }
@@ -132,11 +202,13 @@ mnt-platform-db = { path = "crates/platform/db" }
 mnt-platform-auth = { path = "crates/platform/auth" }
 mnt-platform-auth-rest = { path = "crates/platform/auth-rest" }
 mnt-platform-authz = { path = "crates/platform/authz" }
+mnt-platform-request-context = { path = "crates/platform/request-context" }
 mnt-platform-realtime = { path = "crates/platform/realtime" }
 mnt-platform-excel = { path = "crates/platform/excel" }
 mnt-platform-storage = { path = "crates/platform/storage" }
 mnt-platform-jobs = { path = "crates/platform/jobs" }
 mnt-platform-push = { path = "crates/platform/push" }
+mnt-platform-email = { path = "crates/platform/email" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

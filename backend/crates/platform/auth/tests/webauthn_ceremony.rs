@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use mnt_kernel_core::OrgId;
 use mnt_platform_auth::{PasskeyRegistrationStart, PasskeyService, WebauthnSettings};
 use sqlx::{PgPool, Row};
 use time::Duration;
@@ -28,12 +29,15 @@ fn inject_allow_credential(
 }
 
 async fn seed_user(pool: &PgPool) -> uuid::Uuid {
-    sqlx::query_scalar("INSERT INTO users (display_name, roles) VALUES ($1, $2) RETURNING id")
-        .bind("Passkey User")
-        .bind(Vec::<String>::from(["MECHANIC".to_owned()]))
-        .fetch_one(pool)
-        .await
-        .unwrap()
+    sqlx::query_scalar(
+        "INSERT INTO users (display_name, roles, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind("Passkey User")
+    .bind(Vec::<String>::from(["MECHANIC".to_owned()]))
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 fn service() -> PasskeyService {
@@ -58,6 +62,7 @@ async fn discoverable_passkey_registration_and_usernameless_login(pool: PgPool) 
     let registration = service
         .start_registration(
             &pool,
+            OrgId::knl(),
             PasskeyRegistrationStart {
                 user_id,
                 username: "passkey.user".to_owned(),
@@ -84,7 +89,7 @@ async fn discoverable_passkey_registration_and_usernameless_login(pool: PgPool) 
         .unwrap();
 
     let stored_passkey = service
-        .finish_registration(&pool, registration.ceremony_id, credential)
+        .finish_registration(&pool, OrgId::knl(), registration.ceremony_id, credential)
         .await
         .unwrap();
     assert_eq!(stored_passkey.user_id, user_id);

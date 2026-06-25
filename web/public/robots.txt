@@ -1,0 +1,19 @@
+# KNL public storefront (knllogistic.com). Crawl the public marketing/catalog
+# pages; keep the authenticated console + API out of the index.
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /login
+Disallow: /onboarding
+Disallow: /dispatch
+Disallow: /approvals
+Disallow: /inspection
+Disallow: /ops
+Disallow: /kpi
+Disallow: /wallboard
+Disallow: /settings
+Disallow: /catalog
+Disallow: /platform
+Disallow: /support
+
+Sitemap: https://knllogistic.com/sitemap.xml

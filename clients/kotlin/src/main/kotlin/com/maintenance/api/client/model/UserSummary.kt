@@ -23,6 +23,7 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.AccountStatus
 import com.maintenance.api.client.model.Team
 
 import kotlinx.serialization.Serializable
@@ -39,6 +40,8 @@ import kotlinx.serialization.Contextual
  * @param roles
  * @param branchIds
  * @param isActive
+ * @param hasPasskey Whether the user has at least one enrolled passkey. A user can only sign in once this is true; until then the account is pending setup.
+ * @param accountStatus
  * @param createdAt
  */
 @Serializable
@@ -65,6 +68,13 @@ data class UserSummary (
 
     @SerialName(value = "is_active")
     val isActive: kotlin.Boolean,
+
+    /* Whether the user has at least one enrolled passkey. A user can only sign in once this is true; until then the account is pending setup. */
+    @SerialName(value = "has_passkey")
+    val hasPasskey: kotlin.Boolean,
+
+    @Contextual @SerialName(value = "account_status")
+    val accountStatus: AccountStatus,
 
     @Contextual @SerialName(value = "created_at")
     val createdAt: java.time.OffsetDateTime

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse, ws } from "msw";
 import { setupServer } from "msw/node";
@@ -53,6 +53,10 @@ const server = setupServer(
     kpiRequests.push(url);
     return HttpResponse.json(kpiReport);
   }),
+  http.get("*/api/v1/ops/summary", () => HttpResponse.json(opsSummary)),
+  http.get("*/api/v1/location/arrival-events", () =>
+    HttpResponse.json({ items: [], limit: 20, offset: 0, total: 0 }),
+  ),
   http.get("*/api/v1/location-consent/status", () =>
     HttpResponse.json({
       consent_id: "00000000-0000-4000-8000-000000000011",
@@ -98,6 +102,7 @@ const server = setupServer(
 beforeAll(() => { server.listen({ onUnhandledRequest: "error" }); });
 afterEach(() => {
   server.resetHandlers();
+  window.localStorage.removeItem("knl_cookie_notice_v1");
   listRequests.length = 0;
   kpiRequests.length = 0;
   autocompleteRequests.length = 0;
@@ -120,14 +125,57 @@ function makeAuthContext(session: AuthSession | undefined): AuthContextValue {
     refresh: async () => {},
     acceptTokens: () => {},
     clearPasskeySetup: () => {},
+    viewAs: undefined,
+    enterViewAs: () => {},
+    exitViewAs: () => undefined,
     api,
   };
 }
 
+// A generic authenticated console user. Carries an operational role
+// (MECHANIC): the app now default-denies a roleless / MEMBER-only session and
+// routes it to /pending, so a "real" signed-in user must hold a granted role to
+// reach the shared shell pages (dispatch / intake / messenger).
 const authenticatedSession: AuthSession = {
   access_token: tokenPair.access_token,
   user_id: "00000000-0000-4000-8000-000000000002",
+  roles: ["MECHANIC"],
   branches: ["00000000-0000-4000-8000-000000000001"],
+};
+
+const adminSession: AuthSession = {
+  ...authenticatedSession,
+  roles: ["ADMIN"],
+};
+
+const mechanicSession: AuthSession = {
+  ...authenticatedSession,
+  roles: ["MECHANIC"],
+};
+
+const opsSummary = {
+  funnel: { received: 2, assigned: 1, in_progress: 3, completed: 5 },
+  aging_hours: 24,
+  aging_work_orders: 1,
+  sla_breached: 0,
+  sla_at_risk: 2,
+  mechanic_load: [
+    {
+      mechanic_id: "00000000-0000-4000-8000-000000000099",
+      display_name: "김정비",
+      active_assignments: 3,
+    },
+  ],
+  equipment_status: {
+    rented: 10,
+    spare: 4,
+    scrapped: 1,
+    replacement: 2,
+    sold: 0,
+  },
+  active_substitutions: 1,
+  pending_approvals: 2,
+  open_support_tickets: 4,
 };
 
 function renderAt(path: string, session: AuthSession | undefined = authenticatedSession) {
@@ -191,38 +239,102 @@ describe("AppRouter authenticated", () => {
 });
 
 describe("routing", () => {
-  it("redirects / to /dispatch", async () => {
+  it("renders the public KNL storefront home at /", async () => {
+    // #6: `/` is now the unauthenticated KNL storefront home (PublicLayout),
+    // replacing the previous `/`→`/dispatch` redirect. The header carries the
+    // public nav; the page shows the tightened one-stop hero title.
     renderAt("/");
     expect(
-      await screen.findByRole("heading", { name: "작업지시 목록" }),
+      (await screen.findAllByText("지게차 렌탈·정비·운영을 하나로"))[0],
+    ).toBeVisible();
+  });
+
+  it("shows the public cookie notice until acknowledged", async () => {
+    const user = userEvent.setup();
+    renderAt("/");
+
+    const notice = await screen.findByRole("region", { name: "쿠키 안내" });
+    expect(notice).toBeVisible();
+    expect(
+      within(notice).getByRole("link", { name: "자세히 보기" }),
+    ).toHaveAttribute("href", "/privacy");
+
+    await user.click(within(notice).getByRole("button", { name: "확인" }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("region", { name: "쿠키 안내" }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("renders the public privacy notice page", async () => {
+    renderAt("/privacy");
+    expect(
+      await screen.findByRole("heading", {
+        name: "개인정보·쿠키 안내",
+        level: 1,
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "초기 로그인 필수 동의", level: 2 }),
+    ).toBeVisible();
+  });
+
+  it("renders footer legal/version text and family-site links", async () => {
+    renderAt("/");
+
+    expect(await screen.findByText(/© \d{4} KNL/)).toBeVisible();
+    expect(screen.getByText("버전 v0.1.0")).toBeVisible();
+    expect(screen.getByRole("link", { name: "COSS" })).toHaveAttribute(
+      "href",
+      "https://www.cossok.com/",
+    );
+    expect(
+      screen.getByRole("link", { name: "Bestec Family Site" }),
+    ).toHaveAttribute("href", "https://www.bestec-kr.com/");
+  });
+
+  it("renders the public /platform-fsm showcase", async () => {
+    // The FSM-platform marketing page mounts inside PublicLayout at
+    // /platform-fsm (the gated console owns /platform). Its hero reuses the
+    // landing.* copy, so the landing hero title renders as the page H1.
+    renderAt("/platform-fsm");
+    expect(
+      await screen.findByRole("heading", {
+        name: "접수부터 배차·현장 정비·정산·KPI까지, 하나의 콘솔로",
+        level: 1,
+      }),
     ).toBeVisible();
   });
 
   it("renders /intake page", async () => {
     renderAt("/intake");
     expect(
-      await screen.findByRole("heading", { name: "접수 입력", level: 2 }),
+      await screen.findByRole("heading", { name: "접수 입력", level: 1 }),
     ).toBeVisible();
   });
 
   it("renders /approvals page", async () => {
-    renderAt("/approvals");
+    // /approvals is admin-only (RequireAdminRoute) — render with an admin session.
+    renderAt("/approvals", adminSession);
     expect(
-      await screen.findByRole("heading", { name: "승인 대기", level: 2 }),
+      await screen.findByRole("heading", { name: "승인 대기", level: 1 }),
     ).toBeVisible();
   });
 
   it("renders /kpi page", async () => {
-    renderAt("/kpi");
+    // /kpi is KpiRead-gated (RequireKpiRoute) — render with a KpiRead role.
+    renderAt("/kpi", adminSession);
     expect(
-      await screen.findByRole("heading", { name: "임원 KPI 대시보드", level: 2 }),
+      await screen.findByRole("heading", { name: "임원 KPI 대시보드", level: 1 }),
     ).toBeVisible();
   });
 
   it("renders /messenger page", async () => {
     renderAt("/messenger");
     expect(
-      await screen.findByRole("heading", { name: "메신저", level: 2 }),
+      await screen.findByRole("heading", { name: "메신저", level: 1 }),
     ).toBeVisible();
   });
 
@@ -253,7 +365,7 @@ describe("DispatchPage", () => {
     expect(
       screen.getByRole("heading", { name: "작업지시 목록" }),
     ).toBeVisible();
-    expect(screen.getAllByText(/한빛물류/)[0]).toBeVisible();
+    expect(screen.getAllByText(/Acme Corporation/)[0]).toBeVisible();
 
     await waitFor(() => {
       expect(
@@ -269,7 +381,7 @@ describe("DispatchPage", () => {
 
 describe("ApprovalsPage", () => {
   it("loads approval queue with status filter", async () => {
-    renderAt("/approvals");
+    renderAt("/approvals", adminSession);
 
     await waitFor(() => {
       expect(
@@ -283,15 +395,22 @@ describe("ApprovalsPage", () => {
     });
   });
 
-  it("posts reject memo through the reject route", async () => {
+  it("posts reject memo through the per-order reject dialog", async () => {
     const user = userEvent.setup();
-    renderAt("/approvals");
+    renderAt("/approvals", adminSession);
 
     expect((await screen.findAllByText("20260612-002"))[0]).toBeVisible();
-    await user.type(screen.getByLabelText("검토 메모"), "증빙 보완 필요");
+    // The row's 반려 opens a dialog scoped to THAT order; the memo lives in the
+    // dialog so it can never be applied to a different order.
     await user.click(
       screen.getByRole("button", { name: "20260612-002 반려" }),
     );
+    const dialog = screen.getByRole("dialog");
+    await user.type(
+      within(dialog).getByLabelText("반려 메모"),
+      "증빙 보완 필요",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "반려" }));
 
     await waitFor(() => {
       expect(rejectRequest?.url.pathname).toBe(
@@ -304,7 +423,8 @@ describe("ApprovalsPage", () => {
 
 describe("KpiPage", () => {
   it("loads kpi report with the default period", async () => {
-    renderAt("/kpi");
+    // /kpi is KpiRead-gated (RequireKpiRoute) — render with a KpiRead role.
+    renderAt("/kpi", adminSession);
 
     await waitFor(() => {
       expect(
@@ -318,12 +438,38 @@ describe("KpiPage", () => {
   });
 });
 
+describe("OpsDashboardPage", () => {
+  it("renders the ops summary for an admin session", async () => {
+    renderAt("/ops", adminSession);
+
+    expect(
+      await screen.findByRole("heading", { name: "운영 대시보드", level: 1 }),
+    ).toBeVisible();
+    // Funnel value (completed = 5) and a mechanic-load row render.
+    expect(await screen.findByText("김정비")).toBeVisible();
+    // The aging-alert tile renders the configured hour threshold.
+    expect(screen.getByText("24시간 초과 미해결")).toBeVisible();
+  });
+
+  it("redirects a mechanic away from /ops (role-gated)", async () => {
+    renderAt("/ops", mechanicSession);
+
+    // RequireAdminRoute bounces a non-admin to /dispatch.
+    expect(
+      await screen.findByRole("heading", { name: "작업지시 목록" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "운영 대시보드" }),
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe("IntakePage", () => {
   it("uses equipment autocomplete and lookup when the intake 호기 changes", async () => {
     const user = userEvent.setup();
     renderAt("/intake");
 
-    await user.type(screen.getByLabelText("호기"), "#290");
+    await user.type(screen.getByLabelText(/호기/), "#290");
 
     expect((await screen.findAllByText("GTS25DE"))[0]).toBeVisible();
     expect(await screen.findByText("케이앤엘")).toBeVisible();

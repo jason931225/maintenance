@@ -34,6 +34,7 @@ import kotlinx.serialization.Contextual
  * @param id
  * @param regionId
  * @param name
+ * @param deactivatedAt Set when the branch has been soft-deleted (deactivated); null for an active branch. Active-only listings omit deactivated rows.
  * @param createdAt
  */
 @Serializable
@@ -48,6 +49,10 @@ data class BranchSummary (
 
     @SerialName(value = "name")
     val name: kotlin.String,
+
+    /* Set when the branch has been soft-deleted (deactivated); null for an active branch. Active-only listings omit deactivated rows. */
+    @Contextual @SerialName(value = "deactivated_at")
+    val deactivatedAt: java.time.OffsetDateTime?,
 
     @Contextual @SerialName(value = "created_at")
     val createdAt: java.time.OffsetDateTime

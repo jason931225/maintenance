@@ -4,7 +4,7 @@ import { ko } from "../../i18n/ko";
 export function PageSpinner() {
   return (
     <div className="flex h-40 items-center justify-center" role="status">
-      <span className="text-sm font-medium text-slate-600">
+      <span className="text-sm font-medium text-steel">
         {ko.page.loading}
       </span>
     </div>

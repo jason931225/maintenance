@@ -11,6 +11,7 @@ publish.workspace = true
 mnt-kernel-core = { workspace = true }
 mnt-messenger-domain = { workspace = true }
 serde = { workspace = true }
+time = { workspace = true }
 uuid = { workspace = true }
 
 [lints]

@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 
-import type { WorkOrderListItem } from "../api/types";
+import type {
+  TargetChangeDecision,
+  TargetChangeRequestSummary,
+  WorkOrderListItem,
+} from "../api/types";
 import { useAuth } from "../context/auth";
 import { Badge } from "../components/ui/badge";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { PageError } from "../components/states/PageError";
+import { SkeletonCards } from "../components/states/Skeleton";
 import { ApprovalQueue } from "../features/approvals/ApprovalQueue";
+import { TargetChangeReviewQueue } from "../features/approvals/TargetChangeReviewQueue";
 import { ko } from "../i18n/ko";
 
 const approvalStatuses: WorkOrderListItem["status"][] = [
@@ -79,6 +85,31 @@ export function ApprovalsPage() {
     }
   }
 
+  async function reviewTargetChange(
+    requestId: string,
+    decision: TargetChangeDecision,
+    memo: string,
+  ): Promise<TargetChangeRequestSummary | undefined> {
+    setWriteState("idle");
+    try {
+      const response = await api.POST(
+        "/api/target-change-requests/{requestId}/review",
+        {
+          params: { path: { requestId } },
+          body: { decision, memo: memo || undefined },
+        },
+      );
+      if (!response.data) {
+        setWriteState("error");
+        return undefined;
+      }
+      return response.data;
+    } catch {
+      setWriteState("error");
+      return undefined;
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -95,13 +126,22 @@ export function ApprovalsPage() {
         }
       />
       <div className="grid gap-5">
-        {readState === "error" ? <PageError onRetry={() => { void loadData(); }} /> : null}
         {writeState === "error" ? <PageError message={ko.common.writeFailed} /> : null}
-        <ApprovalQueue
-          workOrders={workOrders}
-          onApprove={approveWorkOrder}
-          onReject={rejectWorkOrder}
-        />
+        {/* First load shows a skeleton so the empty-queue copy is never mistaken
+            for "nothing to approve" while the fetch is still in flight. A
+            refetch keeps the current queue visible (stale-while-revalidate). */}
+        {readState === "loading" && workOrders.length === 0 ? (
+          <SkeletonCards count={3} lines={2} />
+        ) : readState === "error" ? (
+          <PageError onRetry={() => { void loadData(); }} />
+        ) : (
+          <ApprovalQueue
+            workOrders={workOrders}
+            onApprove={approveWorkOrder}
+            onReject={rejectWorkOrder}
+          />
+        )}
+        <TargetChangeReviewQueue onReview={reviewTargetChange} />
       </div>
     </>
   );

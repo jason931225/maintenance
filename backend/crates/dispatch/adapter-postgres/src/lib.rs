@@ -14,7 +14,8 @@ use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, ErrorKind, KernelError, P1DispatchAlertId, P1DispatchId,
     TraceContext, UserId, WorkOrderId,
 };
-use mnt_platform_db::{DbError, insert_audit_event, with_audit, with_audits};
+use mnt_platform_db::{DbError, insert_audit_event, with_audit, with_audits, with_org_conn};
+use mnt_platform_request_context::current_org;
 use mnt_workorder_application::work_order_audit_event;
 use mnt_workorder_domain::{
     ApprovalRole, AssignmentRole, PriorityLevel, TransitionGuardContext, WorkOrderStatus,
@@ -103,6 +104,8 @@ impl PgDispatchStore {
             .incident_location
             .map(validate_incident)
             .transpose()?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let event = dispatch_audit_event(
             "p1_dispatch.start",
             Some(command.actor),
@@ -111,6 +114,7 @@ impl PgDispatchStore {
             command.trace.clone(),
             command.occurred_at,
         )?
+        .with_org(org)
         .with_snapshots(
             None,
             Some(start_after_snapshot(
@@ -145,6 +149,7 @@ impl PgDispatchStore {
                     incident,
                     include_region,
                     occurred_at,
+                    org_uuid,
                 )
                 .await?;
                 insert_dispatch_targets(
@@ -154,6 +159,7 @@ impl PgDispatchStore {
                     include_region,
                     on_duty_since,
                     occurred_at,
+                    org_uuid,
                 )
                 .await?;
                 insert_push_alerts_for_targets(tx, dispatch_id, occurred_at).await?;
@@ -169,6 +175,8 @@ impl PgDispatchStore {
         timers: DispatchTimerConfig,
     ) -> Result<P1DispatchSummary, PgDispatchError> {
         let head = dispatch_head(&self.pool, command.dispatch_id).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let event = dispatch_audit_event(
             "p1_dispatch.respond",
             Some(command.actor),
@@ -177,6 +185,7 @@ impl PgDispatchStore {
             command.trace.clone(),
             command.occurred_at,
         )?
+        .with_org(org)
         .with_snapshots(None, Some(response_after_snapshot(command.response)));
         let actor = command.actor;
         let dispatch_id = command.dispatch_id;
@@ -189,16 +198,23 @@ impl PgDispatchStore {
                 let mut dispatch = lock_dispatch(tx, dispatch_id).await?;
                 dispatch.record_response(response, occurred_at)?;
                 ensure_technician_target(tx, dispatch_id, actor).await?;
-                insert_response(tx, dispatch_id, actor, response, occurred_at).await?;
+                insert_response(tx, dispatch_id, actor, response, occurred_at, org_uuid).await?;
 
                 let accepted_count = accepted_count_tx(tx, dispatch_id).await?;
                 if response == DispatchResponseKind::Accept
                     && accepted_count >= 2
                     && dispatch.status == DispatchStatus::Broadcasting
                 {
-                    let score =
-                        auto_assign_tx(tx, &mut dispatch, actor, trace, occurred_at, timers)
-                            .await?;
+                    let score = auto_assign_tx(
+                        tx,
+                        &mut dispatch,
+                        actor,
+                        trace,
+                        occurred_at,
+                        timers,
+                        org_uuid,
+                    )
+                    .await?;
                     update_score_columns(tx, dispatch_id, score).await?;
                 }
 
@@ -213,6 +229,7 @@ impl PgDispatchStore {
         command: ExpireP1DispatchCommand,
     ) -> Result<P1DispatchSummary, PgDispatchError> {
         let head = dispatch_head(&self.pool, command.dispatch_id).await?;
+        let org = current_org().map_err(KernelError::from)?;
         let event = dispatch_audit_event(
             "p1_dispatch.force_pending",
             None,
@@ -220,7 +237,8 @@ impl PgDispatchStore {
             command.dispatch_id,
             command.trace,
             command.occurred_at,
-        )?;
+        )?
+        .with_org(org);
         let dispatch_id = command.dispatch_id;
         let occurred_at = command.occurred_at;
 
@@ -259,6 +277,7 @@ impl PgDispatchStore {
         command: ExpireP1DispatchCommand,
     ) -> Result<P1DispatchSummary, PgDispatchError> {
         let head = dispatch_head(&self.pool, command.dispatch_id).await?;
+        let org = current_org().map_err(KernelError::from)?;
         let event = dispatch_audit_event(
             "p1_dispatch.alimtalk_no_ack",
             None,
@@ -266,7 +285,8 @@ impl PgDispatchStore {
             command.dispatch_id,
             command.trace,
             command.occurred_at,
-        )?;
+        )?
+        .with_org(org);
         let dispatch_id = command.dispatch_id;
         let occurred_at = command.occurred_at;
 
@@ -277,7 +297,7 @@ impl PgDispatchStore {
                     sqlx::query(
                         r#"
                         INSERT INTO p1_dispatch_alerts (
-                            dispatch_id, recipient_user_id, alert_type, status, created_at
+                            dispatch_id, recipient_user_id, alert_type, status, created_at, org_id
                         )
                         SELECT t.dispatch_id,
                                t.user_id,
@@ -287,7 +307,8 @@ impl PgDispatchStore {
                                    THEN 'PENDING'
                                    ELSE 'SKIPPED'
                                END,
-                               $2
+                               $2,
+                               t.org_id
                         FROM p1_dispatch_targets t
                         JOIN users u ON u.id = t.user_id
                         LEFT JOIN p1_dispatch_responses r
@@ -320,6 +341,7 @@ impl PgDispatchStore {
         command: ExpireP1DispatchCommand,
     ) -> Result<P1DispatchSummary, PgDispatchError> {
         let head = dispatch_head(&self.pool, command.dispatch_id).await?;
+        let org = current_org().map_err(KernelError::from)?;
         let event = dispatch_audit_event(
             "dispatch.escalation.manual_call_required",
             None,
@@ -328,6 +350,7 @@ impl PgDispatchStore {
             command.trace,
             command.occurred_at,
         )?
+        .with_org(org)
         .with_snapshots(
             None,
             Some(serde_json::json!({
@@ -368,6 +391,8 @@ impl PgDispatchStore {
         command: ForceAssignP1DispatchCommand,
     ) -> Result<P1DispatchSummary, PgDispatchError> {
         let head = dispatch_head(&self.pool, command.dispatch_id).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let event = dispatch_audit_event(
             "p1_dispatch.force_assign",
             Some(command.actor),
@@ -376,6 +401,7 @@ impl PgDispatchStore {
             command.trace.clone(),
             command.occurred_at,
         )?
+        .with_org(org)
         .with_snapshots(
             None,
             Some(resolution_after_snapshot(
@@ -402,6 +428,7 @@ impl PgDispatchStore {
                     actor,
                     trace,
                     occurred_at,
+                    org_uuid,
                 )
                 .await?;
                 sqlx::query(
@@ -449,8 +476,11 @@ impl PgDispatchStore {
         dispatch_id: P1DispatchId,
         now: OffsetDateTime,
     ) -> Result<(), PgDispatchError> {
-        sqlx::query(
-            r#"
+        let org = current_org().map_err(KernelError::from)?;
+        with_org_conn::<_, _, PgDispatchError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                sqlx::query(
+                    r#"
             UPDATE p1_dispatch_alerts
             SET status = 'PENDING',
                 lease_token = NULL,
@@ -459,12 +489,15 @@ impl PgDispatchStore {
               AND status = 'SENDING'
               AND lease_expires_at <= $2
             "#,
-        )
-        .bind(*dispatch_id.as_uuid())
-        .bind(now)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
+                )
+                .bind(*dispatch_id.as_uuid())
+                .bind(now)
+                .execute(tx.as_mut())
+                .await?;
+                Ok(())
+            })
+        })
+        .await
     }
 
     /// Atomically claim pending FCM alerts (PENDING -> SENDING + lease) that have
@@ -480,7 +513,7 @@ impl PgDispatchStore {
         let lease_expires_at = now
             .checked_add(ALERT_LEASE_TTL)
             .ok_or_else(|| KernelError::validation("alert lease expiry overflows time"))?;
-        let rows = sqlx::query(
+        let fcm_query = sqlx::query(
             r#"
             WITH claimable AS (
                 SELECT DISTINCT a.id
@@ -523,8 +556,11 @@ impl PgDispatchStore {
         )
         .bind(*dispatch_id.as_uuid())
         .bind(alert_type)
-        .bind(lease_expires_at)
-        .fetch_all(&self.pool)
+        .bind(lease_expires_at);
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgDispatchError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(fcm_query.fetch_all(tx.as_mut()).await?) })
+        })
         .await?;
         rows.into_iter()
             .map(|row| {
@@ -572,17 +608,23 @@ impl PgDispatchStore {
         trace: TraceContext,
         occurred_at: OffsetDateTime,
     ) -> Result<u64, PgDispatchError> {
-        let branch_id = BranchId::from_uuid(
-            sqlx::query_scalar::<_, uuid::Uuid>(
-                "SELECT branch_id FROM p1_dispatches WHERE id = $1",
-            )
-            .bind(*dispatch_id.as_uuid())
-            .fetch_one(&self.pool)
-            .await?,
-        );
+        let org = current_org().map_err(KernelError::from)?;
+        let branch_uuid = with_org_conn::<_, _, PgDispatchError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query_scalar::<_, uuid::Uuid>(
+                    "SELECT branch_id FROM p1_dispatches WHERE id = $1",
+                )
+                .bind(*dispatch_id.as_uuid())
+                .fetch_one(tx.as_mut())
+                .await?)
+            })
+        })
+        .await?;
+        let branch_id = BranchId::from_uuid(branch_uuid);
         let reason = reason.to_owned();
+        let org = current_org().map_err(KernelError::from)?;
 
-        with_audits::<_, u64, PgDispatchError>(&self.pool, |tx| {
+        with_audits::<_, u64, PgDispatchError>(&self.pool, org, |tx| {
             Box::pin(async move {
                 let rows = sqlx::query(
                     r#"
@@ -639,7 +681,7 @@ impl PgDispatchStore {
         let lease_expires_at = now
             .checked_add(ALERT_LEASE_TTL)
             .ok_or_else(|| KernelError::validation("alert lease expiry overflows time"))?;
-        let rows = sqlx::query(
+        let alimtalk_query = sqlx::query(
             r#"
             WITH claimable AS (
                 SELECT a.id
@@ -680,8 +722,11 @@ impl PgDispatchStore {
         )
         .bind(*dispatch_id.as_uuid())
         .bind(alert_type)
-        .bind(lease_expires_at)
-        .fetch_all(&self.pool)
+        .bind(lease_expires_at);
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgDispatchError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(alimtalk_query.fetch_all(tx.as_mut()).await?) })
+        })
         .await?;
         rows.into_iter()
             .map(|row| {
@@ -775,21 +820,28 @@ impl PgDispatchStore {
         trace: TraceContext,
         occurred_at: OffsetDateTime,
     ) -> Result<bool, PgDispatchError> {
-        let row = sqlx::query(
-            r#"
+        let org = current_org().map_err(KernelError::from)?;
+        let row = with_org_conn::<_, _, PgDispatchError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query(
+                    r#"
             SELECT a.id, d.branch_id
             FROM p1_dispatch_alerts a
             JOIN p1_dispatches d ON d.id = a.dispatch_id
             WHERE a.id = $1
             "#,
-        )
-        .bind(*alert_id.as_uuid())
-        .fetch_one(&self.pool)
+                )
+                .bind(*alert_id.as_uuid())
+                .fetch_one(tx.as_mut())
+                .await?)
+            })
+        })
         .await?;
         let branch_id = BranchId::from_uuid(row.try_get("branch_id")?);
         let alert_target = alert_id.to_string();
+        let org = current_org().map_err(KernelError::from)?;
 
-        with_audits::<_, bool, PgDispatchError>(&self.pool, |tx| {
+        with_audits::<_, bool, PgDispatchError>(&self.pool, org, |tx| {
             Box::pin(async move {
                 // When a lease token is supplied, only the worker still holding
                 // the lease may transition the alert; a reclaimed lease causes a
@@ -894,19 +946,30 @@ async fn work_order_head(
     pool: &PgPool,
     work_order_id: WorkOrderId,
 ) -> Result<WorkOrderHead, PgDispatchError> {
-    let row = sqlx::query("SELECT id, branch_id, status, priority FROM work_orders WHERE id = $1")
-        .bind(*work_order_id.as_uuid())
-        .fetch_one(pool)
-        .await?;
-    work_order_head_from_row(&row)
+    let org = current_org().map_err(KernelError::from)?;
+    with_org_conn::<_, _, PgDispatchError>(pool, org, move |tx| {
+        Box::pin(async move {
+            let row = sqlx::query(
+                "SELECT id, branch_id, status, priority FROM work_orders WHERE id = $1",
+            )
+            .bind(*work_order_id.as_uuid())
+            .fetch_one(tx.as_mut())
+            .await?;
+            work_order_head_from_row(&row)
+        })
+    })
+    .await
 }
 
 async fn dispatch_head(
     pool: &PgPool,
     dispatch_id: P1DispatchId,
 ) -> Result<DispatchHead, PgDispatchError> {
-    let row = sqlx::query(
-        r#"
+    let org = current_org().map_err(KernelError::from)?;
+    with_org_conn::<_, _, PgDispatchError>(pool, org, move |tx| {
+        Box::pin(async move {
+            let row = sqlx::query(
+                r#"
         SELECT d.branch_id,
                COUNT(r.id) FILTER (WHERE r.response = 'ACCEPT') AS accepted_count
         FROM p1_dispatches d
@@ -914,14 +977,17 @@ async fn dispatch_head(
         WHERE d.id = $1
         GROUP BY d.branch_id
         "#,
-    )
-    .bind(*dispatch_id.as_uuid())
-    .fetch_one(pool)
-    .await?;
-    Ok(DispatchHead {
-        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
-        accepted_count: row.try_get::<i64, _>("accepted_count")?,
+            )
+            .bind(*dispatch_id.as_uuid())
+            .fetch_one(tx.as_mut())
+            .await?;
+            Ok(DispatchHead {
+                branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+                accepted_count: row.try_get::<i64, _>("accepted_count")?,
+            })
+        })
     })
+    .await
 }
 
 async fn lock_work_order(
@@ -945,6 +1011,7 @@ fn work_order_head_from_row(row: &sqlx::postgres::PgRow) -> Result<WorkOrderHead
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn insert_dispatch_row(
     tx: &mut Transaction<'_, Postgres>,
     dispatch: P1Dispatch,
@@ -953,15 +1020,16 @@ async fn insert_dispatch_row(
     incident: Option<IncidentLocationInput>,
     include_region: bool,
     occurred_at: OffsetDateTime,
+    org_uuid: uuid::Uuid,
 ) -> Result<(), PgDispatchError> {
     sqlx::query(
         r#"
         INSERT INTO p1_dispatches (
             id, work_order_id, branch_id, status, incident_latitude, incident_longitude,
             include_region, accept_window_started_at, accept_window_ends_at,
-            created_by, created_at, updated_at
+            created_by, created_at, updated_at, org_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12)
         "#,
     )
     .bind(*dispatch.id.as_uuid())
@@ -975,6 +1043,7 @@ async fn insert_dispatch_row(
     .bind(dispatch.accept_window_ends_at)
     .bind(*actor.as_uuid())
     .bind(occurred_at)
+    .bind(org_uuid)
     .execute(tx.as_mut())
     .await?;
     Ok(())
@@ -986,8 +1055,11 @@ async fn count_dispatch_targets(
     include_region: bool,
     on_duty_since: OffsetDateTime,
 ) -> Result<i64, PgDispatchError> {
-    let row = sqlx::query(
-        r#"
+    let org = current_org().map_err(KernelError::from)?;
+    with_org_conn::<_, _, PgDispatchError>(pool, org, move |tx| {
+        Box::pin(async move {
+            let row = sqlx::query(
+                r#"
         WITH selected_branches AS (
             SELECT b.id
             FROM branches b
@@ -1025,13 +1097,16 @@ async fn count_dispatch_targets(
         FROM users u
         JOIN eligible_users eu ON eu.id = u.id
         "#,
-    )
-    .bind(*branch_id.as_uuid())
-    .bind(include_region)
-    .bind(on_duty_since)
-    .fetch_one(pool)
-    .await?;
-    Ok(row.try_get("target_count")?)
+            )
+            .bind(*branch_id.as_uuid())
+            .bind(include_region)
+            .bind(on_duty_since)
+            .fetch_one(tx.as_mut())
+            .await?;
+            Ok(row.try_get("target_count")?)
+        })
+    })
+    .await
 }
 
 async fn insert_dispatch_targets(
@@ -1041,6 +1116,7 @@ async fn insert_dispatch_targets(
     include_region: bool,
     on_duty_since: OffsetDateTime,
     occurred_at: OffsetDateTime,
+    org_uuid: uuid::Uuid,
 ) -> Result<(), PgDispatchError> {
     sqlx::query(
         r#"
@@ -1088,9 +1164,9 @@ async fn insert_dispatch_targets(
             GROUP BY u.id, target_role
         )
         INSERT INTO p1_dispatch_targets (
-            dispatch_id, user_id, target_role, push_token_count, fanout_created_at
+            dispatch_id, user_id, target_role, push_token_count, fanout_created_at, org_id
         )
-        SELECT $1, user_id, target_role, push_token_count, $5
+        SELECT $1, user_id, target_role, push_token_count, $5, $6
         FROM target_users
         "#,
     )
@@ -1099,6 +1175,7 @@ async fn insert_dispatch_targets(
     .bind(include_region)
     .bind(on_duty_since)
     .bind(occurred_at)
+    .bind(org_uuid)
     .execute(tx.as_mut())
     .await?;
     Ok(())
@@ -1112,11 +1189,12 @@ async fn insert_push_alerts_for_targets(
     sqlx::query(
         r#"
         INSERT INTO p1_dispatch_alerts (
-            dispatch_id, recipient_user_id, alert_type, status, created_at
+            dispatch_id, recipient_user_id, alert_type, status, created_at, org_id
         )
         SELECT dispatch_id, user_id, 'FCM_PUSH',
                CASE WHEN push_token_count > 0 THEN 'PENDING' ELSE 'SKIPPED' END,
-               $2
+               $2,
+               org_id
         FROM p1_dispatch_targets
         WHERE dispatch_id = $1
         "#,
@@ -1183,13 +1261,14 @@ async fn insert_response(
     user_id: UserId,
     response: DispatchResponseKind,
     occurred_at: OffsetDateTime,
+    org_uuid: uuid::Uuid,
 ) -> Result<(), PgDispatchError> {
     let result = sqlx::query(
         r#"
         INSERT INTO p1_dispatch_responses (
-            dispatch_id, user_id, response, responded_at
+            dispatch_id, user_id, response, responded_at, org_id
         )
-        VALUES ($1, $2, $3, $4)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (dispatch_id, user_id) DO NOTHING
         "#,
     )
@@ -1197,6 +1276,7 @@ async fn insert_response(
     .bind(*user_id.as_uuid())
     .bind(response.as_db_str())
     .bind(occurred_at)
+    .bind(org_uuid)
     .execute(tx.as_mut())
     .await?;
     if result.rows_affected() == 0 {
@@ -1226,6 +1306,7 @@ async fn auto_assign_tx(
     trace: TraceContext,
     occurred_at: OffsetDateTime,
     timers: DispatchTimerConfig,
+    org_uuid: uuid::Uuid,
 ) -> Result<CandidateScore, PgDispatchError> {
     let mut candidates = scored_candidates(tx, dispatch.id, occurred_at, timers).await?;
     candidates.sort_by_key(|score| (score.score_milli, *score.mechanic_id.as_uuid()));
@@ -1241,6 +1322,7 @@ async fn auto_assign_tx(
         actor,
         trace.clone(),
         occurred_at,
+        org_uuid,
     )
     .await?;
     sqlx::query(
@@ -1433,6 +1515,7 @@ async fn assign_work_order_tx(
     actor: UserId,
     trace: TraceContext,
     occurred_at: OffsetDateTime,
+    org_uuid: uuid::Uuid,
 ) -> Result<(), PgDispatchError> {
     let row = lock_work_order(tx, work_order_id).await?;
     validate_status_transition(
@@ -1451,15 +1534,16 @@ async fn assign_work_order_tx(
     sqlx::query(
         r#"
         INSERT INTO work_order_assignments (
-            work_order_id, mechanic_id, role, assigned_at
+            work_order_id, mechanic_id, role, assigned_at, org_id
         )
-        VALUES ($1, $2, $3, $4)
+        VALUES ($1, $2, $3, $4, $5)
         "#,
     )
     .bind(*work_order_id.as_uuid())
     .bind(*mechanic_id.as_uuid())
     .bind(AssignmentRole::Primary.as_db_str())
     .bind(occurred_at)
+    .bind(org_uuid)
     .execute(tx.as_mut())
     .await?;
     insert_approval_step(
@@ -1470,6 +1554,7 @@ async fn assign_work_order_tx(
         Some(mechanic_id),
         "PENDING",
         Some(occurred_at),
+        org_uuid,
     )
     .await?;
     insert_approval_step(
@@ -1480,6 +1565,7 @@ async fn assign_work_order_tx(
         None,
         "NOT_STARTED",
         None,
+        org_uuid,
     )
     .await?;
     insert_approval_step(
@@ -1490,6 +1576,7 @@ async fn assign_work_order_tx(
         None,
         "NOT_STARTED",
         None,
+        org_uuid,
     )
     .await?;
     sqlx::query("UPDATE work_orders SET status = 'ASSIGNED', updated_at = $2 WHERE id = $1")
@@ -1500,15 +1587,16 @@ async fn assign_work_order_tx(
     sqlx::query(
         r#"
         INSERT INTO work_order_status_history (
-            work_order_id, actor, action, from_status, to_status, occurred_at
+            work_order_id, actor, action, from_status, to_status, occurred_at, org_id
         )
-        VALUES ($1, $2, 'work_order.assign', $3, 'ASSIGNED', $4)
+        VALUES ($1, $2, 'work_order.assign', $3, 'ASSIGNED', $4, $5)
         "#,
     )
     .bind(*work_order_id.as_uuid())
     .bind(*actor.as_uuid())
     .bind(row.status.as_db_str())
     .bind(occurred_at)
+    .bind(org_uuid)
     .execute(tx.as_mut())
     .await?;
     let event = work_order_audit_event(
@@ -1523,6 +1611,7 @@ async fn assign_work_order_tx(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn insert_approval_step(
     tx: &mut Transaction<'_, Postgres>,
     work_order_id: WorkOrderId,
@@ -1531,13 +1620,14 @@ async fn insert_approval_step(
     approver_id: Option<UserId>,
     status: &str,
     requested_at: Option<OffsetDateTime>,
+    org_uuid: uuid::Uuid,
 ) -> Result<(), PgDispatchError> {
     sqlx::query(
         r#"
         INSERT INTO work_order_approval_steps (
-            work_order_id, step_order, role, approver_id, status, requested_at
+            work_order_id, step_order, role, approver_id, status, requested_at, org_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         "#,
     )
     .bind(*work_order_id.as_uuid())
@@ -1546,6 +1636,7 @@ async fn insert_approval_step(
     .bind(approver_id.map(|id| *id.as_uuid()))
     .bind(status)
     .bind(requested_at)
+    .bind(org_uuid)
     .execute(tx.as_mut())
     .await?;
     Ok(())
@@ -1570,7 +1661,7 @@ async fn insert_manager_force_alerts(
     sqlx::query(
         r#"
         INSERT INTO p1_dispatch_alerts (
-            dispatch_id, recipient_user_id, alert_type, status, created_at
+            dispatch_id, recipient_user_id, alert_type, status, created_at, org_id
         )
         SELECT t.dispatch_id,
                t.user_id,
@@ -1581,7 +1672,8 @@ async fn insert_manager_force_alerts(
                    THEN 'PENDING'
                    ELSE 'SKIPPED'
                END,
-               $2
+               $2,
+               t.org_id
         FROM p1_dispatch_targets t
         JOIN users u ON u.id = t.user_id
         WHERE t.dispatch_id = $1
@@ -1678,26 +1770,32 @@ pub async fn dispatch_response(
     dispatch_id: P1DispatchId,
     user_id: UserId,
 ) -> Result<P1DispatchResponseSummary, PgDispatchError> {
-    let row = sqlx::query(
-        r#"
+    let org = current_org().map_err(KernelError::from)?;
+    with_org_conn::<_, _, PgDispatchError>(pool, org, move |tx| {
+        Box::pin(async move {
+            let row = sqlx::query(
+                r#"
         SELECT dispatch_id, user_id, response, responded_at, score_milli,
                gps_ranked, distance_meters, score_reason
         FROM p1_dispatch_responses
         WHERE dispatch_id = $1 AND user_id = $2
         "#,
-    )
-    .bind(*dispatch_id.as_uuid())
-    .bind(*user_id.as_uuid())
-    .fetch_one(pool)
-    .await?;
-    Ok(P1DispatchResponseSummary {
-        dispatch_id: P1DispatchId::from_uuid(row.try_get("dispatch_id")?),
-        user_id: UserId::from_uuid(row.try_get("user_id")?),
-        response: DispatchResponseKind::from_db_str(row.try_get::<&str, _>("response")?)?,
-        responded_at: row.try_get("responded_at")?,
-        score_milli: row.try_get("score_milli")?,
-        gps_ranked: row.try_get("gps_ranked")?,
-        distance_meters: row.try_get("distance_meters")?,
-        score_reason: row.try_get("score_reason")?,
+            )
+            .bind(*dispatch_id.as_uuid())
+            .bind(*user_id.as_uuid())
+            .fetch_one(tx.as_mut())
+            .await?;
+            Ok(P1DispatchResponseSummary {
+                dispatch_id: P1DispatchId::from_uuid(row.try_get("dispatch_id")?),
+                user_id: UserId::from_uuid(row.try_get("user_id")?),
+                response: DispatchResponseKind::from_db_str(row.try_get::<&str, _>("response")?)?,
+                responded_at: row.try_get("responded_at")?,
+                score_milli: row.try_get("score_milli")?,
+                gps_ranked: row.try_get("gps_ranked")?,
+                distance_meters: row.try_get("distance_meters")?,
+                score_reason: row.try_get("score_reason")?,
+            })
+        })
     })
+    .await
 }

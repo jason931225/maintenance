@@ -14,7 +14,8 @@ use mnt_messenger_application::{
     messenger_audit_event,
 };
 use mnt_messenger_domain::{MessageBody, ThreadKind};
-use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_db::{DbError, with_audit, with_org_conn};
+use mnt_platform_request_context::current_org;
 use mnt_workorder_application::{
     WorkOrderCreatedEvent, WorkOrderCreatedFuture, WorkOrderCreatedListener,
 };
@@ -95,6 +96,8 @@ impl PgMessengerStore {
         let member_ids = normalized_members(command.actor, &command.member_ids)?;
         let thread_id = ThreadId::new();
         let branch_id = command.branch_id;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let event = messenger_audit_event(
             "message_thread.create",
             command.actor,
@@ -103,7 +106,8 @@ impl PgMessengerStore {
             thread_id,
             command.trace,
             command.occurred_at,
-        )?;
+        )?
+        .with_org(org);
 
         with_audit::<_, ThreadSummary, PgMessengerError>(&self.pool, event, |tx| {
             Box::pin(async move {
@@ -122,6 +126,7 @@ impl PgMessengerStore {
                         occurred_at: command.occurred_at,
                     },
                     &member_ids,
+                    org_uuid,
                 )
                 .await?;
                 fetch_thread_summary_tx(tx, thread_id).await
@@ -143,6 +148,8 @@ impl PgMessengerStore {
         let request_no = work_order_request_no(&self.pool, command.work_order_id).await?;
         ensure_work_order_branch_pool(&self.pool, command.work_order_id, command.branch_id).await?;
         let thread_id = ThreadId::new();
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let event = messenger_audit_event(
             "message_thread.create",
             command.actor,
@@ -151,7 +158,8 @@ impl PgMessengerStore {
             thread_id,
             command.trace,
             command.occurred_at,
-        )?;
+        )?
+        .with_org(org);
         let title = format!("WO {request_no}");
 
         let result = with_audit::<_, ThreadSummary, PgMessengerError>(&self.pool, event, |tx| {
@@ -168,6 +176,7 @@ impl PgMessengerStore {
                         occurred_at: command.occurred_at,
                     },
                     &[command.actor],
+                    org_uuid,
                 )
                 .await?;
                 fetch_thread_summary_tx(tx, thread_id).await
@@ -202,6 +211,8 @@ impl PgMessengerStore {
         .await?;
         let message_id = MessageId::new();
         let attachment_ids = command.attachment_evidence_ids;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let event = messenger_audit_event(
             "message.send",
             command.actor,
@@ -211,6 +222,7 @@ impl PgMessengerStore {
             command.trace,
             command.occurred_at,
         )?
+        .with_org(org)
         .with_snapshots(
             None,
             Some(serde_json::json!({
@@ -225,9 +237,9 @@ impl PgMessengerStore {
                 sqlx::query(
                     r#"
                         INSERT INTO messenger_messages (
-                            id, thread_id, branch_id, sender_id, body, sent_at, created_at
+                            id, thread_id, branch_id, sender_id, body, sent_at, created_at, org_id
                         )
-                        VALUES ($1, $2, $3, $4, $5, $6, $6)
+                        VALUES ($1, $2, $3, $4, $5, $6, $6, $7)
                         "#,
                 )
                 .bind(*message_id.as_uuid())
@@ -236,6 +248,7 @@ impl PgMessengerStore {
                 .bind(*command.actor.as_uuid())
                 .bind(body.as_str())
                 .bind(command.occurred_at)
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
 
@@ -245,14 +258,15 @@ impl PgMessengerStore {
                     sqlx::query(
                         r#"
                             INSERT INTO messenger_message_attachments (
-                                message_id, evidence_id, sort_order
+                                message_id, evidence_id, sort_order, org_id
                             )
-                            VALUES ($1, $2, $3)
+                            VALUES ($1, $2, $3, $4)
                             "#,
                     )
                     .bind(*message_id.as_uuid())
                     .bind(*evidence_id.as_uuid())
                     .bind(sort_order)
+                    .bind(org_uuid)
                     .execute(tx.as_mut())
                     .await?;
                 }
@@ -298,6 +312,8 @@ impl PgMessengerStore {
         .await?;
         ensure_message_in_thread_pool(&self.pool, command.last_read_message_id, command.thread_id)
             .await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let event = messenger_audit_event(
             "message.read",
             command.actor,
@@ -307,6 +323,7 @@ impl PgMessengerStore {
             command.trace,
             command.occurred_at,
         )?
+        .with_org(org)
         .with_snapshots(
             None,
             Some(serde_json::json!({
@@ -319,9 +336,9 @@ impl PgMessengerStore {
                 sqlx::query(
                     r#"
                     INSERT INTO messenger_read_receipts (
-                        thread_id, user_id, last_read_message_id, read_at, updated_at
+                        thread_id, user_id, last_read_message_id, read_at, updated_at, org_id
                     )
-                    VALUES ($1, $2, $3, $4, $4)
+                    VALUES ($1, $2, $3, $4, $4, $5)
                     ON CONFLICT (thread_id, user_id) DO UPDATE
                     SET last_read_message_id = EXCLUDED.last_read_message_id,
                         read_at = EXCLUDED.read_at,
@@ -332,6 +349,7 @@ impl PgMessengerStore {
                 .bind(*command.actor.as_uuid())
                 .bind(*command.last_read_message_id.as_uuid())
                 .bind(command.occurred_at)
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
                 fetch_read_receipt_tx(tx, command.thread_id, command.actor).await
@@ -382,7 +400,11 @@ impl PgMessengerStore {
         );
         builder.push_bind(limit);
 
-        let rows = builder.build().fetch_all(&self.pool).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgMessengerError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
         rows.iter().map(thread_summary_from_row).collect()
     }
 
@@ -416,10 +438,15 @@ impl PgMessengerStore {
             builder.push_bind(id);
             builder.push(")");
         }
-        builder.push(" GROUP BY m.id ORDER BY m.sent_at DESC, m.id DESC LIMIT ");
+        builder
+            .push(" GROUP BY m.id, sender.display_name ORDER BY m.sent_at DESC, m.id DESC LIMIT ");
         builder.push_bind(page_limit);
 
-        let rows = builder.build().fetch_all(&self.pool).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgMessengerError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
         let mut items: Vec<MessageSummary> = rows
             .iter()
             .map(message_summary_from_row)
@@ -466,10 +493,15 @@ impl PgMessengerStore {
         builder.push_bind(format!("%{search}%"));
         builder.push(")");
         push_scope_filter(&mut builder, "m.branch_id", &query.branch_scope)?;
-        builder.push(" GROUP BY m.id ORDER BY m.sent_at DESC, m.id DESC LIMIT ");
+        builder
+            .push(" GROUP BY m.id, sender.display_name ORDER BY m.sent_at DESC, m.id DESC LIMIT ");
         builder.push_bind(limit);
 
-        let rows = builder.build().fetch_all(&self.pool).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgMessengerError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
         rows.iter().map(message_summary_from_row).collect()
     }
 }
@@ -559,13 +591,14 @@ async fn insert_thread_tx(
     tx: &mut Transaction<'_, Postgres>,
     thread: NewThread<'_>,
     member_ids: &[UserId],
+    org_uuid: uuid::Uuid,
 ) -> Result<(), PgMessengerError> {
     sqlx::query(
         r#"
         INSERT INTO messenger_threads (
-            id, kind, branch_id, work_order_id, title, created_by, created_at, updated_at
+            id, kind, branch_id, work_order_id, title, created_by, created_at, updated_at, org_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8)
         "#,
     )
     .bind(*thread.id.as_uuid())
@@ -575,6 +608,7 @@ async fn insert_thread_tx(
     .bind(thread.title)
     .bind(*thread.actor.as_uuid())
     .bind(thread.occurred_at)
+    .bind(org_uuid)
     .execute(tx.as_mut())
     .await?;
 
@@ -586,8 +620,8 @@ async fn insert_thread_tx(
         };
         sqlx::query(
             r#"
-            INSERT INTO messenger_thread_members (thread_id, user_id, role, joined_at)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO messenger_thread_members (thread_id, user_id, role, joined_at, org_id)
+            VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (thread_id, user_id) DO NOTHING
             "#,
         )
@@ -595,6 +629,7 @@ async fn insert_thread_tx(
         .bind(*member_id.as_uuid())
         .bind(role)
         .bind(thread.occurred_at)
+        .bind(org_uuid)
         .execute(tx.as_mut())
         .await?;
     }
@@ -608,8 +643,11 @@ async fn require_thread_access(
     actor: UserId,
     branch_scope: &BranchScope,
 ) -> Result<ThreadAccess, PgMessengerError> {
-    let row = sqlx::query(
-        r#"
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgMessengerError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
         SELECT t.branch_id,
                EXISTS (
                    SELECT 1
@@ -620,10 +658,13 @@ async fn require_thread_access(
         FROM messenger_threads t
         WHERE t.id = $1
         "#,
-    )
-    .bind(*thread_id.as_uuid())
-    .bind(*actor.as_uuid())
-    .fetch_optional(pool)
+            )
+            .bind(*thread_id.as_uuid())
+            .bind(*actor.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?)
+        })
+    })
     .await?
     .ok_or_else(|| KernelError::not_found("messenger thread was not found"))?;
 
@@ -643,11 +684,19 @@ async fn ensure_work_order_branch_pool(
     work_order_id: WorkOrderId,
     branch_id: BranchId,
 ) -> Result<(), PgMessengerError> {
-    let actual: uuid::Uuid = sqlx::query_scalar("SELECT branch_id FROM work_orders WHERE id = $1")
-        .bind(*work_order_id.as_uuid())
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| KernelError::not_found("work order was not found"))?;
+    let org = current_org().map_err(KernelError::from)?;
+    let actual: uuid::Uuid = with_org_conn::<_, _, PgMessengerError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(
+                sqlx::query_scalar("SELECT branch_id FROM work_orders WHERE id = $1")
+                    .bind(*work_order_id.as_uuid())
+                    .fetch_optional(tx.as_mut())
+                    .await?,
+            )
+        })
+    })
+    .await?
+    .ok_or_else(|| KernelError::not_found("work order was not found"))?;
     if actual == *branch_id.as_uuid() {
         Ok(())
     } else {
@@ -676,11 +725,17 @@ async fn work_order_request_no(
     pool: &PgPool,
     work_order_id: WorkOrderId,
 ) -> Result<String, PgMessengerError> {
-    sqlx::query_scalar("SELECT request_no FROM work_orders WHERE id = $1")
-        .bind(*work_order_id.as_uuid())
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| KernelError::not_found("work order was not found").into())
+    let org = current_org().map_err(KernelError::from)?;
+    with_org_conn::<_, _, PgMessengerError>(pool, org, move |tx| {
+        Box::pin(async move {
+            sqlx::query_scalar("SELECT request_no FROM work_orders WHERE id = $1")
+                .bind(*work_order_id.as_uuid())
+                .fetch_optional(tx.as_mut())
+                .await?
+                .ok_or_else(|| KernelError::not_found("work order was not found").into())
+        })
+    })
+    .await
 }
 
 async fn fetch_work_order_thread_pool(
@@ -691,7 +746,11 @@ async fn fetch_work_order_thread_pool(
     builder.push(" WHERE t.work_order_id = ");
     builder.push_bind(*work_order_id.as_uuid());
     builder.push(" GROUP BY t.id, lm.id, lm.sent_at");
-    let row = builder.build().fetch_optional(pool).await?;
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgMessengerError>(pool, org, move |tx| {
+        Box::pin(async move { Ok(builder.build().fetch_optional(tx.as_mut()).await?) })
+    })
+    .await?;
     row.as_ref().map(thread_summary_from_row).transpose()
 }
 
@@ -752,7 +811,7 @@ fn message_select_builder() -> QueryBuilder<Postgres> {
     QueryBuilder::<Postgres>::new(
         r#"
         SELECT m.id, m.thread_id, m.branch_id, m.sender_id, m.body,
-               m.sent_at, m.created_at,
+               m.sent_at, m.created_at, sender.display_name AS sender_name,
                COALESCE(
                    array_agg(a.evidence_id ORDER BY a.sort_order)
                        FILTER (WHERE a.evidence_id IS NOT NULL),
@@ -760,6 +819,10 @@ fn message_select_builder() -> QueryBuilder<Postgres> {
                ) AS attachment_evidence_ids
         FROM messenger_messages m
         LEFT JOIN messenger_message_attachments a ON a.message_id = m.id
+        -- Same-org JOIN: `users` is RLS-scoped to app.current_org just like
+        -- messenger_messages, so this can only resolve a sender in the caller's
+        -- tenant. A cross-tenant or hard-deleted sender simply yields NULL.
+        LEFT JOIN users sender ON sender.id = m.sender_id
         "#,
     )
 }
@@ -771,7 +834,7 @@ async fn fetch_message_summary_tx(
     let mut builder = message_select_builder();
     builder.push(" WHERE m.id = ");
     builder.push_bind(*message_id.as_uuid());
-    builder.push(" GROUP BY m.id");
+    builder.push(" GROUP BY m.id, sender.display_name");
     let row = builder.build().fetch_one(tx.as_mut()).await?;
     message_summary_from_row(&row)
 }
@@ -785,6 +848,7 @@ fn message_summary_from_row(
         thread_id: ThreadId::from_uuid(row.try_get("thread_id")?),
         branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
         sender_id: UserId::from_uuid(row.try_get("sender_id")?),
+        sender_name: row.try_get("sender_name")?,
         body: row.try_get("body")?,
         attachment_evidence_ids: attachment_ids
             .into_iter()
@@ -800,12 +864,18 @@ async fn ensure_message_in_thread_pool(
     message_id: MessageId,
     thread_id: ThreadId,
 ) -> Result<(), PgMessengerError> {
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM messenger_messages WHERE id = $1 AND thread_id = $2)",
-    )
-    .bind(*message_id.as_uuid())
-    .bind(*thread_id.as_uuid())
-    .fetch_one(pool)
+    let org = current_org().map_err(KernelError::from)?;
+    let exists: bool = with_org_conn::<_, _, PgMessengerError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM messenger_messages WHERE id = $1 AND thread_id = $2)",
+            )
+            .bind(*message_id.as_uuid())
+            .bind(*thread_id.as_uuid())
+            .fetch_one(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     if exists {
         Ok(())
@@ -819,13 +889,20 @@ async fn message_cursor(
     message_id: MessageId,
     thread_id: ThreadId,
 ) -> Result<(time::OffsetDateTime, uuid::Uuid), PgMessengerError> {
-    let row =
-        sqlx::query("SELECT sent_at, id FROM messenger_messages WHERE id = $1 AND thread_id = $2")
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgMessengerError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                "SELECT sent_at, id FROM messenger_messages WHERE id = $1 AND thread_id = $2",
+            )
             .bind(*message_id.as_uuid())
             .bind(*thread_id.as_uuid())
-            .fetch_optional(pool)
-            .await?
-            .ok_or_else(|| KernelError::not_found("message cursor was not found"))?;
+            .fetch_optional(tx.as_mut())
+            .await?)
+        })
+    })
+    .await?
+    .ok_or_else(|| KernelError::not_found("message cursor was not found"))?;
     Ok((row.try_get("sent_at")?, row.try_get("id")?))
 }
 

@@ -9,6 +9,7 @@
 
 use std::sync::Arc;
 
+use mnt_kernel_core::OrgId;
 use mnt_platform_provisioning::BootstrapCredentialStore;
 use sqlx::PgPool;
 use time::{Duration, OffsetDateTime};
@@ -16,11 +17,12 @@ use tokio::sync::Barrier;
 
 async fn seed_user(pool: &PgPool) -> uuid::Uuid {
     sqlx::query_scalar(
-        "INSERT INTO users (display_name, phone, roles) VALUES ($1, $2, $3) RETURNING id",
+        "INSERT INTO users (display_name, phone, roles, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
     )
     .bind("Cold Start Replay User")
     .bind("010-3000-9999")
     .bind(Vec::<String>::from(["MECHANIC".to_owned()]))
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap()
@@ -35,7 +37,7 @@ async fn concurrent_consume_burns_the_otp_exactly_once(pool: PgPool) {
     let now = OffsetDateTime::now_utc();
 
     let issue = store
-        .issue_for_zero_credential_user(&pool, user_id, now, Duration::hours(24))
+        .issue_for_zero_credential_user(&pool, user_id, OrgId::knl(), now, Duration::hours(24))
         .await
         .unwrap();
 

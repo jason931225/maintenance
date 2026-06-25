@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use mnt_kernel_core::OrgId;
 use mnt_platform_provisioning::RosterProvisioner;
 use sqlx::{PgPool, Row};
 use time::{Duration, OffsetDateTime};
@@ -7,23 +8,27 @@ use time::{Duration, OffsetDateTime};
 async fn seed_branch(pool: &PgPool, region: &str, branch: &str) -> uuid::Uuid {
     let region_id: uuid::Uuid = sqlx::query_scalar(
         r#"
-        INSERT INTO regions (name)
-        VALUES ($1)
-        ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+        INSERT INTO regions (name, org_id)
+        VALUES ($1, $2)
+        ON CONFLICT (org_id, name) DO UPDATE SET name = EXCLUDED.name
         RETURNING id
         "#,
     )
     .bind(region)
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
 
-    sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
-        .bind(region_id)
-        .bind(branch)
-        .fetch_one(pool)
-        .await
-        .unwrap()
+    sqlx::query_scalar(
+        "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(region_id)
+    .bind(branch)
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 #[sqlx::test(migrations = "../db/migrations")]

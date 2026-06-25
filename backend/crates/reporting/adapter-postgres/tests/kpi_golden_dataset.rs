@@ -1,10 +1,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use mnt_kernel_core::{BranchId, BranchScope, RegionId, UserId};
+use mnt_kernel_core::{BranchId, BranchScope, OrgId, RegionId, UserId};
 use mnt_reporting_adapter_postgres::PgKpiRepository;
 use mnt_reporting_application::{KpiQuery, KpiQueryPort, KpiScope, Period};
 use mnt_reporting_domain::{KpiMetric, KpiRollupScope};
-use sqlx::PgPool;
+use sqlx::pool::PoolOptions;
+use sqlx::{Executor, PgConnection, PgPool};
 use time::{Duration, OffsetDateTime, macros::datetime};
 
 const PERIOD_START: OffsetDateTime = datetime!(2026-06-01 00:00 UTC);
@@ -12,188 +13,353 @@ const PERIOD_END: OffsetDateTime = datetime!(2026-07-01 00:00 UTC);
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn completed_count_uses_approval_period_priority_weights_and_exclusions(pool: PgPool) {
-    let seeded = seed_golden_dataset(&pool).await;
-    let report = company_report(&pool).await;
-    let company = report.rollup(&KpiRollupScope::Company).unwrap();
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_golden_dataset(&pool).await;
+        let report = company_report(&pool).await;
+        let company = report.rollup(&KpiRollupScope::Company).unwrap();
 
-    assert_eq!(company.completed_count, 3);
-    assert_eq!(company.weighted_completed_points, 6);
-    assert!(company.work_order_ids.contains(&seeded.p1_completed));
-    assert!(
-        company
-            .work_order_ids
-            .contains(&seeded.p2_revoked_exclusion_completed)
-    );
-    assert!(company.work_order_ids.contains(&seeded.p3_completed));
-    assert!(!company.work_order_ids.contains(&seeded.p1_boolean_excluded));
-    assert!(!company.work_order_ids.contains(&seeded.p2_active_exclusion));
-    assert!(!company.work_order_ids.contains(&seeded.p1_outside_period));
+        assert_eq!(company.completed_count, 3);
+        assert_eq!(company.weighted_completed_points, 6);
+        assert!(company.work_order_ids.contains(&seeded.p1_completed));
+        assert!(
+            company
+                .work_order_ids
+                .contains(&seeded.p2_revoked_exclusion_completed)
+        );
+        assert!(company.work_order_ids.contains(&seeded.p3_completed));
+        assert!(!company.work_order_ids.contains(&seeded.p1_boolean_excluded));
+        assert!(!company.work_order_ids.contains(&seeded.p2_active_exclusion));
+        assert!(!company.work_order_ids.contains(&seeded.p1_outside_period));
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn average_response_speed_uses_first_in_progress_status_history(pool: PgPool) {
-    seed_golden_dataset(&pool).await;
-    let report = company_report(&pool).await;
-    let company = report.rollup(&KpiRollupScope::Company).unwrap();
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        seed_golden_dataset(&pool).await;
+        let report = company_report(&pool).await;
+        let company = report.rollup(&KpiRollupScope::Company).unwrap();
 
-    assert_eq!(company.average_response_seconds, Some(7_200));
+        assert_eq!(company.average_response_seconds, Some(7_200));
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn completion_duration_and_due_compliance_use_final_approval_timestamp(pool: PgPool) {
-    seed_golden_dataset(&pool).await;
-    let report = company_report(&pool).await;
-    let company = report.rollup(&KpiRollupScope::Company).unwrap();
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        seed_golden_dataset(&pool).await;
+        let report = company_report(&pool).await;
+        let company = report.rollup(&KpiRollupScope::Company).unwrap();
 
-    assert_eq!(company.average_completion_seconds, Some(172_800));
-    assert_eq!(company.target_due_compliance_bps, Some(5_000));
+        assert_eq!(company.average_completion_seconds, Some(172_800));
+        assert_eq!(company.target_due_compliance_bps, Some(5_000));
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn revisit_rate_uses_revisit_required_approved_reports(pool: PgPool) {
-    seed_golden_dataset(&pool).await;
-    let report = company_report(&pool).await;
-    let company = report.rollup(&KpiRollupScope::Company).unwrap();
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        seed_golden_dataset(&pool).await;
+        let report = company_report(&pool).await;
+        let company = report.rollup(&KpiRollupScope::Company).unwrap();
 
-    assert_eq!(company.revisit_rate_bps, 2_500);
+        assert_eq!(company.revisit_rate_bps, 2_500);
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn delay_rate_and_reason_distribution_ignore_excluded_records(pool: PgPool) {
-    seed_golden_dataset(&pool).await;
-    let report = company_report(&pool).await;
-    let company = report.rollup(&KpiRollupScope::Company).unwrap();
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        seed_golden_dataset(&pool).await;
+        let report = company_report(&pool).await;
+        let company = report.rollup(&KpiRollupScope::Company).unwrap();
 
-    assert_eq!(company.delay_rate_bps, 2_500);
-    assert_eq!(
-        company
-            .delay_reason_distribution
-            .get("MECHANIC_OVERLOADED")
-            .copied(),
-        Some(1)
-    );
-    assert_eq!(
-        company
-            .delay_reason_distribution
-            .get("OUTSOURCE_DELAY")
-            .copied(),
-        None
-    );
+        assert_eq!(company.delay_rate_bps, 2_500);
+        assert_eq!(
+            company
+                .delay_reason_distribution
+                .get("MECHANIC_OVERLOADED")
+                .copied(),
+            Some(1)
+        );
+        assert_eq!(
+            company
+                .delay_reason_distribution
+                .get("OUTSOURCE_DELAY")
+                .copied(),
+            None
+        );
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn inspection_plan_completion_uses_regular_inspection_schedules(pool: PgPool) {
-    let seeded = seed_golden_dataset(&pool).await;
-    seed_inspection_schedule(
-        &pool,
-        seeded.branch_a,
-        seeded.equipment_a,
-        seeded.tech_a,
-        time::macros::date!(2026 - 06 - 10),
-        Some(PERIOD_START + Duration::days(9) + Duration::hours(10)),
-    )
-    .await;
-    seed_inspection_schedule(
-        &pool,
-        seeded.branch_a,
-        seeded.equipment_a,
-        seeded.tech_a,
-        time::macros::date!(2026 - 06 - 20),
-        None,
-    )
-    .await;
-    seed_inspection_schedule(
-        &pool,
-        seeded.branch_b,
-        seeded.equipment_b,
-        seeded.tech_b,
-        time::macros::date!(2026 - 06 - 15),
-        Some(PERIOD_START + Duration::days(14) + Duration::hours(9)),
-    )
-    .await;
-    seed_inspection_schedule(
-        &pool,
-        seeded.branch_a,
-        seeded.equipment_a,
-        seeded.tech_a,
-        time::macros::date!(2026 - 07 - 01),
-        Some(PERIOD_END + Duration::hours(9)),
-    )
-    .await;
-    let report = company_report(&pool).await;
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_golden_dataset(&pool).await;
+        seed_inspection_schedule(
+            &pool,
+            seeded.branch_a,
+            seeded.equipment_a,
+            seeded.tech_a,
+            time::macros::date!(2026 - 06 - 10),
+            Some(PERIOD_START + Duration::days(9) + Duration::hours(10)),
+        )
+        .await;
+        seed_inspection_schedule(
+            &pool,
+            seeded.branch_a,
+            seeded.equipment_a,
+            seeded.tech_a,
+            time::macros::date!(2026 - 06 - 20),
+            None,
+        )
+        .await;
+        seed_inspection_schedule(
+            &pool,
+            seeded.branch_b,
+            seeded.equipment_b,
+            seeded.tech_b,
+            time::macros::date!(2026 - 06 - 15),
+            Some(PERIOD_START + Duration::days(14) + Duration::hours(9)),
+        )
+        .await;
+        seed_inspection_schedule(
+            &pool,
+            seeded.branch_a,
+            seeded.equipment_a,
+            seeded.tech_a,
+            time::macros::date!(2026 - 07 - 01),
+            Some(PERIOD_END + Duration::hours(9)),
+        )
+        .await;
+        let report = company_report(&pool).await;
 
-    assert!(
-        report
-            .unavailable_metric(KpiMetric::InspectionPlanCompletionRate)
-            .is_none()
-    );
-    let company = report.rollup(&KpiRollupScope::Company).unwrap();
-    assert_eq!(company.inspection_schedule_due_count, 3);
-    assert_eq!(company.inspection_schedule_completed_count, 2);
-    assert_eq!(company.inspection_plan_completion_bps, Some(6_666));
+        assert!(
+            report
+                .unavailable_metric(KpiMetric::InspectionPlanCompletionRate)
+                .is_none()
+        );
+        let company = report.rollup(&KpiRollupScope::Company).unwrap();
+        assert_eq!(company.inspection_schedule_due_count, 3);
+        assert_eq!(company.inspection_schedule_completed_count, 2);
+        assert_eq!(company.inspection_plan_completion_bps, Some(6_666));
 
-    let branch_a = report
-        .rollup(&KpiRollupScope::Branch(seeded.branch_a))
-        .unwrap();
-    assert_eq!(branch_a.inspection_schedule_due_count, 2);
-    assert_eq!(branch_a.inspection_schedule_completed_count, 1);
-    assert_eq!(branch_a.inspection_plan_completion_bps, Some(5_000));
+        let branch_a = report
+            .rollup(&KpiRollupScope::Branch(seeded.branch_a))
+            .unwrap();
+        assert_eq!(branch_a.inspection_schedule_due_count, 2);
+        assert_eq!(branch_a.inspection_schedule_completed_count, 1);
+        assert_eq!(branch_a.inspection_plan_completion_bps, Some(5_000));
 
-    let tech_b = report
-        .rollup(&KpiRollupScope::Technician(seeded.tech_b))
-        .unwrap();
-    assert_eq!(tech_b.inspection_schedule_due_count, 1);
-    assert_eq!(tech_b.inspection_schedule_completed_count, 1);
-    assert_eq!(tech_b.inspection_plan_completion_bps, Some(10_000));
+        let tech_b = report
+            .rollup(&KpiRollupScope::Technician(seeded.tech_b))
+            .unwrap();
+        assert_eq!(tech_b.inspection_schedule_due_count, 1);
+        assert_eq!(tech_b.inspection_schedule_completed_count, 1);
+        assert_eq!(tech_b.inspection_plan_completion_bps, Some(10_000));
+    })
+    .await;
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
-async fn p1_acceptance_rate_is_honestly_unavailable_without_dispatch_tables(pool: PgPool) {
-    seed_golden_dataset(&pool).await;
-    let report = company_report(&pool).await;
+async fn p1_acceptance_rate_uses_dispatch_responses_and_auto_assignment(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_golden_dataset(&pool).await;
+        let admin = seed_user(&pool, "P1관리자", "ADMIN", seeded.branch_a).await;
 
-    let unavailable = report
-        .unavailable_metric(KpiMetric::P1AcceptanceRate)
-        .unwrap();
-    assert_eq!(unavailable.source_domain, "dispatch");
-    assert!(unavailable.reason.contains("P1 dispatch broadcast"));
+        // branch_a: one auto-assigned (accepted), one explicitly accepted, one
+        // broadcasting with no acceptance -> 2/3 accepted = 6_666 bps.
+        seed_p1_dispatch(
+            &pool,
+            seeded.p1_completed,
+            seeded.branch_a,
+            admin,
+            PERIOD_START + Duration::hours(8),
+            "AUTO_ASSIGNED",
+            Some(seeded.tech_a),
+            None,
+        )
+        .await;
+        seed_p1_dispatch(
+            &pool,
+            seeded.p2_revoked_exclusion_completed,
+            seeded.branch_a,
+            admin,
+            PERIOD_START + Duration::days(1),
+            "BROADCASTING",
+            None,
+            Some(seeded.tech_a),
+        )
+        .await;
+        seed_p1_dispatch(
+            &pool,
+            seeded.p1_boolean_excluded,
+            seeded.branch_a,
+            admin,
+            PERIOD_START + Duration::days(2),
+            "MANAGER_FORCE_PENDING",
+            None,
+            None,
+        )
+        .await;
+        // branch_b: one accepted -> 1/1 = 10_000 bps.
+        seed_p1_dispatch(
+            &pool,
+            seeded.p3_completed,
+            seeded.branch_b,
+            admin,
+            PERIOD_START + Duration::days(3),
+            "AUTO_ASSIGNED",
+            Some(seeded.tech_b),
+            None,
+        )
+        .await;
+        // Outside the reporting period: ignored entirely.
+        seed_p1_dispatch(
+            &pool,
+            seeded.p1_outside_period,
+            seeded.branch_a,
+            admin,
+            PERIOD_END + Duration::hours(1),
+            "AUTO_ASSIGNED",
+            Some(seeded.tech_a),
+            None,
+        )
+        .await;
+
+        let report = company_report(&pool).await;
+        assert!(
+            report
+                .unavailable_metric(KpiMetric::P1AcceptanceRate)
+                .is_none()
+        );
+
+        let company = report.rollup(&KpiRollupScope::Company).unwrap();
+        assert_eq!(company.p1_dispatch_count, 4);
+        assert_eq!(company.p1_accepted_count, 3);
+        assert_eq!(company.p1_acceptance_bps, Some(7_500));
+
+        let branch_a = report
+            .rollup(&KpiRollupScope::Branch(seeded.branch_a))
+            .unwrap();
+        assert_eq!(branch_a.p1_dispatch_count, 3);
+        assert_eq!(branch_a.p1_accepted_count, 2);
+        assert_eq!(branch_a.p1_acceptance_bps, Some(6_666));
+
+        let branch_b = report
+            .rollup(&KpiRollupScope::Branch(seeded.branch_b))
+            .unwrap();
+        assert_eq!(branch_b.p1_dispatch_count, 1);
+        assert_eq!(branch_b.p1_acceptance_bps, Some(10_000));
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn p1_acceptance_rate_is_isolated_per_tenant(pool: PgPool) {
+    // A P1 dispatch belonging to a SECOND org must never leak into knl's rollup
+    // when the KPI query runs bound to the knl org GUC under RLS.
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_golden_dataset(&pool).await;
+        let admin = seed_user(&pool, "P1관리자", "ADMIN", seeded.branch_a).await;
+        seed_p1_dispatch(
+            &pool,
+            seeded.p1_completed,
+            seeded.branch_a,
+            admin,
+            PERIOD_START + Duration::hours(8),
+            "AUTO_ASSIGNED",
+            Some(seeded.tech_a),
+            None,
+        )
+        .await;
+
+        // Stage an entire second-org P1 dispatch (owner role bypasses RLS on insert).
+        seed_other_org_p1_dispatch(&pool).await;
+
+        // Read under the unprivileged mnt_rt role so RLS is fully enforced,
+        // exactly as the deployed app reads.
+        let rt_pool = mnt_rt_pool(&pool).await;
+        let repo = PgKpiRepository::new(rt_pool.clone());
+        let report = repo
+            .query_kpis(KpiQuery {
+                period: period(),
+                scope: KpiScope::Company,
+                branch_scope: BranchScope::All,
+            })
+            .await
+            .unwrap();
+        rt_pool.close().await;
+
+        let company = report.rollup(&KpiRollupScope::Company).unwrap();
+        // Only the knl dispatch is visible; the other org's dispatch is filtered.
+        assert_eq!(company.p1_dispatch_count, 1);
+        assert_eq!(company.p1_accepted_count, 1);
+    })
+    .await;
+}
+
+/// Build a pool bound to the unprivileged `mnt_rt` runtime role so RLS is fully
+/// enforced for the read (the `#[sqlx::test]` pool connects as the owner, which
+/// bypasses non-FORCE RLS). Mirrors the deployed app's connection.
+async fn mnt_rt_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options();
+    PoolOptions::new()
+        .max_connections(2)
+        .after_connect(|conn: &mut PgConnection, _meta| {
+            Box::pin(async move {
+                conn.execute("SET ROLE mnt_rt").await?;
+                Ok(())
+            })
+        })
+        .connect_with((*options).clone())
+        .await
+        .unwrap()
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn rollups_respect_branch_scope_across_two_branches(pool: PgPool) {
-    let seeded = seed_golden_dataset(&pool).await;
-    let repo = PgKpiRepository::new(pool.clone());
-    let report = repo
-        .query_kpis(KpiQuery {
-            period: period(),
-            scope: KpiScope::Company,
-            branch_scope: BranchScope::single(seeded.branch_a),
-        })
-        .await
-        .unwrap();
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_golden_dataset(&pool).await;
+        let repo = PgKpiRepository::new(pool.clone());
+        let report = repo
+            .query_kpis(KpiQuery {
+                period: period(),
+                scope: KpiScope::Company,
+                branch_scope: BranchScope::single(seeded.branch_a),
+            })
+            .await
+            .unwrap();
 
-    assert!(
-        report
-            .rollup(&KpiRollupScope::Branch(seeded.branch_a))
-            .is_some()
-    );
-    assert!(
-        report
-            .rollup(&KpiRollupScope::Branch(seeded.branch_b))
-            .is_none()
-    );
-    assert_eq!(
-        report
-            .rollup(&KpiRollupScope::Technician(seeded.tech_a))
-            .unwrap()
-            .completed_count,
-        2
-    );
-    assert!(
-        report
-            .rollup(&KpiRollupScope::Technician(seeded.tech_b))
-            .is_none()
-    );
+        assert!(
+            report
+                .rollup(&KpiRollupScope::Branch(seeded.branch_a))
+                .is_some()
+        );
+        assert!(
+            report
+                .rollup(&KpiRollupScope::Branch(seeded.branch_b))
+                .is_none()
+        );
+        assert_eq!(
+            report
+                .rollup(&KpiRollupScope::Technician(seeded.tech_a))
+                .unwrap()
+                .completed_count,
+            2
+        );
+        assert!(
+            report
+                .rollup(&KpiRollupScope::Technician(seeded.tech_b))
+                .is_none()
+        );
+    })
+    .await;
 }
 
 async fn company_report(pool: &PgPool) -> mnt_reporting_domain::KpiReport {
@@ -438,8 +604,9 @@ async fn seed_golden_dataset(pool: &PgPool) -> SeededGoldenDataset {
 }
 
 async fn seed_region(pool: &PgPool, name: &str) -> RegionId {
-    let id = sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+    let id = sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
         .bind(format!("{name}-{}", uuid::Uuid::new_v4()))
+        .bind(*OrgId::knl().as_uuid())
         .fetch_one(pool)
         .await
         .unwrap();
@@ -447,28 +614,32 @@ async fn seed_region(pool: &PgPool, name: &str) -> RegionId {
 }
 
 async fn seed_branch(pool: &PgPool, region: RegionId, name: &str) -> BranchId {
-    let id =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
-            .bind(*region.as_uuid())
-            .bind(format!("{name}-{}", uuid::Uuid::new_v4()))
-            .fetch_one(pool)
-            .await
-            .unwrap();
+    let id = sqlx::query_scalar(
+        "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(*region.as_uuid())
+    .bind(format!("{name}-{}", uuid::Uuid::new_v4()))
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
     BranchId::from_uuid(id)
 }
 
 async fn seed_user(pool: &PgPool, name: &str, role: &str, branch: BranchId) -> UserId {
     let id = UserId::new();
-    sqlx::query("INSERT INTO users (id, display_name, roles) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
         .bind(*id.as_uuid())
         .bind(format!("{name}-{}", uuid::Uuid::new_v4()))
         .bind(Vec::from([role]))
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
         .bind(*id.as_uuid())
         .bind(*branch.as_uuid())
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
@@ -482,19 +653,21 @@ async fn seed_equipment(
     suffix: &str,
 ) -> uuid::Uuid {
     let customer_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO registry_customers (branch_id, name) VALUES ($1, $2) RETURNING id",
+        "INSERT INTO registry_customers (branch_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
     )
     .bind(*branch.as_uuid())
     .bind(format!("고객-{suffix}-{}", uuid::Uuid::new_v4()))
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
     let site_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO registry_sites (branch_id, customer_id, name) VALUES ($1, $2, $3) RETURNING id",
+        "INSERT INTO registry_sites (branch_id, customer_id, name, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
     )
     .bind(*branch.as_uuid())
     .bind(customer_id)
     .bind(format!("현장-{suffix}"))
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
@@ -503,10 +676,10 @@ async fn seed_equipment(
         INSERT INTO registry_equipment (
             branch_id, customer_id, site_id, equipment_no, management_no, model,
             manufacturer_code, kind_code, power_code, status, specification, ton_text,
-            rental_fee, vehicle_value, residual_value, source_sheet, source_row, updated_at
+            rental_fee, vehicle_value, residual_value, source_sheet, source_row, updated_at, org_id
         )
         VALUES ($1, $2, $3, $4, $5, 'FBR', 'GLD', 'FBR', 'BATTERY', '임대',
-                '입식', '1.5톤', 700000, 10000000, 5000000, 'golden', 1, now())
+                '입식', '1.5톤', 700000, 10000000, 5000000, 'golden', 1, now(), $6)
         RETURNING id
         "#,
     )
@@ -519,6 +692,7 @@ async fn seed_equipment(
         _ => "GOLZZ-0001",
     })
     .bind(management_no)
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap()
@@ -536,11 +710,11 @@ async fn seed_inspection_schedule(
         r#"
         INSERT INTO regular_inspection_schedules (
             branch_id, equipment_id, mechanic_id, cycle, interval_days, due_date,
-            status, completed_at, completed_by, note, created_by, created_at, updated_at
+            status, completed_at, completed_by, note, created_by, created_at, updated_at, org_id
         )
         VALUES (
             $1, $2, $3, 'MONTHLY', 30, $4,
-            $5, $6, $7, 'golden inspection', $3, $8, $8
+            $5, $6, $7, 'golden inspection', $3, $8, $8, $9
         )
         RETURNING id
         "#,
@@ -557,9 +731,179 @@ async fn seed_inspection_schedule(
     .bind(completed_at)
     .bind(completed_at.map(|_| *mechanic.as_uuid()))
     .bind(PERIOD_START)
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap()
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn seed_p1_dispatch(
+    pool: &PgPool,
+    work_order: uuid::Uuid,
+    branch: BranchId,
+    created_by: UserId,
+    window_start: OffsetDateTime,
+    status: &str,
+    auto_assigned_mechanic: Option<UserId>,
+    accepting_mechanic: Option<UserId>,
+) -> uuid::Uuid {
+    let dispatch_id: uuid::Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO p1_dispatches (
+            work_order_id, branch_id, status, include_region,
+            accept_window_started_at, accept_window_ends_at, auto_assigned_mechanic_id,
+            created_by, created_at, updated_at, org_id
+        )
+        VALUES ($1, $2, $3, false, $4, $5, $6, $7, $4, $4, $8)
+        RETURNING id
+        "#,
+    )
+    .bind(work_order)
+    .bind(*branch.as_uuid())
+    .bind(status)
+    .bind(window_start)
+    .bind(window_start + Duration::minutes(5))
+    .bind(auto_assigned_mechanic.map(|m| *m.as_uuid()))
+    .bind(*created_by.as_uuid())
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+
+    if let Some(mechanic) = accepting_mechanic {
+        sqlx::query(
+            r#"
+            INSERT INTO p1_dispatch_responses (dispatch_id, user_id, response, responded_at, org_id)
+            VALUES ($1, $2, 'ACCEPT', $3, $4)
+            "#,
+        )
+        .bind(dispatch_id)
+        .bind(*mechanic.as_uuid())
+        .bind(window_start + Duration::minutes(1))
+        .bind(*OrgId::knl().as_uuid())
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    dispatch_id
+}
+
+/// Stage a complete, minimal P1 dispatch under a SECOND organization. All inserts
+/// run as the test pool's owner role (RLS-exempt) so the rows exist physically;
+/// the production read path is RLS-bound and must never surface them for knl.
+async fn seed_other_org_p1_dispatch(pool: &PgPool) {
+    let org_id: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO organizations (slug, name) VALUES ($1, $2) RETURNING id")
+            .bind(format!("other-{}", uuid::Uuid::new_v4().simple()))
+            .bind("Other Org")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    let region: uuid::Uuid =
+        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
+            .bind(format!("R-{}", uuid::Uuid::new_v4()))
+            .bind(org_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    let branch: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(region)
+    .bind(format!("B-{}", uuid::Uuid::new_v4()))
+    .bind(org_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let user: uuid::Uuid = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
+        .bind(user)
+        .bind("other-admin")
+        .bind(vec!["ADMIN".to_owned()])
+        .bind(org_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    let customer: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO registry_customers (branch_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(branch)
+    .bind("other-customer")
+    .bind(org_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let site: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO registry_sites (branch_id, customer_id, name, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
+    )
+    .bind(branch)
+    .bind(customer)
+    .bind("other-site")
+    .bind(org_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let equipment: uuid::Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO registry_equipment (
+            branch_id, customer_id, site_id, equipment_no, management_no, model,
+            manufacturer_code, kind_code, power_code, status, specification, ton_text,
+            rental_fee, vehicle_value, residual_value, source_sheet, source_row, updated_at, org_id
+        )
+        VALUES ($1, $2, $3, 'OTHAA-0001', 'OTHER-290', 'FBR', 'GLD', 'FBR', 'BATTERY', '임대',
+                '입식', '1.5톤', 700000, 10000000, 5000000, 'other', 1, now(), $4)
+        RETURNING id
+        "#,
+    )
+    .bind(branch)
+    .bind(customer)
+    .bind(site)
+    .bind(org_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let work_order: uuid::Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO work_orders (
+            request_no, branch_id, equipment_id, customer_id, site_id, requested_by,
+            status, priority, symptom, result_type, created_at, updated_at, org_id
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'RECEIVED', 'P1', 'other symptom', 'UNKNOWN', $7, $7, $8)
+        RETURNING id
+        "#,
+    )
+    .bind("20260601-900")
+    .bind(branch)
+    .bind(equipment)
+    .bind(customer)
+    .bind(site)
+    .bind(user)
+    .bind(PERIOD_START)
+    .bind(org_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO p1_dispatches (
+            work_order_id, branch_id, status, include_region,
+            accept_window_started_at, accept_window_ends_at, auto_assigned_mechanic_id,
+            created_by, created_at, updated_at, org_id
+        )
+        VALUES ($1, $2, 'AUTO_ASSIGNED', false, $3, $4, $5, $5, $3, $3, $6)
+        "#,
+    )
+    .bind(work_order)
+    .bind(branch)
+    .bind(PERIOD_START + Duration::hours(8))
+    .bind(PERIOD_START + Duration::hours(8) + Duration::minutes(5))
+    .bind(user)
+    .bind(org_id)
+    .execute(pool)
+    .await
+    .unwrap();
 }
 
 struct WorkOrderFixture {
@@ -596,10 +940,10 @@ async fn seed_work_order(pool: &PgPool, fixture: WorkOrderFixture) -> uuid::Uuid
         INSERT INTO work_orders (
             request_no, branch_id, equipment_id, customer_id, site_id, requested_by,
             status, priority, symptom, target_due_at, delay_reason, result_type,
-            report_submitted_by, report_submitted_at, kpi_excluded, created_at, updated_at
+            report_submitted_by, report_submitted_at, kpi_excluded, created_at, updated_at, org_id
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'golden symptom', $9, $10, $11,
-                $12, $13, $14, $15, $16)
+                $12, $13, $14, $15, $16, $17)
         RETURNING id
         "#,
     )
@@ -619,14 +963,16 @@ async fn seed_work_order(pool: &PgPool, fixture: WorkOrderFixture) -> uuid::Uuid
     .bind(fixture.kpi_excluded)
     .bind(fixture.created_at)
     .bind(fixture.approved_at)
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
 
-    sqlx::query("INSERT INTO work_order_assignments (work_order_id, mechanic_id, role, assigned_at) VALUES ($1, $2, 'PRIMARY', $3)")
+    sqlx::query("INSERT INTO work_order_assignments (work_order_id, mechanic_id, role, assigned_at, org_id) VALUES ($1, $2, 'PRIMARY', $3, $4)")
         .bind(work_order_id)
         .bind(*fixture.technician.as_uuid())
         .bind(fixture.created_at + Duration::minutes(15))
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
@@ -659,32 +1005,35 @@ async fn seed_work_order(pool: &PgPool, fixture: WorkOrderFixture) -> uuid::Uuid
     .await;
 
     sqlx::query(
-        "INSERT INTO work_order_status_history (work_order_id, actor, action, from_status, to_status, occurred_at) VALUES ($1, $2, 'work_order.create', NULL, 'RECEIVED', $3)",
+        "INSERT INTO work_order_status_history (work_order_id, actor, action, from_status, to_status, occurred_at, org_id) VALUES ($1, $2, 'work_order.create', NULL, 'RECEIVED', $3, $4)",
     )
     .bind(work_order_id)
     .bind(*fixture.requested_by.as_uuid())
     .bind(fixture.created_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();
     if let Some(started_at) = fixture.started_at {
         sqlx::query(
-            "INSERT INTO work_order_status_history (work_order_id, actor, action, from_status, to_status, occurred_at) VALUES ($1, $2, 'work_order.start', 'ASSIGNED', 'IN_PROGRESS', $3)",
+            "INSERT INTO work_order_status_history (work_order_id, actor, action, from_status, to_status, occurred_at, org_id) VALUES ($1, $2, 'work_order.start', 'ASSIGNED', 'IN_PROGRESS', $3, $4)",
         )
         .bind(work_order_id)
         .bind(*fixture.technician.as_uuid())
         .bind(started_at)
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
     }
     sqlx::query(
-        "INSERT INTO work_order_status_history (work_order_id, actor, action, from_status, to_status, occurred_at) VALUES ($1, $2, 'work_order.approve', 'ADMIN_REVIEW', $3, $4)",
+        "INSERT INTO work_order_status_history (work_order_id, actor, action, from_status, to_status, occurred_at, org_id) VALUES ($1, $2, 'work_order.approve', 'ADMIN_REVIEW', $3, $4, $5)",
     )
     .bind(work_order_id)
     .bind(*fixture.executive.as_uuid())
     .bind(fixture.status)
     .bind(fixture.approved_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();
@@ -704,9 +1053,9 @@ async fn seed_approval_step(
         r#"
         INSERT INTO work_order_approval_steps (
             work_order_id, step_order, role, approver_id, status,
-            requested_at, approved_at, approved_by_id
+            requested_at, approved_at, approved_by_id, org_id
         )
-        VALUES ($1, $2, $3, $4, 'APPROVED', $5, $5, $4)
+        VALUES ($1, $2, $3, $4, 'APPROVED', $5, $5, $4, $6)
         "#,
     )
     .bind(work_order_id)
@@ -714,6 +1063,7 @@ async fn seed_approval_step(
     .bind(role)
     .bind(*approver.as_uuid())
     .bind(approved_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();
@@ -732,9 +1082,9 @@ async fn seed_kpi_exclusion(
     sqlx::query(
         r#"
         INSERT INTO kpi_exclusions (
-            branch_id, scope, target_id, reason, excluded_by, excluded_at, revoked_by, revoked_at
+            branch_id, scope, target_id, reason, excluded_by, excluded_at, revoked_by, revoked_at, org_id
         )
-        VALUES ($1, $2, $3, 'golden exclusion', $4, $5, $6, $7)
+        VALUES ($1, $2, $3, 'golden exclusion', $4, $5, $6, $7, $8)
         "#,
     )
     .bind(*branch.as_uuid())
@@ -744,6 +1094,7 @@ async fn seed_kpi_exclusion(
     .bind(PERIOD_START + Duration::days(1))
     .bind(revoked_by)
     .bind(revoked_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();

@@ -6,8 +6,9 @@ use std::future::Future;
 use mnt_kernel_core::{BranchScope, KernelError, Timestamp, TraceContext, UserId};
 pub use mnt_reporting_domain::{
     DailyStatusReport, DailyStatusRow, ExportSourceNote, KpiMetric, KpiReport, KpiRollup,
-    KpiRollupScope, KpiScope, Period, PeriodicInspectionRow, UnavailableMetric,
-    WorkDiaryActionEntry, WorkDiaryBody, WorkDiaryDraft, WorkDiaryStatus,
+    KpiRollupScope, KpiScope, OpsEquipmentStatus, OpsFunnel, OpsMechanicLoad, OpsSummary, Period,
+    PeriodicInspectionRow, UnavailableMetric, WorkDiaryActionEntry, WorkDiaryBody, WorkDiaryDraft,
+    WorkDiaryStatus,
 };
 use time::Date;
 
@@ -32,6 +33,26 @@ pub trait KpiQueryPort {
         &self,
         query: KpiQuery,
     ) -> impl Future<Output = Result<KpiReport, KpiQueryError>> + Send + '_;
+}
+
+/// Per-tenant operational dashboard query.
+///
+/// `aging_hours` is the threshold past which an unresolved work order is counted
+/// as aging; `at_risk_minutes` is the lead time before a P1 accept-window
+/// deadline at which a dispatch is flagged at-risk; `top_mechanics` caps the
+/// utilization list. All reads run org-scoped under RLS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpsSummaryQuery {
+    pub aging_hours: u32,
+    pub at_risk_minutes: u32,
+    pub top_mechanics: u32,
+}
+
+pub trait OpsSummaryPort {
+    fn ops_summary(
+        &self,
+        query: OpsSummaryQuery,
+    ) -> impl Future<Output = Result<OpsSummary, KpiQueryError>> + Send + '_;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

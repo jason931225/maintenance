@@ -4,10 +4,12 @@ namespace: maintenance
 resources:
   - namespace.yaml
   - configmap.yaml
+  - migrate-job.yaml
   - backend.yaml
   - web.yaml
   - worker.yaml
   - analysis.yaml
   - ingress.yaml
+  - middleware.yaml
   - networkpolicy.yaml
   - database.yaml

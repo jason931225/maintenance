@@ -15,8 +15,8 @@ use mnt_inspection_application::{
 };
 use mnt_inspection_domain::{InspectionCycle, InspectionRoundOutcome};
 use mnt_kernel_core::{
-    BranchId, BranchScope, EquipmentId, ErrorKind, InspectionScheduleId, KernelError, TraceContext,
-    UserId,
+    BranchId, BranchScope, EquipmentId, ErrorKind, InspectionScheduleId, KernelError, OrgId,
+    TraceContext, UserId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
@@ -24,6 +24,12 @@ use mnt_platform_db::DbError;
 use serde::{Deserialize, Serialize};
 use time::macros::format_description;
 use time::{Date, OffsetDateTime};
+
+// The OpenAPI contract types `due_date` as a `string` (ISO `YYYY-MM-DD`), but a
+// bare `time::Date` serde impl expects the array form and rejects the string the
+// web client sends (422). Deserialize it from the ISO date string instead — the
+// same fix the work-order daily-plan `plan_date` already uses.
+time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
 
 pub const INSPECTION_SCHEDULES_PATH: &str = "/api/v1/inspections/schedules";
 pub const INSPECTION_ROUNDS_PATH_TEMPLATE: &str =
@@ -48,7 +54,9 @@ impl InspectionRestState {
 }
 
 pub fn router(state: InspectionRestState) -> Router {
-    Router::new()
+    let verifier = state.jwt_verifier.clone();
+    let pool = state.store.pool().clone();
+    let router = Router::new()
         .route(
             INSPECTION_SCHEDULES_PATH,
             get(list_schedules).post(create_schedule),
@@ -57,7 +65,8 @@ pub fn router(state: InspectionRestState) -> Router {
             "/api/v1/inspections/schedules/{schedule_id}/rounds",
             post(complete_round),
         )
-        .with_state(state)
+        .with_state(state);
+    mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
 
 #[derive(Debug, Deserialize)]
@@ -67,6 +76,7 @@ struct CreateScheduleRequest {
     mechanic_id: UserId,
     cycle: InspectionCycle,
     interval_days: i32,
+    #[serde(with = "iso_date")]
     due_date: Date,
     note: Option<String>,
 }
@@ -83,7 +93,16 @@ struct CompleteRoundRequest {
 struct ListSchedulesRequest {
     due_start: String,
     due_end: String,
+    /// Page size. Optional; the adapter clamps to `1..=500` and a missing value
+    /// defaults below, so older clients that omit it still get a bounded page.
+    limit: Option<i64>,
+    /// Zero-based row offset for offset pagination. Optional, defaults to 0.
+    offset: Option<i64>,
 }
+
+/// Default schedule page size when the client omits `limit`. Generous enough
+/// that a typical month's roster fits in one page, but still bounded.
+const DEFAULT_SCHEDULE_LIMIT: i64 = 200;
 
 #[derive(Debug, Serialize)]
 struct ErrorBody {
@@ -139,16 +158,24 @@ async fn list_schedules(
         representative_branch(&principal.branch_scope)?,
     )
     .map_err(RestError::from_kernel)?;
-    let schedules = state
+    let offset = query.offset.unwrap_or(0);
+    if offset < 0 {
+        return Err(RestError::from_kernel(KernelError::validation(
+            "offset must be non-negative",
+        )));
+    }
+    let page = state
         .store
         .list_due_schedules(ListInspectionSchedulesQuery {
             branch_scope: principal.branch_scope,
             due_start: parse_date(&query.due_start)?,
             due_end: parse_date(&query.due_end)?,
+            limit: query.limit.unwrap_or(DEFAULT_SCHEDULE_LIMIT),
+            offset,
         })
         .await
         .map_err(RestError::from_store)?;
-    Ok(Json(schedules))
+    Ok(Json(page))
 }
 
 async fn complete_round(
@@ -259,7 +286,9 @@ fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
         BranchScope::Branches(branches)
     };
 
-    Ok(Principal::new(user_id, roles, branch_scope))
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 
 #[derive(Debug)]

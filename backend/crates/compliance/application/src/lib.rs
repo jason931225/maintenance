@@ -114,3 +114,35 @@ pub struct LocationConsentLedgerPage {
     pub offset: i64,
     pub total: i64,
 }
+
+/// Filters for reading the site arrival/departure events log (issue #13).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArrivalEventQuery {
+    pub user_id: Option<UserId>,
+    pub branch_id: Option<BranchId>,
+    pub limit: i64,
+    pub offset: i64,
+}
+
+/// One site arrival or departure — a coordinate-free attendance fact, hydrated
+/// with the work-order request_no and site name for display.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArrivalEvent {
+    pub id: String,
+    // Slimmed wire model: the OpsDashboard renders only the human-facing
+    // request_no / site_name / kind / time, so the raw user_id, branch_id,
+    // work_order_id and site_id UUIDs are no longer shipped to the browser.
+    pub work_order_no: String,
+    pub site_name: String,
+    pub kind: String,
+    pub occurred_at: Timestamp,
+}
+
+/// Paged site arrival/departure events.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArrivalEventPage {
+    pub items: Vec<ArrivalEvent>,
+    pub limit: i64,
+    pub offset: i64,
+    pub total: i64,
+}

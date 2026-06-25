@@ -3,6 +3,7 @@ import { useEffect, useMemo } from "react";
 import type { KpiReport, WorkOrderListItem } from "../../api/types";
 import { Badge } from "../../components/ui/badge";
 import { ko } from "../../i18n/ko";
+import { formatKoreanDateTime } from "../../lib/datetime";
 import { formatBps, formatCount, formatSeconds } from "./kpi-format";
 
 interface WallBoardProps {
@@ -60,25 +61,26 @@ export function WallBoard({
     report?.rollups[0];
 
   return (
-    <main className="min-h-screen bg-slate-950 px-6 py-6 text-white lg:px-10">
+    <main className="min-h-screen bg-ink px-6 py-6 text-white lg:px-10">
       <section className="mx-auto grid max-w-7xl gap-8">
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-4xl font-bold leading-tight lg:text-6xl">
               {ko.wallboard.title}
             </h1>
-            <p className="mt-3 text-lg text-slate-300">
-              {ko.wallboard.updatedAt}: {formatWallboardTime(now)}
+            <p className="mt-3 text-lg text-white/70">
+              {ko.wallboard.updatedAt}:{" "}
+              {formatKoreanDateTime(now.toISOString())}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Badge className="min-h-10 border-slate-600 bg-slate-900 px-3 text-slate-100">
+            <Badge className="min-h-10 border-white/15 bg-white/5 px-3 text-white">
               {ko.wallboard.refresh}{" "}
               {String(Math.round(refreshIntervalMs / 1_000))}
               {ko.common.secondUnit}
             </Badge>
             {isLoading ? (
-              <Badge role="status" className="min-h-10 border-slate-600 bg-slate-900 px-3 text-slate-100">
+              <Badge role="status" className="min-h-10 border-white/15 bg-white/5 px-3 text-white">
                 {ko.common.loading}
               </Badge>
             ) : null}
@@ -90,7 +92,7 @@ export function WallBoard({
           aria-live="polite"
           className="grid gap-4"
         >
-          <h2 id="wallboard-exceptions" className="text-xl font-semibold text-slate-200">
+          <h2 id="wallboard-exceptions" className="text-xl font-semibold text-white/80">
             {ko.wallboard.exceptionStrip}
           </h2>
           <div className="grid gap-4 md:grid-cols-3">
@@ -150,8 +152,8 @@ function ExceptionTile({
 
 function MetricTile({ label, value }: { label: string; value: string }) {
   return (
-    <article className="rounded-lg border border-slate-700 bg-slate-900 p-5">
-      <p className="text-lg font-semibold text-slate-300">{label}</p>
+    <article className="rounded-lg border border-white/15 bg-white/5 p-5">
+      <p className="text-lg font-semibold text-white/70">{label}</p>
       <p className="mt-4 text-5xl font-bold leading-none text-white">{value}</p>
     </article>
   );
@@ -186,8 +188,4 @@ function exceptionToneClass(tone: "red" | "amber" | "sky") {
     case "sky":
       return "border-sky-300 bg-sky-950 text-sky-50";
   }
-}
-
-function formatWallboardTime(value: Date) {
-  return value.toISOString().slice(0, 16).replace("T", " ");
 }

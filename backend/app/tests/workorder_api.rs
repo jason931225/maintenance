@@ -3,7 +3,7 @@
 use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode, header};
 use mnt_app::{AppConfig, AppRole, AppState, DatabaseDependency, build_router};
-use mnt_kernel_core::{BranchId, UserId, WorkOrderId};
+use mnt_kernel_core::{BranchId, OrgId, UserId, WorkOrderId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings};
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
@@ -411,8 +411,14 @@ async fn kpi_endpoint_is_jwt_authorized_and_branch_scoped(pool: PgPool) {
             .iter()
             .any(|metric| metric["metric"] == "inspection_plan_completion_rate")
     );
+    // P1 acceptance is now computed from the p1_dispatch* source tables (present
+    // in this migration set), so it is no longer reported as unavailable; with no
+    // dispatches seeded the rate is null and the counts are zero.
+    assert_eq!(company["p1_dispatch_count"], 0);
+    assert_eq!(company["p1_accepted_count"], 0);
+    assert_eq!(company["p1_acceptance_bps"], serde_json::Value::Null);
     assert!(
-        report.json["unavailable_metrics"]
+        !report.json["unavailable_metrics"]
             .as_array()
             .unwrap()
             .iter()
@@ -633,8 +639,13 @@ fn issue_token(
 
     Ok(issuer.issue_access_token(AccessTokenInput {
         subject: user_id,
+        org_id: OrgId::knl(),
         roles,
         branches,
+        platform: false,
+        view_as: false,
+        read_only: false,
+        display_name: None,
         issued_at: OffsetDateTime::now_utc(),
     })?)
 }
@@ -653,32 +664,37 @@ fn app_state(pool: PgPool, public_key_pem: String) -> Result<AppState, mnt_app::
 
 async fn seed_branch(pool: &PgPool, region_name: &str, branch_name: &str) -> BranchId {
     let region_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
             .bind(region_name)
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
-    let branch_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
-            .bind(region_id)
-            .bind(branch_name)
-            .fetch_one(pool)
-            .await
-            .unwrap();
+    let branch_id: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(region_id)
+    .bind(branch_name)
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
     BranchId::from_uuid(branch_id)
 }
 
 async fn seed_user_with_branch(pool: &PgPool, user_id: UserId, role: &str, branch_id: BranchId) {
-    sqlx::query("INSERT INTO users (id, display_name, roles) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
         .bind(*user_id.as_uuid())
         .bind(format!("Workorder API {role}"))
         .bind(Vec::from([role]))
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
         .bind(*user_id.as_uuid())
         .bind(*branch_id.as_uuid())
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
@@ -733,19 +749,21 @@ async fn seed_equipment_record(
             .to_ascii_uppercase()
     );
     let customer_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO registry_customers (branch_id, name) VALUES ($1, $2) RETURNING id",
+        "INSERT INTO registry_customers (branch_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
     )
     .bind(*branch_id.as_uuid())
     .bind(format!("Customer {management_no}"))
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
     let site_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO registry_sites (branch_id, customer_id, name) VALUES ($1, $2, $3) RETURNING id",
+        "INSERT INTO registry_sites (branch_id, customer_id, name, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
     )
     .bind(*branch_id.as_uuid())
     .bind(customer_id)
     .bind(format!("Site {management_no}"))
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
@@ -754,10 +772,10 @@ async fn seed_equipment_record(
         INSERT INTO registry_equipment (
             branch_id, customer_id, site_id, equipment_no, management_no,
             manufacturer_code, kind_code, power_code, status,
-            specification, ton_text, model, source_sheet, source_row
+            specification, ton_text, model, source_sheet, source_row, org_id
         )
         VALUES ($1, $2, $3, $4, $5,
-                'A', 'B', 'C', '임대', '좌식', '2.5', $6, 'test', 1)
+                'A', 'B', 'C', '임대', '좌식', '2.5', $6, 'test', 1, $7)
         RETURNING id
         "#,
     )
@@ -767,6 +785,7 @@ async fn seed_equipment_record(
     .bind(format!("{equipment_prefix}-{equipment_suffix}"))
     .bind(management_no)
     .bind(model)
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
@@ -785,11 +804,11 @@ async fn seed_kpi_completed_work_order(pool: &PgPool, fixture: KpiWorkOrderFixtu
         INSERT INTO work_orders (
             id, request_no, branch_id, equipment_id, customer_id, site_id,
             requested_by, status, priority, symptom, result_type,
-            report_submitted_by, report_submitted_at, created_at, updated_at
+            report_submitted_by, report_submitted_at, created_at, updated_at, org_id
         )
         VALUES (
             $1, $2, $3, $4, $5, $6, $7, 'FINAL_COMPLETED', $8, 'KPI fixture',
-            'COMPLETED', $9, $10, $11, $10
+            'COMPLETED', $9, $10, $11, $10, $12
         )
         "#,
     )
@@ -804,18 +823,20 @@ async fn seed_kpi_completed_work_order(pool: &PgPool, fixture: KpiWorkOrderFixtu
     .bind(*fixture.mechanic.as_uuid())
     .bind(fixture.approved_at)
     .bind(fixture.created_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();
     sqlx::query(
         r#"
-        INSERT INTO work_order_assignments (work_order_id, mechanic_id, role, assigned_at)
-        VALUES ($1, $2, 'PRIMARY', $3)
+        INSERT INTO work_order_assignments (work_order_id, mechanic_id, role, assigned_at, org_id)
+        VALUES ($1, $2, 'PRIMARY', $3, $4)
         "#,
     )
     .bind(*work_order_id.as_uuid())
     .bind(*fixture.mechanic.as_uuid())
     .bind(fixture.created_at + Duration::minutes(30))
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();
@@ -823,14 +844,15 @@ async fn seed_kpi_completed_work_order(pool: &PgPool, fixture: KpiWorkOrderFixtu
         r#"
         INSERT INTO work_order_approval_steps (
             work_order_id, step_order, role, approver_id, status,
-            requested_at, approved_at, approved_by_id
+            requested_at, approved_at, approved_by_id, org_id
         )
-        VALUES ($1, 2, 'ADMIN', $2, 'APPROVED', $3, $3, $2)
+        VALUES ($1, 2, 'ADMIN', $2, 'APPROVED', $3, $3, $2, $4)
         "#,
     )
     .bind(*work_order_id.as_uuid())
     .bind(*fixture.actor.as_uuid())
     .bind(fixture.approved_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();
@@ -852,9 +874,9 @@ async fn seed_kpi_completed_work_order(pool: &PgPool, fixture: KpiWorkOrderFixtu
         sqlx::query(
             r#"
             INSERT INTO work_order_status_history (
-                work_order_id, actor, action, from_status, to_status, occurred_at
+                work_order_id, actor, action, from_status, to_status, occurred_at, org_id
             )
-            VALUES ($1, $2, $3, $4, $5, $6)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
         )
         .bind(*work_order_id.as_uuid())
@@ -863,6 +885,7 @@ async fn seed_kpi_completed_work_order(pool: &PgPool, fixture: KpiWorkOrderFixtu
         .bind(from_status)
         .bind(to_status)
         .bind(occurred_at)
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
@@ -882,9 +905,9 @@ async fn seed_received_work_order(
         r#"
         INSERT INTO work_orders (
             id, request_no, branch_id, equipment_id, customer_id, site_id,
-            requested_by, status, priority, symptom
+            requested_by, status, priority, symptom, org_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'RECEIVED', 'UNSET', 'Read fixture')
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'RECEIVED', 'UNSET', 'Read fixture', $8)
         "#,
     )
     .bind(*work_order_id.as_uuid())
@@ -894,6 +917,7 @@ async fn seed_received_work_order(
     .bind(equipment.customer_id)
     .bind(equipment.site_id)
     .bind(*receptionist.as_uuid())
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();
@@ -906,9 +930,9 @@ async fn seed_read_work_order(pool: &PgPool, fixture: ReadWorkOrderFixture) -> W
         r#"
         INSERT INTO work_orders (
             id, request_no, branch_id, equipment_id, customer_id, site_id,
-            requested_by, status, priority, symptom, target_due_at
+            requested_by, status, priority, symptom, target_due_at, org_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'ASSIGNED', $8, 'Read fixture', $9)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'ASSIGNED', $8, 'Read fixture', $9, $10)
         "#,
     )
     .bind(*work_order_id.as_uuid())
@@ -920,17 +944,19 @@ async fn seed_read_work_order(pool: &PgPool, fixture: ReadWorkOrderFixture) -> W
     .bind(*fixture.receptionist.as_uuid())
     .bind(fixture.priority)
     .bind(fixture.target_due_at)
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();
     sqlx::query(
         r#"
-        INSERT INTO work_order_assignments (work_order_id, mechanic_id, role, assigned_at)
-        VALUES ($1, $2, 'PRIMARY', now())
+        INSERT INTO work_order_assignments (work_order_id, mechanic_id, role, assigned_at, org_id)
+        VALUES ($1, $2, 'PRIMARY', now(), $3)
         "#,
     )
     .bind(*work_order_id.as_uuid())
     .bind(*fixture.mechanic.as_uuid())
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();
@@ -941,14 +967,15 @@ async fn seed_read_work_order(pool: &PgPool, fixture: ReadWorkOrderFixture) -> W
     ] {
         sqlx::query(
             r#"
-            INSERT INTO work_order_approval_steps (work_order_id, step_order, role, status)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO work_order_approval_steps (work_order_id, step_order, role, status, org_id)
+            VALUES ($1, $2, $3, $4, $5)
             "#,
         )
         .bind(*work_order_id.as_uuid())
         .bind(step_order)
         .bind(role)
         .bind(status)
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
@@ -956,13 +983,14 @@ async fn seed_read_work_order(pool: &PgPool, fixture: ReadWorkOrderFixture) -> W
     sqlx::query(
         r#"
         INSERT INTO work_order_status_history (
-            work_order_id, actor, action, from_status, to_status, occurred_at
+            work_order_id, actor, action, from_status, to_status, occurred_at, org_id
         )
-        VALUES ($1, $2, 'work_order.assign', 'RECEIVED', 'ASSIGNED', now())
+        VALUES ($1, $2, 'work_order.assign', 'RECEIVED', 'ASSIGNED', now(), $3)
         "#,
     )
     .bind(*work_order_id.as_uuid())
     .bind(*fixture.receptionist.as_uuid())
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();
@@ -970,14 +998,15 @@ async fn seed_read_work_order(pool: &PgPool, fixture: ReadWorkOrderFixture) -> W
         r#"
         INSERT INTO evidence_media (
             work_order_id, stage, s3_key, content_type, size_bytes,
-            uploaded_by, worm_replica_status
+            uploaded_by, worm_replica_status, org_id
         )
-        VALUES ($1, 'BEFORE', $2, 'image/jpeg', 128, $3, 'VERIFIED')
+        VALUES ($1, 'BEFORE', $2, 'image/jpeg', 128, $3, 'VERIFIED', $4)
         "#,
     )
     .bind(*work_order_id.as_uuid())
     .bind(format!("work-orders/{work_order_id}/before.jpg"))
     .bind(*fixture.mechanic.as_uuid())
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();

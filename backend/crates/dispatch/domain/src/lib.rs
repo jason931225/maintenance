@@ -140,15 +140,14 @@ impl GeoPoint {
 
     #[must_use]
     pub fn distance_meters_to(self, other: Self) -> i64 {
-        let radius_meters = 6_371_000.0_f64;
-        let lat1 = self.latitude.to_radians();
-        let lat2 = other.latitude.to_radians();
-        let delta_lat = (other.latitude - self.latitude).to_radians();
-        let delta_lon = (other.longitude - self.longitude).to_radians();
-        let a = (delta_lat / 2.0).sin().powi(2)
-            + lat1.cos() * lat2.cos() * (delta_lon / 2.0).sin().powi(2);
-        let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
-        (radius_meters * c).round() as i64
+        // Single kernel home for the haversine primitive (also used by the
+        // compliance geofence eval); domain crates can't depend on one another.
+        mnt_kernel_core::haversine_meters(
+            self.latitude,
+            self.longitude,
+            other.latitude,
+            other.longitude,
+        )
     }
 }
 

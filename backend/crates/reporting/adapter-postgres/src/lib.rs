@@ -7,19 +7,21 @@ use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, KernelError, RegionId, Timestamp, TraceContext,
     UserId,
 };
-use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_excel::{
     CellWrite, DAILY_STATUS_TEMPLATE, DailyStatusSection, SectionFill, TemplateRow,
     fill_template_bytes, umya_spreadsheet,
 };
+use mnt_platform_request_context::current_org;
 use mnt_reporting_application::{
-    ExportedWorkbook, KpiQuery, KpiQueryError, KpiQueryPort, ReportingExportError,
-    ReportingExportPort, ReportingExportQuery, WorkDiaryConfirmCommand, WorkDiaryDraftPort,
-    WorkDiaryQuery, WorkDiaryUpdateCommand,
+    ExportedWorkbook, KpiQuery, KpiQueryError, KpiQueryPort, OpsSummaryPort, OpsSummaryQuery,
+    ReportingExportError, ReportingExportPort, ReportingExportQuery, WorkDiaryConfirmCommand,
+    WorkDiaryDraftPort, WorkDiaryQuery, WorkDiaryUpdateCommand,
 };
 use mnt_reporting_domain::{
     DailyStatusReport, DailyStatusRow, ExportSourceNote, KpiInputRecord, KpiInspectionRecord,
-    KpiMetric, KpiReport, KpiScope, PeriodicInspectionRow, UnavailableMetric, WorkDiaryActionEntry,
+    KpiMetric, KpiP1Record, KpiReport, KpiRollupScope, KpiScope, OpsEquipmentStatus, OpsFunnel,
+    OpsMechanicLoad, OpsSummary, PeriodicInspectionRow, UnavailableMetric, WorkDiaryActionEntry,
     WorkDiaryBody, WorkDiaryDraft, WorkDiaryStatus, calculate_kpi_report,
 };
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
@@ -81,6 +83,30 @@ impl From<PgReportingError> for ReportingExportError {
     }
 }
 
+/// Resolve `id -> name` for a small set of ids using a fixed, literal SQL string
+/// that selects the id and a `name`-aliased display column. The query text is a
+/// `&'static str` (never built from input), so it satisfies the workspace's
+/// `SqlSafeStr` gate; only the id list is bound. Runs inside the caller's
+/// already-armed, org-scoped transaction so the lookup is RLS-bounded to the
+/// caller's tenant.
+async fn name_map(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    sql: &'static str,
+    ids: &[uuid::Uuid],
+) -> Result<std::collections::HashMap<uuid::Uuid, String>, PgReportingError> {
+    if ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let rows = sqlx::query(sql).bind(ids).fetch_all(tx.as_mut()).await?;
+    let mut map = std::collections::HashMap::with_capacity(rows.len());
+    for row in &rows {
+        let id: uuid::Uuid = row.try_get("id")?;
+        let name: String = row.try_get("name")?;
+        map.insert(id, name);
+    }
+    Ok(map)
+}
+
 #[derive(Debug, Clone)]
 pub struct PgKpiRepository {
     pool: PgPool,
@@ -106,14 +132,81 @@ impl PgKpiRepository {
 
         let records = self.load_work_order_records(&query).await?;
         let inspection_records = self.load_inspection_records(&query).await?;
+        let p1_records = self.load_p1_records(&query).await?;
         let unavailable_metrics = self.unavailable_source_metrics().await?;
-        Ok(calculate_kpi_report(
+        let mut report = calculate_kpi_report(
             query.period,
             query.scope,
             &records,
             &inspection_records,
+            &p1_records,
             unavailable_metrics,
-        ))
+        );
+        self.resolve_scope_names(&mut report).await?;
+        Ok(report)
+    }
+
+    /// Fill `scope_display_name` on every rollup so the console shows each scope
+    /// by name (region/branch/mechanic) instead of a raw id. The pure domain
+    /// calculation cannot do this — it has no DB — so we resolve the distinct
+    /// scope ids here in ONE same-org-armed transaction. The `regions`,
+    /// `branches` and `users` lookups are RLS-scoped to `app.current_org`, so
+    /// they can only resolve names within the caller's tenant; an id from a
+    /// since-deleted row simply stays `None` and the web falls back via
+    /// `safeLabel`. The company-wide scope has no id and keeps `None`.
+    async fn resolve_scope_names(&self, report: &mut KpiReport) -> Result<(), KpiQueryError> {
+        let mut region_ids: Vec<uuid::Uuid> = Vec::new();
+        let mut branch_ids: Vec<uuid::Uuid> = Vec::new();
+        let mut user_ids: Vec<uuid::Uuid> = Vec::new();
+        for rollup in &report.rollups {
+            match rollup.scope {
+                KpiRollupScope::Company => {}
+                KpiRollupScope::Region(id) => region_ids.push(*id.as_uuid()),
+                KpiRollupScope::Branch(id) => branch_ids.push(*id.as_uuid()),
+                KpiRollupScope::Technician(id) => user_ids.push(*id.as_uuid()),
+            }
+        }
+        if region_ids.is_empty() && branch_ids.is_empty() && user_ids.is_empty() {
+            return Ok(());
+        }
+
+        let org = current_org().map_err(|e| KpiQueryError::Database(e.to_string()))?;
+        let (regions, branches, users) =
+            with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+                Box::pin(async move {
+                    let regions = name_map(
+                        tx,
+                        "SELECT id, name AS name FROM regions WHERE id = ANY($1)",
+                        &region_ids,
+                    )
+                    .await?;
+                    let branches = name_map(
+                        tx,
+                        "SELECT id, name AS name FROM branches WHERE id = ANY($1)",
+                        &branch_ids,
+                    )
+                    .await?;
+                    let users = name_map(
+                        tx,
+                        "SELECT id, display_name AS name FROM users WHERE id = ANY($1)",
+                        &user_ids,
+                    )
+                    .await?;
+                    Ok((regions, branches, users))
+                })
+            })
+            .await
+            .map_err(|e| KpiQueryError::Database(e.to_string()))?;
+
+        for rollup in &mut report.rollups {
+            rollup.scope_display_name = match rollup.scope {
+                KpiRollupScope::Company => None,
+                KpiRollupScope::Region(id) => regions.get(id.as_uuid()).cloned(),
+                KpiRollupScope::Branch(id) => branches.get(id.as_uuid()).cloned(),
+                KpiRollupScope::Technician(id) => users.get(id.as_uuid()).cloned(),
+            };
+        }
+        Ok(())
     }
 
     async fn load_work_order_records(
@@ -196,11 +289,12 @@ impl PgKpiRepository {
         builder.push(" ORDER BY completion_approval.approved_at, w.id LIMIT ");
         builder.push_bind(MAX_LIST_ROWS);
 
-        let rows = builder
-            .build()
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|err| KpiQueryError::Database(err.to_string()))?;
+        let org = current_org().map_err(|e| KpiQueryError::Database(e.to_string()))?;
+        let rows = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await
+        .map_err(|e| KpiQueryError::Database(e.to_string()))?;
 
         rows.iter()
             .map(record_from_row)
@@ -221,23 +315,14 @@ impl PgKpiRepository {
                         .to_owned(),
             });
         }
-        if !any_table_exists(
-            &self.pool,
-            &[
-                "p1_broadcasts",
-                "p1_broadcast_responses",
-                "dispatch_broadcasts",
-                "dispatch_broadcast_responses",
-            ],
-        )
-        .await
-        .map_err(|err| KpiQueryError::Database(err.to_string()))?
+        if !any_table_exists(&self.pool, &["p1_dispatches", "p1_dispatch_responses"])
+            .await
+            .map_err(|err| KpiQueryError::Database(err.to_string()))?
         {
             unavailable.push(UnavailableMetric {
                 metric: KpiMetric::P1AcceptanceRate,
                 source_domain: "dispatch".to_owned(),
-                reason: "P1 dispatch broadcast response source tables are not present in this migration set; T2.4 has not merged"
-                    .to_owned(),
+                reason: "P1 dispatch source tables are not present in this database".to_owned(),
             });
         }
         Ok(unavailable)
@@ -282,13 +367,69 @@ impl PgKpiRepository {
         builder.push(" ORDER BY s.due_date, s.id LIMIT ");
         builder.push_bind(MAX_LIST_ROWS);
 
-        let rows = builder
-            .build()
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|err| KpiQueryError::Database(err.to_string()))?;
+        let org = current_org().map_err(|e| KpiQueryError::Database(e.to_string()))?;
+        let rows = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await
+        .map_err(|e| KpiQueryError::Database(e.to_string()))?;
         rows.iter()
             .map(inspection_record_from_row)
+            .collect::<Result<Vec<_>, _>>()
+    }
+
+    async fn load_p1_records(&self, query: &KpiQuery) -> Result<Vec<KpiP1Record>, KpiQueryError> {
+        if !any_table_exists(&self.pool, &["p1_dispatches", "p1_dispatch_responses"])
+            .await
+            .map_err(|err| KpiQueryError::Database(err.to_string()))?
+        {
+            return Ok(Vec::new());
+        }
+
+        // P1 acceptance rate: of P1 emergency dispatches whose broadcast accept
+        // window opened within the period, the share that were accepted by a
+        // mechanic — i.e. the dispatch auto-assigned (AUTO_ASSIGNED), or at least
+        // one target answered ACCEPT — rather than falling through to a manager
+        // force-assign. The accepting technician is attributed via the accepting
+        // response (or the auto-assigned mechanic) for the technician rollup.
+        let mut builder = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT
+                d.id AS dispatch_id,
+                d.branch_id,
+                b.region_id,
+                COALESCE(d.auto_assigned_mechanic_id, accept.user_id) AS technician_id,
+                (d.status = 'AUTO_ASSIGNED' OR accept.user_id IS NOT NULL) AS accepted
+            FROM p1_dispatches d
+            JOIN branches b ON b.id = d.branch_id
+            LEFT JOIN LATERAL (
+                SELECT user_id
+                FROM p1_dispatch_responses
+                WHERE dispatch_id = d.id
+                  AND response = 'ACCEPT'
+                ORDER BY responded_at, id
+                LIMIT 1
+            ) accept ON TRUE
+            WHERE d.accept_window_started_at >=
+            "#,
+        );
+        builder.push_bind(query.period.start);
+        builder.push(" AND d.accept_window_started_at < ");
+        builder.push_bind(query.period.end);
+        builder.push(" AND ");
+        push_branch_column_filter(&mut builder, &query.branch_scope, "d.branch_id");
+        push_requested_p1_scope_filter(&mut builder, query.scope);
+        builder.push(" ORDER BY d.accept_window_started_at, d.id LIMIT ");
+        builder.push_bind(MAX_LIST_ROWS);
+
+        let org = current_org().map_err(|e| KpiQueryError::Database(e.to_string()))?;
+        let rows = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await
+        .map_err(|e| KpiQueryError::Database(e.to_string()))?;
+        rows.iter()
+            .map(p1_record_from_row)
             .collect::<Result<Vec<_>, _>>()
     }
 
@@ -358,6 +499,8 @@ impl PgKpiRepository {
         &self,
         query: WorkDiaryQuery,
     ) -> Result<WorkDiaryDraft, PgReportingError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let scope_key = scope_key(&query.branch_scope);
         if let Some(draft) = self.fetch_work_diary(query.date, &scope_key).await? {
             return Ok(draft);
@@ -375,7 +518,8 @@ impl PgKpiRepository {
             branch_id,
             query.trace,
             query.occurred_at,
-        )?;
+        )?
+        .with_org(org);
 
         let actor = *query.actor.as_uuid();
         let date = query.date;
@@ -389,9 +533,9 @@ impl PgKpiRepository {
                     r#"
                     INSERT INTO work_diary_drafts (
                         id, diary_date, branch_id, scope_key, status, body,
-                        generated_by, generated_at, created_at, updated_at
+                        generated_by, generated_at, created_at, updated_at, org_id
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $8)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $8, $9)
                     "#,
                 )
                 .bind(draft_id)
@@ -402,6 +546,7 @@ impl PgKpiRepository {
                 .bind(body_value)
                 .bind(actor)
                 .bind(occurred_at)
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
                 Ok(())
@@ -591,6 +736,8 @@ impl PgKpiRepository {
         &self,
         command: ExportLogCommand<'_>,
     ) -> Result<(), PgReportingError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let log_id = uuid::Uuid::new_v4();
         let branch_id = single_branch(&command.branch_scope);
         // scope_key (NOT NULL) is the authoritative scope discriminator: "ALL" for
@@ -606,7 +753,8 @@ impl PgKpiRepository {
             branch_id,
             command.trace,
             command.occurred_at,
-        )?;
+        )?
+        .with_org(org);
         let actor_uuid = *command.actor.as_uuid();
         let branch_uuid = branch_id.map(|id| *id.as_uuid());
         let scope_key = scope_key(&command.branch_scope);
@@ -622,9 +770,9 @@ impl PgKpiRepository {
                     r#"
                     INSERT INTO excel_export_logs (
                         id, actor, branch_id, scope_key, export_kind, export_date,
-                        file_name, source_notes, created_at
+                        file_name, source_notes, created_at, org_id
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                     "#,
                 )
                 .bind(log_id)
@@ -636,6 +784,7 @@ impl PgKpiRepository {
                 .bind(file_name)
                 .bind(source_notes)
                 .bind(occurred_at)
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
                 Ok(())
@@ -649,17 +798,24 @@ impl PgKpiRepository {
         date: Date,
         scope_key: &str,
     ) -> Result<Option<WorkDiaryDraft>, PgReportingError> {
-        let row = sqlx::query(
-            r#"
+        let scope_key = scope_key.to_owned();
+        let org = current_org().map_err(KernelError::from)?;
+        let row = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query(
+                    r#"
             SELECT id, diary_date, status, body, confirmed_by, confirmed_at
             FROM work_diary_drafts
             WHERE diary_date = $1
               AND scope_key = $2
             "#,
-        )
-        .bind(date)
-        .bind(scope_key)
-        .fetch_optional(&self.pool)
+                )
+                .bind(date)
+                .bind(scope_key)
+                .fetch_optional(tx.as_mut())
+                .await?)
+            })
+        })
         .await?;
 
         row.map(|row| draft_from_row(&row)).transpose()
@@ -720,7 +876,11 @@ impl PgKpiRepository {
         builder.push(" ORDER BY completion_approval.approved_at, w.request_no LIMIT ");
         builder.push_bind(MAX_LIST_ROWS);
 
-        let rows = builder.build().fetch_all(&self.pool).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
         rows.iter().map(daily_status_row_from_row).collect()
     }
 
@@ -759,7 +919,11 @@ impl PgKpiRepository {
         builder.push(" ORDER BY u.display_name, i.sort_order, i.id LIMIT ");
         builder.push_bind(MAX_LIST_ROWS);
 
-        let rows = builder.build().fetch_all(&self.pool).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
         rows.iter().map(daily_status_row_from_row).collect()
     }
 
@@ -802,7 +966,11 @@ impl PgKpiRepository {
         builder.push(" ORDER BY w.created_at, w.request_no LIMIT ");
         builder.push_bind(MAX_LIST_ROWS);
 
-        let rows = builder.build().fetch_all(&self.pool).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
         rows.iter().map(daily_status_row_from_row).collect()
     }
 
@@ -843,7 +1011,11 @@ impl PgKpiRepository {
         builder.push(" ORDER BY completion_approval.approved_at, w.request_no LIMIT ");
         builder.push_bind(MAX_LIST_ROWS);
 
-        let rows = builder.build().fetch_all(&self.pool).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
         rows.iter().map(action_entry_from_row).collect()
     }
 
@@ -901,7 +1073,11 @@ impl PgKpiRepository {
         builder.push(" ORDER BY site.name, e.management_no, s.id LIMIT ");
         builder.push_bind(MAX_LIST_ROWS);
 
-        let rows = builder.build().fetch_all(&self.pool).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
         rows.iter().map(periodic_inspection_row_from_row).collect()
     }
 
@@ -915,6 +1091,186 @@ impl PgKpiRepository {
                 .to_owned(),
         }])
     }
+
+    /// Compute the per-tenant operational rollup in ONE org-scoped transaction.
+    ///
+    /// Every count is a tenant-local aggregate: the closure runs inside
+    /// `with_org_conn(current_org())`, so Postgres RLS narrows every table to the
+    /// requesting org and a second tenant's rows are never observable. The
+    /// individual aggregates are cheap (indexed status columns / partial unique
+    /// indexes); see `idx_work_orders_branch_status`,
+    /// `idx_registry_equipment_status_*`, and the substitution partial indexes.
+    async fn ops_summary_inner(&self, query: OpsSummaryQuery) -> Result<OpsSummary, KpiQueryError> {
+        let aging_hours = i64::from(query.aging_hours);
+        let at_risk_minutes = i64::from(query.at_risk_minutes);
+        let top_mechanics = i64::from(query.top_mechanics);
+
+        let org = current_org().map_err(KernelError::from)?;
+        let summary = with_org_conn::<_, _, PgReportingError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                // Work-order funnel + aging, computed in a single scan.
+                let funnel_row = sqlx::query!(
+                    r#"
+                    SELECT
+                        COUNT(*) FILTER (
+                            WHERE status IN ('RECEIVED', 'UNASSIGNED')
+                        ) AS "received!",
+                        COUNT(*) FILTER (WHERE status = 'ASSIGNED') AS "assigned!",
+                        COUNT(*) FILTER (
+                            WHERE status IN ('IN_PROGRESS', 'REPORT_SUBMITTED', 'ADMIN_REVIEW')
+                        ) AS "in_progress!",
+                        COUNT(*) FILTER (WHERE status = 'FINAL_COMPLETED') AS "completed!",
+                        COUNT(*) FILTER (
+                            WHERE status NOT IN (
+                                'FINAL_COMPLETED', 'REJECTED', 'ARCHIVED', 'CANCELLED'
+                            )
+                            AND created_at < now() - make_interval(hours => $1::int)
+                        ) AS "aging!"
+                    FROM work_orders
+                    "#,
+                    aging_hours as i32,
+                )
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+                // P1 SLA risk: dispatches still broadcasting whose accept window
+                // has expired (breached) or expires within the lead window.
+                let sla_row = sqlx::query!(
+                    r#"
+                    SELECT
+                        COUNT(*) FILTER (
+                            WHERE accept_window_ends_at < now()
+                        ) AS "breached!",
+                        COUNT(*) FILTER (
+                            WHERE accept_window_ends_at >= now()
+                            AND accept_window_ends_at
+                                < now() + make_interval(mins => $1::int)
+                        ) AS "at_risk!"
+                    FROM p1_dispatches
+                    WHERE status = 'BROADCASTING'
+                    "#,
+                    at_risk_minutes as i32,
+                )
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+                // Equipment lifecycle distribution (Korean enum values).
+                let equipment_row = sqlx::query!(
+                    r#"
+                    SELECT
+                        COUNT(*) FILTER (WHERE status = '임대') AS "rented!",
+                        COUNT(*) FILTER (WHERE status = '예비') AS "spare!",
+                        COUNT(*) FILTER (WHERE status = '폐기') AS "scrapped!",
+                        COUNT(*) FILTER (WHERE status = '대체') AS "replacement!",
+                        COUNT(*) FILTER (WHERE status = '매각') AS "sold!"
+                    FROM registry_equipment
+                    "#,
+                )
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+                // Active substitutions (대차): not yet returned.
+                let active_substitutions = sqlx::query_scalar!(
+                    r#"SELECT COUNT(*) AS "count!"
+                       FROM equipment_substitutions
+                       WHERE returned_at IS NULL"#,
+                )
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+                // Pending approvals queue depth.
+                let pending_approvals = sqlx::query_scalar!(
+                    r#"SELECT COUNT(*) AS "count!"
+                       FROM work_order_approval_steps
+                       WHERE status = 'PENDING'"#,
+                )
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+                // Open support tickets (not yet resolved/closed).
+                let open_support_tickets = sqlx::query_scalar!(
+                    r#"SELECT COUNT(*) AS "count!"
+                       FROM support_tickets
+                       WHERE status IN ('OPEN', 'IN_PROGRESS', 'ON_HOLD')"#,
+                )
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+                // Mechanic utilization: active assignments per mechanic, top-N.
+                // An assignment is "active" while its work order is not terminal.
+                let mechanic_rows = sqlx::query!(
+                    r#"
+                    SELECT
+                        a.mechanic_id AS "mechanic_id!",
+                        u.display_name AS "display_name!",
+                        COUNT(*) AS "active_assignments!"
+                    FROM work_order_assignments a
+                    JOIN work_orders w ON w.id = a.work_order_id
+                    JOIN users u ON u.id = a.mechanic_id
+                    WHERE w.status NOT IN (
+                        'FINAL_COMPLETED', 'REJECTED', 'ARCHIVED', 'CANCELLED'
+                    )
+                    GROUP BY a.mechanic_id, u.display_name
+                    ORDER BY COUNT(*) DESC, u.display_name ASC
+                    LIMIT $1
+                    "#,
+                    top_mechanics,
+                )
+                .fetch_all(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+                let mechanic_load = mechanic_rows
+                    .into_iter()
+                    .map(|row| OpsMechanicLoad {
+                        mechanic_id: row.mechanic_id,
+                        display_name: row.display_name,
+                        active_assignments: clamp_count(row.active_assignments),
+                    })
+                    .collect();
+
+                Ok(OpsSummary {
+                    funnel: OpsFunnel {
+                        received: clamp_count(funnel_row.received),
+                        assigned: clamp_count(funnel_row.assigned),
+                        in_progress: clamp_count(funnel_row.in_progress),
+                        completed: clamp_count(funnel_row.completed),
+                    },
+                    aging_hours: query.aging_hours,
+                    aging_work_orders: clamp_count(funnel_row.aging),
+                    sla_breached: clamp_count(sla_row.breached),
+                    sla_at_risk: clamp_count(sla_row.at_risk),
+                    mechanic_load,
+                    equipment_status: OpsEquipmentStatus {
+                        rented: clamp_count(equipment_row.rented),
+                        spare: clamp_count(equipment_row.spare),
+                        scrapped: clamp_count(equipment_row.scrapped),
+                        replacement: clamp_count(equipment_row.replacement),
+                        sold: clamp_count(equipment_row.sold),
+                    },
+                    active_substitutions: clamp_count(active_substitutions),
+                    pending_approvals: clamp_count(pending_approvals),
+                    open_support_tickets: clamp_count(open_support_tickets),
+                })
+            })
+        })
+        .await
+        .map_err(|err| KpiQueryError::Database(err.to_string()))?;
+
+        Ok(summary)
+    }
+}
+
+/// Saturating, sign-safe `COUNT(*)` (i64) → `u32` for serialized rollup fields.
+/// Postgres counts are non-negative; the clamp is a defensive narrowing.
+fn clamp_count(value: i64) -> u32 {
+    u32::try_from(value.max(0)).unwrap_or(u32::MAX)
 }
 
 /// Whether any of `table_names` exists in the connected database. Used to
@@ -925,6 +1281,7 @@ async fn any_table_exists(pool: &PgPool, table_names: &[&str]) -> Result<bool, s
     for table_name in table_names {
         let exists: bool = sqlx::query_scalar("SELECT to_regclass($1) IS NOT NULL")
             .bind(table_name)
+            // rls-arming: ok to_regclass($1) queries pg_catalog metadata, not a tenant table (no org_id, no RLS)
             .fetch_one(pool)
             .await?;
         if exists {
@@ -937,6 +1294,12 @@ async fn any_table_exists(pool: &PgPool, table_names: &[&str]) -> Result<bool, s
 impl KpiQueryPort for PgKpiRepository {
     async fn query_kpis(&self, query: KpiQuery) -> Result<KpiReport, KpiQueryError> {
         self.query_kpis_inner(query).await
+    }
+}
+
+impl OpsSummaryPort for PgKpiRepository {
+    async fn ops_summary(&self, query: OpsSummaryQuery) -> Result<OpsSummary, KpiQueryError> {
+        self.ops_summary_inner(query).await
     }
 }
 
@@ -1052,6 +1415,36 @@ fn push_requested_inspection_scope_filter(builder: &mut QueryBuilder<Postgres>, 
             builder.push_bind(*user_id.as_uuid());
         }
     }
+}
+
+fn push_requested_p1_scope_filter(builder: &mut QueryBuilder<Postgres>, scope: KpiScope) {
+    match scope {
+        KpiScope::Company => {}
+        KpiScope::Region(region_id) => {
+            builder.push(" AND b.region_id = ");
+            builder.push_bind(*region_id.as_uuid());
+        }
+        KpiScope::Branch(branch_id) => {
+            builder.push(" AND d.branch_id = ");
+            builder.push_bind(*branch_id.as_uuid());
+        }
+        // Technician rollups for P1 acceptance are derived in the domain from the
+        // accepting/auto-assigned mechanic, so no SQL-side technician filter here.
+        KpiScope::Technician(_) => {}
+    }
+}
+
+fn p1_record_from_row(row: &sqlx::postgres::PgRow) -> Result<KpiP1Record, KpiQueryError> {
+    Ok(KpiP1Record {
+        dispatch_id: row.try_get("dispatch_id").map_err(row_error)?,
+        branch_id: BranchId::from_uuid(row.try_get("branch_id").map_err(row_error)?),
+        region_id: RegionId::from_uuid(row.try_get("region_id").map_err(row_error)?),
+        technician_id: row
+            .try_get::<Option<uuid::Uuid>, _>("technician_id")
+            .map_err(row_error)?
+            .map(UserId::from_uuid),
+        accepted: row.try_get("accepted").map_err(row_error)?,
+    })
 }
 
 fn record_from_row(row: &sqlx::postgres::PgRow) -> Result<KpiInputRecord, KpiQueryError> {

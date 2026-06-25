@@ -14,6 +14,7 @@ import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Select } from "../components/ui/select";
 import { PageHeader } from "../components/shell/PageHeader";
+import { hasAnyRole, ROLES } from "../components/shell/nav";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { PageEmpty } from "../components/states/PageEmpty";
 import { PageError } from "../components/states/PageError";
@@ -58,6 +59,18 @@ export function SupportPage() {
   const { api, session } = useAuth();
   const branchId = useActiveBranchId();
   const currentUserId = session?.user_id;
+  // Ticket triage (assign/claim + status transitions) maps to the backend
+  // AssigneeManage feature, which is ADMIN/SUPER_ADMIN only. Mechanics can read
+  // and comment but never claim, so the triage controls are hidden from them.
+  const canAssign = hasAnyRole(session?.roles, [ROLES.ADMIN, ROLES.SUPER_ADMIN]);
+  // Posting a comment maps to the backend WorkOrderStart feature (Allow):
+  // MECHANIC / ADMIN / SUPER_ADMIN. A receptionist (Limited) can read the thread
+  // but the composer is hidden so it never 403s on submit.
+  const canComment = hasAnyRole(session?.roles, [
+    ROLES.MECHANIC,
+    ROLES.ADMIN,
+    ROLES.SUPER_ADMIN,
+  ]);
 
   const [tickets, setTickets] = useState<SupportTicketSummary[]>([]);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
@@ -71,8 +84,10 @@ export function SupportPage() {
   // Wall-clock stamped each time the list loads, so SLA badges are computed
   // against a stable value rather than an impure call during render.
   const [nowMs, setNowMs] = useState(0);
-  // A full page means there may be more rows behind the server-side cap.
-  const [hasMore, setHasMore] = useState(false);
+  // The keyset cursor for the next page, or null on the last page.
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  // Unpaged total matching the current filters, reported by the API.
+  const [total, setTotal] = useState<number>();
   const [loadingMore, setLoadingMore] = useState(false);
 
   const queryFilters = useCallback(
@@ -96,26 +111,28 @@ export function SupportPage() {
       setListState("error");
       return;
     }
-    setTickets(response.data);
-    setHasMore(response.data.length === PAGE_SIZE);
+    setTickets(response.data.items);
+    setNextCursor(response.data.next_cursor);
+    setTotal(response.data.total);
     setNowMs(Date.now());
     setListState("idle");
   }, [api, queryFilters]);
 
-  // Append the next keyset page (cursor = the last loaded ticket id).
+  // Append the next keyset page using the cursor the API reported.
   const loadMore = useCallback(async () => {
+    if (nextCursor === null) return;
     setLoadingMore(true);
-    const cursor = tickets.at(-1)?.id;
     const response = await api
       .GET("/api/v1/support/tickets", {
-        params: { query: { ...queryFilters(), cursor } },
+        params: { query: { ...queryFilters(), cursor: nextCursor } },
       })
       .catch(() => undefined);
     setLoadingMore(false);
     if (!response?.data) return;
-    setTickets((prev) => [...prev, ...response.data]);
-    setHasMore(response.data.length === PAGE_SIZE);
-  }, [api, queryFilters, tickets]);
+    setTickets((prev) => [...prev, ...response.data.items]);
+    setNextCursor(response.data.next_cursor);
+    setTotal(response.data.total);
+  }, [api, queryFilters, nextCursor]);
 
   useEffect(() => {
     void Promise.resolve().then(loadTickets);
@@ -252,8 +269,9 @@ export function SupportPage() {
             isLoading={listState === "loading"}
             nowMs={nowMs}
             onSelect={setSelectedId}
-            hasMore={hasMore}
+            hasMore={nextCursor !== null}
             isLoadingMore={loadingMore}
+            total={total}
             onLoadMore={() => {
               void loadMore();
             }}
@@ -276,7 +294,7 @@ export function SupportPage() {
             )
           ) : detailState === "loading" ? (
             <Card>
-              <p role="status" className="text-sm font-medium text-slate-700">
+              <p role="status" className="text-sm font-medium text-steel">
                 {ko.common.loading}
               </p>
             </Card>
@@ -290,6 +308,8 @@ export function SupportPage() {
             <SupportTicketDetail
               detail={detail}
               currentUserId={currentUserId}
+              canAssign={canAssign}
+              canComment={canComment}
               onTransition={transitionTicket}
               onAddComment={addComment}
               onAssignSelf={assignSelf}
@@ -350,10 +370,10 @@ function FilterBar({
           options={SUPPORT_ORIGINS.map((v) => ({ value: v, label: originLabel(v) }))}
         />
       </div>
-      <label className="flex items-center gap-2 text-sm text-slate-700">
+      <label className="flex items-center gap-2 text-sm text-steel">
         <input
           type="checkbox"
-          className="size-4 rounded border-slate-300"
+          className="size-4 rounded border-line"
           checked={filters.includeUntriaged}
           onChange={(event) => {
             onChange({ ...filters, includeUntriaged: event.currentTarget.checked });
@@ -379,7 +399,7 @@ function FilterSelect({
   const id = `support-filter-${label}`;
   return (
     <div className="grid gap-1">
-      <label className="text-xs font-semibold text-slate-600" htmlFor={id}>
+      <label className="text-xs font-semibold text-steel" htmlFor={id}>
         {label}
       </label>
       <Select

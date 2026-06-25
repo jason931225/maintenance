@@ -1,0 +1,29 @@
+[package]
+name = "mnt-integrity"
+version = "0.1.0"
+description = "Integrity engine: governance findings, detectors, REST API."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum = { workspace = true }
+mnt-kernel-core = { workspace = true }
+mnt-platform-auth = { workspace = true }
+mnt-platform-authz = { workspace = true }
+mnt-platform-db = { workspace = true }
+mnt-platform-request-context = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+
+[lints]
+workspace = true

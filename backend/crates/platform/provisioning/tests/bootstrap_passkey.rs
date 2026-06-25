@@ -8,17 +8,19 @@
 //! short configurable TTL, and the REST-layer rate limit.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use mnt_kernel_core::OrgId;
 use mnt_platform_provisioning::BootstrapCredentialStore;
 use sqlx::{PgPool, Row};
 use time::{Duration, OffsetDateTime};
 
 async fn seed_user(pool: &PgPool) -> uuid::Uuid {
     sqlx::query_scalar(
-        "INSERT INTO users (display_name, phone, roles) VALUES ($1, $2, $3) RETURNING id",
+        "INSERT INTO users (display_name, phone, roles, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
     )
     .bind("Cold Start User")
     .bind("010-3000-0001")
     .bind(Vec::<String>::from(["MECHANIC".to_owned()]))
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap()
@@ -31,7 +33,7 @@ async fn issued_otp_is_eight_char_alphanumeric_special(pool: PgPool) {
     let user_id = seed_user(&pool).await;
     let now = OffsetDateTime::now_utc();
     let issue = BootstrapCredentialStore
-        .issue_for_zero_credential_user(&pool, user_id, now, Duration::hours(24))
+        .issue_for_zero_credential_user(&pool, user_id, OrgId::knl(), now, Duration::hours(24))
         .await
         .unwrap();
 
@@ -67,7 +69,7 @@ async fn redeem_verifies_without_consuming_then_registration_consumes(pool: PgPo
     let now = OffsetDateTime::now_utc();
 
     let issue = store
-        .issue_for_zero_credential_user(&pool, user_id, now, Duration::hours(24))
+        .issue_for_zero_credential_user(&pool, user_id, OrgId::knl(), now, Duration::hours(24))
         .await
         .unwrap();
 
@@ -133,7 +135,7 @@ async fn wrong_guess_does_not_consume_the_otp(pool: PgPool) {
     let now = OffsetDateTime::now_utc();
 
     let issue = store
-        .issue_for_zero_credential_user(&pool, user_id, now, Duration::hours(24))
+        .issue_for_zero_credential_user(&pool, user_id, OrgId::knl(), now, Duration::hours(24))
         .await
         .unwrap();
 
@@ -170,7 +172,7 @@ async fn otp_expiry_is_enforced_on_redeem(pool: PgPool) {
     let now = OffsetDateTime::now_utc();
 
     let issue = store
-        .issue_for_zero_credential_user(&pool, user_id, now, Duration::hours(24))
+        .issue_for_zero_credential_user(&pool, user_id, OrgId::knl(), now, Duration::hours(24))
         .await
         .unwrap();
     assert_eq!(issue.expires_at, now + Duration::hours(24));
@@ -185,16 +187,17 @@ async fn otp_expiry_is_enforced_on_redeem(pool: PgPool) {
 
     // A fresh OTP, redeemed after its expiry, is rejected.
     let user2 = sqlx::query_scalar::<_, uuid::Uuid>(
-        "INSERT INTO users (display_name, phone, roles) VALUES ($1, $2, $3) RETURNING id",
+        "INSERT INTO users (display_name, phone, roles, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
     )
     .bind("Expired OTP User")
     .bind("010-3000-0002")
     .bind(Vec::<String>::from(["MECHANIC".to_owned()]))
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(&pool)
     .await
     .unwrap();
     let issue2 = store
-        .issue_for_zero_credential_user(&pool, user2, now, Duration::hours(1))
+        .issue_for_zero_credential_user(&pool, user2, OrgId::knl(), now, Duration::hours(1))
         .await
         .unwrap();
     let after_expiry = issue2.expires_at + Duration::seconds(1);
@@ -337,12 +340,16 @@ async fn seed_cold_start_credential_is_gated_and_idempotent(pool: PgPool) {
     // Give the admin a passkey so the no-passkey gate is exercised.
     sqlx::query(
         "INSERT INTO auth_webauthn_credentials \
-         (user_id, credential_id, passkey_json) \
-         VALUES ($1, $2, $3)",
+         (user_id, credential_id, passkey_json, org_id) \
+         VALUES ($1, $2, $3, $4)",
     )
     .bind(admin_id)
     .bind("cred-id")
     .bind(serde_json::json!({}))
+    // The Cold Start Admin is the PLATFORM admin, re-homed to the platform
+    // sentinel org by migration 0036; its passkey must carry that same org to
+    // satisfy the (user_id, org_id) composite FK to `users`.
+    .bind(*OrgId::platform().as_uuid())
     .execute(&pool)
     .await
     .unwrap();

@@ -11,6 +11,7 @@
 
 use std::sync::Arc;
 
+use mnt_kernel_core::OrgId;
 use mnt_platform_auth::{PasskeyRegistrationStart, PasskeyService, WebauthnSettings};
 use sqlx::PgPool;
 use time::Duration;
@@ -44,12 +45,15 @@ fn inject_allow_credential(
 const RACE_ITERATIONS: usize = 25;
 
 async fn seed_user(pool: &PgPool) -> uuid::Uuid {
-    sqlx::query_scalar("INSERT INTO users (display_name, roles) VALUES ($1, $2) RETURNING id")
-        .bind("Replay Test User")
-        .bind(Vec::<String>::from(["MECHANIC".to_owned()]))
-        .fetch_one(pool)
-        .await
-        .unwrap()
+    sqlx::query_scalar(
+        "INSERT INTO users (display_name, roles, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind("Replay Test User")
+    .bind(Vec::<String>::from(["MECHANIC".to_owned()]))
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 fn service() -> PasskeyService {
@@ -74,6 +78,7 @@ async fn concurrent_finish_registration_consumes_ceremony_exactly_once(pool: PgP
     let registration = service
         .start_registration(
             &pool,
+            OrgId::knl(),
             PasskeyRegistrationStart {
                 user_id,
                 username: "replay.user".to_owned(),
@@ -105,13 +110,13 @@ async fn concurrent_finish_registration_consumes_ceremony_exactly_once(pool: PgP
     let handle_a = tokio::spawn(async move {
         barrier_a.wait().await;
         svc_a
-            .finish_registration(&pool_a, ceremony_id, cred_a)
+            .finish_registration(&pool_a, OrgId::knl(), ceremony_id, cred_a)
             .await
     });
     let handle_b = tokio::spawn(async move {
         barrier_b.wait().await;
         svc_b
-            .finish_registration(&pool_b, ceremony_id, cred_b)
+            .finish_registration(&pool_b, OrgId::knl(), ceremony_id, cred_b)
             .await
     });
 
@@ -161,6 +166,7 @@ async fn concurrent_discoverable_finish_authentication_consumes_ceremony_exactly
     let registration = service
         .start_registration(
             &pool,
+            OrgId::knl(),
             PasskeyRegistrationStart {
                 user_id,
                 username: "replay.user".to_owned(),
@@ -177,7 +183,7 @@ async fn concurrent_discoverable_finish_authentication_consumes_ceremony_exactly
         )
         .unwrap();
     let stored = service
-        .finish_registration(&pool, registration.ceremony_id, credential)
+        .finish_registration(&pool, OrgId::knl(), registration.ceremony_id, credential)
         .await
         .unwrap();
 

@@ -10,32 +10,42 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, KernelError, RegionId, TraceContext, UserId,
+    BranchId, BranchScope, ErrorKind, KernelError, OrgId, RegionId, TraceContext, UserId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
 use mnt_reporting_adapter_postgres::PgKpiRepository;
 use mnt_reporting_application::{
-    KpiQuery, KpiQueryError, KpiQueryPort, KpiScope, Period, ReportingExportError,
-    ReportingExportPort, ReportingExportQuery, WorkDiaryBody, WorkDiaryConfirmCommand,
-    WorkDiaryDraft, WorkDiaryDraftPort, WorkDiaryQuery, WorkDiaryUpdateCommand,
+    KpiQuery, KpiQueryError, KpiQueryPort, KpiScope, OpsSummaryPort, OpsSummaryQuery, Period,
+    ReportingExportError, ReportingExportPort, ReportingExportQuery, WorkDiaryBody,
+    WorkDiaryConfirmCommand, WorkDiaryDraft, WorkDiaryDraftPort, WorkDiaryQuery,
+    WorkDiaryUpdateCommand,
 };
 use serde::{Deserialize, Serialize};
 use time::macros::format_description;
 use time::{Date, Time};
 
 pub const KPI_PATH: &str = "/api/v1/kpi";
+pub const OPS_SUMMARY_PATH: &str = "/api/v1/ops/summary";
 pub const DAILY_STATUS_EXPORT_PATH: &str = "/api/v1/exports/daily-status";
 pub const WORK_DIARY_EXPORT_PATH: &str = "/api/v1/exports/work-diary";
 pub const WORK_DIARY_PATH: &str = "/api/v1/reporting/work-diary";
 pub const WORK_DIARY_CONFIRM_PATH: &str = "/api/v1/reporting/work-diary/confirm";
 pub const KPI_ROUTE_PATHS: &[&str] = &[
     KPI_PATH,
+    OPS_SUMMARY_PATH,
     DAILY_STATUS_EXPORT_PATH,
     WORK_DIARY_EXPORT_PATH,
     WORK_DIARY_PATH,
     WORK_DIARY_CONFIRM_PATH,
 ];
+
+/// Aging threshold (hours) past which an unresolved work order is "aging".
+const OPS_AGING_HOURS: u32 = 24;
+/// Lead time (minutes) before a P1 accept-window deadline to flag "at risk".
+const OPS_AT_RISK_MINUTES: u32 = 5;
+/// Cap on the mechanic-utilization list.
+const OPS_TOP_MECHANICS: u32 = 10;
 
 #[derive(Debug, Clone)]
 pub struct KpiRestState {
@@ -54,13 +64,17 @@ impl KpiRestState {
 }
 
 pub fn router(state: KpiRestState) -> Router {
-    Router::new()
+    let verifier = state.jwt_verifier.clone();
+    let pool = state.repository.pool().clone();
+    let router = Router::new()
         .route(KPI_PATH, get(get_kpis))
+        .route(OPS_SUMMARY_PATH, get(get_ops_summary))
         .route(DAILY_STATUS_EXPORT_PATH, get(get_daily_status_export))
         .route(WORK_DIARY_EXPORT_PATH, get(get_work_diary_export))
         .route(WORK_DIARY_PATH, get(get_work_diary).put(update_work_diary))
         .route(WORK_DIARY_CONFIRM_PATH, post(confirm_work_diary))
-        .with_state(state)
+        .with_state(state);
+    mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
 
 #[derive(Debug, Deserialize)]
@@ -207,6 +221,35 @@ async fn get_kpis(
         .map_err(RestError::from_query)?;
 
     Ok(Json(report))
+}
+
+/// GET /api/v1/ops/summary — per-tenant operational rollup (SUPER_ADMIN/ADMIN).
+///
+/// Org-scoped under RLS: every aggregate is computed inside
+/// `with_org_conn(current_org())`, so a second tenant's rows are never counted.
+async fn get_ops_summary(
+    State(state): State<KpiRestState>,
+    headers: HeaderMap,
+) -> Result<Json<mnt_reporting_application::OpsSummary>, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    authorize(
+        &principal,
+        Action::new(Feature::OpsDashboardRead),
+        representative_branch(&principal.branch_scope)?,
+    )
+    .map_err(RestError::from_kernel)?;
+
+    let summary = state
+        .repository
+        .ops_summary(OpsSummaryQuery {
+            aging_hours: OPS_AGING_HOURS,
+            at_risk_minutes: OPS_AT_RISK_MINUTES,
+            top_mechanics: OPS_TOP_MECHANICS,
+        })
+        .await
+        .map_err(RestError::from_query)?;
+
+    Ok(Json(summary))
 }
 
 async fn get_daily_status_export(
@@ -472,7 +515,9 @@ fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
         BranchScope::Branches(branches)
     };
 
-    Ok(Principal::new(user_id, roles, branch_scope))
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 
 fn status_for_error_kind(kind: ErrorKind) -> StatusCode {

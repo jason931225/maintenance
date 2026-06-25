@@ -475,7 +475,8 @@ async fn handle_platform_job(
         }
         PlatformJob::DispatchAcceptWindowExpired(_)
         | PlatformJob::DispatchAlimtalkNoAck(_)
-        | PlatformJob::DispatchManualCallRequired(_) => {}
+        | PlatformJob::DispatchManualCallRequired(_)
+        | PlatformJob::EvidenceTranscode(_) => {}
     }
     Ok(())
 }

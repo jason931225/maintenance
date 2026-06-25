@@ -40,6 +40,9 @@ import kotlinx.serialization.Contextual
  * @param status
  * @param specification
  * @param tonText
+ * @param maker
+ * @param vin
+ * @param vehicleRegistrationNo
  * @param customer
  * @param site
  */
@@ -70,6 +73,15 @@ data class EquipmentLookupResponse (
 
     @SerialName(value = "ton_text")
     val tonText: kotlin.String,
+
+    @SerialName(value = "maker")
+    val maker: kotlin.String?,
+
+    @SerialName(value = "vin")
+    val vin: kotlin.String?,
+
+    @SerialName(value = "vehicle_registration_no")
+    val vehicleRegistrationNo: kotlin.String?,
 
     @SerialName(value = "customer")
     val customer: NamedEntity,

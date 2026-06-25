@@ -35,6 +35,7 @@ import kotlinx.serialization.Contextual
  * @param threadId
  * @param branchId
  * @param senderId
+ * @param senderName Sender display name, resolved via a same-org LEFT JOIN on users. Null when the sender account no longer exists.
  * @param body
  * @param attachmentEvidenceIds
  * @param sentAt
@@ -55,6 +56,10 @@ data class MessengerMessageSummary (
 
     @Contextual @SerialName(value = "sender_id")
     val senderId: java.util.UUID,
+
+    /* Sender display name, resolved via a same-org LEFT JOIN on users. Null when the sender account no longer exists. */
+    @SerialName(value = "sender_name")
+    val senderName: kotlin.String?,
 
     @SerialName(value = "body")
     val body: kotlin.String,

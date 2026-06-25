@@ -404,3 +404,126 @@ fn positive_seconds(duration: Duration, field: &str) -> Result<u64, KernelError>
         ))
     })
 }
+
+/// A geofence boundary crossing derived from one location ping (issue #13).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GeofenceCrossing {
+    /// Moved from outside (or unknown) to inside a site geofence.
+    Arrival,
+    /// Moved from inside to outside a site geofence.
+    Departure,
+}
+
+impl GeofenceCrossing {
+    /// The audited action string (`site.arrival` / `site.departure`).
+    #[must_use]
+    pub fn audit_action(self) -> &'static str {
+        match self {
+            Self::Arrival => "site.arrival",
+            Self::Departure => "site.departure",
+        }
+    }
+
+    /// The `site_attendance_events.kind` value persisted for this crossing.
+    #[must_use]
+    pub fn kind(self) -> &'static str {
+        match self {
+            Self::Arrival => "ARRIVAL",
+            Self::Departure => "DEPARTURE",
+        }
+    }
+}
+
+/// Evaluate one on-duty location ping against a site geofence.
+///
+/// Pure: given the ping and site coordinates, the effective radius (metres), and
+/// the prior inside/outside state for this (user × work order × site) — `None`
+/// when no record exists yet — returns whether the user is now inside and the
+/// crossing. The crossing is `Some` ONLY on an edge (a state change), so a steady
+/// stream of inside (or outside) pings emits nothing; a first-seen-inside is an
+/// arrival but a first-seen-outside is not an event. Distance uses the shared
+/// kernel haversine, so this stays dependency-free of the dispatch crate.
+#[must_use]
+pub fn evaluate_geofence(
+    ping_latitude: f64,
+    ping_longitude: f64,
+    site_latitude: f64,
+    site_longitude: f64,
+    radius_meters: f64,
+    prior_inside: Option<bool>,
+) -> (bool, Option<GeofenceCrossing>) {
+    // Unrounded distance: rounding to whole metres before the compare would push
+    // the boundary out ~0.5 m, which is material for a small geofence radius.
+    let distance = mnt_kernel_core::haversine_meters_f64(
+        ping_latitude,
+        ping_longitude,
+        site_latitude,
+        site_longitude,
+    );
+    let now_inside = distance <= radius_meters;
+    let crossing = match prior_inside {
+        None => now_inside.then_some(GeofenceCrossing::Arrival),
+        Some(was) if was == now_inside => None,
+        Some(_) => Some(if now_inside {
+            GeofenceCrossing::Arrival
+        } else {
+            GeofenceCrossing::Departure
+        }),
+    };
+    (now_inside, crossing)
+}
+
+#[cfg(test)]
+mod geofence_tests {
+    use super::{GeofenceCrossing, evaluate_geofence};
+
+    // Seoul City Hall, a point ~30 m north (inside a 150 m radius), and a point
+    // ~2.5 km away (outside).
+    const SITE_LAT: f64 = 37.5665;
+    const SITE_LON: f64 = 126.9780;
+    const NEAR_LAT: f64 = 37.56677;
+    const NEAR_LON: f64 = 126.9780;
+    const FAR_LAT: f64 = 37.5796;
+    const FAR_LON: f64 = 126.9770;
+    const RADIUS: f64 = 150.0;
+
+    #[test]
+    fn first_ping_inside_is_arrival() {
+        let (inside, crossing) =
+            evaluate_geofence(NEAR_LAT, NEAR_LON, SITE_LAT, SITE_LON, RADIUS, None);
+        assert!(inside);
+        assert_eq!(crossing, Some(GeofenceCrossing::Arrival));
+    }
+
+    #[test]
+    fn first_ping_outside_is_not_an_event() {
+        let (inside, crossing) =
+            evaluate_geofence(FAR_LAT, FAR_LON, SITE_LAT, SITE_LON, RADIUS, None);
+        assert!(!inside);
+        assert_eq!(crossing, None);
+    }
+
+    #[test]
+    fn staying_inside_emits_nothing() {
+        let (inside, crossing) =
+            evaluate_geofence(NEAR_LAT, NEAR_LON, SITE_LAT, SITE_LON, RADIUS, Some(true));
+        assert!(inside);
+        assert_eq!(crossing, None);
+    }
+
+    #[test]
+    fn leaving_is_departure() {
+        let (inside, crossing) =
+            evaluate_geofence(FAR_LAT, FAR_LON, SITE_LAT, SITE_LON, RADIUS, Some(true));
+        assert!(!inside);
+        assert_eq!(crossing, Some(GeofenceCrossing::Departure));
+    }
+
+    #[test]
+    fn returning_is_arrival() {
+        let (inside, crossing) =
+            evaluate_geofence(NEAR_LAT, NEAR_LON, SITE_LAT, SITE_LON, RADIUS, Some(false));
+        assert!(inside);
+        assert_eq!(crossing, Some(GeofenceCrossing::Arrival));
+    }
+}

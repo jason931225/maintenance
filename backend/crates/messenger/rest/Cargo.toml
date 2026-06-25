@@ -16,6 +16,8 @@ mnt-messenger-application = { workspace = true }
 mnt-messenger-domain = { workspace = true }
 mnt-platform-auth = { path = "../../platform/auth" }
 mnt-platform-authz = { path = "../../platform/authz" }
+mnt-platform-db = { workspace = true }
+mnt-platform-request-context = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true }

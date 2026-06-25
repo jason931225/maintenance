@@ -28,47 +28,87 @@ import okhttp3.Call
 import okhttp3.HttpUrl
 
 import com.maintenance.api.client.model.AddCommentRequest
+import com.maintenance.api.client.model.AdminCredentialResetRequest
+import com.maintenance.api.client.model.AdminCredentialResetResponse
 import com.maintenance.api.client.model.AdminIssueOtpRequest
 import com.maintenance.api.client.model.AdminIssueOtpResponse
+import com.maintenance.api.client.model.AndroidAssetLinkStatement
 import com.maintenance.api.client.model.AppendManualCostLedgerRequest
+import com.maintenance.api.client.model.AppleAppSiteAssociation
+import com.maintenance.api.client.model.ArrivalEventPage
+import com.maintenance.api.client.model.AssetLifecycleCostSummary
+import com.maintenance.api.client.model.AssignSubstituteRequest
 import com.maintenance.api.client.model.AssignTicketRequest
 import com.maintenance.api.client.model.AssignWorkOrderRequest
 import com.maintenance.api.client.model.BranchSummary
 import com.maintenance.api.client.model.CompleteInspectionRoundRequest
 import com.maintenance.api.client.model.ComputeRentalQuoteRequest
 import com.maintenance.api.client.model.ComputedRentalQuote
+import com.maintenance.api.client.model.ConfigureMailAccountRequest
 import com.maintenance.api.client.model.CostLedgerEntrySummary
 import com.maintenance.api.client.model.CreateBranchRequest
+import com.maintenance.api.client.model.CreateCustomerRequest
 import com.maintenance.api.client.model.CreateDailyPlanRequest
 import com.maintenance.api.client.model.CreateEquipmentRequest
 import com.maintenance.api.client.model.CreateEquipmentResponse
 import com.maintenance.api.client.model.CreateInspectionScheduleRequest
 import com.maintenance.api.client.model.CreateInternalTicketRequest
+import com.maintenance.api.client.model.CreateListingRequest
+import com.maintenance.api.client.model.CreateListingResponse
 import com.maintenance.api.client.model.CreateMessengerThreadRequest
 import com.maintenance.api.client.model.CreateOutsourceWorkRequest
 import com.maintenance.api.client.model.CreatePurchaseRequest
 import com.maintenance.api.client.model.CreateRegionRequest
 import com.maintenance.api.client.model.CreateRentalQuoteRequest
+import com.maintenance.api.client.model.CreateSiteRequest
 import com.maintenance.api.client.model.CreateUserRequest
 import com.maintenance.api.client.model.CreateWorkOrderRequest
+import com.maintenance.api.client.model.CreatedCustomer
+import com.maintenance.api.client.model.CreatedSite
+import com.maintenance.api.client.model.CustomerInquiryPage
 import com.maintenance.api.client.model.CustomerIntakeRequest
+import com.maintenance.api.client.model.DailyPlanListPage
 import com.maintenance.api.client.model.DailyPlanSummary
 import com.maintenance.api.client.model.DeviceRegistrationRequest
 import com.maintenance.api.client.model.DeviceRegistrationResponse
+import com.maintenance.api.client.model.EnrollHandoffRequest
+import com.maintenance.api.client.model.EnrollHandoffResponse
 import com.maintenance.api.client.model.EquipmentAutocompletePage
+import com.maintenance.api.client.model.EquipmentByLocationPage
+import com.maintenance.api.client.model.EquipmentListPage
 import com.maintenance.api.client.model.EquipmentLookupResponse
+import com.maintenance.api.client.model.EquipmentSortBy
+import com.maintenance.api.client.model.EquipmentStatus
 import com.maintenance.api.client.model.ErrorBody
 import com.maintenance.api.client.model.EvidenceConfirmResponse
 import com.maintenance.api.client.model.EvidencePresignRequest
 import com.maintenance.api.client.model.EvidencePresignResponse
+import com.maintenance.api.client.model.EvidenceStagingPresignRequest
+import com.maintenance.api.client.model.EvidenceStagingPresignResponse
+import com.maintenance.api.client.model.EvidenceStatusResponse
+import com.maintenance.api.client.model.FindingStatus
 import com.maintenance.api.client.model.ForceAssignP1DispatchRequest
+import com.maintenance.api.client.model.GovernanceFinding
+import com.maintenance.api.client.model.InquiryAck
+import com.maintenance.api.client.model.InquiryStatus
 import com.maintenance.api.client.model.InspectionRoundSummary
+import com.maintenance.api.client.model.InspectionSchedulePage
 import com.maintenance.api.client.model.InspectionScheduleSummary
 import com.maintenance.api.client.model.KpiReport
+import com.maintenance.api.client.model.ListingCondition
+import com.maintenance.api.client.model.ListingKind
+import com.maintenance.api.client.model.ListingType
 import com.maintenance.api.client.model.LocationConsentLedgerPage
 import com.maintenance.api.client.model.LocationConsentStatus
 import com.maintenance.api.client.model.LocationConsentTransitionRequest
 import com.maintenance.api.client.model.LocationPingRequest
+import com.maintenance.api.client.model.MailAccountView
+import com.maintenance.api.client.model.MailAttachmentDownload
+import com.maintenance.api.client.model.MailFolderView
+import com.maintenance.api.client.model.MailMessageView
+import com.maintenance.api.client.model.MailTestConnectionResult
+import com.maintenance.api.client.model.MailThreadDetail
+import com.maintenance.api.client.model.MailThreadView
 import com.maintenance.api.client.model.MarkMessengerThreadReadRequest
 import com.maintenance.api.client.model.MessengerMessageListResponse
 import com.maintenance.api.client.model.MessengerMessagePage
@@ -76,6 +116,7 @@ import com.maintenance.api.client.model.MessengerMessageSummary
 import com.maintenance.api.client.model.MessengerReadReceiptSummary
 import com.maintenance.api.client.model.MessengerThreadListResponse
 import com.maintenance.api.client.model.MessengerThreadSummary
+import com.maintenance.api.client.model.OpsSummary
 import com.maintenance.api.client.model.OtpRedeemRequest
 import com.maintenance.api.client.model.OtpRedeemResponse
 import com.maintenance.api.client.model.OutsourceWorkSummary
@@ -86,8 +127,11 @@ import com.maintenance.api.client.model.PasskeyRegisterFinishRequest
 import com.maintenance.api.client.model.PasskeyRegisterFinishResponse
 import com.maintenance.api.client.model.PasskeyRegisterStartRequest
 import com.maintenance.api.client.model.PasskeyRegisterStartResponse
+import com.maintenance.api.client.model.PasskeySummary
 import com.maintenance.api.client.model.PrepareExpenditureRequest
 import com.maintenance.api.client.model.PriorityLevel
+import com.maintenance.api.client.model.PrivacyConsentAcceptRequest
+import com.maintenance.api.client.model.PrivacyConsentStatusResponse
 import com.maintenance.api.client.model.PurchaseRequestSummary
 import com.maintenance.api.client.model.RefreshTokenRequest
 import com.maintenance.api.client.model.RegionSummary
@@ -97,17 +141,27 @@ import com.maintenance.api.client.model.RejectWorkOrderRequest
 import com.maintenance.api.client.model.RentalQuoteSummary
 import com.maintenance.api.client.model.RespondP1DispatchRequest
 import com.maintenance.api.client.model.RestartPurchaseRequest
+import com.maintenance.api.client.model.ReturnSubstituteRequest
 import com.maintenance.api.client.model.ReviewDailyPlanRequest
 import com.maintenance.api.client.model.ReviewTargetChangeRequest
+import com.maintenance.api.client.model.SalesListingPage
+import com.maintenance.api.client.model.SalesListingView
+import com.maintenance.api.client.model.SendMailRequest
+import com.maintenance.api.client.model.SendMailResult
 import com.maintenance.api.client.model.SendMessengerMessageRequest
+import com.maintenance.api.client.model.SignupRequest
+import com.maintenance.api.client.model.SignupResponse
 import com.maintenance.api.client.model.StartP1DispatchRequest
+import com.maintenance.api.client.model.SubmitInquiryRequest
 import com.maintenance.api.client.model.SubmitReportRequest
+import com.maintenance.api.client.model.SubstituteAssignment
 import com.maintenance.api.client.model.SubstituteCandidatePage
 import com.maintenance.api.client.model.SupportIntakeAck
 import com.maintenance.api.client.model.SupportTicketCategory
 import com.maintenance.api.client.model.SupportTicketComment
 import com.maintenance.api.client.model.SupportTicketDetail
 import com.maintenance.api.client.model.SupportTicketOrigin
+import com.maintenance.api.client.model.SupportTicketPage
 import com.maintenance.api.client.model.SupportTicketPriority
 import com.maintenance.api.client.model.SupportTicketStatus
 import com.maintenance.api.client.model.SupportTicketSummary
@@ -117,11 +171,17 @@ import com.maintenance.api.client.model.TargetChangeRequest
 import com.maintenance.api.client.model.TargetChangeRequestSummary
 import com.maintenance.api.client.model.TokenPairResponse
 import com.maintenance.api.client.model.TransitionTicketRequest
+import com.maintenance.api.client.model.TriageFindingRequest
 import com.maintenance.api.client.model.UpdateBranchRequest
 import com.maintenance.api.client.model.UpdateEquipmentRequest
+import com.maintenance.api.client.model.UpdateInquiryStatusRequest
+import com.maintenance.api.client.model.UpdateListingRequest
+import com.maintenance.api.client.model.UpdateRegionRequest
 import com.maintenance.api.client.model.UpdateSelfProfileRequest
+import com.maintenance.api.client.model.UpdateSiteRequest
 import com.maintenance.api.client.model.UpdateUserRequest
 import com.maintenance.api.client.model.UpdateWorkOrderPriorityRequest
+import com.maintenance.api.client.model.UserPage
 import com.maintenance.api.client.model.UserSummary
 import com.maintenance.api.client.model.WorkDiaryDraft
 import com.maintenance.api.client.model.WorkDiaryUpdateRequest
@@ -228,6 +288,252 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/support/tickets/{id}/comments".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/sales/listings
+     * List all sales listings for the admin console (#6)
+     * Admin catalog read (SalesManage). Unlike the public storefront, returns listings in every status (including DRAFT/SOLD/WITHDRAWN). Optional filters narrow by fuel/drive kind and sale/rental type; results are paged.
+     * @param kind  (optional)
+     * @param condition  (optional)
+     * @param listingType  (optional)
+     * @param limit  (optional, default to 24L)
+     * @param offset  (optional, default to 0L)
+     * @return SalesListingPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun adminListListings(kind: ListingKind? = null, condition: ListingCondition? = null, listingType: ListingType? = null, limit: kotlin.Long? = 24L, offset: kotlin.Long? = 0L) : SalesListingPage = withContext(Dispatchers.IO) {
+        val localVarResponse = adminListListingsWithHttpInfo(kind = kind, condition = condition, listingType = listingType, limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SalesListingPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/sales/listings
+     * List all sales listings for the admin console (#6)
+     * Admin catalog read (SalesManage). Unlike the public storefront, returns listings in every status (including DRAFT/SOLD/WITHDRAWN). Optional filters narrow by fuel/drive kind and sale/rental type; results are paged.
+     * @param kind  (optional)
+     * @param condition  (optional)
+     * @param listingType  (optional)
+     * @param limit  (optional, default to 24L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<SalesListingPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun adminListListingsWithHttpInfo(kind: ListingKind?, condition: ListingCondition?, listingType: ListingType?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<SalesListingPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = adminListListingsRequestConfig(kind = kind, condition = condition, listingType = listingType, limit = limit, offset = offset)
+
+        return@withContext request<Unit, SalesListingPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation adminListListings
+     *
+     * @param kind  (optional)
+     * @param condition  (optional)
+     * @param listingType  (optional)
+     * @param limit  (optional, default to 24L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun adminListListingsRequestConfig(kind: ListingKind?, condition: ListingCondition?, listingType: ListingType?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (kind != null) {
+                    put("kind", listOf(kind.toString()))
+                }
+                if (condition != null) {
+                    put("condition", listOf(condition.toString()))
+                }
+                if (listingType != null) {
+                    put("listing_type", listOf(listingType.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/sales/listings",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /.well-known/assetlinks.json
+     * Android Digital Asset Links (native passkeys)
+     * Public, unauthenticated Digital Asset Links document Android fetches to authorize the native app&#39;s passkeys for the RP domain. The package and signing-cert fingerprints come from &#x60;MNT_ANDROID_PACKAGE&#x60; / &#x60;MNT_ANDROID_CERT_SHA256&#x60;; an unconfigured deployment serves an empty JSON array. Served as &#x60;application/json&#x60;.
+     * @return kotlin.collections.List<AndroidAssetLinkStatement>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun androidAssetLinks() : kotlin.collections.List<AndroidAssetLinkStatement> = withContext(Dispatchers.IO) {
+        val localVarResponse = androidAssetLinksWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<AndroidAssetLinkStatement>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /.well-known/assetlinks.json
+     * Android Digital Asset Links (native passkeys)
+     * Public, unauthenticated Digital Asset Links document Android fetches to authorize the native app&#39;s passkeys for the RP domain. The package and signing-cert fingerprints come from &#x60;MNT_ANDROID_PACKAGE&#x60; / &#x60;MNT_ANDROID_CERT_SHA256&#x60;; an unconfigured deployment serves an empty JSON array. Served as &#x60;application/json&#x60;.
+     * @return ApiResponse<kotlin.collections.List<AndroidAssetLinkStatement>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun androidAssetLinksWithHttpInfo() : ApiResponse<kotlin.collections.List<AndroidAssetLinkStatement>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = androidAssetLinksRequestConfig()
+
+        return@withContext request<Unit, kotlin.collections.List<AndroidAssetLinkStatement>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation androidAssetLinks
+     *
+     * @return RequestConfig
+     */
+    fun androidAssetLinksRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/.well-known/assetlinks.json",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/auth/admin/credential-reset
+     * Reset a user&#39;s credentials for account recovery (admin)
+     * Account-recovery escape hatch for a user who lost their only passkey. Revokes ALL of the target user&#39;s passkeys AND mints a fresh single-use sign-in one-time code, atomically and audited. Authz-gated to ADMIN / SUPER_ADMIN within the caller&#39;s own org and branch scope (same rules as issuing an admin one-time code); a non-SUPER_ADMIN caller cannot reset a privileged user, and a user in another org is not resettable. After the reset the old passkeys fail login and the returned code redeems for a first sign-in. The code is returned once; only its hash is stored.
+     * @param adminCredentialResetRequest
+     * @return AdminCredentialResetResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun apiV1AuthAdminCredentialResetPost(adminCredentialResetRequest: AdminCredentialResetRequest) : AdminCredentialResetResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = apiV1AuthAdminCredentialResetPostWithHttpInfo(adminCredentialResetRequest = adminCredentialResetRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as AdminCredentialResetResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/admin/credential-reset
+     * Reset a user&#39;s credentials for account recovery (admin)
+     * Account-recovery escape hatch for a user who lost their only passkey. Revokes ALL of the target user&#39;s passkeys AND mints a fresh single-use sign-in one-time code, atomically and audited. Authz-gated to ADMIN / SUPER_ADMIN within the caller&#39;s own org and branch scope (same rules as issuing an admin one-time code); a non-SUPER_ADMIN caller cannot reset a privileged user, and a user in another org is not resettable. After the reset the old passkeys fail login and the returned code redeems for a first sign-in. The code is returned once; only its hash is stored.
+     * @param adminCredentialResetRequest
+     * @return ApiResponse<AdminCredentialResetResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun apiV1AuthAdminCredentialResetPostWithHttpInfo(adminCredentialResetRequest: AdminCredentialResetRequest) : ApiResponse<AdminCredentialResetResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = apiV1AuthAdminCredentialResetPostRequestConfig(adminCredentialResetRequest = adminCredentialResetRequest)
+
+        return@withContext request<AdminCredentialResetRequest, AdminCredentialResetResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation apiV1AuthAdminCredentialResetPost
+     *
+     * @param adminCredentialResetRequest
+     * @return RequestConfig
+     */
+    fun apiV1AuthAdminCredentialResetPostRequestConfig(adminCredentialResetRequest: AdminCredentialResetRequest) : RequestConfig<AdminCredentialResetRequest> {
+        val localVariableBody = adminCredentialResetRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/admin/credential-reset",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -456,6 +762,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/auth/passkey/enroll-handoff
+     * Mint a cross-device passkey-enrollment handoff (self)
+     * Mints a fresh single-use, short-lived (5 minutes) one-time code for the CURRENTLY AUTHENTICATED user so they can finish passkey enrollment on a SECOND device (typically a phone scanning a QR shown on the desktop console). SELF-ONLY — the user and org come from the verified access token, never the request body, so a caller can only ever mint a handoff for itself. When the caller is ALREADY enrolled (adding a device), a fresh &#x60;step_up&#x60; assertion of an existing passkey (user verification required) is mandatory, exactly like &#x60;passkey/register/start&#x60;; a mid-onboarding caller (no passkey yet) omits it. The response returns the code once (only its hash is stored) plus the ready-to-encode enrollment URL. The phone opens that URL, redeems the code via &#x60;POST /api/v1/auth/otp/redeem&#x60;, and enrolls a platform passkey — no Bluetooth required.
+     * @param enrollHandoffRequest  (optional)
+     * @return EnrollHandoffResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun apiV1AuthPasskeyEnrollHandoffPost(enrollHandoffRequest: EnrollHandoffRequest? = null) : EnrollHandoffResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = apiV1AuthPasskeyEnrollHandoffPostWithHttpInfo(enrollHandoffRequest = enrollHandoffRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EnrollHandoffResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/passkey/enroll-handoff
+     * Mint a cross-device passkey-enrollment handoff (self)
+     * Mints a fresh single-use, short-lived (5 minutes) one-time code for the CURRENTLY AUTHENTICATED user so they can finish passkey enrollment on a SECOND device (typically a phone scanning a QR shown on the desktop console). SELF-ONLY — the user and org come from the verified access token, never the request body, so a caller can only ever mint a handoff for itself. When the caller is ALREADY enrolled (adding a device), a fresh &#x60;step_up&#x60; assertion of an existing passkey (user verification required) is mandatory, exactly like &#x60;passkey/register/start&#x60;; a mid-onboarding caller (no passkey yet) omits it. The response returns the code once (only its hash is stored) plus the ready-to-encode enrollment URL. The phone opens that URL, redeems the code via &#x60;POST /api/v1/auth/otp/redeem&#x60;, and enrolls a platform passkey — no Bluetooth required.
+     * @param enrollHandoffRequest  (optional)
+     * @return ApiResponse<EnrollHandoffResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun apiV1AuthPasskeyEnrollHandoffPostWithHttpInfo(enrollHandoffRequest: EnrollHandoffRequest?) : ApiResponse<EnrollHandoffResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = apiV1AuthPasskeyEnrollHandoffPostRequestConfig(enrollHandoffRequest = enrollHandoffRequest)
+
+        return@withContext request<EnrollHandoffRequest, EnrollHandoffResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation apiV1AuthPasskeyEnrollHandoffPost
+     *
+     * @param enrollHandoffRequest  (optional)
+     * @return RequestConfig
+     */
+    fun apiV1AuthPasskeyEnrollHandoffPostRequestConfig(enrollHandoffRequest: EnrollHandoffRequest?) : RequestConfig<EnrollHandoffRequest> {
+        val localVariableBody = enrollHandoffRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/passkey/enroll-handoff",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/auth/passkey/login/finish
      * Finish passkey login
      * Verifies the passkey assertion and issues an ES256 access JWT plus an opaque rotating refresh token.
@@ -676,7 +1056,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     /**
      * POST /api/v1/auth/passkey/register/start
      * Start passkey registration (authenticated)
-     * Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token.
+     * Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token. Adding a passkey when the user already has one requires a fresh &#x60;step_up&#x60; assertion of an existing passkey (user verification required); omitting it returns 401. Initial enrollment (zero existing passkeys) needs no step-up.
      * @param passkeyRegisterStartRequest  (optional)
      * @return PasskeyRegisterStartResponse
      * @throws IllegalStateException If the request is not correctly configured
@@ -708,7 +1088,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     /**
      * POST /api/v1/auth/passkey/register/start
      * Start passkey registration (authenticated)
-     * Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token.
+     * Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token. Adding a passkey when the user already has one requires a fresh &#x60;step_up&#x60; assertion of an existing passkey (user verification required); omitting it returns 401. Initial enrollment (zero existing passkeys) needs no step-up.
      * @param passkeyRegisterStartRequest  (optional)
      * @return ApiResponse<PasskeyRegisterStartResponse?>
      * @throws IllegalStateException If the request is not correctly configured
@@ -743,6 +1123,224 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/auth/privacy-consent/accept
+     * Accept required first-login privacy terms
+     * Persists the authenticated user&#39;s required initial-login acknowledgement of the privacy collection/use notice and service terms as a tenant-scoped audit event. Both required agreements must be accepted explicitly; optional marketing and GPS/location consent are excluded.
+     * @param privacyConsentAcceptRequest
+     * @return PrivacyConsentStatusResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun apiV1AuthPrivacyConsentAcceptPost(privacyConsentAcceptRequest: PrivacyConsentAcceptRequest) : PrivacyConsentStatusResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = apiV1AuthPrivacyConsentAcceptPostWithHttpInfo(privacyConsentAcceptRequest = privacyConsentAcceptRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PrivacyConsentStatusResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/privacy-consent/accept
+     * Accept required first-login privacy terms
+     * Persists the authenticated user&#39;s required initial-login acknowledgement of the privacy collection/use notice and service terms as a tenant-scoped audit event. Both required agreements must be accepted explicitly; optional marketing and GPS/location consent are excluded.
+     * @param privacyConsentAcceptRequest
+     * @return ApiResponse<PrivacyConsentStatusResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun apiV1AuthPrivacyConsentAcceptPostWithHttpInfo(privacyConsentAcceptRequest: PrivacyConsentAcceptRequest) : ApiResponse<PrivacyConsentStatusResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = apiV1AuthPrivacyConsentAcceptPostRequestConfig(privacyConsentAcceptRequest = privacyConsentAcceptRequest)
+
+        return@withContext request<PrivacyConsentAcceptRequest, PrivacyConsentStatusResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation apiV1AuthPrivacyConsentAcceptPost
+     *
+     * @param privacyConsentAcceptRequest
+     * @return RequestConfig
+     */
+    fun apiV1AuthPrivacyConsentAcceptPostRequestConfig(privacyConsentAcceptRequest: PrivacyConsentAcceptRequest) : RequestConfig<PrivacyConsentAcceptRequest> {
+        val localVariableBody = privacyConsentAcceptRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/privacy-consent/accept",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/auth/privacy-consent/status
+     * Read required first-login privacy consent status
+     * Returns whether the authenticated user has accepted the current required Korean privacy collection/use notice and service terms version. This status is checked before initial passkey enrollment. Optional marketing consent and GPS/location consent are not bundled here and remain separate flows.
+     * @return PrivacyConsentStatusResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun apiV1AuthPrivacyConsentStatusPost() : PrivacyConsentStatusResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = apiV1AuthPrivacyConsentStatusPostWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PrivacyConsentStatusResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/privacy-consent/status
+     * Read required first-login privacy consent status
+     * Returns whether the authenticated user has accepted the current required Korean privacy collection/use notice and service terms version. This status is checked before initial passkey enrollment. Optional marketing consent and GPS/location consent are not bundled here and remain separate flows.
+     * @return ApiResponse<PrivacyConsentStatusResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun apiV1AuthPrivacyConsentStatusPostWithHttpInfo() : ApiResponse<PrivacyConsentStatusResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = apiV1AuthPrivacyConsentStatusPostRequestConfig()
+
+        return@withContext request<Unit, PrivacyConsentStatusResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation apiV1AuthPrivacyConsentStatusPost
+     *
+     * @return RequestConfig
+     */
+    fun apiV1AuthPrivacyConsentStatusPostRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/privacy-consent/status",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/auth/signup
+     * Open self-service signup
+     * Public, unauthenticated open signup. Creates a new lowest-privilege MEMBER account in the default organization and emails it a single-use one-time sign-in code; the caller then redeems that code via &#x60;POST /api/v1/auth/otp/redeem&#x60; and enrolls a passkey. The response reveals nothing about whether the email was newly registered (no account-existence oracle) and never mints a token. The new account sees the minimal role-gated surface until an admin elevates it. Rate-limited per client (IP and optional device).
+     * @param signupRequest
+     * @return SignupResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun apiV1AuthSignupPost(signupRequest: SignupRequest) : SignupResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = apiV1AuthSignupPostWithHttpInfo(signupRequest = signupRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SignupResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/signup
+     * Open self-service signup
+     * Public, unauthenticated open signup. Creates a new lowest-privilege MEMBER account in the default organization and emails it a single-use one-time sign-in code; the caller then redeems that code via &#x60;POST /api/v1/auth/otp/redeem&#x60; and enrolls a passkey. The response reveals nothing about whether the email was newly registered (no account-existence oracle) and never mints a token. The new account sees the minimal role-gated surface until an admin elevates it. Rate-limited per client (IP and optional device).
+     * @param signupRequest
+     * @return ApiResponse<SignupResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun apiV1AuthSignupPostWithHttpInfo(signupRequest: SignupRequest) : ApiResponse<SignupResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = apiV1AuthSignupPostRequestConfig(signupRequest = signupRequest)
+
+        return@withContext request<SignupRequest, SignupResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation apiV1AuthSignupPost
+     *
+     * @param signupRequest
+     * @return RequestConfig
+     */
+    fun apiV1AuthSignupPostRequestConfig(signupRequest: SignupRequest) : RequestConfig<SignupRequest> {
+        val localVariableBody = signupRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/signup",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
             body = localVariableBody
         )
     }
@@ -894,6 +1492,76 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /.well-known/apple-app-site-association
+     * Apple App Site Association (native passkeys)
+     * Public, unauthenticated association document Apple fetches over the RP origin to authorize the native iOS app&#39;s passkeys. The &#x60;webcredentials.apps&#x60; list is sourced from &#x60;MNT_IOS_APP_IDS&#x60;; an unconfigured deployment serves a valid empty document. Served as &#x60;application/json&#x60; (no file extension, per Apple&#39;s requirement).
+     * @return AppleAppSiteAssociation
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun appleAppSiteAssociation() : AppleAppSiteAssociation = withContext(Dispatchers.IO) {
+        val localVarResponse = appleAppSiteAssociationWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as AppleAppSiteAssociation
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /.well-known/apple-app-site-association
+     * Apple App Site Association (native passkeys)
+     * Public, unauthenticated association document Apple fetches over the RP origin to authorize the native iOS app&#39;s passkeys. The &#x60;webcredentials.apps&#x60; list is sourced from &#x60;MNT_IOS_APP_IDS&#x60;; an unconfigured deployment serves a valid empty document. Served as &#x60;application/json&#x60; (no file extension, per Apple&#39;s requirement).
+     * @return ApiResponse<AppleAppSiteAssociation?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun appleAppSiteAssociationWithHttpInfo() : ApiResponse<AppleAppSiteAssociation?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = appleAppSiteAssociationRequestConfig()
+
+        return@withContext request<Unit, AppleAppSiteAssociation>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation appleAppSiteAssociation
+     *
+     * @return RequestConfig
+     */
+    fun appleAppSiteAssociationRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/.well-known/apple-app-site-association",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
             body = localVariableBody
         )
     }
@@ -1110,6 +1778,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/work-orders/{workOrderId}/approve".replace("{"+"workOrderId"+"}", encodeURIComponent(workOrderId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/equipment-substitutions
+     * Assign a substitute (대차) unit to a down/under-repair equipment
+     * Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+     * @param assignSubstituteRequest
+     * @return SubstituteAssignment
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun assignEquipmentSubstitute(assignSubstituteRequest: AssignSubstituteRequest) : SubstituteAssignment = withContext(Dispatchers.IO) {
+        val localVarResponse = assignEquipmentSubstituteWithHttpInfo(assignSubstituteRequest = assignSubstituteRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SubstituteAssignment
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/equipment-substitutions
+     * Assign a substitute (대차) unit to a down/under-repair equipment
+     * Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+     * @param assignSubstituteRequest
+     * @return ApiResponse<SubstituteAssignment?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun assignEquipmentSubstituteWithHttpInfo(assignSubstituteRequest: AssignSubstituteRequest) : ApiResponse<SubstituteAssignment?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = assignEquipmentSubstituteRequestConfig(assignSubstituteRequest = assignSubstituteRequest)
+
+        return@withContext request<AssignSubstituteRequest, SubstituteAssignment>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation assignEquipmentSubstitute
+     *
+     * @param assignSubstituteRequest
+     * @return RequestConfig
+     */
+    fun assignEquipmentSubstituteRequestConfig(assignSubstituteRequest: AssignSubstituteRequest) : RequestConfig<AssignSubstituteRequest> {
+        val localVariableBody = assignSubstituteRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/equipment-substitutions",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -1505,6 +2247,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * PUT /api/v1/mail/account
+     * Configure (create or replace) the tenant&#39;s webmail account
+     * Upserts the mailbox config. Passwords are write-only: a present password is sealed (envelope AEAD) and only the ciphertext is stored; an absent/null password leaves the stored secret unchanged. A first-time configure requires both the SMTP and IMAP password. Audited. Requires the MailAccountManage feature.
+     * @param configureMailAccountRequest
+     * @return MailAccountView
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun configureMailAccount(configureMailAccountRequest: ConfigureMailAccountRequest) : MailAccountView = withContext(Dispatchers.IO) {
+        val localVarResponse = configureMailAccountWithHttpInfo(configureMailAccountRequest = configureMailAccountRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MailAccountView
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PUT /api/v1/mail/account
+     * Configure (create or replace) the tenant&#39;s webmail account
+     * Upserts the mailbox config. Passwords are write-only: a present password is sealed (envelope AEAD) and only the ciphertext is stored; an absent/null password leaves the stored secret unchanged. A first-time configure requires both the SMTP and IMAP password. Audited. Requires the MailAccountManage feature.
+     * @param configureMailAccountRequest
+     * @return ApiResponse<MailAccountView?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun configureMailAccountWithHttpInfo(configureMailAccountRequest: ConfigureMailAccountRequest) : ApiResponse<MailAccountView?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = configureMailAccountRequestConfig(configureMailAccountRequest = configureMailAccountRequest)
+
+        return@withContext request<ConfigureMailAccountRequest, MailAccountView>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation configureMailAccount
+     *
+     * @param configureMailAccountRequest
+     * @return RequestConfig
+     */
+    fun configureMailAccountRequestConfig(configureMailAccountRequest: ConfigureMailAccountRequest) : RequestConfig<ConfigureMailAccountRequest> {
+        val localVariableBody = configureMailAccountRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PUT,
+            path = "/api/v1/mail/account",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/daily-work-plans/{planId}/confirm
      * Confirm an approved daily work plan
      *
@@ -1877,6 +2693,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/customers
+     * Create a customer (고객) directly
+     * Admin-gated (EquipmentManage, the same feature as the site PATCH). Creates a customer in the caller&#39;s org on the caller&#39;s branch (an org-wide SUPER_ADMIN/EXECUTIVE lands it on the default HQ branch). The name is required, trimmed, and bounded (≤ 200 characters). A same-name customer on that branch is a 409 conflict — an explicit create is a distinct intent from the importer&#39;s idempotent upsert, so it is surfaced, not merged.
+     * @param createCustomerRequest
+     * @return CreatedCustomer
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createCustomer(createCustomerRequest: CreateCustomerRequest) : CreatedCustomer = withContext(Dispatchers.IO) {
+        val localVarResponse = createCustomerWithHttpInfo(createCustomerRequest = createCustomerRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CreatedCustomer
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/customers
+     * Create a customer (고객) directly
+     * Admin-gated (EquipmentManage, the same feature as the site PATCH). Creates a customer in the caller&#39;s org on the caller&#39;s branch (an org-wide SUPER_ADMIN/EXECUTIVE lands it on the default HQ branch). The name is required, trimmed, and bounded (≤ 200 characters). A same-name customer on that branch is a 409 conflict — an explicit create is a distinct intent from the importer&#39;s idempotent upsert, so it is surfaced, not merged.
+     * @param createCustomerRequest
+     * @return ApiResponse<CreatedCustomer?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createCustomerWithHttpInfo(createCustomerRequest: CreateCustomerRequest) : ApiResponse<CreatedCustomer?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createCustomerRequestConfig(createCustomerRequest = createCustomerRequest)
+
+        return@withContext request<CreateCustomerRequest, CreatedCustomer>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createCustomer
+     *
+     * @param createCustomerRequest
+     * @return RequestConfig
+     */
+    fun createCustomerRequestConfig(createCustomerRequest: CreateCustomerRequest) : RequestConfig<CreateCustomerRequest> {
+        val localVariableBody = createCustomerRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/customers",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/daily-work-plans
      * Create a daily work plan
      *
@@ -2165,6 +3055,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/support/tickets",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/sales/listings
+     * Create a sales listing (#6)
+     * Admin-gated (SalesManage). Creates a new catalog listing and returns its server-generated id.
+     * @param createListingRequest
+     * @return CreateListingResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createListing(createListingRequest: CreateListingRequest) : CreateListingResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = createListingWithHttpInfo(createListingRequest = createListingRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CreateListingResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/sales/listings
+     * Create a sales listing (#6)
+     * Admin-gated (SalesManage). Creates a new catalog listing and returns its server-generated id.
+     * @param createListingRequest
+     * @return ApiResponse<CreateListingResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createListingWithHttpInfo(createListingRequest: CreateListingRequest) : ApiResponse<CreateListingResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createListingRequestConfig(createListingRequest = createListingRequest)
+
+        return@withContext request<CreateListingRequest, CreateListingResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createListing
+     *
+     * @param createListingRequest
+     * @return RequestConfig
+     */
+    fun createListingRequestConfig(createListingRequest: CreateListingRequest) : RequestConfig<CreateListingRequest> {
+        val localVariableBody = createListingRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/sales/listings",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -2546,6 +3510,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/sites
+     * Create a site (현장) under an existing customer
+     * Admin-gated (EquipmentManage). Creates a site under a customer in the caller&#39;s org; the customer must belong to the caller&#39;s org or the request is a 404 (RLS hides another tenant&#39;s customer). The name is required and bounded; optional address / WGS84 coordinates / contact fields follow the same ranges and length bounds as PATCH /api/v1/sites/{id} (a one-sided coordinate or an over-long value is a 422). A duplicate site name under the same customer is a 409. The created site is returned so it appears in the 고객·현장 list immediately.
+     * @param createSiteRequest
+     * @return CreatedSite
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createSite(createSiteRequest: CreateSiteRequest) : CreatedSite = withContext(Dispatchers.IO) {
+        val localVarResponse = createSiteWithHttpInfo(createSiteRequest = createSiteRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CreatedSite
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/sites
+     * Create a site (현장) under an existing customer
+     * Admin-gated (EquipmentManage). Creates a site under a customer in the caller&#39;s org; the customer must belong to the caller&#39;s org or the request is a 404 (RLS hides another tenant&#39;s customer). The name is required and bounded; optional address / WGS84 coordinates / contact fields follow the same ranges and length bounds as PATCH /api/v1/sites/{id} (a one-sided coordinate or an over-long value is a 422). A duplicate site name under the same customer is a 409. The created site is returned so it appears in the 고객·현장 list immediately.
+     * @param createSiteRequest
+     * @return ApiResponse<CreatedSite?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createSiteWithHttpInfo(createSiteRequest: CreateSiteRequest) : ApiResponse<CreatedSite?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createSiteRequestConfig(createSiteRequest = createSiteRequest)
+
+        return@withContext request<CreateSiteRequest, CreatedSite>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createSite
+     *
+     * @param createSiteRequest
+     * @return RequestConfig
+     */
+    fun createSiteRequestConfig(createSiteRequest: CreateSiteRequest) : RequestConfig<CreateSiteRequest> {
+        val localVariableBody = createSiteRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/sites",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/users
      * Create a user with roles and branch memberships
      *
@@ -2694,6 +3732,152 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * DELETE /api/v1/branches/{id}
+     * Soft-delete (deactivate) a branch
+     * Soft-deletes a branch. Refused with 409 while the branch still has active users or non-terminal equipment, so live operational data is never orphaned. Returns the deactivated branch.
+     * @param id
+     * @return BranchSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun deactivateBranch(id: java.util.UUID) : BranchSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = deactivateBranchWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as BranchSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * DELETE /api/v1/branches/{id}
+     * Soft-delete (deactivate) a branch
+     * Soft-deletes a branch. Refused with 409 while the branch still has active users or non-terminal equipment, so live operational data is never orphaned. Returns the deactivated branch.
+     * @param id
+     * @return ApiResponse<BranchSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun deactivateBranchWithHttpInfo(id: java.util.UUID) : ApiResponse<BranchSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = deactivateBranchRequestConfig(id = id)
+
+        return@withContext request<Unit, BranchSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation deactivateBranch
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun deactivateBranchRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.DELETE,
+            path = "/api/v1/branches/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * DELETE /api/v1/regions/{id}
+     * Soft-delete (deactivate) a region
+     * Soft-deletes a region. Refused with 409 while the region still has active branches, so live tenant data is never orphaned. Returns the deactivated region.
+     * @param id
+     * @return RegionSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun deactivateRegion(id: java.util.UUID) : RegionSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = deactivateRegionWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as RegionSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * DELETE /api/v1/regions/{id}
+     * Soft-delete (deactivate) a region
+     * Soft-deletes a region. Refused with 409 while the region still has active branches, so live tenant data is never orphaned. Returns the deactivated region.
+     * @param id
+     * @return ApiResponse<RegionSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun deactivateRegionWithHttpInfo(id: java.util.UUID) : ApiResponse<RegionSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = deactivateRegionRequestConfig(id = id)
+
+        return@withContext request<Unit, RegionSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation deactivateRegion
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun deactivateRegionRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.DELETE,
+            path = "/api/v1/regions/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/users/{id}/deactivate
      * Deactivate (soft-disable) a user
      *
@@ -2830,6 +4014,221 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.DELETE,
             path = "/api/v1/equipment/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * DELETE /api/v1/sales/listings/{id}
+     * Delete a sales listing (#6)
+     * Admin-gated (SalesManage). Removes a listing from the catalog.
+     * @param id
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun deleteListing(id: java.util.UUID) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = deleteListingWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * DELETE /api/v1/sales/listings/{id}
+     * Delete a sales listing (#6)
+     * Admin-gated (SalesManage). Removes a listing from the catalog.
+     * @param id
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun deleteListingWithHttpInfo(id: java.util.UUID) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = deleteListingRequestConfig(id = id)
+
+        return@withContext request<Unit, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation deleteListing
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun deleteListingRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.DELETE,
+            path = "/api/v1/sales/listings/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * DELETE /api/v1/passkeys/{id}
+     * Revoke one of the authenticated user&#39;s own passkey credentials
+     * Deletes a credential owned by the caller. A credential that is not the caller&#39;s own returns 404. The caller&#39;s last remaining passkey cannot be deleted (409) so they do not lock themselves out.
+     * @param id
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun deletePasskey(id: java.util.UUID) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = deletePasskeyWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * DELETE /api/v1/passkeys/{id}
+     * Revoke one of the authenticated user&#39;s own passkey credentials
+     * Deletes a credential owned by the caller. A credential that is not the caller&#39;s own returns 404. The caller&#39;s last remaining passkey cannot be deleted (409) so they do not lock themselves out.
+     * @param id
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun deletePasskeyWithHttpInfo(id: java.util.UUID) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = deletePasskeyRequestConfig(id = id)
+
+        return@withContext request<Unit, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation deletePasskey
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun deletePasskeyRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.DELETE,
+            path = "/api/v1/passkeys/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/mail/attachments/{id}/download
+     * Get a presigned download URL for an attachment
+     * Resolves the attachment under the caller&#39;s org (cross-tenant invisible) and returns a short-lived presigned GET URL — the raw object key is never exposed. RLS-armed to the caller&#39;s org. Requires the MailUse feature.
+     * @param id
+     * @return MailAttachmentDownload
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun downloadMailAttachment(id: java.util.UUID) : MailAttachmentDownload = withContext(Dispatchers.IO) {
+        val localVarResponse = downloadMailAttachmentWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MailAttachmentDownload
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/mail/attachments/{id}/download
+     * Get a presigned download URL for an attachment
+     * Resolves the attachment under the caller&#39;s org (cross-tenant invisible) and returns a short-lived presigned GET URL — the raw object key is never exposed. RLS-armed to the caller&#39;s org. Requires the MailUse feature.
+     * @param id
+     * @return ApiResponse<MailAttachmentDownload?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun downloadMailAttachmentWithHttpInfo(id: java.util.UUID) : ApiResponse<MailAttachmentDownload?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = downloadMailAttachmentRequestConfig(id = id)
+
+        return@withContext request<Unit, MailAttachmentDownload>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation downloadMailAttachment
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun downloadMailAttachmentRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/mail/attachments/{id}/download".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -3084,6 +4483,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/mail/forward
+     * Forward a message (sets In-Reply-To / References)
+     * Forwards a message through the tenant&#39;s SMTP server, stamping the In-Reply-To and References threading headers, and persists it as direction&#x3D;OUT. Audited (email.forward). Requires the MailUse feature.
+     * @param sendMailRequest
+     * @return SendMailResult
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun forwardMail(sendMailRequest: SendMailRequest) : SendMailResult = withContext(Dispatchers.IO) {
+        val localVarResponse = forwardMailWithHttpInfo(sendMailRequest = sendMailRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SendMailResult
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/mail/forward
+     * Forward a message (sets In-Reply-To / References)
+     * Forwards a message through the tenant&#39;s SMTP server, stamping the In-Reply-To and References threading headers, and persists it as direction&#x3D;OUT. Audited (email.forward). Requires the MailUse feature.
+     * @param sendMailRequest
+     * @return ApiResponse<SendMailResult?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun forwardMailWithHttpInfo(sendMailRequest: SendMailRequest) : ApiResponse<SendMailResult?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = forwardMailRequestConfig(sendMailRequest = sendMailRequest)
+
+        return@withContext request<SendMailRequest, SendMailResult>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation forwardMail
+     *
+     * @param sendMailRequest
+     * @return RequestConfig
+     */
+    fun forwardMailRequestConfig(sendMailRequest: SendMailRequest) : RequestConfig<SendMailRequest> {
+        val localVariableBody = sendMailRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/mail/forward",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/users/me
      * Get the authenticated user&#39;s own profile
      *
@@ -3222,6 +4695,225 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/exports/daily-status",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/daily-work-plans/{planId}
+     * Read a daily work plan by id
+     *
+     * @param planId
+     * @return DailyPlanSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getDailyWorkPlan(planId: java.util.UUID) : DailyPlanSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = getDailyWorkPlanWithHttpInfo(planId = planId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as DailyPlanSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/daily-work-plans/{planId}
+     * Read a daily work plan by id
+     *
+     * @param planId
+     * @return ApiResponse<DailyPlanSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getDailyWorkPlanWithHttpInfo(planId: java.util.UUID) : ApiResponse<DailyPlanSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getDailyWorkPlanRequestConfig(planId = planId)
+
+        return@withContext request<Unit, DailyPlanSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getDailyWorkPlan
+     *
+     * @param planId
+     * @return RequestConfig
+     */
+    fun getDailyWorkPlanRequestConfig(planId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/daily-work-plans/{planId}".replace("{"+"planId"+"}", encodeURIComponent(planId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/financial/equipment/{equipmentId}/lifecycle-cost
+     * Per-asset lifecycle cost, TCO, and gross margin
+     * Read-gated (EquipmentCostLedgerRead). Returns the asset&#39;s acquisition cost (with a source tag), maintenance total split by source, read-only outsource cost, current residual, latest realized sale price, total cost of ownership, gross margin, and per-month/per-hour maintenance intensity.
+     * @param equipmentId
+     * @return AssetLifecycleCostSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getEquipmentLifecycleCost(equipmentId: java.util.UUID) : AssetLifecycleCostSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = getEquipmentLifecycleCostWithHttpInfo(equipmentId = equipmentId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as AssetLifecycleCostSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/financial/equipment/{equipmentId}/lifecycle-cost
+     * Per-asset lifecycle cost, TCO, and gross margin
+     * Read-gated (EquipmentCostLedgerRead). Returns the asset&#39;s acquisition cost (with a source tag), maintenance total split by source, read-only outsource cost, current residual, latest realized sale price, total cost of ownership, gross margin, and per-month/per-hour maintenance intensity.
+     * @param equipmentId
+     * @return ApiResponse<AssetLifecycleCostSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getEquipmentLifecycleCostWithHttpInfo(equipmentId: java.util.UUID) : ApiResponse<AssetLifecycleCostSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getEquipmentLifecycleCostRequestConfig(equipmentId = equipmentId)
+
+        return@withContext request<Unit, AssetLifecycleCostSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getEquipmentLifecycleCost
+     *
+     * @param equipmentId
+     * @return RequestConfig
+     */
+    fun getEquipmentLifecycleCostRequestConfig(equipmentId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/financial/equipment/{equipmentId}/lifecycle-cost".replace("{"+"equipmentId"+"}", encodeURIComponent(equipmentId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/evidence/{evidenceId}/status
+     * Poll the server-side processing status of an evidence row
+     *
+     * @param evidenceId
+     * @return EvidenceStatusResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getEvidenceProcessingStatus(evidenceId: java.util.UUID) : EvidenceStatusResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = getEvidenceProcessingStatusWithHttpInfo(evidenceId = evidenceId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EvidenceStatusResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/evidence/{evidenceId}/status
+     * Poll the server-side processing status of an evidence row
+     *
+     * @param evidenceId
+     * @return ApiResponse<EvidenceStatusResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getEvidenceProcessingStatusWithHttpInfo(evidenceId: java.util.UUID) : ApiResponse<EvidenceStatusResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getEvidenceProcessingStatusRequestConfig(evidenceId = evidenceId)
+
+        return@withContext request<Unit, EvidenceStatusResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getEvidenceProcessingStatus
+     *
+     * @param evidenceId
+     * @return RequestConfig
+     */
+    fun getEvidenceProcessingStatusRequestConfig(evidenceId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/evidence/{evidenceId}/status".replace("{"+"evidenceId"+"}", encodeURIComponent(evidenceId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -3382,6 +5074,292 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/location-consent/status",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/mail/account
+     * Get the tenant&#39;s configured webmail account (write-only password)
+     * Returns the configured corporate mailbox for the caller&#39;s tenant. The response NEVER contains a password; the has_smtp_password / has_imap_password booleans signal whether a credential is on file. Requires the MailAccountManage feature.
+     * @return MailAccountView
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getMailAccount() : MailAccountView = withContext(Dispatchers.IO) {
+        val localVarResponse = getMailAccountWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MailAccountView
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/mail/account
+     * Get the tenant&#39;s configured webmail account (write-only password)
+     * Returns the configured corporate mailbox for the caller&#39;s tenant. The response NEVER contains a password; the has_smtp_password / has_imap_password booleans signal whether a credential is on file. Requires the MailAccountManage feature.
+     * @return ApiResponse<MailAccountView?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getMailAccountWithHttpInfo() : ApiResponse<MailAccountView?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getMailAccountRequestConfig()
+
+        return@withContext request<Unit, MailAccountView>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getMailAccount
+     *
+     * @return RequestConfig
+     */
+    fun getMailAccountRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/mail/account",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/mail/messages/{id}
+     * Get one message with its attachments
+     * Returns one message (with attachment metadata; bytes are fetched via the attachment download endpoint). body_html is verbatim and MUST be sanitized by the client. RLS-armed to the caller&#39;s org. Requires the MailUse feature.
+     * @param id
+     * @return MailMessageView
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getMailMessage(id: java.util.UUID) : MailMessageView = withContext(Dispatchers.IO) {
+        val localVarResponse = getMailMessageWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MailMessageView
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/mail/messages/{id}
+     * Get one message with its attachments
+     * Returns one message (with attachment metadata; bytes are fetched via the attachment download endpoint). body_html is verbatim and MUST be sanitized by the client. RLS-armed to the caller&#39;s org. Requires the MailUse feature.
+     * @param id
+     * @return ApiResponse<MailMessageView?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getMailMessageWithHttpInfo(id: java.util.UUID) : ApiResponse<MailMessageView?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getMailMessageRequestConfig(id = id)
+
+        return@withContext request<Unit, MailMessageView>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getMailMessage
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun getMailMessageRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/mail/messages/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/mail/threads/{id}
+     * Get one thread with its messages
+     * Returns the thread and its messages (oldest first). body_html is returned verbatim and MUST be sanitized by the client before render. RLS-armed to the caller&#39;s org. Requires the MailUse feature.
+     * @param id
+     * @return MailThreadDetail
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getMailThread(id: java.util.UUID) : MailThreadDetail = withContext(Dispatchers.IO) {
+        val localVarResponse = getMailThreadWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MailThreadDetail
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/mail/threads/{id}
+     * Get one thread with its messages
+     * Returns the thread and its messages (oldest first). body_html is returned verbatim and MUST be sanitized by the client before render. RLS-armed to the caller&#39;s org. Requires the MailUse feature.
+     * @param id
+     * @return ApiResponse<MailThreadDetail?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getMailThreadWithHttpInfo(id: java.util.UUID) : ApiResponse<MailThreadDetail?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getMailThreadRequestConfig(id = id)
+
+        return@withContext request<Unit, MailThreadDetail>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getMailThread
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun getMailThreadRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/mail/threads/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/ops/summary
+     * Per-tenant operational dashboard rollup
+     * Point-in-time operational rollup for the authenticated tenant: work-order funnel counts by stage, aging work orders, P1 SLA risk, mechanic utilization, equipment-status distribution, active substitutions, pending approvals, and open support tickets. Authorized for SUPER_ADMIN / ADMIN; every read is org-scoped under RLS.
+     * @return OpsSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getOpsSummary() : OpsSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = getOpsSummaryWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as OpsSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/ops/summary
+     * Per-tenant operational dashboard rollup
+     * Point-in-time operational rollup for the authenticated tenant: work-order funnel counts by stage, aging work orders, P1 SLA risk, mechanic utilization, equipment-status distribution, active substitutions, pending approvals, and open support tickets. Authorized for SUPER_ADMIN / ADMIN; every read is org-scoped under RLS.
+     * @return ApiResponse<OpsSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getOpsSummaryWithHttpInfo() : ApiResponse<OpsSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getOpsSummaryRequestConfig()
+
+        return@withContext request<Unit, OpsSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getOpsSummary
+     *
+     * @return RequestConfig
+     */
+    fun getOpsSummaryRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/ops/summary",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -4268,6 +6246,102 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/location/arrival-events
+     * Read the site arrival/departure events log (#13)
+     * Ops-facing feed of mechanic site arrivals/departures derived from on-duty location pings (geofenced). OpsDashboardRead-gated; tenant + branch scoped.
+     * @param userId  (optional)
+     * @param branchId  (optional)
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return ArrivalEventPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listArrivalEvents(userId: java.util.UUID? = null, branchId: java.util.UUID? = null, limit: kotlin.Long? = 100L, offset: kotlin.Long? = 0L) : ArrivalEventPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listArrivalEventsWithHttpInfo(userId = userId, branchId = branchId, limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ArrivalEventPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/location/arrival-events
+     * Read the site arrival/departure events log (#13)
+     * Ops-facing feed of mechanic site arrivals/departures derived from on-duty location pings (geofenced). OpsDashboardRead-gated; tenant + branch scoped.
+     * @param userId  (optional)
+     * @param branchId  (optional)
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<ArrivalEventPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listArrivalEventsWithHttpInfo(userId: java.util.UUID?, branchId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<ArrivalEventPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listArrivalEventsRequestConfig(userId = userId, branchId = branchId, limit = limit, offset = offset)
+
+        return@withContext request<Unit, ArrivalEventPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listArrivalEvents
+     *
+     * @param userId  (optional)
+     * @param branchId  (optional)
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun listArrivalEventsRequestConfig(userId: java.util.UUID?, branchId: java.util.UUID?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (userId != null) {
+                    put("user_id", listOf(userId.toString()))
+                }
+                if (branchId != null) {
+                    put("branch_id", listOf(branchId.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/location/arrival-events",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/branches
      * List all branches (also backs support-ticket triage)
      *
@@ -4330,6 +6404,286 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/branches",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/daily-work-plans
+     * List branch-scoped daily work plans
+     * Returns branch-scoped daily work plans (the approval queue) ordered newest plan date first, with NO status filter so DRAFT/REQUESTED plans surface to approvers. Admins see the whole org; other roles see their branch set.
+     * @param planDate Optional single-day filter (YYYY-MM-DD). Absent returns every day. (optional)
+     * @return DailyPlanListPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listDailyWorkPlans(planDate: java.time.LocalDate? = null) : DailyPlanListPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listDailyWorkPlansWithHttpInfo(planDate = planDate)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as DailyPlanListPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/daily-work-plans
+     * List branch-scoped daily work plans
+     * Returns branch-scoped daily work plans (the approval queue) ordered newest plan date first, with NO status filter so DRAFT/REQUESTED plans surface to approvers. Admins see the whole org; other roles see their branch set.
+     * @param planDate Optional single-day filter (YYYY-MM-DD). Absent returns every day. (optional)
+     * @return ApiResponse<DailyPlanListPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listDailyWorkPlansWithHttpInfo(planDate: java.time.LocalDate?) : ApiResponse<DailyPlanListPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listDailyWorkPlansRequestConfig(planDate = planDate)
+
+        return@withContext request<Unit, DailyPlanListPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listDailyWorkPlans
+     *
+     * @param planDate Optional single-day filter (YYYY-MM-DD). Absent returns every day. (optional)
+     * @return RequestConfig
+     */
+    fun listDailyWorkPlansRequestConfig(planDate: java.time.LocalDate?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (planDate != null) {
+                    put("plan_date", listOf(parseDateToQueryString<java.time.LocalDate>(planDate)))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/daily-work-plans",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/equipment/list
+     * Paginated, filterable, branch-scoped equipment list
+     * Read access (WorkOrderReadAll — all authenticated roles). Non-SUPER_ADMIN principals see only rows in their own branch(es). The &#x60;q&#x60; parameter is normalized like the 호기-lookup: strips a leading &#x60;#&#x60; and a trailing &#x60;호기&#x60; suffix then matches leading-zero-insensitively across management_no, equipment_no, model, maker, customer name, site name, and VIN.
+     * @param q Free-text search (호기-normalized, leading-zero-insensitive). (optional)
+     * @param status  (optional)
+     * @param branchId Filter to a specific branch (UUID). (optional)
+     * @param customerId Filter to a specific customer (UUID). (optional)
+     * @param siteId Filter to a specific site (UUID). (optional)
+     * @param model Filter by model name (case-insensitive exact match). (optional)
+     * @param maker Filter by maker name (case-insensitive exact match). (optional)
+     * @param sort  (optional)
+     * @param limit  (optional, default to 50L)
+     * @param offset  (optional, default to 0L)
+     * @return EquipmentListPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listEquipment(q: kotlin.String? = null, status: EquipmentStatus? = null, branchId: java.util.UUID? = null, customerId: java.util.UUID? = null, siteId: java.util.UUID? = null, model: kotlin.String? = null, maker: kotlin.String? = null, sort: EquipmentSortBy? = null, limit: kotlin.Long? = 50L, offset: kotlin.Long? = 0L) : EquipmentListPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listEquipmentWithHttpInfo(q = q, status = status, branchId = branchId, customerId = customerId, siteId = siteId, model = model, maker = maker, sort = sort, limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EquipmentListPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/equipment/list
+     * Paginated, filterable, branch-scoped equipment list
+     * Read access (WorkOrderReadAll — all authenticated roles). Non-SUPER_ADMIN principals see only rows in their own branch(es). The &#x60;q&#x60; parameter is normalized like the 호기-lookup: strips a leading &#x60;#&#x60; and a trailing &#x60;호기&#x60; suffix then matches leading-zero-insensitively across management_no, equipment_no, model, maker, customer name, site name, and VIN.
+     * @param q Free-text search (호기-normalized, leading-zero-insensitive). (optional)
+     * @param status  (optional)
+     * @param branchId Filter to a specific branch (UUID). (optional)
+     * @param customerId Filter to a specific customer (UUID). (optional)
+     * @param siteId Filter to a specific site (UUID). (optional)
+     * @param model Filter by model name (case-insensitive exact match). (optional)
+     * @param maker Filter by maker name (case-insensitive exact match). (optional)
+     * @param sort  (optional)
+     * @param limit  (optional, default to 50L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<EquipmentListPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listEquipmentWithHttpInfo(q: kotlin.String?, status: EquipmentStatus?, branchId: java.util.UUID?, customerId: java.util.UUID?, siteId: java.util.UUID?, model: kotlin.String?, maker: kotlin.String?, sort: EquipmentSortBy?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<EquipmentListPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listEquipmentRequestConfig(q = q, status = status, branchId = branchId, customerId = customerId, siteId = siteId, model = model, maker = maker, sort = sort, limit = limit, offset = offset)
+
+        return@withContext request<Unit, EquipmentListPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listEquipment
+     *
+     * @param q Free-text search (호기-normalized, leading-zero-insensitive). (optional)
+     * @param status  (optional)
+     * @param branchId Filter to a specific branch (UUID). (optional)
+     * @param customerId Filter to a specific customer (UUID). (optional)
+     * @param siteId Filter to a specific site (UUID). (optional)
+     * @param model Filter by model name (case-insensitive exact match). (optional)
+     * @param maker Filter by maker name (case-insensitive exact match). (optional)
+     * @param sort  (optional)
+     * @param limit  (optional, default to 50L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun listEquipmentRequestConfig(q: kotlin.String?, status: EquipmentStatus?, branchId: java.util.UUID?, customerId: java.util.UUID?, siteId: java.util.UUID?, model: kotlin.String?, maker: kotlin.String?, sort: EquipmentSortBy?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (q != null) {
+                    put("q", listOf(q.toString()))
+                }
+                if (status != null) {
+                    put("status", listOf(status.toString()))
+                }
+                if (branchId != null) {
+                    put("branch_id", listOf(branchId.toString()))
+                }
+                if (customerId != null) {
+                    put("customer_id", listOf(customerId.toString()))
+                }
+                if (siteId != null) {
+                    put("site_id", listOf(siteId.toString()))
+                }
+                if (model != null) {
+                    put("model", listOf(model.toString()))
+                }
+                if (maker != null) {
+                    put("maker", listOf(maker.toString()))
+                }
+                if (sort != null) {
+                    put("sort", listOf(sort.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/equipment/list",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/equipment-by-location
+     * Aggregate equipment by site for the dispatch map
+     * Every site visible to the principal with its equipment counts and admin-entered coordinates. Read access (WorkOrderReadAll, all roles); branch-scoped like the substitute search, so a non-SUPER_ADMIN sees only their own branches. Sites with no entered coordinates come back with null latitude/longitude and are listed as ungeocoded rather than pinned.
+     * @return EquipmentByLocationPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listEquipmentByLocation() : EquipmentByLocationPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listEquipmentByLocationWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EquipmentByLocationPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/equipment-by-location
+     * Aggregate equipment by site for the dispatch map
+     * Every site visible to the principal with its equipment counts and admin-entered coordinates. Read access (WorkOrderReadAll, all roles); branch-scoped like the substitute search, so a non-SUPER_ADMIN sees only their own branches. Sites with no entered coordinates come back with null latitude/longitude and are listed as ungeocoded rather than pinned.
+     * @return ApiResponse<EquipmentByLocationPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listEquipmentByLocationWithHttpInfo() : ApiResponse<EquipmentByLocationPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listEquipmentByLocationRequestConfig()
+
+        return@withContext request<Unit, EquipmentByLocationPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listEquipmentByLocation
+     *
+     * @return RequestConfig
+     */
+    fun listEquipmentByLocationRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/equipment-by-location",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -4492,12 +6846,13 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
-     * GET /api/v1/inspections/schedules
-     * List branch-scoped regular inspection schedules
-     *
-     * @param dueStart
-     * @param dueEnd
-     * @return kotlin.collections.List<InspectionScheduleSummary>
+     * GET /api/v1/sales/inquiries
+     * List customer inquiries for the admin inbox (#6)
+     * Admin-gated (SalesManage) inquiry inbox. Optional status filter; results are paged.
+     * @param status  (optional)
+     * @param limit  (optional, default to 50L)
+     * @param offset  (optional, default to 0L)
+     * @return CustomerInquiryPage
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -4506,11 +6861,102 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listInspectionSchedules(dueStart: java.time.LocalDate, dueEnd: java.time.LocalDate) : kotlin.collections.List<InspectionScheduleSummary> = withContext(Dispatchers.IO) {
-        val localVarResponse = listInspectionSchedulesWithHttpInfo(dueStart = dueStart, dueEnd = dueEnd)
+    suspend fun listInquiries(status: InquiryStatus? = null, limit: kotlin.Long? = 50L, offset: kotlin.Long? = 0L) : CustomerInquiryPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listInquiriesWithHttpInfo(status = status, limit = limit, offset = offset)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<InspectionScheduleSummary>
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CustomerInquiryPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/sales/inquiries
+     * List customer inquiries for the admin inbox (#6)
+     * Admin-gated (SalesManage) inquiry inbox. Optional status filter; results are paged.
+     * @param status  (optional)
+     * @param limit  (optional, default to 50L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<CustomerInquiryPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listInquiriesWithHttpInfo(status: InquiryStatus?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<CustomerInquiryPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listInquiriesRequestConfig(status = status, limit = limit, offset = offset)
+
+        return@withContext request<Unit, CustomerInquiryPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listInquiries
+     *
+     * @param status  (optional)
+     * @param limit  (optional, default to 50L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun listInquiriesRequestConfig(status: InquiryStatus?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (status != null) {
+                    put("status", listOf(status.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/sales/inquiries",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/inspections/schedules
+     * List branch-scoped regular inspection schedules
+     *
+     * @param dueStart
+     * @param dueEnd
+     * @param limit  (optional, default to 200L)
+     * @param offset  (optional, default to 0L)
+     * @return InspectionSchedulePage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listInspectionSchedules(dueStart: java.time.LocalDate, dueEnd: java.time.LocalDate, limit: kotlin.Long? = 200L, offset: kotlin.Long? = 0L) : InspectionSchedulePage = withContext(Dispatchers.IO) {
+        val localVarResponse = listInspectionSchedulesWithHttpInfo(dueStart = dueStart, dueEnd = dueEnd, limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as InspectionSchedulePage
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -4530,16 +6976,18 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      *
      * @param dueStart
      * @param dueEnd
-     * @return ApiResponse<kotlin.collections.List<InspectionScheduleSummary>?>
+     * @param limit  (optional, default to 200L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<InspectionSchedulePage?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listInspectionSchedulesWithHttpInfo(dueStart: java.time.LocalDate, dueEnd: java.time.LocalDate) : ApiResponse<kotlin.collections.List<InspectionScheduleSummary>?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listInspectionSchedulesRequestConfig(dueStart = dueStart, dueEnd = dueEnd)
+    suspend fun listInspectionSchedulesWithHttpInfo(dueStart: java.time.LocalDate, dueEnd: java.time.LocalDate, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<InspectionSchedulePage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listInspectionSchedulesRequestConfig(dueStart = dueStart, dueEnd = dueEnd, limit = limit, offset = offset)
 
-        return@withContext request<Unit, kotlin.collections.List<InspectionScheduleSummary>>(
+        return@withContext request<Unit, InspectionSchedulePage>(
             localVariableConfig
         )
     }
@@ -4549,14 +6997,22 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      *
      * @param dueStart
      * @param dueEnd
+     * @param limit  (optional, default to 200L)
+     * @param offset  (optional, default to 0L)
      * @return RequestConfig
      */
-    fun listInspectionSchedulesRequestConfig(dueStart: java.time.LocalDate, dueEnd: java.time.LocalDate) : RequestConfig<Unit> {
+    fun listInspectionSchedulesRequestConfig(dueStart: java.time.LocalDate, dueEnd: java.time.LocalDate, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
                 put("due_start", listOf(parseDateToQueryString<java.time.LocalDate>(dueStart)))
                 put("due_end", listOf(parseDateToQueryString<java.time.LocalDate>(dueEnd)))
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
             }
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
         localVariableHeaders["Accept"] = "application/json"
@@ -4564,6 +7020,84 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/inspections/schedules",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/integrity/findings
+     * List governance findings (anomaly / 검토 필요) for the current org
+     * Lists governance findings raised by the integrity engine (#34): records that need human review such as self-approval (자가 승인 기록) and price anomalies (이상 징후). Findings are framed as \&quot;검토 필요\&quot; — items requiring review, NOT accusations of wrongdoing. Gated to EXECUTIVE and SUPER_ADMIN only (IntegrityFindingsRead); an ADMIN must not read findings about themselves. RLS-armed to the caller&#39;s org. Results are ordered by severity (CRITICAL first) then detected_at descending. This endpoint is not paginated.
+     * @param status Optional lifecycle filter. Omit to return findings of every status. (optional)
+     * @return kotlin.collections.List<GovernanceFinding>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listIntegrityFindings(status: FindingStatus? = null) : kotlin.collections.List<GovernanceFinding> = withContext(Dispatchers.IO) {
+        val localVarResponse = listIntegrityFindingsWithHttpInfo(status = status)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<GovernanceFinding>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/integrity/findings
+     * List governance findings (anomaly / 검토 필요) for the current org
+     * Lists governance findings raised by the integrity engine (#34): records that need human review such as self-approval (자가 승인 기록) and price anomalies (이상 징후). Findings are framed as \&quot;검토 필요\&quot; — items requiring review, NOT accusations of wrongdoing. Gated to EXECUTIVE and SUPER_ADMIN only (IntegrityFindingsRead); an ADMIN must not read findings about themselves. RLS-armed to the caller&#39;s org. Results are ordered by severity (CRITICAL first) then detected_at descending. This endpoint is not paginated.
+     * @param status Optional lifecycle filter. Omit to return findings of every status. (optional)
+     * @return ApiResponse<kotlin.collections.List<GovernanceFinding>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listIntegrityFindingsWithHttpInfo(status: FindingStatus?) : ApiResponse<kotlin.collections.List<GovernanceFinding>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listIntegrityFindingsRequestConfig(status = status)
+
+        return@withContext request<Unit, kotlin.collections.List<GovernanceFinding>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listIntegrityFindings
+     *
+     * @param status Optional lifecycle filter. Omit to return findings of every status. (optional)
+     * @return RequestConfig
+     */
+    fun listIntegrityFindingsRequestConfig(status: FindingStatus?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (status != null) {
+                    put("status", listOf(status.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/integrity/findings",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -4660,6 +7194,178 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/location-consents/ledger",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/mail/folders
+     * List the tenant mailbox folders
+     * Lists the configured mailbox&#39;s folders (Inbox/Sent/…) with per-folder unread + total counts. RLS-armed to the caller&#39;s org. Requires the MailUse feature.
+     * @return kotlin.collections.List<MailFolderView>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listMailFolders() : kotlin.collections.List<MailFolderView> = withContext(Dispatchers.IO) {
+        val localVarResponse = listMailFoldersWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<MailFolderView>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/mail/folders
+     * List the tenant mailbox folders
+     * Lists the configured mailbox&#39;s folders (Inbox/Sent/…) with per-folder unread + total counts. RLS-armed to the caller&#39;s org. Requires the MailUse feature.
+     * @return ApiResponse<kotlin.collections.List<MailFolderView>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listMailFoldersWithHttpInfo() : ApiResponse<kotlin.collections.List<MailFolderView>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listMailFoldersRequestConfig()
+
+        return@withContext request<Unit, kotlin.collections.List<MailFolderView>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listMailFolders
+     *
+     * @return RequestConfig
+     */
+    fun listMailFoldersRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/mail/folders",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/mail/threads
+     * List mail threads (paginated, unread filter, search)
+     * Lists the mailbox&#39;s threads newest-first. Optional filters: unread-only, a full-text search term q, a folder id, and a keyset cursor (before, a unix-second last_message_at). RLS-armed to the caller&#39;s org. Requires the MailUse feature.
+     * @param unread  (optional)
+     * @param q  (optional)
+     * @param folder  (optional)
+     * @param before  (optional)
+     * @param limit  (optional)
+     * @return kotlin.collections.List<MailThreadView>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listMailThreads(unread: kotlin.Boolean? = null, q: kotlin.String? = null, folder: java.util.UUID? = null, before: kotlin.Long? = null, limit: kotlin.Long? = null) : kotlin.collections.List<MailThreadView> = withContext(Dispatchers.IO) {
+        val localVarResponse = listMailThreadsWithHttpInfo(unread = unread, q = q, folder = folder, before = before, limit = limit)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<MailThreadView>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/mail/threads
+     * List mail threads (paginated, unread filter, search)
+     * Lists the mailbox&#39;s threads newest-first. Optional filters: unread-only, a full-text search term q, a folder id, and a keyset cursor (before, a unix-second last_message_at). RLS-armed to the caller&#39;s org. Requires the MailUse feature.
+     * @param unread  (optional)
+     * @param q  (optional)
+     * @param folder  (optional)
+     * @param before  (optional)
+     * @param limit  (optional)
+     * @return ApiResponse<kotlin.collections.List<MailThreadView>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listMailThreadsWithHttpInfo(unread: kotlin.Boolean?, q: kotlin.String?, folder: java.util.UUID?, before: kotlin.Long?, limit: kotlin.Long?) : ApiResponse<kotlin.collections.List<MailThreadView>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listMailThreadsRequestConfig(unread = unread, q = q, folder = folder, before = before, limit = limit)
+
+        return@withContext request<Unit, kotlin.collections.List<MailThreadView>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listMailThreads
+     *
+     * @param unread  (optional)
+     * @param q  (optional)
+     * @param folder  (optional)
+     * @param before  (optional)
+     * @param limit  (optional)
+     * @return RequestConfig
+     */
+    fun listMailThreadsRequestConfig(unread: kotlin.Boolean?, q: kotlin.String?, folder: java.util.UUID?, before: kotlin.Long?, limit: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (unread != null) {
+                    put("unread", listOf(unread.toString()))
+                }
+                if (q != null) {
+                    put("q", listOf(q.toString()))
+                }
+                if (folder != null) {
+                    put("folder", listOf(folder.toString()))
+                }
+                if (before != null) {
+                    put("before", listOf(before.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/mail/threads",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -4833,6 +7539,76 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/passkeys
+     * List the authenticated user&#39;s own passkey credentials
+     * Returns the caller&#39;s own WebAuthn credentials (id and registration / last-use timestamps). No secret material is ever returned.
+     * @return kotlin.collections.List<PasskeySummary>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listPasskeys() : kotlin.collections.List<PasskeySummary> = withContext(Dispatchers.IO) {
+        val localVarResponse = listPasskeysWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<PasskeySummary>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/passkeys
+     * List the authenticated user&#39;s own passkey credentials
+     * Returns the caller&#39;s own WebAuthn credentials (id and registration / last-use timestamps). No secret material is ever returned.
+     * @return ApiResponse<kotlin.collections.List<PasskeySummary>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listPasskeysWithHttpInfo() : ApiResponse<kotlin.collections.List<PasskeySummary>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listPasskeysRequestConfig()
+
+        return@withContext request<Unit, kotlin.collections.List<PasskeySummary>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listPasskeys
+     *
+     * @return RequestConfig
+     */
+    fun listPasskeysRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/passkeys",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/regions
      * List all regions
      *
@@ -4914,7 +7690,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * @param includeUntriaged  (optional)
      * @param limit  (optional, default to 50L)
      * @param cursor  (optional)
-     * @return kotlin.collections.List<SupportTicketSummary>
+     * @return SupportTicketPage
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -4923,11 +7699,11 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listSupportTickets(status: SupportTicketStatus? = null, priority: SupportTicketPriority? = null, category: SupportTicketCategory? = null, origin: SupportTicketOrigin? = null, assigneeUserId: java.util.UUID? = null, includeUntriaged: kotlin.Boolean? = null, limit: kotlin.Long? = 50L, cursor: java.util.UUID? = null) : kotlin.collections.List<SupportTicketSummary> = withContext(Dispatchers.IO) {
+    suspend fun listSupportTickets(status: SupportTicketStatus? = null, priority: SupportTicketPriority? = null, category: SupportTicketCategory? = null, origin: SupportTicketOrigin? = null, assigneeUserId: java.util.UUID? = null, includeUntriaged: kotlin.Boolean? = null, limit: kotlin.Long? = 50L, cursor: java.util.UUID? = null) : SupportTicketPage = withContext(Dispatchers.IO) {
         val localVarResponse = listSupportTicketsWithHttpInfo(status = status, priority = priority, category = category, origin = origin, assigneeUserId = assigneeUserId, includeUntriaged = includeUntriaged, limit = limit, cursor = cursor)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<SupportTicketSummary>
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SupportTicketPage
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -4953,16 +7729,16 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * @param includeUntriaged  (optional)
      * @param limit  (optional, default to 50L)
      * @param cursor  (optional)
-     * @return ApiResponse<kotlin.collections.List<SupportTicketSummary>?>
+     * @return ApiResponse<SupportTicketPage?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listSupportTicketsWithHttpInfo(status: SupportTicketStatus?, priority: SupportTicketPriority?, category: SupportTicketCategory?, origin: SupportTicketOrigin?, assigneeUserId: java.util.UUID?, includeUntriaged: kotlin.Boolean?, limit: kotlin.Long?, cursor: java.util.UUID?) : ApiResponse<kotlin.collections.List<SupportTicketSummary>?> = withContext(Dispatchers.IO) {
+    suspend fun listSupportTicketsWithHttpInfo(status: SupportTicketStatus?, priority: SupportTicketPriority?, category: SupportTicketCategory?, origin: SupportTicketOrigin?, assigneeUserId: java.util.UUID?, includeUntriaged: kotlin.Boolean?, limit: kotlin.Long?, cursor: java.util.UUID?) : ApiResponse<SupportTicketPage?> = withContext(Dispatchers.IO) {
         val localVariableConfig = listSupportTicketsRequestConfig(status = status, priority = priority, category = category, origin = origin, assigneeUserId = assigneeUserId, includeUntriaged = includeUntriaged, limit = limit, cursor = cursor)
 
-        return@withContext request<Unit, kotlin.collections.List<SupportTicketSummary>>(
+        return@withContext request<Unit, SupportTicketPage>(
             localVariableConfig
         )
     }
@@ -5028,7 +7804,8 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      *
      * @param includeInactive  (optional)
      * @param limit  (optional, default to 50L)
-     * @return kotlin.collections.List<UserSummary>
+     * @param offset  (optional, default to 0L)
+     * @return UserPage
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -5037,11 +7814,11 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listUsers(includeInactive: kotlin.Boolean? = null, limit: kotlin.Long? = 50L) : kotlin.collections.List<UserSummary> = withContext(Dispatchers.IO) {
-        val localVarResponse = listUsersWithHttpInfo(includeInactive = includeInactive, limit = limit)
+    suspend fun listUsers(includeInactive: kotlin.Boolean? = null, limit: kotlin.Long? = 50L, offset: kotlin.Long? = 0L) : UserPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listUsersWithHttpInfo(includeInactive = includeInactive, limit = limit, offset = offset)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<UserSummary>
+            ResponseType.Success -> (localVarResponse as Success<*>).data as UserPage
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -5061,16 +7838,17 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      *
      * @param includeInactive  (optional)
      * @param limit  (optional, default to 50L)
-     * @return ApiResponse<kotlin.collections.List<UserSummary>?>
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<UserPage?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listUsersWithHttpInfo(includeInactive: kotlin.Boolean?, limit: kotlin.Long?) : ApiResponse<kotlin.collections.List<UserSummary>?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listUsersRequestConfig(includeInactive = includeInactive, limit = limit)
+    suspend fun listUsersWithHttpInfo(includeInactive: kotlin.Boolean?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<UserPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listUsersRequestConfig(includeInactive = includeInactive, limit = limit, offset = offset)
 
-        return@withContext request<Unit, kotlin.collections.List<UserSummary>>(
+        return@withContext request<Unit, UserPage>(
             localVariableConfig
         )
     }
@@ -5080,9 +7858,10 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      *
      * @param includeInactive  (optional)
      * @param limit  (optional, default to 50L)
+     * @param offset  (optional, default to 0L)
      * @return RequestConfig
      */
-    fun listUsersRequestConfig(includeInactive: kotlin.Boolean?, limit: kotlin.Long?) : RequestConfig<Unit> {
+    fun listUsersRequestConfig(includeInactive: kotlin.Boolean?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
@@ -5091,6 +7870,9 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
                 }
                 if (limit != null) {
                     put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
                 }
             }
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
@@ -5455,6 +8237,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure".replace("{"+"purchaseRequestId"+"}", encodeURIComponent(purchaseRequestId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/evidence/staging-presign
+     * Issue a presigned STAGING upload ticket for mechanic evidence and begin server-side media processing (transcode/optimize before storage)
+     *
+     * @param evidenceStagingPresignRequest
+     * @return EvidenceStagingPresignResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun presignEvidenceStagingUpload(evidenceStagingPresignRequest: EvidenceStagingPresignRequest) : EvidenceStagingPresignResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = presignEvidenceStagingUploadWithHttpInfo(evidenceStagingPresignRequest = evidenceStagingPresignRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EvidenceStagingPresignResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/evidence/staging-presign
+     * Issue a presigned STAGING upload ticket for mechanic evidence and begin server-side media processing (transcode/optimize before storage)
+     *
+     * @param evidenceStagingPresignRequest
+     * @return ApiResponse<EvidenceStagingPresignResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun presignEvidenceStagingUploadWithHttpInfo(evidenceStagingPresignRequest: EvidenceStagingPresignRequest) : ApiResponse<EvidenceStagingPresignResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = presignEvidenceStagingUploadRequestConfig(evidenceStagingPresignRequest = evidenceStagingPresignRequest)
+
+        return@withContext request<EvidenceStagingPresignRequest, EvidenceStagingPresignResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation presignEvidenceStagingUpload
+     *
+     * @param evidenceStagingPresignRequest
+     * @return RequestConfig
+     */
+    fun presignEvidenceStagingUploadRequestConfig(evidenceStagingPresignRequest: EvidenceStagingPresignRequest) : RequestConfig<EvidenceStagingPresignRequest> {
+        val localVariableBody = evidenceStagingPresignRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/evidence/staging-presign",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -5908,6 +8764,85 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * DELETE /api/platform/orgs/{id}
+     * Remove a tenant — guarded shell removal, or opt-in force-delete with data (platform vendor tier)
+     * Remove a tenant organization. Platform-super-admin (vendor tier) ONLY: the route sits behind the platform extractor, so a tenant token is rejected with 403 before the handler runs and a tenant&#39;s own admin can never reach it.  Two paths, selected by the opt-in &#x60;delete_data&#x60; query parameter (default false):  - &#x60;delete_data&#x3D;false&#x60; (default) — GUARDED removal, audited as &#x60;platform.tenant.remove&#x60;. Deletes only an empty/test tenant&#39;s onboarding shell (the seeded admin user, its auth credentials, branch memberships, branches, and regions). REFUSED with 409 (&#x60;code&#x60; &#x3D; &#x60;tenant_has_data&#x60;) when the tenant owns real operational data (equipment, work orders, sites, customers, inspections, sales, financial, messenger, consents, attendance, or governance findings) — archive the tenant instead.  - &#x60;delete_data&#x3D;true&#x60; — FORCE removal, audited as &#x60;platform.tenant.force_remove&#x60;. The DESTRUCTIVE path: erases the org AND all of its data. Fail-closed by a status rail — REFUSED with 409 (&#x60;code&#x60; &#x3D; &#x60;tenant_active&#x60;) unless the tenant is ARCHIVED, so an active tenant can never be force-wiped by a single call; archive it (reversible) first.  Both paths delete in one transaction and preserve the tenant&#39;s immutable audit trail (re-homed to the platform sentinel).
+     * @param id
+     * @param deleteData Opt-in FORCE removal. When true, erase the tenant AND all of its data (requires the tenant to be ARCHIVED first). Defaults to false — the guarded path that removes only an empty onboarding shell. (optional, default to false)
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun removePlatformOrg(id: java.util.UUID, deleteData: kotlin.Boolean? = false) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = removePlatformOrgWithHttpInfo(id = id, deleteData = deleteData)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * DELETE /api/platform/orgs/{id}
+     * Remove a tenant — guarded shell removal, or opt-in force-delete with data (platform vendor tier)
+     * Remove a tenant organization. Platform-super-admin (vendor tier) ONLY: the route sits behind the platform extractor, so a tenant token is rejected with 403 before the handler runs and a tenant&#39;s own admin can never reach it.  Two paths, selected by the opt-in &#x60;delete_data&#x60; query parameter (default false):  - &#x60;delete_data&#x3D;false&#x60; (default) — GUARDED removal, audited as &#x60;platform.tenant.remove&#x60;. Deletes only an empty/test tenant&#39;s onboarding shell (the seeded admin user, its auth credentials, branch memberships, branches, and regions). REFUSED with 409 (&#x60;code&#x60; &#x3D; &#x60;tenant_has_data&#x60;) when the tenant owns real operational data (equipment, work orders, sites, customers, inspections, sales, financial, messenger, consents, attendance, or governance findings) — archive the tenant instead.  - &#x60;delete_data&#x3D;true&#x60; — FORCE removal, audited as &#x60;platform.tenant.force_remove&#x60;. The DESTRUCTIVE path: erases the org AND all of its data. Fail-closed by a status rail — REFUSED with 409 (&#x60;code&#x60; &#x3D; &#x60;tenant_active&#x60;) unless the tenant is ARCHIVED, so an active tenant can never be force-wiped by a single call; archive it (reversible) first.  Both paths delete in one transaction and preserve the tenant&#39;s immutable audit trail (re-homed to the platform sentinel).
+     * @param id
+     * @param deleteData Opt-in FORCE removal. When true, erase the tenant AND all of its data (requires the tenant to be ARCHIVED first). Defaults to false — the guarded path that removes only an empty onboarding shell. (optional, default to false)
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun removePlatformOrgWithHttpInfo(id: java.util.UUID, deleteData: kotlin.Boolean?) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = removePlatformOrgRequestConfig(id = id, deleteData = deleteData)
+
+        return@withContext request<Unit, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation removePlatformOrg
+     *
+     * @param id
+     * @param deleteData Opt-in FORCE removal. When true, erase the tenant AND all of its data (requires the tenant to be ARCHIVED first). Defaults to false — the guarded path that removes only an empty onboarding shell. (optional, default to false)
+     * @return RequestConfig
+     */
+    fun removePlatformOrgRequestConfig(id: java.util.UUID, deleteData: kotlin.Boolean?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (deleteData != null) {
+                    put("delete_data", listOf(deleteData.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.DELETE,
+            path = "/api/platform/orgs/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/sync
      * Replay an idempotent mobile offline-operation batch
      *
@@ -5978,6 +8913,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/sync",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/mail/reply
+     * Reply to a message (sets In-Reply-To / References)
+     * Sends a reply through the tenant&#39;s SMTP server, stamping the In-Reply-To and References threading headers, and persists it as direction&#x3D;OUT. Audited (email.reply). Requires the MailUse feature.
+     * @param sendMailRequest
+     * @return SendMailResult
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun replyMail(sendMailRequest: SendMailRequest) : SendMailResult = withContext(Dispatchers.IO) {
+        val localVarResponse = replyMailWithHttpInfo(sendMailRequest = sendMailRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SendMailResult
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/mail/reply
+     * Reply to a message (sets In-Reply-To / References)
+     * Sends a reply through the tenant&#39;s SMTP server, stamping the In-Reply-To and References threading headers, and persists it as direction&#x3D;OUT. Audited (email.reply). Requires the MailUse feature.
+     * @param sendMailRequest
+     * @return ApiResponse<SendMailResult?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun replyMailWithHttpInfo(sendMailRequest: SendMailRequest) : ApiResponse<SendMailResult?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = replyMailRequestConfig(sendMailRequest = sendMailRequest)
+
+        return@withContext request<SendMailRequest, SendMailResult>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation replyMail
+     *
+     * @param sendMailRequest
+     * @return RequestConfig
+     */
+    fun replyMailRequestConfig(sendMailRequest: SendMailRequest) : RequestConfig<SendMailRequest> {
+        val localVariableBody = sendMailRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/mail/reply",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -6364,6 +9373,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/equipment-substitutions/{id}/return
+     * Return an active substitute (대차) assignment
+     * Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+     * @param id
+     * @param returnSubstituteRequest
+     * @return SubstituteAssignment
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun returnEquipmentSubstitute(id: java.util.UUID, returnSubstituteRequest: ReturnSubstituteRequest) : SubstituteAssignment = withContext(Dispatchers.IO) {
+        val localVarResponse = returnEquipmentSubstituteWithHttpInfo(id = id, returnSubstituteRequest = returnSubstituteRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SubstituteAssignment
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/equipment-substitutions/{id}/return
+     * Return an active substitute (대차) assignment
+     * Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+     * @param id
+     * @param returnSubstituteRequest
+     * @return ApiResponse<SubstituteAssignment?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun returnEquipmentSubstituteWithHttpInfo(id: java.util.UUID, returnSubstituteRequest: ReturnSubstituteRequest) : ApiResponse<SubstituteAssignment?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = returnEquipmentSubstituteRequestConfig(id = id, returnSubstituteRequest = returnSubstituteRequest)
+
+        return@withContext request<ReturnSubstituteRequest, SubstituteAssignment>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation returnEquipmentSubstitute
+     *
+     * @param id
+     * @param returnSubstituteRequest
+     * @return RequestConfig
+     */
+    fun returnEquipmentSubstituteRequestConfig(id: java.util.UUID, returnSubstituteRequest: ReturnSubstituteRequest) : RequestConfig<ReturnSubstituteRequest> {
+        val localVariableBody = returnSubstituteRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/equipment-substitutions/{id}/return".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/daily-work-plans/{planId}/review
      * Review a daily work plan
      *
@@ -6600,6 +9686,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/mail/send
+     * Compose and send a new message
+     * Sends a new outbound message through the tenant&#39;s SMTP server and persists it as a direction&#x3D;OUT message. The From is constrained to the configured account address. Audited (email.send). Requires the MailUse feature.
+     * @param sendMailRequest
+     * @return SendMailResult
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun sendMail(sendMailRequest: SendMailRequest) : SendMailResult = withContext(Dispatchers.IO) {
+        val localVarResponse = sendMailWithHttpInfo(sendMailRequest = sendMailRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SendMailResult
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/mail/send
+     * Compose and send a new message
+     * Sends a new outbound message through the tenant&#39;s SMTP server and persists it as a direction&#x3D;OUT message. The From is constrained to the configured account address. Audited (email.send). Requires the MailUse feature.
+     * @param sendMailRequest
+     * @return ApiResponse<SendMailResult?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun sendMailWithHttpInfo(sendMailRequest: SendMailRequest) : ApiResponse<SendMailResult?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = sendMailRequestConfig(sendMailRequest = sendMailRequest)
+
+        return@withContext request<SendMailRequest, SendMailResult>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation sendMail
+     *
+     * @param sendMailRequest
+     * @return RequestConfig
+     */
+    fun sendMailRequestConfig(sendMailRequest: SendMailRequest) : RequestConfig<SendMailRequest> {
+        val localVariableBody = sendMailRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/mail/send",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/messenger/threads/{threadId}/messages
      * Send a message with optional evidence attachments
      *
@@ -6822,6 +9982,331 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/storefront/listings/{id}
+     * Read one public sales listing (#6)
+     * Public, unauthenticated read of a single storefront-visible listing. Returns 404 if the listing does not exist or is not public.
+     * @param id
+     * @return SalesListingView
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun storefrontGetListing(id: java.util.UUID) : SalesListingView = withContext(Dispatchers.IO) {
+        val localVarResponse = storefrontGetListingWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SalesListingView
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/storefront/listings/{id}
+     * Read one public sales listing (#6)
+     * Public, unauthenticated read of a single storefront-visible listing. Returns 404 if the listing does not exist or is not public.
+     * @param id
+     * @return ApiResponse<SalesListingView?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun storefrontGetListingWithHttpInfo(id: java.util.UUID) : ApiResponse<SalesListingView?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = storefrontGetListingRequestConfig(id = id)
+
+        return@withContext request<Unit, SalesListingView>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation storefrontGetListing
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun storefrontGetListingRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/storefront/listings/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/storefront/listings/{id}/media/{media_id}
+     * Serve one public sales-listing photo (#6)
+     * Public, unauthenticated serve of one listing photo&#39;s bytes, streamed from the object store. The media must belong to the listing and the listing must be storefront-visible (published/reserved); otherwise 404. The response body is the raw image with its stored content type.
+     * @param id
+     * @param mediaId
+     * @return java.io.File
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun storefrontGetListingMedia(id: java.util.UUID, mediaId: java.util.UUID) : java.io.File = withContext(Dispatchers.IO) {
+        val localVarResponse = storefrontGetListingMediaWithHttpInfo(id = id, mediaId = mediaId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as java.io.File
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/storefront/listings/{id}/media/{media_id}
+     * Serve one public sales-listing photo (#6)
+     * Public, unauthenticated serve of one listing photo&#39;s bytes, streamed from the object store. The media must belong to the listing and the listing must be storefront-visible (published/reserved); otherwise 404. The response body is the raw image with its stored content type.
+     * @param id
+     * @param mediaId
+     * @return ApiResponse<java.io.File?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun storefrontGetListingMediaWithHttpInfo(id: java.util.UUID, mediaId: java.util.UUID) : ApiResponse<java.io.File?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = storefrontGetListingMediaRequestConfig(id = id, mediaId = mediaId)
+
+        return@withContext request<Unit, java.io.File>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation storefrontGetListingMedia
+     *
+     * @param id
+     * @param mediaId
+     * @return RequestConfig
+     */
+    fun storefrontGetListingMediaRequestConfig(id: java.util.UUID, mediaId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/storefront/listings/{id}/media/{media_id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())).replace("{"+"media_id"+"}", encodeURIComponent(mediaId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/storefront/listings
+     * List published sales listings for the public storefront (#6)
+     * Public, unauthenticated catalog read. Returns only published/reserved listings (the storefront-visible set). Carries no bearer token; the store is scoped to the KNL org. Optional filters narrow by fuel/drive kind and sale/rental type; results are paged.
+     * @param kind  (optional)
+     * @param condition  (optional)
+     * @param listingType  (optional)
+     * @param limit  (optional, default to 24L)
+     * @param offset  (optional, default to 0L)
+     * @return SalesListingPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun storefrontListListings(kind: ListingKind? = null, condition: ListingCondition? = null, listingType: ListingType? = null, limit: kotlin.Long? = 24L, offset: kotlin.Long? = 0L) : SalesListingPage = withContext(Dispatchers.IO) {
+        val localVarResponse = storefrontListListingsWithHttpInfo(kind = kind, condition = condition, listingType = listingType, limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as SalesListingPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/storefront/listings
+     * List published sales listings for the public storefront (#6)
+     * Public, unauthenticated catalog read. Returns only published/reserved listings (the storefront-visible set). Carries no bearer token; the store is scoped to the KNL org. Optional filters narrow by fuel/drive kind and sale/rental type; results are paged.
+     * @param kind  (optional)
+     * @param condition  (optional)
+     * @param listingType  (optional)
+     * @param limit  (optional, default to 24L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<SalesListingPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun storefrontListListingsWithHttpInfo(kind: ListingKind?, condition: ListingCondition?, listingType: ListingType?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<SalesListingPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = storefrontListListingsRequestConfig(kind = kind, condition = condition, listingType = listingType, limit = limit, offset = offset)
+
+        return@withContext request<Unit, SalesListingPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation storefrontListListings
+     *
+     * @param kind  (optional)
+     * @param condition  (optional)
+     * @param listingType  (optional)
+     * @param limit  (optional, default to 24L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun storefrontListListingsRequestConfig(kind: ListingKind?, condition: ListingCondition?, listingType: ListingType?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (kind != null) {
+                    put("kind", listOf(kind.toString()))
+                }
+                if (condition != null) {
+                    put("condition", listOf(condition.toString()))
+                }
+                if (listingType != null) {
+                    put("listing_type", listOf(listingType.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/storefront/listings",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/storefront/inquiries
+     * Submit a public customer inquiry (#6)
+     * Public, unauthenticated lead intake. Accepts the customer&#39;s contact details and topic and acknowledges receipt without echoing any field. Generic validation; a bad payload returns 400.
+     * @param submitInquiryRequest
+     * @return InquiryAck
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun submitInquiry(submitInquiryRequest: SubmitInquiryRequest) : InquiryAck = withContext(Dispatchers.IO) {
+        val localVarResponse = submitInquiryWithHttpInfo(submitInquiryRequest = submitInquiryRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as InquiryAck
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/storefront/inquiries
+     * Submit a public customer inquiry (#6)
+     * Public, unauthenticated lead intake. Accepts the customer&#39;s contact details and topic and acknowledges receipt without echoing any field. Generic validation; a bad payload returns 400.
+     * @param submitInquiryRequest
+     * @return ApiResponse<InquiryAck?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun submitInquiryWithHttpInfo(submitInquiryRequest: SubmitInquiryRequest) : ApiResponse<InquiryAck?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = submitInquiryRequestConfig(submitInquiryRequest = submitInquiryRequest)
+
+        return@withContext request<SubmitInquiryRequest, InquiryAck>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation submitInquiry
+     *
+     * @param submitInquiryRequest
+     * @return RequestConfig
+     */
+    fun submitInquiryRequestConfig(submitInquiryRequest: SubmitInquiryRequest) : RequestConfig<SubmitInquiryRequest> {
+        val localVariableBody = submitInquiryRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/storefront/inquiries",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = false,
             body = localVariableBody
         )
     }
@@ -7125,6 +10610,76 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/mail/account/test
+     * Test the SMTP connection with the stored credentials
+     * Authenticates to the tenant&#39;s configured SMTP server using the stored credentials and reports a structured result. Never leaks the secret; the error_code is a stable, non-secret token. Requires the MailAccountManage feature.
+     * @return MailTestConnectionResult
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun testMailAccountConnection() : MailTestConnectionResult = withContext(Dispatchers.IO) {
+        val localVarResponse = testMailAccountConnectionWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MailTestConnectionResult
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/mail/account/test
+     * Test the SMTP connection with the stored credentials
+     * Authenticates to the tenant&#39;s configured SMTP server using the stored credentials and reports a structured result. Never leaks the secret; the error_code is a stable, non-secret token. Requires the MailAccountManage feature.
+     * @return ApiResponse<MailTestConnectionResult?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun testMailAccountConnectionWithHttpInfo() : ApiResponse<MailTestConnectionResult?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = testMailAccountConnectionRequestConfig()
+
+        return@withContext request<Unit, MailTestConnectionResult>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation testMailAccountConnection
+     *
+     * @return RequestConfig
+     */
+    fun testMailAccountConnectionRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/mail/account/test",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/support/tickets/{id}/transition
      * Drive the support ticket status FSM
      *
@@ -7194,6 +10749,83 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/support/tickets/{id}/transition".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/integrity/findings/{id}/triage
+     * Triage (review) a governance finding
+     * Transitions an OPEN finding to REVIEWED, DISMISSED, or ESCALATED with an optional reviewer memo. A memo is required when dismissing or escalating. Only OPEN findings can be triaged. The triage itself is audited. Gated to EXECUTIVE and SUPER_ADMIN only (IntegrityFindingTriage).
+     * @param id
+     * @param triageFindingRequest
+     * @return GovernanceFinding
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun triageIntegrityFinding(id: java.util.UUID, triageFindingRequest: TriageFindingRequest) : GovernanceFinding = withContext(Dispatchers.IO) {
+        val localVarResponse = triageIntegrityFindingWithHttpInfo(id = id, triageFindingRequest = triageFindingRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as GovernanceFinding
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/integrity/findings/{id}/triage
+     * Triage (review) a governance finding
+     * Transitions an OPEN finding to REVIEWED, DISMISSED, or ESCALATED with an optional reviewer memo. A memo is required when dismissing or escalating. Only OPEN findings can be triaged. The triage itself is audited. Gated to EXECUTIVE and SUPER_ADMIN only (IntegrityFindingTriage).
+     * @param id
+     * @param triageFindingRequest
+     * @return ApiResponse<GovernanceFinding?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun triageIntegrityFindingWithHttpInfo(id: java.util.UUID, triageFindingRequest: TriageFindingRequest) : ApiResponse<GovernanceFinding?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = triageIntegrityFindingRequestConfig(id = id, triageFindingRequest = triageFindingRequest)
+
+        return@withContext request<TriageFindingRequest, GovernanceFinding>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation triageIntegrityFinding
+     *
+     * @param id
+     * @param triageFindingRequest
+     * @return RequestConfig
+     */
+    fun triageIntegrityFindingRequestConfig(id: java.util.UUID, triageFindingRequest: TriageFindingRequest) : RequestConfig<TriageFindingRequest> {
+        val localVariableBody = triageFindingRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/integrity/findings/{id}/triage".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -7420,6 +11052,308 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.PATCH,
             path = "/api/v1/equipment/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PATCH /api/v1/sales/inquiries/{id}
+     * Update a customer inquiry&#39;s triage status (#6)
+     * Admin-gated (SalesManage). Transitions an inquiry between NEW/CONTACTED/CLOSED.
+     * @param id
+     * @param updateInquiryStatusRequest
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun updateInquiryStatus(id: java.util.UUID, updateInquiryStatusRequest: UpdateInquiryStatusRequest) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = updateInquiryStatusWithHttpInfo(id = id, updateInquiryStatusRequest = updateInquiryStatusRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PATCH /api/v1/sales/inquiries/{id}
+     * Update a customer inquiry&#39;s triage status (#6)
+     * Admin-gated (SalesManage). Transitions an inquiry between NEW/CONTACTED/CLOSED.
+     * @param id
+     * @param updateInquiryStatusRequest
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun updateInquiryStatusWithHttpInfo(id: java.util.UUID, updateInquiryStatusRequest: UpdateInquiryStatusRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = updateInquiryStatusRequestConfig(id = id, updateInquiryStatusRequest = updateInquiryStatusRequest)
+
+        return@withContext request<UpdateInquiryStatusRequest, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation updateInquiryStatus
+     *
+     * @param id
+     * @param updateInquiryStatusRequest
+     * @return RequestConfig
+     */
+    fun updateInquiryStatusRequestConfig(id: java.util.UUID, updateInquiryStatusRequest: UpdateInquiryStatusRequest) : RequestConfig<UpdateInquiryStatusRequest> {
+        val localVariableBody = updateInquiryStatusRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PATCH,
+            path = "/api/v1/sales/inquiries/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PATCH /api/v1/sales/listings/{id}
+     * Update a sales listing (#6)
+     * Admin-gated (SalesManage). Partial update: absent keys are left unchanged; nullable keys explicitly set to null clear the column. At least one field must be supplied.
+     * @param id
+     * @param updateListingRequest
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun updateListing(id: java.util.UUID, updateListingRequest: UpdateListingRequest) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = updateListingWithHttpInfo(id = id, updateListingRequest = updateListingRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PATCH /api/v1/sales/listings/{id}
+     * Update a sales listing (#6)
+     * Admin-gated (SalesManage). Partial update: absent keys are left unchanged; nullable keys explicitly set to null clear the column. At least one field must be supplied.
+     * @param id
+     * @param updateListingRequest
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun updateListingWithHttpInfo(id: java.util.UUID, updateListingRequest: UpdateListingRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = updateListingRequestConfig(id = id, updateListingRequest = updateListingRequest)
+
+        return@withContext request<UpdateListingRequest, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation updateListing
+     *
+     * @param id
+     * @param updateListingRequest
+     * @return RequestConfig
+     */
+    fun updateListingRequestConfig(id: java.util.UUID, updateListingRequest: UpdateListingRequest) : RequestConfig<UpdateListingRequest> {
+        val localVariableBody = updateListingRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PATCH,
+            path = "/api/v1/sales/listings/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PATCH /api/v1/regions/{id}
+     * Rename a region
+     *
+     * @param id
+     * @param updateRegionRequest
+     * @return RegionSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun updateRegion(id: java.util.UUID, updateRegionRequest: UpdateRegionRequest) : RegionSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = updateRegionWithHttpInfo(id = id, updateRegionRequest = updateRegionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as RegionSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PATCH /api/v1/regions/{id}
+     * Rename a region
+     *
+     * @param id
+     * @param updateRegionRequest
+     * @return ApiResponse<RegionSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun updateRegionWithHttpInfo(id: java.util.UUID, updateRegionRequest: UpdateRegionRequest) : ApiResponse<RegionSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = updateRegionRequestConfig(id = id, updateRegionRequest = updateRegionRequest)
+
+        return@withContext request<UpdateRegionRequest, RegionSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation updateRegion
+     *
+     * @param id
+     * @param updateRegionRequest
+     * @return RequestConfig
+     */
+    fun updateRegionRequestConfig(id: java.util.UUID, updateRegionRequest: UpdateRegionRequest) : RequestConfig<UpdateRegionRequest> {
+        val localVariableBody = updateRegionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PATCH,
+            path = "/api/v1/regions/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PATCH /api/v1/sites/{id}
+     * Update a site&#39;s coordinates and administrative address
+     * Admin-gated (EquipmentManage). The only coordinate entry point: a site is pinnable on the dispatch map only once an admin writes a valid lat/lon pair here. Latitude/longitude must be updated together and fall within WGS84 ranges; supplying one without the other is a 422. Only supplied fields are written; nullable fields explicitly set to null are cleared.
+     * @param id
+     * @param updateSiteRequest
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun updateSite(id: java.util.UUID, updateSiteRequest: UpdateSiteRequest) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = updateSiteWithHttpInfo(id = id, updateSiteRequest = updateSiteRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PATCH /api/v1/sites/{id}
+     * Update a site&#39;s coordinates and administrative address
+     * Admin-gated (EquipmentManage). The only coordinate entry point: a site is pinnable on the dispatch map only once an admin writes a valid lat/lon pair here. Latitude/longitude must be updated together and fall within WGS84 ranges; supplying one without the other is a 422. Only supplied fields are written; nullable fields explicitly set to null are cleared.
+     * @param id
+     * @param updateSiteRequest
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun updateSiteWithHttpInfo(id: java.util.UUID, updateSiteRequest: UpdateSiteRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = updateSiteRequestConfig(id = id, updateSiteRequest = updateSiteRequest)
+
+        return@withContext request<UpdateSiteRequest, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation updateSite
+     *
+     * @param id
+     * @param updateSiteRequest
+     * @return RequestConfig
+     */
+    fun updateSiteRequestConfig(id: java.util.UUID, updateSiteRequest: UpdateSiteRequest) : RequestConfig<UpdateSiteRequest> {
+        val localVariableBody = updateSiteRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PATCH,
+            path = "/api/v1/sites/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

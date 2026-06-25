@@ -18,8 +18,14 @@ path = "src/lib.rs"
 [dependencies]
 axum = { workspace = true }
 http = { workspace = true }
+mnt-comms-adapter-imap = { workspace = true }
+mnt-comms-adapter-postgres = { workspace = true }
+mnt-comms-application = { workspace = true }
+mnt-comms-credential-cipher = { workspace = true }
+mnt-comms-rest = { workspace = true }
 mnt-compliance-adapter-postgres = { workspace = true }
 mnt-compliance-rest = { workspace = true }
+mnt-integrity = { workspace = true }
 mnt-financial-adapter-postgres = { workspace = true }
 mnt-financial-rest = { workspace = true }
 mnt-identity-adapter-postgres = { workspace = true }
@@ -28,15 +34,20 @@ mnt-inspection-adapter-postgres = { workspace = true }
 mnt-inspection-rest = { workspace = true }
 mnt-support-adapter-postgres = { workspace = true }
 mnt-support-rest = { workspace = true }
+mnt-sales-adapter-postgres = { workspace = true }
+mnt-sales-rest = { workspace = true }
 mnt-kernel-core = { workspace = true }
 mnt-messenger-adapter-postgres = { workspace = true }
 mnt-messenger-rest = { workspace = true }
 mnt-platform-auth = { path = "../crates/platform/auth" }
 mnt-platform-auth-rest = { workspace = true }
 mnt-platform-authz = { path = "../crates/platform/authz" }
+mnt-platform-request-context = { workspace = true }
 mnt-platform-db = { workspace = true }
+mnt-platform-email = { workspace = true }
 mnt-platform-jobs = { workspace = true }
 mnt-platform-provisioning = { path = "../crates/platform/provisioning" }
+mnt-platform-rest = { path = "../crates/platform/platform-rest" }
 mnt-platform-push = { workspace = true }
 mnt-platform-realtime = { workspace = true }
 mnt-platform-storage = { workspace = true }
@@ -60,8 +71,8 @@ serde_json = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
-tokio = { workspace = true, features = ["net", "signal", "time"] }
-tower-http = { workspace = true, features = ["limit", "timeout", "trace"] }
+tokio = { workspace = true, features = ["net", "signal", "sync", "time"] }
+tower-http = { workspace = true, features = ["timeout", "trace"] }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json"] }

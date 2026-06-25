@@ -19,6 +19,42 @@ paths:
           description: Service dependencies are ready.
         '503':
           description: A required dependency is unavailable.
+  /.well-known/apple-app-site-association:
+    get:
+      operationId: appleAppSiteAssociation
+      summary: Apple App Site Association (native passkeys)
+      description: >-
+        Public, unauthenticated association document Apple fetches over the RP
+        origin to authorize the native iOS app's passkeys. The
+        `webcredentials.apps` list is sourced from `MNT_IOS_APP_IDS`; an
+        unconfigured deployment serves a valid empty document. Served as
+        `application/json` (no file extension, per Apple's requirement).
+      responses:
+        '200':
+          description: The Apple App Site Association document.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppleAppSiteAssociation'
+  /.well-known/assetlinks.json:
+    get:
+      operationId: androidAssetLinks
+      summary: Android Digital Asset Links (native passkeys)
+      description: >-
+        Public, unauthenticated Digital Asset Links document Android fetches to
+        authorize the native app's passkeys for the RP domain. The package and
+        signing-cert fingerprints come from `MNT_ANDROID_PACKAGE` /
+        `MNT_ANDROID_CERT_SHA256`; an unconfigured deployment serves an empty
+        JSON array. Served as `application/json`.
+      responses:
+        '200':
+          description: The Android Digital Asset Links statements.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AndroidAssetLinkStatement'
   /api/v1/ws:
     get:
       operationId: connectRealtimeWebSocket
@@ -227,6 +263,28 @@ paths:
               schema:
                 $ref: '#/components/schemas/TargetChangeRequestSummary'
   /api/daily-work-plans:
+    get:
+      operationId: listDailyWorkPlans
+      summary: List branch-scoped daily work plans
+      description: Returns branch-scoped daily work plans (the approval queue) ordered newest plan
+        date first, with NO status filter so DRAFT/REQUESTED plans surface to approvers. Admins see
+        the whole org; other roles see their branch set.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: plan_date
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Date'
+        description: Optional single-day filter (YYYY-MM-DD). Absent returns every day.
+      responses:
+        '200':
+          description: Daily work plans for the caller's scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyPlanListPage'
     post:
       operationId: createDailyWorkPlan
       summary: Create a daily work plan
@@ -241,6 +299,21 @@ paths:
       responses:
         '201':
           description: Daily plan created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyPlanSummary'
+  /api/daily-work-plans/{planId}:
+    get:
+      operationId: getDailyWorkPlan
+      summary: Read a daily work plan by id
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/PlanId'
+      responses:
+        '200':
+          description: Daily plan found.
           content:
             application/json:
               schema:
@@ -366,6 +439,33 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '422':
           $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/ops/summary:
+    get:
+      operationId: getOpsSummary
+      summary: Per-tenant operational dashboard rollup
+      description: 'Point-in-time operational rollup for the authenticated tenant: work-order funnel counts
+        by stage, aging work orders, P1 SLA risk, mechanic utilization, equipment-status distribution,
+        active substitutions, pending approvals, and open support tickets. Authorized for SUPER_ADMIN /
+        ADMIN; every read is org-scoped under RLS.'
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Operational summary scoped to the authenticated tenant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpsSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '503':
           description: JWT verification is not configured.
           content:
@@ -525,15 +625,30 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/Date'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 500
+          default: 200
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
       responses:
         '200':
-          description: Inspection schedules due in the requested date range.
+          description: A page of inspection schedules due in the requested range.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/InspectionScheduleSummary'
+                $ref: '#/components/schemas/InspectionSchedulePage'
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -680,13 +795,13 @@ paths:
           $ref: '#/components/schemas/Uuid'
       responses:
         '200':
-          description: Support tickets visible in the principal's branch scope.
+          description: >-
+            A keyset page of support tickets visible in the principal's branch
+            scope, plus the unpaged total for the same filters.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/SupportTicketSummary'
+                $ref: '#/components/schemas/SupportTicketPage'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -934,6 +1049,98 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/equipment/list:
+    get:
+      operationId: listEquipment
+      summary: Paginated, filterable, branch-scoped equipment list
+      description: >
+        Read access (WorkOrderReadAll — all authenticated roles). Non-SUPER_ADMIN
+        principals see only rows in their own branch(es). The `q` parameter is
+        normalized like the 호기-lookup: strips a leading `#` and a trailing `호기`
+        suffix then matches leading-zero-insensitively across management_no,
+        equipment_no, model, maker, customer name, site name, and VIN.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Free-text search (호기-normalized, leading-zero-insensitive).
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/EquipmentStatus'
+      - name: branch_id
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+        description: Filter to a specific branch (UUID).
+      - name: customer_id
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+        description: Filter to a specific customer (UUID).
+      - name: site_id
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+        description: Filter to a specific site (UUID).
+      - name: model
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Filter by model name (case-insensitive exact match).
+      - name: maker
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Filter by maker name (case-insensitive exact match).
+      - name: sort
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/EquipmentSortBy'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 200
+          default: 50
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Paginated equipment list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EquipmentListPage'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /api/v1/equipment:
     get:
       operationId: autocompleteEquipment
@@ -1159,6 +1366,72 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EvidenceConfirmResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: Evidence storage is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/evidence/staging-presign:
+    post:
+      operationId: presignEvidenceStagingUpload
+      summary: >-
+        Issue a presigned STAGING upload ticket for mechanic evidence and begin
+        server-side media processing (transcode/optimize before storage)
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvidenceStagingPresignRequest'
+      responses:
+        '200':
+          description: >-
+            Presigned staging upload ticket; the evidence row is created in
+            PROCESSING and an async transcode job is enqueued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceStagingPresignResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: Evidence storage or processing is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/evidence/{evidenceId}/status:
+    get:
+      operationId: getEvidenceProcessingStatus
+      summary: Poll the server-side processing status of an evidence row
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/EvidenceId'
+      responses:
+        '200':
+          description: Evidence processing status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceStatusResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -1398,6 +1671,56 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/v1/location/arrival-events:
+    get:
+      operationId: listArrivalEvents
+      summary: Read the site arrival/departure events log (#13)
+      description: >-
+        Ops-facing feed of mechanic site arrivals/departures derived from on-duty
+        location pings (geofenced). OpsDashboardRead-gated; tenant + branch scoped.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: user_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: branch_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 1000
+          default: 100
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Paged site arrival/departure events.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArrivalEventPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/v1/location-consents/ledger.csv:
     get:
       operationId: exportLocationConsentLedgerCsv
@@ -1450,7 +1773,9 @@ paths:
       summary: Start passkey registration (authenticated)
       description: Starts a passkey registration ceremony for the authenticated session user.
         Used during initial-settings passkey enrollment after an OTP first sign-in, or to add
-        a device later. Requires a bearer token.
+        a device later. Requires a bearer token. Adding a passkey when the user already has one
+        requires a fresh `step_up` assertion of an existing passkey (user verification required);
+        omitting it returns 401. Initial enrollment (zero existing passkeys) needs no step-up.
       security:
       - bearerAuth: []
       requestBody:
@@ -1495,6 +1820,35 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '409':
           $ref: '#/components/responses/Conflict'
+  /api/v1/auth/signup:
+    post:
+      summary: Open self-service signup
+      description: Public, unauthenticated open signup. Creates a new lowest-privilege
+        MEMBER account in the default organization and emails it a single-use one-time
+        sign-in code; the caller then redeems that code via `POST /api/v1/auth/otp/redeem`
+        and enrolls a passkey. The response reveals nothing about whether the email was
+        newly registered (no account-existence oracle) and never mints a token. The new
+        account sees the minimal role-gated surface until an admin elevates it.
+        Rate-limited per client (IP and optional device).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+      responses:
+        '202':
+          description: The signup was accepted and a one-time code was sent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignupResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '502':
+          $ref: '#/components/responses/BadGateway'
   /api/v1/auth/passkey/login/start:
     post:
       summary: Start usernameless passkey login
@@ -1588,6 +1942,114 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
+  /api/v1/auth/admin/credential-reset:
+    post:
+      summary: Reset a user's credentials for account recovery (admin)
+      description: Account-recovery escape hatch for a user who lost their only passkey.
+        Revokes ALL of the target user's passkeys AND mints a fresh single-use sign-in
+        one-time code, atomically and audited. Authz-gated to ADMIN / SUPER_ADMIN within
+        the caller's own org and branch scope (same rules as issuing an admin one-time
+        code); a non-SUPER_ADMIN caller cannot reset a privileged user, and a user in
+        another org is not resettable. After the reset the old passkeys fail login and
+        the returned code redeems for a first sign-in. The code is returned once; only
+        its hash is stored.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCredentialResetRequest'
+      responses:
+        '200':
+          description: The fresh one-time code and its expiry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCredentialResetResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/auth/passkey/enroll-handoff:
+    post:
+      summary: Mint a cross-device passkey-enrollment handoff (self)
+      description: Mints a fresh single-use, short-lived (5 minutes) one-time code for the
+        CURRENTLY AUTHENTICATED user so they can finish passkey enrollment on a SECOND device
+        (typically a phone scanning a QR shown on the desktop console). SELF-ONLY — the user and
+        org come from the verified access token, never the request body, so a caller can only
+        ever mint a handoff for itself. When the caller is ALREADY enrolled (adding a device),
+        a fresh `step_up` assertion of an existing passkey (user verification required) is
+        mandatory, exactly like `passkey/register/start`; a mid-onboarding caller (no passkey
+        yet) omits it. The response returns the code once (only its hash is stored) plus the
+        ready-to-encode enrollment URL. The phone opens that URL, redeems the code via
+        `POST /api/v1/auth/otp/redeem`, and enrolls a platform passkey — no Bluetooth required.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollHandoffRequest'
+      responses:
+        '200':
+          description: The minted single-use enrollment code, its expiry, and the QR enrollment URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollHandoffResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/auth/privacy-consent/status:
+    post:
+      summary: Read required first-login privacy consent status
+      description: Returns whether the authenticated user has accepted the current
+        required Korean privacy collection/use notice and service terms version.
+        This status is checked before initial passkey enrollment. Optional marketing
+        consent and GPS/location consent are not bundled here and remain separate flows.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current required privacy consent status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrivacyConsentStatusResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/privacy-consent/accept:
+    post:
+      summary: Accept required first-login privacy terms
+      description: Persists the authenticated user's required initial-login
+        acknowledgement of the privacy collection/use notice and service terms as
+        a tenant-scoped audit event. Both required agreements must be accepted
+        explicitly; optional marketing and GPS/location consent are excluded.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrivacyConsentAcceptRequest'
+      responses:
+        '200':
+          description: The accepted current required privacy consent status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrivacyConsentStatusResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/v1/auth/token/refresh:
     post:
       summary: Rotate refresh token
@@ -1833,6 +2295,206 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '503':
           description: JWT verification is not configured.
+  /api/v1/equipment-by-location:
+    get:
+      operationId: listEquipmentByLocation
+      summary: Aggregate equipment by site for the dispatch map
+      description: >-
+        Every site visible to the principal with its equipment counts and
+        admin-entered coordinates. Read access (WorkOrderReadAll, all roles);
+        branch-scoped like the substitute search, so a non-SUPER_ADMIN sees only
+        their own branches. Sites with no entered coordinates come back with null
+        latitude/longitude and are listed as ungeocoded rather than pinned.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Sites grouped with equipment counts and coordinates.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EquipmentByLocationPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: JWT verification is not configured.
+  /api/v1/customers:
+    post:
+      operationId: createCustomer
+      summary: Create a customer (고객) directly
+      description: >-
+        Admin-gated (EquipmentManage, the same feature as the site PATCH). Creates
+        a customer in the caller's org on the caller's branch (an org-wide
+        SUPER_ADMIN/EXECUTIVE lands it on the default HQ branch). The name is
+        required, trimmed, and bounded (≤ 200 characters). A same-name customer on
+        that branch is a 409 conflict — an explicit create is a distinct intent
+        from the importer's idempotent upsert, so it is surfaced, not merged.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCustomerRequest'
+      responses:
+        '201':
+          description: Customer created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedCustomer'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+  /api/v1/sites:
+    post:
+      operationId: createSite
+      summary: Create a site (현장) under an existing customer
+      description: >-
+        Admin-gated (EquipmentManage). Creates a site under a customer in the
+        caller's org; the customer must belong to the caller's org or the request
+        is a 404 (RLS hides another tenant's customer). The name is required and
+        bounded; optional address / WGS84 coordinates / contact fields follow the
+        same ranges and length bounds as PATCH /api/v1/sites/{id} (a one-sided
+        coordinate or an over-long value is a 422). A duplicate site name under the
+        same customer is a 409. The created site is returned so it appears in the
+        고객·현장 list immediately.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSiteRequest'
+      responses:
+        '201':
+          description: Site created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedSite'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+  /api/v1/sites/{id}:
+    patch:
+      operationId: updateSite
+      summary: Update a site's coordinates and administrative address
+      description: >-
+        Admin-gated (EquipmentManage). The only coordinate entry point: a site is
+        pinnable on the dispatch map only once an admin writes a valid lat/lon
+        pair here. Latitude/longitude must be updated together and fall within
+        WGS84 ranges; supplying one without the other is a 422. Only supplied
+        fields are written; nullable fields explicitly set to null are cleared.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/SiteId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSiteRequest'
+      responses:
+        '204':
+          description: Site updated.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+  /api/v1/equipment-substitutions:
+    post:
+      operationId: assignEquipmentSubstitute
+      summary: Assign a substitute (대차) unit to a down/under-repair equipment
+      description: Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignSubstituteRequest'
+      responses:
+        '201':
+          description: Substitute assignment recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubstituteAssignment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+  /api/v1/equipment-substitutions/{id}/return:
+    post:
+      operationId: returnEquipmentSubstitute
+      summary: Return an active substitute (대차) assignment
+      description: Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/EquipmentSubstitutionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReturnSubstituteRequest'
+      responses:
+        '200':
+          description: Substitute assignment returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubstituteAssignment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
   /api/v1/financial/rental-quotes/compute:
     post:
       operationId: computeRentalQuote
@@ -1923,6 +2585,28 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/CostLedgerEntrySummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/financial/equipment/{equipmentId}/lifecycle-cost:
+    get:
+      operationId: getEquipmentLifecycleCost
+      summary: Per-asset lifecycle cost, TCO, and gross margin
+      description: Read-gated (EquipmentCostLedgerRead). Returns the asset's acquisition cost (with a source tag), maintenance total split by source, read-only outsource cost, current residual, latest realized sale price, total cost of ownership, gross margin, and per-month/per-hour maintenance intensity.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/EquipmentIdV2'
+      responses:
+        '200':
+          description: Asset lifecycle cost summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetLifecycleCostSummary'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -2454,15 +3138,21 @@ paths:
           minimum: 1
           maximum: 200
           default: 50
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
       responses:
         '200':
-          description: Users in the principal's branch scope.
+          description: A page of users in the principal's branch scope.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/UserSummary'
+                $ref: '#/components/schemas/UserPage'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -2711,6 +3401,81 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /api/v1/regions/{id}:
+    patch:
+      operationId: updateRegion
+      summary: Rename a region
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRegionRequest'
+      responses:
+        '200':
+          description: Updated region.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegionSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+    delete:
+      operationId: deactivateRegion
+      summary: Soft-delete (deactivate) a region
+      description: >-
+        Soft-deletes a region. Refused with 409 while the region still has active
+        branches, so live tenant data is never orphaned. Returns the deactivated
+        region.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Deactivated region.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegionSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
   /api/v1/branches:
     get:
       operationId: listBranches
@@ -2805,6 +3570,951 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+    delete:
+      operationId: deactivateBranch
+      summary: Soft-delete (deactivate) a branch
+      description: >-
+        Soft-deletes a branch. Refused with 409 while the branch still has active
+        users or non-terminal equipment, so live operational data is never
+        orphaned. Returns the deactivated branch.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Deactivated branch.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/passkeys:
+    get:
+      operationId: listPasskeys
+      summary: List the authenticated user's own passkey credentials
+      description: >-
+        Returns the caller's own WebAuthn credentials (id and registration /
+        last-use timestamps). No secret material is ever returned.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: The authenticated user's passkey credentials.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PasskeySummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/passkeys/{id}:
+    delete:
+      operationId: deletePasskey
+      summary: Revoke one of the authenticated user's own passkey credentials
+      description: >-
+        Deletes a credential owned by the caller. A credential that is not the
+        caller's own returns 404. The caller's last remaining passkey cannot be
+        deleted (409) so they do not lock themselves out.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '204':
+          description: The passkey was revoked.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/storefront/listings:
+    get:
+      operationId: storefrontListListings
+      summary: List published sales listings for the public storefront (#6)
+      description: >-
+        Public, unauthenticated catalog read. Returns only published/reserved
+        listings (the storefront-visible set). Carries no bearer token; the store
+        is scoped to the KNL org. Optional filters narrow by fuel/drive kind and
+        sale/rental type; results are paged.
+      parameters:
+      - name: kind
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/ListingKind'
+      - name: condition
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/ListingCondition'
+      - name: listing_type
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/ListingType'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+          default: 24
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Paged public sales listings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesListingPage'
+  /api/v1/storefront/listings/{id}:
+    get:
+      operationId: storefrontGetListing
+      summary: Read one public sales listing (#6)
+      description: >-
+        Public, unauthenticated read of a single storefront-visible listing.
+        Returns 404 if the listing does not exist or is not public.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The sales listing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesListingView'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/storefront/listings/{id}/media/{media_id}:
+    get:
+      operationId: storefrontGetListingMedia
+      summary: Serve one public sales-listing photo (#6)
+      description: >-
+        Public, unauthenticated serve of one listing photo's bytes, streamed from
+        the object store. The media must belong to the listing and the listing
+        must be storefront-visible (published/reserved); otherwise 404. The
+        response body is the raw image with its stored content type.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: media_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The listing photo bytes.
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/storefront/inquiries:
+    post:
+      operationId: submitInquiry
+      summary: Submit a public customer inquiry (#6)
+      description: >-
+        Public, unauthenticated lead intake. Accepts the customer's contact
+        details and topic and acknowledges receipt without echoing any field.
+        Generic validation; a bad payload returns 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitInquiryRequest'
+      responses:
+        '202':
+          description: Inquiry accepted for processing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InquiryAck'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/sales/listings:
+    get:
+      operationId: adminListListings
+      summary: List all sales listings for the admin console (#6)
+      description: >-
+        Admin catalog read (SalesManage). Unlike the public storefront, returns
+        listings in every status (including DRAFT/SOLD/WITHDRAWN). Optional
+        filters narrow by fuel/drive kind and sale/rental type; results are paged.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: kind
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/ListingKind'
+      - name: condition
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/ListingCondition'
+      - name: listing_type
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/ListingType'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+          default: 24
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Paged sales listings (all statuses).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesListingPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: createListing
+      summary: Create a sales listing (#6)
+      description: >-
+        Admin-gated (SalesManage). Creates a new catalog listing and returns its
+        server-generated id.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateListingRequest'
+      responses:
+        '201':
+          description: The listing was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateListingResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/sales/listings/{id}:
+    patch:
+      operationId: updateListing
+      summary: Update a sales listing (#6)
+      description: >-
+        Admin-gated (SalesManage). Partial update: absent keys are left unchanged;
+        nullable keys explicitly set to null clear the column. At least one field
+        must be supplied.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateListingRequest'
+      responses:
+        '204':
+          description: The listing was updated.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      operationId: deleteListing
+      summary: Delete a sales listing (#6)
+      description: Admin-gated (SalesManage). Removes a listing from the catalog.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '204':
+          description: The listing was deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/sales/inquiries:
+    get:
+      operationId: listInquiries
+      summary: List customer inquiries for the admin inbox (#6)
+      description: >-
+        Admin-gated (SalesManage) inquiry inbox. Optional status filter; results
+        are paged.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/InquiryStatus'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+          default: 50
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Paged customer inquiries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerInquiryPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/sales/inquiries/{id}:
+    patch:
+      operationId: updateInquiryStatus
+      summary: Update a customer inquiry's triage status (#6)
+      description: Admin-gated (SalesManage). Transitions an inquiry between NEW/CONTACTED/CLOSED.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateInquiryStatusRequest'
+      responses:
+        '204':
+          description: The inquiry status was updated.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/platform/orgs/{id}:
+    delete:
+      operationId: removePlatformOrg
+      summary: Remove a tenant — guarded shell removal, or opt-in force-delete with data (platform vendor tier)
+      description: >-
+        Remove a tenant organization. Platform-super-admin (vendor tier) ONLY: the
+        route sits behind the platform extractor, so a tenant token is rejected
+        with 403 before the handler runs and a tenant's own admin can never reach
+        it.
+
+
+        Two paths, selected by the opt-in `delete_data` query parameter (default
+        false):
+
+
+        - `delete_data=false` (default) — GUARDED removal, audited as
+        `platform.tenant.remove`. Deletes only an empty/test tenant's onboarding
+        shell (the seeded admin user, its auth credentials, branch memberships,
+        branches, and regions). REFUSED with 409 (`code` = `tenant_has_data`) when
+        the tenant owns real operational data (equipment, work orders, sites,
+        customers, inspections, sales, financial, messenger, consents, attendance,
+        or governance findings) — archive the tenant instead.
+
+
+        - `delete_data=true` — FORCE removal, audited as
+        `platform.tenant.force_remove`. The DESTRUCTIVE path: erases the org AND
+        all of its data. Fail-closed by a status rail — REFUSED with 409 (`code` =
+        `tenant_active`) unless the tenant is ARCHIVED, so an active tenant can
+        never be force-wiped by a single call; archive it (reversible) first.
+
+
+        Both paths delete in one transaction and preserve the tenant's immutable
+        audit trail (re-homed to the platform sentinel).
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: delete_data
+        in: query
+        required: false
+        description: >-
+          Opt-in FORCE removal. When true, erase the tenant AND all of its data
+          (requires the tenant to be ARCHIVED first). Defaults to false — the
+          guarded path that removes only an empty onboarding shell.
+        schema:
+          type: boolean
+          default: false
+      responses:
+        '204':
+          description: The tenant (and, when forced, all of its data) was removed.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: >-
+            The removal was refused. On the guarded path (`delete_data` false), the
+            tenant has operational data and cannot be removed (error body `code` is
+            `tenant_has_data`) — archive it instead. On the force path
+            (`delete_data` true), the tenant is not ARCHIVED (error body `code` is
+            `tenant_active`) — archive the tenant before force-removing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/integrity/findings:
+    get:
+      operationId: listIntegrityFindings
+      summary: List governance findings (anomaly / 검토 필요) for the current org
+      description: >-
+        Lists governance findings raised by the integrity engine (#34): records
+        that need human review such as self-approval (자가 승인 기록) and price
+        anomalies (이상 징후). Findings are framed as "검토 필요" — items requiring
+        review, NOT accusations of wrongdoing. Gated to EXECUTIVE and SUPER_ADMIN
+        only (IntegrityFindingsRead); an ADMIN must not read findings about
+        themselves. RLS-armed to the caller's org. Results are ordered by
+        severity (CRITICAL first) then detected_at descending. This endpoint is
+        not paginated.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        description: >-
+          Optional lifecycle filter. Omit to return findings of every status.
+        schema:
+          $ref: '#/components/schemas/FindingStatus'
+      responses:
+        '200':
+          description: The list of governance findings for the current org.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GovernanceFinding'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/integrity/findings/{id}/triage:
+    post:
+      operationId: triageIntegrityFinding
+      summary: Triage (review) a governance finding
+      description: >-
+        Transitions an OPEN finding to REVIEWED, DISMISSED, or ESCALATED with an
+        optional reviewer memo. A memo is required when dismissing or escalating.
+        Only OPEN findings can be triaged. The triage itself is audited. Gated to
+        EXECUTIVE and SUPER_ADMIN only (IntegrityFindingTriage).
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriageFindingRequest'
+      responses:
+        '200':
+          description: The updated governance finding after triage.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GovernanceFinding'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/mail/account:
+    get:
+      operationId: getMailAccount
+      summary: Get the tenant's configured webmail account (write-only password)
+      description: >-
+        Returns the configured corporate mailbox for the caller's tenant. The
+        response NEVER contains a password; the has_smtp_password /
+        has_imap_password booleans signal whether a credential is on file.
+        Requires the MailAccountManage feature.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: The configured mailbox.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailAccountView'
+        '204':
+          description: No mailbox is configured for this tenant.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/MailUnavailable'
+    put:
+      operationId: configureMailAccount
+      summary: Configure (create or replace) the tenant's webmail account
+      description: >-
+        Upserts the mailbox config. Passwords are write-only: a present password
+        is sealed (envelope AEAD) and only the ciphertext is stored; an
+        absent/null password leaves the stored secret unchanged. A first-time
+        configure requires both the SMTP and IMAP password. Audited. Requires
+        the MailAccountManage feature.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigureMailAccountRequest'
+      responses:
+        '200':
+          description: The configured mailbox (write-only view).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailAccountView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/MailUnavailable'
+  /api/v1/mail/account/test:
+    post:
+      operationId: testMailAccountConnection
+      summary: Test the SMTP connection with the stored credentials
+      description: >-
+        Authenticates to the tenant's configured SMTP server using the stored
+        credentials and reports a structured result. Never leaks the secret; the
+        error_code is a stable, non-secret token. Requires the MailAccountManage
+        feature.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: The structured test-connection result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailTestConnectionResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/MailUnavailable'
+  /api/v1/mail/send:
+    post:
+      operationId: sendMail
+      summary: Compose and send a new message
+      description: >-
+        Sends a new outbound message through the tenant's SMTP server and
+        persists it as a direction=OUT message. The From is constrained to the
+        configured account address. Audited (email.send). Requires the MailUse
+        feature.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMailRequest'
+      responses:
+        '201':
+          description: The message was sent and persisted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendMailResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/MailUnavailable'
+  /api/v1/mail/reply:
+    post:
+      operationId: replyMail
+      summary: Reply to a message (sets In-Reply-To / References)
+      description: >-
+        Sends a reply through the tenant's SMTP server, stamping the In-Reply-To
+        and References threading headers, and persists it as direction=OUT.
+        Audited (email.reply). Requires the MailUse feature.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMailRequest'
+      responses:
+        '201':
+          description: The reply was sent and persisted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendMailResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/MailUnavailable'
+  /api/v1/mail/forward:
+    post:
+      operationId: forwardMail
+      summary: Forward a message (sets In-Reply-To / References)
+      description: >-
+        Forwards a message through the tenant's SMTP server, stamping the
+        In-Reply-To and References threading headers, and persists it as
+        direction=OUT. Audited (email.forward). Requires the MailUse feature.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMailRequest'
+      responses:
+        '201':
+          description: The forward was sent and persisted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendMailResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/MailUnavailable'
+  /api/v1/mail/folders:
+    get:
+      operationId: listMailFolders
+      summary: List the tenant mailbox folders
+      description: >-
+        Lists the configured mailbox's folders (Inbox/Sent/…) with per-folder
+        unread + total counts. RLS-armed to the caller's org. Requires the
+        MailUse feature.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: The folders for the tenant's mailbox (empty if unconfigured).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MailFolderView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/MailUnavailable'
+  /api/v1/mail/threads:
+    get:
+      operationId: listMailThreads
+      summary: List mail threads (paginated, unread filter, search)
+      description: >-
+        Lists the mailbox's threads newest-first. Optional filters: unread-only,
+        a full-text search term q, a folder id, and a keyset cursor (before, a
+        unix-second last_message_at). RLS-armed to the caller's org. Requires the
+        MailUse feature.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: unread
+        in: query
+        required: false
+        schema:
+          type: boolean
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: folder
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+      - name: before
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: A page of threads (newest first).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MailThreadView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/MailUnavailable'
+  /api/v1/mail/threads/{id}:
+    get:
+      operationId: getMailThread
+      summary: Get one thread with its messages
+      description: >-
+        Returns the thread and its messages (oldest first). body_html is returned
+        verbatim and MUST be sanitized by the client before render. RLS-armed to
+        the caller's org. Requires the MailUse feature.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: The thread and its ordered messages.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailThreadDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/MailUnavailable'
+  /api/v1/mail/messages/{id}:
+    get:
+      operationId: getMailMessage
+      summary: Get one message with its attachments
+      description: >-
+        Returns one message (with attachment metadata; bytes are fetched via the
+        attachment download endpoint). body_html is verbatim and MUST be
+        sanitized by the client. RLS-armed to the caller's org. Requires the
+        MailUse feature.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: The message and its attachments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailMessageView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/MailUnavailable'
+  /api/v1/mail/attachments/{id}/download:
+    get:
+      operationId: downloadMailAttachment
+      summary: Get a presigned download URL for an attachment
+      description: >-
+        Resolves the attachment under the caller's org (cross-tenant invisible)
+        and returns a short-lived presigned GET URL — the raw object key is never
+        exposed. RLS-armed to the caller's org. Requires the MailUse feature.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: A short-lived presigned download URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailAttachmentDownload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/MailUnavailable'
 components:
   securitySchemes:
     bearerAuth:
@@ -2864,6 +4574,20 @@ components:
         format: uuid
     QuoteId:
       name: quoteId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EquipmentSubstitutionId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SiteId:
+      name: id
       in: path
       required: true
       schema:
@@ -2930,6 +4654,21 @@ components:
             $ref: '#/components/schemas/ErrorBody'
     TooManyRequests:
       description: Rate limit exceeded for this client; retry later.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    BadGateway:
+      description: An upstream dependency (e.g. the email relay) failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    MailUnavailable:
+      description: >-
+        Webmail is not configured on this server (the master key
+        MNT_MAIL_MASTER_KEY is absent), or JWT verification is not configured.
+        The app is otherwise healthy.
       content:
         application/json:
           schema:
@@ -3133,9 +4872,20 @@ components:
       - inspection_schedule_due_count
       - inspection_schedule_completed_count
       - inspection_plan_completion_bps
+      - p1_dispatch_count
+      - p1_accepted_count
+      - p1_acceptance_bps
       properties:
         scope:
           $ref: '#/components/schemas/KpiRollupScope'
+        scope_display_name:
+          type:
+          - string
+          - 'null'
+          description: >-
+            Human-readable name for the scope (region/branch/mechanic), resolved
+            via a same-org lookup. Null for the company-wide scope or a deleted
+            region/branch/user. Optional; absent on the pure-domain shape.
         approved_report_count:
           type: integer
           format: int32
@@ -3198,6 +4948,140 @@ components:
           format: int32
           minimum: 0
           maximum: 10000
+        p1_dispatch_count:
+          type: integer
+          format: int32
+          minimum: 0
+        p1_accepted_count:
+          type: integer
+          format: int32
+          minimum: 0
+        p1_acceptance_bps:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          minimum: 0
+          maximum: 10000
+    OpsFunnel:
+      type: object
+      required:
+      - received
+      - assigned
+      - in_progress
+      - completed
+      properties:
+        received:
+          type: integer
+          format: int32
+          minimum: 0
+        assigned:
+          type: integer
+          format: int32
+          minimum: 0
+        in_progress:
+          type: integer
+          format: int32
+          minimum: 0
+        completed:
+          type: integer
+          format: int32
+          minimum: 0
+    OpsEquipmentStatus:
+      type: object
+      required:
+      - rented
+      - spare
+      - scrapped
+      - replacement
+      - sold
+      properties:
+        rented:
+          type: integer
+          format: int32
+          minimum: 0
+        spare:
+          type: integer
+          format: int32
+          minimum: 0
+        scrapped:
+          type: integer
+          format: int32
+          minimum: 0
+        replacement:
+          type: integer
+          format: int32
+          minimum: 0
+        sold:
+          type: integer
+          format: int32
+          minimum: 0
+    OpsMechanicLoad:
+      type: object
+      required:
+      - mechanic_id
+      - display_name
+      - active_assignments
+      properties:
+        mechanic_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        active_assignments:
+          type: integer
+          format: int32
+          minimum: 0
+    OpsSummary:
+      type: object
+      required:
+      - funnel
+      - aging_hours
+      - aging_work_orders
+      - sla_breached
+      - sla_at_risk
+      - mechanic_load
+      - equipment_status
+      - active_substitutions
+      - pending_approvals
+      - open_support_tickets
+      properties:
+        funnel:
+          $ref: '#/components/schemas/OpsFunnel'
+        aging_hours:
+          type: integer
+          format: int32
+          minimum: 0
+        aging_work_orders:
+          type: integer
+          format: int32
+          minimum: 0
+        sla_breached:
+          type: integer
+          format: int32
+          minimum: 0
+        sla_at_risk:
+          type: integer
+          format: int32
+          minimum: 0
+        mechanic_load:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpsMechanicLoad'
+        equipment_status:
+          $ref: '#/components/schemas/OpsEquipmentStatus'
+        active_substitutions:
+          type: integer
+          format: int32
+          minimum: 0
+        pending_approvals:
+          type: integer
+          format: int32
+          minimum: 0
+        open_support_tickets:
+          type: integer
+          format: int32
+          minimum: 0
     UnavailableMetric:
       type: object
       required:
@@ -3395,6 +5279,25 @@ components:
           $ref: '#/components/schemas/Uuid'
         name:
           type: string
+    SiteContact:
+      type: object
+      required:
+      - name
+      - phone
+      - email
+      properties:
+        name:
+          type:
+          - string
+          - 'null'
+        phone:
+          type:
+          - string
+          - 'null'
+        email:
+          type:
+          - string
+          - 'null'
     EquipmentSummary:
       type: object
       required:
@@ -3435,6 +5338,9 @@ components:
       - status
       - specification
       - ton_text
+      - maker
+      - vin
+      - vehicle_registration_no
       - customer
       - site
       properties:
@@ -3458,6 +5364,18 @@ components:
           type: string
         ton_text:
           type: string
+        maker:
+          type:
+          - string
+          - 'null'
+        vin:
+          type:
+          - string
+          - 'null'
+        vehicle_registration_no:
+          type:
+          - string
+          - 'null'
         customer:
           $ref: '#/components/schemas/NamedEntity'
         site:
@@ -3469,6 +5387,7 @@ components:
       - branch_id
       - equipment_id
       - mechanic_id
+      - mechanic_display_name
       - cycle
       - interval_days
       - due_date
@@ -3489,6 +5408,13 @@ components:
           $ref: '#/components/schemas/Uuid'
         mechanic_id:
           $ref: '#/components/schemas/Uuid'
+        mechanic_display_name:
+          type:
+          - string
+          - 'null'
+          description: >-
+            Assigned mechanic's display name, resolved via a same-org LEFT JOIN
+            on users. Null when the mechanic account no longer exists.
         cycle:
           $ref: '#/components/schemas/InspectionCycle'
         interval_days:
@@ -3522,6 +5448,27 @@ components:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
+    InspectionSchedulePage:
+      type: object
+      required:
+      - items
+      - limit
+      - offset
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InspectionScheduleSummary'
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
+        total:
+          type: integer
+          format: int64
     InspectionRoundSummary:
       type: object
       required:
@@ -3680,6 +5627,7 @@ components:
       - requester_user_id
       - requester_name
       - assignee_user_id
+      - assignee_name
       - due_at
       - created_at
       - updated_at
@@ -3708,6 +5656,13 @@ components:
           - 'null'
         assignee_user_id:
           $ref: '#/components/schemas/Uuid'
+        assignee_name:
+          type:
+          - string
+          - 'null'
+          description: >-
+            Assignee display name, resolved via a same-org LEFT JOIN on users.
+            Null when unassigned or the assignee account no longer exists.
         due_at:
           type:
           - string
@@ -3733,6 +5688,7 @@ components:
       - id
       - ticket_id
       - author_user_id
+      - author_name
       - body
       - is_internal_note
       - created_at
@@ -3743,6 +5699,13 @@ components:
           $ref: '#/components/schemas/Uuid'
         author_user_id:
           $ref: '#/components/schemas/Uuid'
+        author_name:
+          type:
+          - string
+          - 'null'
+          description: >-
+            Comment author display name, resolved via a same-org LEFT JOIN on
+            users. Null for an authorless comment or a deleted author.
         body:
           type: string
         is_internal_note:
@@ -3761,6 +5724,27 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SupportTicketComment'
+    SupportTicketPage:
+      type: object
+      required:
+      - items
+      - next_cursor
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SupportTicketSummary'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: >-
+            Id to pass as `cursor` for the next page, or null on the last page.
+        total:
+          type: integer
+          format: int64
     EquipmentAutocompletePage:
       type: object
       required:
@@ -3772,6 +5756,81 @@ components:
           items:
             $ref: '#/components/schemas/EquipmentLookupResponse'
         limit:
+          type: integer
+          format: int64
+    EquipmentSortBy:
+      type: string
+      enum:
+      - equipment_no
+      - model
+      - customer
+      - updated_at
+    EquipmentListItem:
+      type: object
+      required:
+      - equipment_id
+      - branch_id
+      - equipment_no
+      - status
+      - specification
+      - ton_text
+      - customer_name
+      - site_name
+      - updated_at
+      properties:
+        equipment_id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        equipment_no:
+          type: string
+        management_no:
+          type:
+          - string
+          - 'null'
+        status:
+          $ref: '#/components/schemas/EquipmentStatus'
+        model:
+          type:
+          - string
+          - 'null'
+        maker:
+          type:
+          - string
+          - 'null'
+        specification:
+          type: string
+        ton_text:
+          type: string
+        customer_name:
+          type: string
+        site_name:
+          type: string
+        vin:
+          type:
+          - string
+          - 'null'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    EquipmentListPage:
+      type: object
+      required:
+      - items
+      - total
+      - limit
+      - offset
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EquipmentListItem'
+        total:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+          format: int64
+        offset:
           type: integer
           format: int64
     AssignmentSummary:
@@ -3912,6 +5971,7 @@ components:
       - equipment
       - customer
       - site
+      - site_contact
       - assignments
       properties:
         id:
@@ -3942,6 +6002,12 @@ components:
           $ref: '#/components/schemas/NamedEntity'
         site:
           $ref: '#/components/schemas/NamedEntity'
+        site_contact:
+          description: >-
+            사업장 대표 담당자 연락처 (#13). 등록된 연락처가 없으면 null.
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SiteContact'
         assignments:
           type: array
           items:
@@ -4224,6 +6290,90 @@ components:
           format: int32
         verified_at:
           $ref: '#/components/schemas/Timestamp'
+    ProcessingStatus:
+      type: string
+      enum:
+      - PROCESSING
+      - READY
+      - FAILED
+    MediaKind:
+      type: string
+      enum:
+      - IMAGE
+      - VIDEO
+    EvidenceStagingPresignRequest:
+      type: object
+      required:
+      - work_order_id
+      - stage
+      - content_type
+      - size_bytes
+      properties:
+        work_order_id:
+          $ref: '#/components/schemas/Uuid'
+        stage:
+          $ref: '#/components/schemas/AttachmentStage'
+        content_type:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        checksum_sha256:
+          type: string
+    EvidenceStagingPresignResponse:
+      type: object
+      required:
+      - id
+      - work_order_id
+      - stage
+      - media_kind
+      - processing_status
+      - upload
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        work_order_id:
+          $ref: '#/components/schemas/Uuid'
+        stage:
+          $ref: '#/components/schemas/AttachmentStage'
+        media_kind:
+          $ref: '#/components/schemas/MediaKind'
+        processing_status:
+          $ref: '#/components/schemas/ProcessingStatus'
+        upload:
+          $ref: '#/components/schemas/PresignedUpload'
+    EvidenceStatusResponse:
+      type: object
+      required:
+      - id
+      - work_order_id
+      - stage
+      - processing_status
+      - content_type
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        work_order_id:
+          $ref: '#/components/schemas/Uuid'
+        stage:
+          $ref: '#/components/schemas/AttachmentStage'
+        processing_status:
+          $ref: '#/components/schemas/ProcessingStatus'
+        content_type:
+          type: string
+        thumbnail_url:
+          type: string
+          format: uri
+          description: >-
+            Short-lived presigned GET URL for the generated thumbnail (absent
+            until the row is READY). Replaces the previous thumbnail_s3_key,
+            which exposed the internal object key; clients render this URL
+            directly.
+        processing_error:
+          type: string
+        processed_at:
+          $ref: '#/components/schemas/Timestamp'
     DeviceRegistrationRequest:
       type: object
       required:
@@ -4414,15 +6564,131 @@ components:
         total:
           type: integer
           format: int64
+    ArrivalEvent:
+      type: object
+      required:
+      - id
+      - work_order_no
+      - site_name
+      - kind
+      - occurred_at
+      properties:
+        id:
+          type: string
+        work_order_no:
+          type: string
+        site_name:
+          type: string
+        kind:
+          type: string
+          enum:
+          - ARRIVAL
+          - DEPARTURE
+        occurred_at:
+          $ref: '#/components/schemas/Timestamp'
+    ArrivalEventPage:
+      type: object
+      required:
+      - items
+      - limit
+      - offset
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArrivalEvent'
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
+        total:
+          type: integer
+          format: int64
     PasskeyRegisterStartRequest:
       type: object
-      description: Optional overrides for the authenticated session user's passkey
-        registration. Both default to the user's stored profile when omitted.
+      description: >-
+        Optional overrides for the authenticated session user's passkey
+        registration (username/display_name default to the user's stored profile
+        when omitted), plus the step-up assertion required to ADD a passkey when
+        the user already has one. A user with zero passkeys (initial enrollment)
+        omits `step_up`; an already-enrolled user MUST supply a fresh `step_up`
+        assertion of an existing passkey (user verification required), or
+        register/start returns 401 — so a stolen session cannot silently add a
+        credential.
       properties:
         username:
           type: string
         display_name:
           type: string
+        step_up:
+          $ref: '#/components/schemas/PasskeyStepUpAssertion'
+    PasskeyStepUpAssertion:
+      type: object
+      description: >-
+        A fresh assertion of an EXISTING passkey, proving the caller currently
+        possesses an authenticator (not just a bearer token). The `ceremony_id`
+        comes from a preceding `POST /api/v1/auth/passkey/login/start`; the
+        `credential` is the resulting WebAuthn assertion. Verified with user
+        verification (UV) required and rejected unless the asserted credential
+        belongs to the authenticated caller.
+      required:
+      - ceremony_id
+      - credential
+      properties:
+        ceremony_id:
+          $ref: '#/components/schemas/Uuid'
+        credential:
+          type: object
+          additionalProperties: true
+    AppleAppSiteAssociation:
+      type: object
+      description: >-
+        Apple App Site Association document authorizing the native iOS app's
+        passkeys for the RP domain.
+      required:
+      - webcredentials
+      properties:
+        webcredentials:
+          type: object
+          required:
+          - apps
+          properties:
+            apps:
+              type: array
+              description: iOS app identifiers (`<TeamID>.<bundle-id>`).
+              items:
+                type: string
+    AndroidAssetLinkStatement:
+      type: object
+      description: >-
+        A single Android Digital Asset Links statement authorizing the native
+        app's signing keys to provide login credentials for the RP domain.
+      required:
+      - relation
+      - target
+      properties:
+        relation:
+          type: array
+          items:
+            type: string
+        target:
+          type: object
+          required:
+          - namespace
+          - package_name
+          - sha256_cert_fingerprints
+          properties:
+            namespace:
+              type: string
+            package_name:
+              type: string
+            sha256_cert_fingerprints:
+              type: array
+              items:
+                type: string
     PasskeyRegisterStartResponse:
       type: object
       required:
@@ -4461,6 +6727,24 @@ components:
           $ref: '#/components/schemas/Uuid'
         credential_id:
           type: string
+    SignupRequest:
+      type: object
+      required:
+      - email
+      properties:
+        email:
+          type: string
+          format: email
+          description: The email address to register and deliver the one-time code to.
+    SignupResponse:
+      type: object
+      required:
+      - accepted
+      properties:
+        accepted:
+          type: boolean
+          description: Always true. The signup was accepted and a one-time code was sent;
+            the response intentionally carries no account-existence or token information.
     OtpRedeemRequest:
       type: object
       required:
@@ -4520,6 +6804,100 @@ components:
           type: string
         expires_at:
           $ref: '#/components/schemas/Timestamp'
+    AdminCredentialResetRequest:
+      type: object
+      required:
+      - user_id
+      properties:
+        user_id:
+          $ref: '#/components/schemas/Uuid'
+    AdminCredentialResetResponse:
+      type: object
+      required:
+      - user_id
+      - otp
+      - expires_at
+      properties:
+        user_id:
+          $ref: '#/components/schemas/Uuid'
+        otp:
+          type: string
+        expires_at:
+          $ref: '#/components/schemas/Timestamp'
+    EnrollHandoffRequest:
+      type: object
+      description: >-
+        Cross-device passkey-enrollment handoff request. Carries NO user/org —
+        those come from the verified access token, so a caller can only mint a
+        handoff for itself. `step_up` is REQUIRED only when the caller already has
+        a passkey (adding a device); a mid-onboarding caller (zero passkeys) omits
+        it.
+      properties:
+        step_up:
+          $ref: '#/components/schemas/PasskeyStepUpAssertion'
+    EnrollHandoffResponse:
+      type: object
+      description: >-
+        The minted single-use, short-lived passkey-enrollment code (returned once,
+        only its hash is stored) plus the ready-to-encode enrollment URL the
+        frontend renders as a QR. The phone opens `enroll_url`, redeems `otp` via
+        the first-sign-in path, and enrolls a platform passkey.
+      required:
+      - otp
+      - expires_at
+      - enroll_url
+      properties:
+        otp:
+          type: string
+          description: The single-use enrollment handoff code.
+        expires_at:
+          $ref: '#/components/schemas/Timestamp'
+        enroll_url:
+          type: string
+          description: The console enrollment URL carrying the handoff code in the fragment
+            (`{origin}/login#otp=<code>`), to be rendered as a QR and scanned on a phone.
+    PrivacyConsentAcceptRequest:
+      type: object
+      description: >-
+        Required initial-login Korean privacy collection/use and service-terms
+        acknowledgement. These required agreements are explicit booleans so the
+        client cannot bundle them into one generic "agree all" flag. Optional
+        marketing consent and GPS/location consent are not collected by this
+        request.
+      required:
+      - policy_version
+      - privacy_collection
+      - terms_of_service
+      properties:
+        policy_version:
+          type: string
+          description: Required privacy/terms notice version being accepted.
+        privacy_collection:
+          type: boolean
+          description: Required acknowledgement of collection/use purpose, items,
+            retention period, refusal right, and refusal consequence.
+        terms_of_service:
+          type: boolean
+          description: Required acknowledgement of service terms, security controls,
+            and audit-log processing needed to operate the console.
+    PrivacyConsentStatusResponse:
+      type: object
+      description: Current required first-login privacy/terms consent status.
+      required:
+      - policy_version
+      - accepted
+      properties:
+        policy_version:
+          type: string
+          description: Current required privacy/terms notice version.
+        accepted:
+          type: boolean
+          description: True when the authenticated user has accepted the current version.
+        accepted_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: UTC timestamp of the latest acceptance for the current version.
     PasskeyLoginStartResponse:
       type: object
       required:
@@ -4642,6 +7020,15 @@ components:
           $ref: '#/components/schemas/Date'
         status:
           $ref: '#/components/schemas/DailyPlanStatus'
+    DailyPlanListPage:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyPlanSummary'
     OutsourceWorkSummary:
       type: object
       properties:
@@ -4789,6 +7176,7 @@ components:
       - thread_id
       - branch_id
       - sender_id
+      - sender_name
       - body
       - attachment_evidence_ids
       - sent_at
@@ -4802,6 +7190,13 @@ components:
           $ref: '#/components/schemas/Uuid'
         sender_id:
           $ref: '#/components/schemas/Uuid'
+        sender_name:
+          type:
+          - string
+          - 'null'
+          description: >-
+            Sender display name, resolved via a same-org LEFT JOIN on users.
+            Null when the sender account no longer exists.
         body:
           type: string
         attachment_evidence_ids:
@@ -4948,6 +7343,419 @@ components:
         total:
           type: integer
           minimum: 0
+    SiteLocationGroup:
+      type: object
+      required:
+      - site_id
+      - site_name
+      - customer_id
+      - customer_name
+      - branch_id
+      - address
+      - postal_code
+      - province
+      - city
+      - latitude
+      - longitude
+      - geofence_radius_m
+      - contact_name
+      - contact_phone
+      - contact_email
+      - equipment_count
+      - rented_count
+      - spare_count
+      - substitution_active_count
+      properties:
+        site_id:
+          $ref: '#/components/schemas/Uuid'
+        site_name:
+          type: string
+        customer_id:
+          $ref: '#/components/schemas/Uuid'
+        customer_name:
+          type: string
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        address:
+          type:
+          - string
+          - 'null'
+        postal_code:
+          type:
+          - string
+          - 'null'
+        province:
+          type:
+          - string
+          - 'null'
+        city:
+          type:
+          - string
+          - 'null'
+        latitude:
+          type:
+          - number
+          - 'null'
+          format: double
+        longitude:
+          type:
+          - number
+          - 'null'
+          format: double
+        geofence_radius_m:
+          type:
+          - number
+          - 'null'
+          format: double
+          description: >-
+            Per-site geofence radius in metres for arrival/departure detection;
+            null uses the system default (150 m).
+        contact_name:
+          type:
+          - string
+          - 'null'
+          description: On-site representative contact name (담당자명).
+        contact_phone:
+          type:
+          - string
+          - 'null'
+          description: On-site contact phone (연락처).
+        contact_email:
+          type:
+          - string
+          - 'null'
+          description: Optional contact email (이메일).
+        equipment_count:
+          type: integer
+          format: int64
+        rented_count:
+          type: integer
+          format: int64
+        spare_count:
+          type: integer
+          format: int64
+        substitution_active_count:
+          type: integer
+          format: int64
+    EquipmentByLocationPage:
+      type: object
+      required:
+      - items
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SiteLocationGroup'
+        total:
+          type: integer
+          minimum: 0
+    CreateCustomerRequest:
+      type: object
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Customer name (고객명). Required, trimmed, ≤ 200 characters.
+    CreatedCustomer:
+      type: object
+      required:
+      - id
+      - branch_id
+      - name
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+    CreateSiteRequest:
+      type: object
+      required:
+      - customer_id
+      - name
+      description: >-
+        Create a site under an existing customer. Optional location/contact fields
+        follow the same WGS84 ranges and length bounds as UpdateSiteRequest;
+        latitude and longitude must be supplied together.
+      properties:
+        customer_id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Site name (현장명). Required, trimmed, ≤ 200 characters.
+        address:
+          type:
+          - string
+          - 'null'
+          maxLength: 500
+        province:
+          type:
+          - string
+          - 'null'
+          maxLength: 100
+        city:
+          type:
+          - string
+          - 'null'
+          maxLength: 100
+        postal_code:
+          type:
+          - string
+          - 'null'
+          maxLength: 20
+        latitude:
+          type:
+          - number
+          - 'null'
+          format: double
+        longitude:
+          type:
+          - number
+          - 'null'
+          format: double
+        geofence_radius_m:
+          type:
+          - number
+          - 'null'
+          format: double
+          minimum: 0
+          maximum: 100000
+          description: >-
+            Per-site geofence radius in metres (> 0, ≤ 100000). Null uses the
+            system default (150 m).
+        contact_name:
+          type:
+          - string
+          - 'null'
+          maxLength: 100
+          description: On-site representative contact name (담당자명).
+        contact_phone:
+          type:
+          - string
+          - 'null'
+          maxLength: 40
+          description: On-site contact phone (연락처).
+        contact_email:
+          type:
+          - string
+          - 'null'
+          maxLength: 320
+          description: Optional contact email (이메일).
+    CreatedSite:
+      type: object
+      required:
+      - id
+      - customer_id
+      - branch_id
+      - name
+      - address
+      - province
+      - city
+      - postal_code
+      - latitude
+      - longitude
+      - geofence_radius_m
+      - contact_name
+      - contact_phone
+      - contact_email
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        customer_id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+        address:
+          type:
+          - string
+          - 'null'
+        province:
+          type:
+          - string
+          - 'null'
+        city:
+          type:
+          - string
+          - 'null'
+        postal_code:
+          type:
+          - string
+          - 'null'
+        latitude:
+          type:
+          - number
+          - 'null'
+          format: double
+        longitude:
+          type:
+          - number
+          - 'null'
+          format: double
+        geofence_radius_m:
+          type:
+          - number
+          - 'null'
+          format: double
+        contact_name:
+          type:
+          - string
+          - 'null'
+        contact_phone:
+          type:
+          - string
+          - 'null'
+        contact_email:
+          type:
+          - string
+          - 'null'
+    UpdateSiteRequest:
+      type: object
+      description: >-
+        Partial site update. Absent keys are left unchanged; nullable keys set to
+        null clear the column. Latitude and longitude must be supplied together
+        and within WGS84 ranges.
+      properties:
+        address:
+          type:
+          - string
+          - 'null'
+        province:
+          type:
+          - string
+          - 'null'
+        city:
+          type:
+          - string
+          - 'null'
+        postal_code:
+          type:
+          - string
+          - 'null'
+        latitude:
+          type:
+          - number
+          - 'null'
+          format: double
+        longitude:
+          type:
+          - number
+          - 'null'
+          format: double
+        geofence_radius_m:
+          type:
+          - number
+          - 'null'
+          format: double
+          minimum: 0
+          maximum: 100000
+          description: >-
+            Per-site geofence radius in metres (> 0, ≤ 100000). Null clears the
+            override so the system default (150 m) applies.
+        contact_name:
+          type:
+          - string
+          - 'null'
+          maxLength: 100
+          description: On-site representative contact name (담당자명). Null clears it.
+        contact_phone:
+          type:
+          - string
+          - 'null'
+          maxLength: 40
+          description: On-site contact phone (연락처). Null clears it.
+        contact_email:
+          type:
+          - string
+          - 'null'
+          maxLength: 320
+          description: Optional contact email (이메일). Null clears it.
+    AssignSubstituteRequest:
+      type: object
+      required:
+      - source_equipment_id
+      - substitute_equipment_id
+      - assignment_location
+      properties:
+        source_equipment_id:
+          type: string
+          format: uuid
+        substitute_equipment_id:
+          type: string
+          format: uuid
+        assigned_to:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        assignment_location:
+          type: string
+          minLength: 1
+    ReturnSubstituteRequest:
+      type: object
+      properties:
+        return_note:
+          type:
+          - string
+          - 'null'
+    SubstituteAssignment:
+      type: object
+      required:
+      - id
+      - branch_id
+      - source_equipment_id
+      - substitute_equipment_id
+      - assigned_by
+      - assignment_location
+      - assigned_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        branch_id:
+          type: string
+          format: uuid
+        source_equipment_id:
+          type: string
+          format: uuid
+        substitute_equipment_id:
+          type: string
+          format: uuid
+        assigned_by:
+          type: string
+          format: uuid
+        assigned_to:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        assignment_location:
+          type: string
+        assigned_at:
+          type: string
+          format: date-time
+        returned_by:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        returned_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        return_note:
+          type:
+          - string
+          - 'null'
     CreateEquipmentRequest:
       type: object
       required:
@@ -5197,6 +8005,18 @@ components:
           - integer
           - 'null'
           format: int64
+        acquisition_cost_won:
+          description: Acquisition cost in KRW. A distinct accounting fact, never the depreciation base.
+          type:
+          - integer
+          - 'null'
+          format: int64
+          minimum: 0
+        acquisition_date:
+          type:
+          - string
+          - 'null'
+          format: date
         note:
           type:
           - string
@@ -5498,6 +8318,99 @@ components:
           format: int64
         entry_at:
           $ref: '#/components/schemas/Timestamp'
+    AcquisitionBasis:
+      type: string
+      description: Where the acquisition figure that anchors TCO came from.
+      enum:
+      - EXPLICIT
+      - VEHICLE_VALUE_FALLBACK
+      - NONE
+    AssetLifecycleCostSummary:
+      type: object
+      description: Per-asset lifecycle / total-cost-of-ownership rollup. outsource_unlinked_won is read-only and never summed into tco_won.
+      required:
+      - equipment_id
+      - equipment_no
+      - status
+      - acquisition_source
+      - maintenance_total_won
+      - manual_total_won
+      - purchase_total_won
+      - entry_count
+      - residual_value_won
+      - tco_won
+      - timeline
+      properties:
+        equipment_id:
+          $ref: '#/components/schemas/Uuid'
+        equipment_no:
+          type: string
+        status:
+          type: string
+        acquisition_cost_won:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        acquisition_date:
+          type:
+          - string
+          - 'null'
+          format: date
+        acquisition_source:
+          $ref: '#/components/schemas/AcquisitionBasis'
+        maintenance_total_won:
+          type: integer
+          format: int64
+        manual_total_won:
+          type: integer
+          format: int64
+        purchase_total_won:
+          type: integer
+          format: int64
+        entry_count:
+          type: integer
+          format: int64
+        outsource_unlinked_won:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        residual_value_won:
+          type: integer
+          format: int64
+        sale_price_won:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        sold_at:
+          type:
+          - string
+          - 'null'
+          format: date
+        gross_margin_won:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        tco_won:
+          type: integer
+          format: int64
+        cost_per_month_won:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        cost_per_hour_won:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        timeline:
+          type: array
+          items:
+            $ref: '#/components/schemas/CostLedgerEntrySummary'
     CreatePurchaseRequest:
       type: object
       required:
@@ -5798,6 +8711,16 @@ components:
       - PREVENTION
       - MANAGEMENT
       - RECEPTION
+    AccountStatus:
+      type: string
+      description: >-
+        Derived account-setup state for the console roster. ACTIVE only once the
+        user has enrolled a passkey (can sign in); PENDING_SETUP when created /
+        OTP-issued but not yet enrolled; DEACTIVATED when soft-disabled.
+      enum:
+      - ACTIVE
+      - PENDING_SETUP
+      - DEACTIVATED
     UserSummary:
       type: object
       required:
@@ -5808,6 +8731,8 @@ components:
       - roles
       - branch_ids
       - is_active
+      - has_passkey
+      - account_status
       - created_at
       properties:
         id:
@@ -5830,19 +8755,56 @@ components:
             $ref: '#/components/schemas/Uuid'
         is_active:
           type: boolean
+        has_passkey:
+          type: boolean
+          description: >-
+            Whether the user has at least one enrolled passkey. A user can only
+            sign in once this is true; until then the account is pending setup.
+        account_status:
+          $ref: '#/components/schemas/AccountStatus'
         created_at:
           $ref: '#/components/schemas/Timestamp'
+    UserPage:
+      type: object
+      required:
+      - items
+      - limit
+      - offset
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserSummary'
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
+        total:
+          type: integer
+          format: int64
     RegionSummary:
       type: object
       required:
       - id
       - name
+      - deactivated_at
       - created_at
       properties:
         id:
           $ref: '#/components/schemas/Uuid'
         name:
           type: string
+        deactivated_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: >-
+            Set when the region has been soft-deleted (deactivated); null for an
+            active region. Active-only listings omit deactivated rows.
         created_at:
           $ref: '#/components/schemas/Timestamp'
     BranchSummary:
@@ -5851,6 +8813,7 @@ components:
       - id
       - region_id
       - name
+      - deactivated_at
       - created_at
       properties:
         id:
@@ -5859,8 +8822,37 @@ components:
           $ref: '#/components/schemas/Uuid'
         name:
           type: string
+        deactivated_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: >-
+            Set when the branch has been soft-deleted (deactivated); null for an
+            active branch. Active-only listings omit deactivated rows.
         created_at:
           $ref: '#/components/schemas/Timestamp'
+    PasskeySummary:
+      type: object
+      description: >-
+        A passkey credential summary for the self-service management surface. It
+        deliberately carries no secret material (no passkey blob, public key, or
+        raw credential id) — only the opaque row id and the registration /
+        last-use timestamps.
+      required:
+      - id
+      - created_at
+      - last_used_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        last_used_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
     CreateUserRequest:
       type: object
       required:
@@ -5917,6 +8909,11 @@ components:
       properties:
         name:
           type: string
+    UpdateRegionRequest:
+      type: object
+      properties:
+        name:
+          type: string
     CreateBranchRequest:
       type: object
       required:
@@ -5934,3 +8931,945 @@ components:
           $ref: '#/components/schemas/Uuid'
         name:
           type: string
+    ListingKind:
+      type: string
+      description: Fuel / drive class of a listed forklift.
+      enum:
+      - ELECTRIC
+      - DIESEL
+      - LPG
+      - REACH
+    ListingCondition:
+      type: string
+      description: Whether a listed unit is used (중고) or brand-new (신차).
+      enum:
+      - USED
+      - NEW
+    ListingType:
+      type: string
+      description: Whether a listing is offered for sale, rental, or both.
+      enum:
+      - SALE
+      - RENTAL
+      - BOTH
+    ListingStatus:
+      type: string
+      description: Publication lifecycle of a listing.
+      enum:
+      - DRAFT
+      - PUBLISHED
+      - RESERVED
+      - SOLD
+      - WITHDRAWN
+    InquiryTopic:
+      type: string
+      description: Subject of a customer inquiry.
+      enum:
+      - RENTAL
+      - USED_SALES
+      - MAINTENANCE
+      - OTHER
+    InquiryStatus:
+      type: string
+      description: Triage state of an inbound inquiry in the internal inbox.
+      enum:
+      - NEW
+      - CONTACTED
+      - CLOSED
+    ListingMediaView:
+      type: object
+      description: One photo attached to a sales listing.
+      required:
+      - id
+      - url
+      - content_type
+      - alt_text
+      - sort_order
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+        content_type:
+          type: string
+        alt_text:
+          type:
+          - string
+          - 'null'
+        sort_order:
+          type: integer
+          format: int32
+    SalesListingView:
+      type: object
+      description: A sales listing as read by the storefront or the admin console.
+      required:
+      - id
+      - equipment_id
+      - kind
+      - condition
+      - model_name
+      - capacity_milli
+      - model_year
+      - usage_hours
+      - price_won
+      - badge
+      - usage_label
+      - condition_label
+      - availability
+      - location
+      - description
+      - listing_type
+      - status
+      - sort_weight
+      - created_at
+      - updated_at
+      - media
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        equipment_id:
+          oneOf:
+          - $ref: '#/components/schemas/Uuid'
+          - type: 'null'
+        kind:
+          $ref: '#/components/schemas/ListingKind'
+        condition:
+          $ref: '#/components/schemas/ListingCondition'
+        model_name:
+          type: string
+        capacity_milli:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        model_year:
+          type:
+          - integer
+          - 'null'
+          format: int32
+        usage_hours:
+          type:
+          - integer
+          - 'null'
+          format: int32
+        price_won:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        badge:
+          type:
+          - string
+          - 'null'
+        usage_label:
+          type:
+          - string
+          - 'null'
+        condition_label:
+          type:
+          - string
+          - 'null'
+        availability:
+          type:
+          - string
+          - 'null'
+        location:
+          type:
+          - string
+          - 'null'
+        description:
+          type:
+          - string
+          - 'null'
+        listing_type:
+          $ref: '#/components/schemas/ListingType'
+        status:
+          $ref: '#/components/schemas/ListingStatus'
+        sort_weight:
+          type: integer
+          format: int32
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+        media:
+          type: array
+          items:
+            $ref: '#/components/schemas/ListingMediaView'
+    SalesListingPage:
+      type: object
+      required:
+      - items
+      - limit
+      - offset
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalesListingView'
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
+        total:
+          type: integer
+          format: int64
+    CustomerInquiryView:
+      type: object
+      required:
+      - id
+      - name
+      - phone
+      - topic
+      - location
+      - message
+      - listing_id
+      - status
+      - created_at
+      - updated_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+        phone:
+          type: string
+        topic:
+          $ref: '#/components/schemas/InquiryTopic'
+        location:
+          type:
+          - string
+          - 'null'
+        message:
+          type:
+          - string
+          - 'null'
+        listing_id:
+          oneOf:
+          - $ref: '#/components/schemas/Uuid'
+          - type: 'null'
+        status:
+          $ref: '#/components/schemas/InquiryStatus'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    CustomerInquiryPage:
+      type: object
+      required:
+      - items
+      - limit
+      - offset
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CustomerInquiryView'
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
+        total:
+          type: integer
+          format: int64
+    SubmitInquiryRequest:
+      type: object
+      description: >-
+        Public lead intake payload. `name` and `phone` are required; `location`,
+        `message`, and `listing_id` are optional. The server never echoes any
+        field back.
+      required:
+      - name
+      - phone
+      - topic
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+        topic:
+          $ref: '#/components/schemas/InquiryTopic'
+        location:
+          type:
+          - string
+          - 'null'
+        message:
+          type:
+          - string
+          - 'null'
+        listing_id:
+          oneOf:
+          - $ref: '#/components/schemas/Uuid'
+          - type: 'null'
+    InquiryAck:
+      type: object
+      description: Minimal acknowledgement of a submitted inquiry (no identifiers, no PII echo).
+      required:
+      - status
+      properties:
+        status:
+          type: string
+    CreateListingRequest:
+      type: object
+      description: Full editable field set for creating a sales listing.
+      required:
+      - kind
+      - condition
+      - model_name
+      - listing_type
+      - status
+      - sort_weight
+      properties:
+        kind:
+          $ref: '#/components/schemas/ListingKind'
+        condition:
+          $ref: '#/components/schemas/ListingCondition'
+        model_name:
+          type: string
+        capacity_milli:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        model_year:
+          type:
+          - integer
+          - 'null'
+          format: int32
+        usage_hours:
+          type:
+          - integer
+          - 'null'
+          format: int32
+        price_won:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        badge:
+          type:
+          - string
+          - 'null'
+        usage_label:
+          type:
+          - string
+          - 'null'
+        condition_label:
+          type:
+          - string
+          - 'null'
+        availability:
+          type:
+          - string
+          - 'null'
+        location:
+          type:
+          - string
+          - 'null'
+        description:
+          type:
+          - string
+          - 'null'
+        listing_type:
+          $ref: '#/components/schemas/ListingType'
+        status:
+          $ref: '#/components/schemas/ListingStatus'
+        sort_weight:
+          type: integer
+          format: int32
+        equipment_id:
+          oneOf:
+          - $ref: '#/components/schemas/Uuid'
+          - type: 'null'
+    UpdateListingRequest:
+      type: object
+      description: >-
+        Partial update. Absent keys are left unchanged; nullable keys explicitly
+        set to null clear the column. At least one field must be supplied.
+      properties:
+        kind:
+          $ref: '#/components/schemas/ListingKind'
+        condition:
+          $ref: '#/components/schemas/ListingCondition'
+        model_name:
+          type: string
+        capacity_milli:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        model_year:
+          type:
+          - integer
+          - 'null'
+          format: int32
+        usage_hours:
+          type:
+          - integer
+          - 'null'
+          format: int32
+        price_won:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        badge:
+          type:
+          - string
+          - 'null'
+        usage_label:
+          type:
+          - string
+          - 'null'
+        condition_label:
+          type:
+          - string
+          - 'null'
+        availability:
+          type:
+          - string
+          - 'null'
+        location:
+          type:
+          - string
+          - 'null'
+        description:
+          type:
+          - string
+          - 'null'
+        listing_type:
+          $ref: '#/components/schemas/ListingType'
+        status:
+          $ref: '#/components/schemas/ListingStatus'
+        sort_weight:
+          type: integer
+          format: int32
+        equipment_id:
+          oneOf:
+          - $ref: '#/components/schemas/Uuid'
+          - type: 'null'
+    UpdateInquiryStatusRequest:
+      type: object
+      required:
+      - status
+      properties:
+        status:
+          $ref: '#/components/schemas/InquiryStatus'
+    CreateListingResponse:
+      type: object
+      required:
+      - id
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+    FindingSeverity:
+      type: string
+      enum:
+      - INFO
+      - LOW
+      - MEDIUM
+      - HIGH
+      - CRITICAL
+    FindingStatus:
+      type: string
+      description: >-
+        Lifecycle of a governance finding. OPEN findings are triaged to one of
+        REVIEWED, DISMISSED, or ESCALATED.
+      enum:
+      - OPEN
+      - REVIEWED
+      - DISMISSED
+      - ESCALATED
+    GovernanceFinding:
+      type: object
+      description: >-
+        A governance finding raised by the integrity engine (#34). Findings are
+        "검토 필요" (review needed) — e.g. a self-approval record
+        (detector_id `anomaly.self_approval`) or a price anomaly
+        (`anomaly.price_outlier`) — and are NOT accusations of wrongdoing.
+      required:
+      - id
+      - org_id
+      - detector_id
+      - entity_type
+      - entity_id
+      - score
+      - severity
+      - evidence
+      - status
+      - detected_at
+      - created_at
+      - updated_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        org_id:
+          $ref: '#/components/schemas/Uuid'
+        detector_id:
+          type: string
+          description: >-
+            Dot-namespaced detector identity, e.g. `anomaly.self_approval` or
+            `anomaly.price_outlier`.
+        entity_type:
+          type: string
+          description: The domain entity the finding concerns, e.g. `financial_purchase_request`.
+        entity_id:
+          type: string
+          description: Identifier of the entity the finding concerns.
+        source_audit_event_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: Audit event that triggered the finding (OnWrite detectors); may be null.
+        subject_user_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: >-
+            The user whose action was flagged (e.g. the self-approver). Null for
+            non-person findings. A raw id; resolve to a display name in the UI.
+        score:
+          type: number
+          format: double
+          minimum: 0
+          description: Non-negative detector score; the severity enum is the primary triage signal.
+        severity:
+          $ref: '#/components/schemas/FindingSeverity'
+        evidence:
+          type: object
+          additionalProperties: true
+          description: >-
+            Detector-specific evidence bag. For `anomaly.self_approval` this
+            includes action, requested_by, submitted_by, approver, and
+            exemption_reason (org_lead_exempt or super_admin_exempt).
+        status:
+          $ref: '#/components/schemas/FindingStatus'
+        detected_at:
+          $ref: '#/components/schemas/Timestamp'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+        reviewed_by:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: The reviewer who triaged the finding; null until triaged.
+        reviewed_at:
+          oneOf:
+          - $ref: '#/components/schemas/Timestamp'
+          - type: 'null'
+        review_memo:
+          type:
+          - string
+          - 'null'
+          description: Reviewer memo recorded at triage; required when dismissing or escalating.
+    TriageFindingRequest:
+      type: object
+      description: >-
+        Triage an OPEN finding. A memo is required when status is DISMISSED or
+        ESCALATED, optional for REVIEWED. Max 2000 characters.
+      required:
+      - status
+      properties:
+        status:
+          type: string
+          description: Target triage status. OPEN is not a valid target.
+          enum:
+          - REVIEWED
+          - DISMISSED
+          - ESCALATED
+        memo:
+          type:
+          - string
+          - 'null'
+          maxLength: 2000
+          description: Reviewer memo. Required when dismissing or escalating.
+    MailSecurity:
+      type: string
+      description: >-
+        Transport security. SSL_TLS is implicit TLS (port 993/465); START_TLS
+        upgrades a plaintext connection (port 143/587). There is no plaintext
+        option.
+      enum:
+      - SSL_TLS
+      - START_TLS
+    MailAddress:
+      type: object
+      required:
+      - address
+      properties:
+        address:
+          type: string
+          description: The bare mailbox, e.g. user@example.com.
+        name:
+          type:
+          - string
+          - 'null'
+          description: Optional display name.
+    MailAttachment:
+      type: object
+      required:
+      - filename
+      - content_type
+      - content_base64
+      properties:
+        filename:
+          type: string
+        content_type:
+          type: string
+        content_base64:
+          type: string
+          description: Standard-base64 encoded attachment bytes.
+    MailAccountView:
+      type: object
+      description: >-
+        The write-only view of a configured mailbox. It NEVER contains a
+        password; has_smtp_password / has_imap_password signal whether a
+        credential is on file.
+      required:
+      - id
+      - display_name
+      - email_address
+      - imap_host
+      - imap_port
+      - imap_security
+      - imap_username
+      - smtp_host
+      - smtp_port
+      - smtp_security
+      - smtp_username
+      - has_smtp_password
+      - has_imap_password
+      - status
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        display_name:
+          type: string
+        email_address:
+          type: string
+        from_name:
+          type:
+          - string
+          - 'null'
+        imap_host:
+          type: string
+        imap_port:
+          type: integer
+          format: int32
+        imap_security:
+          $ref: '#/components/schemas/MailSecurity'
+        imap_username:
+          type: string
+        smtp_host:
+          type: string
+        smtp_port:
+          type: integer
+          format: int32
+        smtp_security:
+          $ref: '#/components/schemas/MailSecurity'
+        smtp_username:
+          type: string
+        has_smtp_password:
+          type: boolean
+        has_imap_password:
+          type: boolean
+        status:
+          type: string
+    ConfigureMailAccountRequest:
+      type: object
+      description: >-
+        Configure (create or replace) the mailbox. A password field that is
+        absent or null leaves the stored secret unchanged; a present value is
+        re-sealed. A first-time configure requires both passwords.
+      required:
+      - display_name
+      - email_address
+      - imap_host
+      - imap_port
+      - imap_security
+      - imap_username
+      - smtp_host
+      - smtp_port
+      - smtp_security
+      - smtp_username
+      properties:
+        display_name:
+          type: string
+        email_address:
+          type: string
+        from_name:
+          type:
+          - string
+          - 'null'
+        imap_host:
+          type: string
+        imap_port:
+          type: integer
+          format: int32
+        imap_security:
+          $ref: '#/components/schemas/MailSecurity'
+        imap_username:
+          type: string
+        imap_password:
+          type:
+          - string
+          - 'null'
+          description: Write-only. Present = (re)seal; absent/null = keep the stored secret.
+        smtp_host:
+          type: string
+        smtp_port:
+          type: integer
+          format: int32
+        smtp_security:
+          $ref: '#/components/schemas/MailSecurity'
+        smtp_username:
+          type: string
+        smtp_password:
+          type:
+          - string
+          - 'null'
+          description: Write-only. Present = (re)seal; absent/null = keep the stored secret.
+    MailTestConnectionResult:
+      type: object
+      required:
+      - ok
+      properties:
+        ok:
+          type: boolean
+        error_code:
+          type:
+          - string
+          - 'null'
+          description: A stable, non-secret token when the connection failed.
+    SendMailRequest:
+      type: object
+      description: >-
+        Compose a message. For reply/forward, in_reply_to is required and
+        references carries the accumulated chain. The From is constrained to the
+        configured account address (it cannot be set here).
+      required:
+      - to
+      - subject
+      - body_text
+      properties:
+        to:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailAddress'
+        cc:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailAddress'
+        bcc:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailAddress'
+        subject:
+          type: string
+        body_text:
+          type: string
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailAttachment'
+        in_reply_to:
+          type:
+          - string
+          - 'null'
+          description: Required for reply/forward — the Message-ID being responded to.
+        references:
+          type: array
+          items:
+            type: string
+    SendMailResult:
+      type: object
+      required:
+      - message_id
+      - rfc_message_id
+      properties:
+        message_id:
+          $ref: '#/components/schemas/Uuid'
+        rfc_message_id:
+          type: string
+          description: The RFC 5322 Message-ID stamped on the sent message.
+    MailFolderView:
+      type: object
+      required:
+      - id
+      - role
+      - name
+      - unread_count
+      - total_count
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        role:
+          type: string
+          description: INBOX | SENT | DRAFTS | ARCHIVE | TRASH | JUNK | CUSTOM.
+        name:
+          type: string
+        unread_count:
+          type: integer
+          format: int64
+        total_count:
+          type: integer
+          format: int64
+    MailThreadView:
+      type: object
+      required:
+      - id
+      - subject
+      - last_message_at
+      - message_count
+      - unread_count
+      - has_attachments
+      - is_flagged
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        subject:
+          type: string
+        last_message_at:
+          type: string
+          format: date-time
+        message_count:
+          type: integer
+          format: int64
+        unread_count:
+          type: integer
+          format: int64
+        has_attachments:
+          type: boolean
+        is_flagged:
+          type: boolean
+    MailThreadDetail:
+      type: object
+      required:
+      - id
+      - subject
+      - messages
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        subject:
+          type: string
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailMessageView'
+    MailMessageView:
+      type: object
+      required:
+      - id
+      - thread_id
+      - direction
+      - from_address
+      - to
+      - cc
+      - subject
+      - snippet
+      - seen
+      - flagged
+      - answered
+      - has_attachments
+      - received_at
+      - attachments
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        thread_id:
+          $ref: '#/components/schemas/Uuid'
+        direction:
+          type: string
+          description: IN (mirrored from IMAP) or OUT (sent by the tenant).
+        message_id:
+          type:
+          - string
+          - 'null'
+        in_reply_to:
+          type:
+          - string
+          - 'null'
+        from_address:
+          type: string
+        from_name:
+          type:
+          - string
+          - 'null'
+        to:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailAddress'
+        cc:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailAddress'
+        subject:
+          type: string
+        snippet:
+          type: string
+        body_text:
+          type:
+          - string
+          - 'null'
+        body_html:
+          type:
+          - string
+          - 'null'
+          description: >-
+            The stored HTML body, returned verbatim. The client MUST sanitize it
+            (DOMPurify-class) before rendering.
+        seen:
+          type: boolean
+        flagged:
+          type: boolean
+        answered:
+          type: boolean
+        has_attachments:
+          type: boolean
+        received_at:
+          type: string
+          format: date-time
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailAttachmentView'
+    MailAttachmentView:
+      type: object
+      required:
+      - id
+      - filename
+      - content_type
+      - size_bytes
+      - is_inline
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        filename:
+          type: string
+        content_type:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+        is_inline:
+          type: boolean
+    MailAttachmentDownload:
+      type: object
+      required:
+      - url
+      properties:
+        url:
+          type: string
+          description: A short-lived presigned GET URL for the attachment bytes.

@@ -2,14 +2,15 @@
 
 use std::collections::BTreeSet;
 
-use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, UserId};
+use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, OrgId, UserId};
 use mnt_platform_authz::{
     Action, BranchColumn, Feature, PermissionLevel, Principal, Role, authorize, permission_for,
-    repository_filter, resolve_branch_scope,
+    repository_filter, resolve_branch_scope_in_org,
 };
 use sqlx::PgPool;
 
-const ROLES: [Role; 5] = [
+const ROLES: [Role; 6] = [
+    Role::Member,
     Role::Receptionist,
     Role::Mechanic,
     Role::Admin,
@@ -17,64 +18,81 @@ const ROLES: [Role; 5] = [
     Role::SuperAdmin,
 ];
 
-fn expected_matrix() -> [(Feature, [PermissionLevel; 5]); 35] {
+fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 42] {
     use Feature::{
         AiAssist, AssigneeManage, AuditLogRead, BranchManage, CompletionReview, DailyPlanRequest,
         DailyPlanReview, ElevatedRoleGrant, EquipmentCostLedgerRead, EquipmentCostLedgerWrite,
         EquipmentManage, EvidenceAttach, ExcelDownload, InspectionRoundComplete,
-        InspectionScheduleManage, KpiExclusionManage, KpiRead, Login, MasterListImport,
-        PriorityManage, PurchaseExecute, PurchaseFinalApprove, PurchaseRequestApprove,
-        PurchaseRequestCreate, PurchaseRequestRead, RegionManage, RentalQuoteManage,
-        SubordinateUserCreate, TargetManage, UserManage, WorkOrderCreate, WorkOrderEditIntake,
-        WorkOrderReadAll, WorkOrderStart, WorkReportSubmit,
+        InspectionScheduleManage, IntegrityFindingTriage, IntegrityFindingsRead,
+        KpiExclusionManage, KpiRead, Login, MailAccountManage, MailUse, MasterListImport,
+        OpsDashboardRead, OrgWideQueueTriage, PriorityManage, PurchaseExecute,
+        PurchaseFinalApprove, PurchaseRequestApprove, PurchaseRequestCreate, PurchaseRequestRead,
+        RegionManage, RentalQuoteManage, SalesManage, SubordinateUserCreate, TargetManage,
+        UserManage, WorkOrderCreate, WorkOrderEditIntake, WorkOrderReadAll, WorkOrderStart,
+        WorkReportSubmit,
     };
     use PermissionLevel::{Allow as A, Deny as D, Limited as L, RequestOnly as R};
 
+    // Column order: [MEMBER, RECEPTIONIST, MECHANIC, ADMIN, EXECUTIVE, SUPER_ADMIN].
+    // MEMBER (open-signup default) is default-DENY everywhere but `Login`.
     [
-        (Login, [A, A, A, A, A]),
-        (WorkOrderCreate, [A, L, A, L, A]),
-        (WorkOrderEditIntake, [A, L, A, L, A]),
-        (WorkOrderReadAll, [A, A, A, A, A]),
-        (WorkOrderStart, [L, A, A, L, A]),
-        (WorkReportSubmit, [L, A, A, L, A]),
-        (EvidenceAttach, [A, A, A, L, A]),
-        (PriorityManage, [D, D, A, D, A]),
-        (AssigneeManage, [D, D, A, D, A]),
-        (TargetManage, [D, R, A, D, A]),
-        (CompletionReview, [D, D, A, D, A]),
-        (DailyPlanRequest, [D, A, A, D, A]),
-        (DailyPlanReview, [D, D, A, D, A]),
-        (KpiRead, [D, D, A, A, A]),
-        (KpiExclusionManage, [D, D, A, A, A]),
-        (UserManage, [D, D, A, D, A]),
-        (SubordinateUserCreate, [D, D, L, D, A]),
-        (ElevatedRoleGrant, [D, D, D, D, A]),
-        (RegionManage, [D, D, A, A, A]),
-        (BranchManage, [D, D, A, A, A]),
-        (EquipmentManage, [D, D, A, A, A]),
-        (MasterListImport, [D, D, A, D, A]),
-        (RentalQuoteManage, [A, D, A, A, A]),
-        (EquipmentCostLedgerRead, [D, D, A, A, A]),
-        (EquipmentCostLedgerWrite, [D, D, A, D, A]),
-        (PurchaseRequestCreate, [A, R, A, D, A]),
-        (PurchaseRequestRead, [A, L, A, A, A]),
-        (PurchaseRequestApprove, [D, D, A, D, A]),
-        (PurchaseFinalApprove, [D, D, D, A, A]),
-        (PurchaseExecute, [A, D, A, D, A]),
-        (InspectionScheduleManage, [D, D, A, D, A]),
-        (InspectionRoundComplete, [D, A, A, D, A]),
-        (AuditLogRead, [D, D, A, D, A]),
-        (ExcelDownload, [A, A, A, A, A]),
+        (Login, [A, A, A, A, A, A]),
+        (WorkOrderCreate, [D, A, L, A, L, A]),
+        (WorkOrderEditIntake, [D, A, L, A, L, A]),
+        (WorkOrderReadAll, [D, A, A, A, A, A]),
+        (WorkOrderStart, [D, L, A, A, L, A]),
+        (WorkReportSubmit, [D, L, A, A, L, A]),
+        (EvidenceAttach, [D, A, A, A, L, A]),
+        (PriorityManage, [D, D, D, A, D, A]),
+        (AssigneeManage, [D, D, D, A, D, A]),
+        (TargetManage, [D, D, R, A, D, A]),
+        (CompletionReview, [D, D, D, A, D, A]),
+        (DailyPlanRequest, [D, D, A, A, D, A]),
+        (DailyPlanReview, [D, D, D, A, D, A]),
+        // Org-wide queue triage read: EXECUTIVE + SUPER_ADMIN only (a branch
+        // ADMIN stays confined to its branch scope), matching the org-wide tier
+        // of resolve_branch_scope_in_org.
+        (OrgWideQueueTriage, [D, D, D, D, A, A]),
+        (KpiRead, [D, D, D, A, A, A]),
+        (KpiExclusionManage, [D, D, D, A, A, A]),
+        (UserManage, [D, D, D, A, D, A]),
+        (SubordinateUserCreate, [D, D, D, L, D, A]),
+        (ElevatedRoleGrant, [D, D, D, D, D, A]),
+        (RegionManage, [D, D, D, A, A, A]),
+        (BranchManage, [D, D, D, A, A, A]),
+        (EquipmentManage, [D, D, D, A, A, A]),
+        (MasterListImport, [D, D, D, A, D, A]),
+        (RentalQuoteManage, [D, A, D, A, A, A]),
+        (EquipmentCostLedgerRead, [D, D, D, A, A, A]),
+        (EquipmentCostLedgerWrite, [D, D, D, A, D, A]),
+        (PurchaseRequestCreate, [D, A, R, A, D, A]),
+        (PurchaseRequestRead, [D, A, L, A, A, A]),
+        (PurchaseRequestApprove, [D, D, D, A, D, A]),
+        (PurchaseFinalApprove, [D, D, D, D, A, A]),
+        (PurchaseExecute, [D, A, D, A, D, A]),
+        (InspectionScheduleManage, [D, D, D, A, D, A]),
+        (InspectionRoundComplete, [D, D, A, A, D, A]),
+        (AuditLogRead, [D, D, D, A, D, A]),
+        (ExcelDownload, [D, A, A, A, A, A]),
+        (OpsDashboardRead, [D, D, D, A, D, A]),
+        (SalesManage, [D, D, D, A, A, A]),
         // The inherited PERMISSIONS.md has 21 explicit table rows; its branch
         // strategy also names AI 조회 as a branch-filtered server API surface.
         // T0.6's brief requires 22 features, so the AI assistant seam is
         // represented here as permission metadata only, not an adapter.
-        (AiAssist, [A, A, A, A, A]),
+        (AiAssist, [D, A, A, A, A, A]),
+        // Integrity findings are labor-law sensitive: EXECUTIVE + SUPER_ADMIN only.
+        (IntegrityFindingsRead, [D, D, D, D, A, A]),
+        (IntegrityFindingTriage, [D, D, D, D, A, A]),
+        // Webmail: configuring the mailbox is ADMIN + SUPER_ADMIN (holds the
+        // mail secrets); sending is front-office + leadership (no MECHANIC).
+        (MailAccountManage, [D, D, D, A, D, A]),
+        (MailUse, [D, A, D, A, A, A]),
     ]
 }
 
 fn principal(role: Role, scope: BranchScope) -> Principal {
-    Principal::new(UserId::new(), BTreeSet::from([role]), scope)
+    Principal::new(UserId::new(), OrgId::knl(), BTreeSet::from([role]), scope)
 }
 
 #[test]
@@ -84,15 +102,45 @@ fn role_enum_uses_canonical_database_codes() {
     assert_eq!(Role::Mechanic.as_str(), "MECHANIC");
     assert_eq!(Role::Receptionist.as_str(), "RECEPTIONIST");
     assert_eq!(Role::Executive.as_str(), "EXECUTIVE");
+    assert_eq!(Role::Member.as_str(), "MEMBER");
 
     assert_eq!("SUPER_ADMIN".parse::<Role>().unwrap(), Role::SuperAdmin);
+    assert_eq!("MEMBER".parse::<Role>().unwrap(), Role::Member);
     assert!("OWNER".parse::<Role>().is_err());
+}
+
+#[test]
+fn member_role_is_default_deny_except_login() {
+    // The open-signup default tier: it can authenticate but nothing else until an
+    // admin elevates it. `Login` is its only `Allow` cell across all 42 features.
+    for feature in Feature::ALL {
+        let level = permission_for(Role::Member, feature);
+        if feature == Feature::Login {
+            assert_eq!(
+                level,
+                PermissionLevel::Allow,
+                "MEMBER must be able to log in"
+            );
+        } else {
+            assert_eq!(
+                level,
+                PermissionLevel::Deny,
+                "MEMBER must be denied {feature:?} until elevated"
+            );
+        }
+    }
+
+    // And it cannot pass an authorize() gate for any real feature.
+    let branch = BranchId::new();
+    let member = principal(Role::Member, BranchScope::single(branch));
+    let err = authorize(&member, Action::new(Feature::WorkOrderReadAll), branch).unwrap_err();
+    assert_eq!(err.kind, ErrorKind::Forbidden);
 }
 
 #[test]
 fn permission_matrix_is_exhaustive_and_matches_inherited_table() {
     let matrix = expected_matrix();
-    assert_eq!(Feature::ALL.len(), 35);
+    assert_eq!(Feature::ALL.len(), 42);
     assert_eq!(matrix.len(), Feature::ALL.len());
 
     for feature in Feature::ALL {
@@ -111,6 +159,70 @@ fn permission_matrix_is_exhaustive_and_matches_inherited_table() {
             );
         }
     }
+}
+
+#[test]
+fn org_wide_queue_triage_is_executive_and_super_admin_only() {
+    // codex G001 HIGH-1: org-wide work-order/daily-plan queue visibility is gated
+    // on the OrgWideQueueTriage capability, NOT a role string. It must mirror the
+    // org-wide tier of `resolve_branch_scope_in_org` — EXECUTIVE + SUPER_ADMIN —
+    // so a branch-scoped ADMIN is confined to its branches and does NOT see the
+    // org-wide queue. `work_order_list_scope` widens to `BranchScope::All` exactly
+    // when a principal holds this capability at `Allow`.
+    let holds =
+        |role: Role| permission_for(role, Feature::OrgWideQueueTriage) == PermissionLevel::Allow;
+    assert!(
+        holds(Role::Executive),
+        "EXECUTIVE must hold OrgWideQueueTriage"
+    );
+    assert!(
+        holds(Role::SuperAdmin),
+        "SUPER_ADMIN must hold OrgWideQueueTriage"
+    );
+    assert!(
+        !holds(Role::Admin),
+        "a branch-scoped ADMIN must NOT hold OrgWideQueueTriage (no org-wide widen)"
+    );
+    assert!(!holds(Role::Receptionist), "RECEPTIONIST must NOT hold it");
+    assert!(!holds(Role::Mechanic), "MECHANIC must NOT hold it");
+    assert!(!holds(Role::Member), "MEMBER must NOT hold it");
+}
+
+#[test]
+fn daily_plan_list_gate_requires_daily_plan_or_org_wide_triage() {
+    // codex G001 HIGH-2: the daily-plan LIST is a MECHANIC-requests / ADMIN-reviews
+    // flow, gated on DailyPlanRequest OR DailyPlanReview — NOT the broad
+    // WorkOrderReadAll (which RECEPTIONIST also passes). An org-wide queue triager
+    // (EXECUTIVE / SUPER_ADMIN, via OrgWideQueueTriage) may ALSO read it for
+    // org-wide oversight, mirroring their work-order-queue visibility. RECEPTIONIST
+    // (none of these) stays denied. Mirrors `authorize_daily_plan_list` in
+    // workorder/rest: a role passes iff it holds ANY of the three at `Allow`.
+    let can_list = |role: Role| {
+        permission_for(role, Feature::DailyPlanRequest) == PermissionLevel::Allow
+            || permission_for(role, Feature::DailyPlanReview) == PermissionLevel::Allow
+            || permission_for(role, Feature::OrgWideQueueTriage) == PermissionLevel::Allow
+    };
+    assert!(
+        can_list(Role::Mechanic),
+        "MECHANIC (request) must list daily plans"
+    );
+    assert!(
+        can_list(Role::Admin),
+        "ADMIN (review) must list daily plans"
+    );
+    assert!(
+        can_list(Role::SuperAdmin),
+        "SUPER_ADMIN must list daily plans"
+    );
+    assert!(
+        can_list(Role::Executive),
+        "EXECUTIVE (org-wide triager) may list daily plans for oversight"
+    );
+    assert!(
+        !can_list(Role::Receptionist),
+        "RECEPTIONIST has no daily-plan or triage capability and must be denied the list"
+    );
+    assert!(!can_list(Role::Member), "MEMBER must be denied the list");
 }
 
 #[test]
@@ -214,9 +326,14 @@ fn repository_filter_rejects_unsafe_column_names() {
 #[sqlx::test(migrations = "../db/migrations")]
 async fn resolves_user_branch_scope_from_memberships(pool: PgPool) {
     let user_id = seed_user_with_two_branches_and_one_membership(&pool, "ADMIN").await;
-    let scope = resolve_branch_scope(&pool, UserId::from_uuid(user_id.user), &[Role::Admin])
-        .await
-        .unwrap();
+    let scope = resolve_branch_scope_in_org(
+        &pool,
+        OrgId::knl(),
+        UserId::from_uuid(user_id.user),
+        &[Role::Admin],
+    )
+    .await
+    .unwrap();
 
     assert!(scope.allows(BranchId::from_uuid(user_id.member_branch)));
     assert!(!scope.allows(BranchId::from_uuid(user_id.other_branch)));
@@ -224,17 +341,24 @@ async fn resolves_user_branch_scope_from_memberships(pool: PgPool) {
 
 #[sqlx::test(migrations = "../db/migrations")]
 async fn resolves_super_admin_to_all_scope_without_memberships(pool: PgPool) {
-    let user: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO users (display_name, roles) VALUES ($1, $2) RETURNING id")
-            .bind("Global Admin")
-            .bind(Vec::from(["SUPER_ADMIN"]))
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let user: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO users (display_name, roles, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind("Global Admin")
+    .bind(Vec::from(["SUPER_ADMIN"]))
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
 
-    let scope = resolve_branch_scope(&pool, UserId::from_uuid(user), &[Role::SuperAdmin])
-        .await
-        .unwrap();
+    let scope = resolve_branch_scope_in_org(
+        &pool,
+        OrgId::knl(),
+        UserId::from_uuid(user),
+        &[Role::SuperAdmin],
+    )
+    .await
+    .unwrap();
 
     assert_eq!(scope, BranchScope::All);
 }
@@ -250,39 +374,47 @@ async fn seed_user_with_two_branches_and_one_membership(
     role: &str,
 ) -> SeededBranches {
     let region_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
             .bind(format!("Region {role}"))
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
 
-    let member_branch: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
-            .bind(region_id)
-            .bind(format!("Member {role}"))
-            .fetch_one(pool)
-            .await
-            .unwrap();
+    let member_branch: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(region_id)
+    .bind(format!("Member {role}"))
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
 
-    let other_branch: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
-            .bind(region_id)
-            .bind(format!("Other {role}"))
-            .fetch_one(pool)
-            .await
-            .unwrap();
+    let other_branch: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(region_id)
+    .bind(format!("Other {role}"))
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
 
-    let user: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO users (display_name, roles) VALUES ($1, $2) RETURNING id")
-            .bind(format!("User {role}"))
-            .bind(Vec::from([role]))
-            .fetch_one(pool)
-            .await
-            .unwrap();
+    let user: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO users (display_name, roles, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(format!("User {role}"))
+    .bind(Vec::from([role]))
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
 
-    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
         .bind(user)
         .bind(member_branch)
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();

@@ -1,0 +1,1 @@
+Conglomerate Operations Platform — carbon-copy Palantir Foundry (no-AI), phased extraction. Spec: docs/specs/knl-business-os.md; research: .omc/research/foundry-domain-research.md; blueprint: .omc/research/palantir-blueprint.md

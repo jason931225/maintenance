@@ -5,17 +5,29 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { ko } from "../../i18n/ko";
+import { priorityClass, priorityLabel, safeLabel } from "../../lib/utils";
+import { SlaBadge } from "./SlaBadge";
 
 type WorkOrderStatus = WorkOrderListItem["status"];
 
 interface DispatchBoardProps {
   workOrders: WorkOrderListItem[];
+  /** The id submitted on assign — never rendered to the user. */
   selectedMechanicId: string;
+  /**
+   * The acting mechanic's human display name, shown in the board header. Falls
+   * back to a generic label via `safeLabel`; the raw `selectedMechanicId` UUID
+   * is never surfaced.
+   */
+  selectedMechanicName?: string;
   isLoading?: boolean;
   onAssignWorkOrder: (
     workOrderId: string,
     mechanicId: string,
   ) => Promise<boolean>;
+  /** Manager-only: open the dispatch controls for a work order. */
+  onSelectWorkOrder?: (workOrderId: string) => void;
+  selectedWorkOrderId?: string;
 }
 
 const groups: {
@@ -58,24 +70,27 @@ const groups: {
 export function DispatchBoard({
   workOrders,
   selectedMechanicId,
+  selectedMechanicName,
   isLoading = false,
   onAssignWorkOrder,
+  onSelectWorkOrder,
+  selectedWorkOrderId,
 }: DispatchBoardProps) {
   return (
     <Card className="grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-slate-950">{ko.dispatch.title}</h2>
-        <p className="text-sm text-slate-600">
-          {ko.dispatch.selectedMechanic}: {selectedMechanicId}
+        <h2 className="text-lg font-semibold text-ink">{ko.dispatch.title}</h2>
+        <p className="text-sm text-steel">
+          {ko.dispatch.selectedMechanic}: {safeLabel(selectedMechanicName)}
         </p>
       </div>
       {workOrders.length === 0 ? (
         isLoading ? (
-          <p role="status" className="text-sm font-medium text-slate-700">
+          <p role="status" className="text-sm font-medium text-steel">
             {ko.common.loading}
           </p>
         ) : (
-          <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+          <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
             {ko.dispatch.empty}
           </p>
         )
@@ -88,29 +103,32 @@ export function DispatchBoard({
           return (
             <section
               key={group.key}
-              className="min-h-40 rounded-md border border-slate-200 bg-slate-50 p-3"
+              className="min-h-40 rounded-md border border-line bg-muted-panel p-3"
             >
-              <h3 className="mb-3 text-sm font-semibold text-slate-800">
+              <h3 className="mb-3 text-sm font-semibold text-steel">
                 {group.label}
               </h3>
               <div className="grid gap-2">
                 {items.map((workOrder) => (
                   <article
                     key={workOrder.id}
-                    className="rounded-md border border-slate-200 bg-white p-3"
+                    className="rounded-md border border-line bg-white p-3"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <p className="font-semibold text-slate-950">
+                      <p className="font-semibold text-ink">
                         {workOrder.request_no}
                       </p>
                       <Badge className={priorityClass(workOrder.priority)}>
-                        {workOrder.priority}
+                        {priorityLabel(workOrder.priority)}
                       </Badge>
                     </div>
-                    <p className="mt-2 text-sm text-slate-600">
-                      {ko.status[workOrder.status]}
-                    </p>
-                    <p className="mt-1 text-sm text-slate-700">
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <p className="text-sm text-steel">
+                        {ko.status[workOrder.status]}
+                      </p>
+                      <SlaBadge workOrder={workOrder} />
+                    </div>
+                    <p className="mt-1 text-sm text-steel">
                       {workOrder.equipment.model ?? ko.common.unknown} /{" "}
                       {workOrder.customer.name}
                     </p>
@@ -118,6 +136,7 @@ export function DispatchBoard({
                       <Button
                         className="mt-3 w-full"
                         variant="secondary"
+                        size="sm"
                         onClick={() => {
                           void onAssignWorkOrder(
                             workOrder.id,
@@ -129,6 +148,18 @@ export function DispatchBoard({
                         {workOrder.request_no} {ko.dispatch.assign}
                       </Button>
                     ) : null}
+                    {onSelectWorkOrder ? (
+                      <Button
+                        className="mt-2 w-full"
+                        variant="ghost"
+                        aria-pressed={selectedWorkOrderId === workOrder.id}
+                        onClick={() => {
+                          onSelectWorkOrder(workOrder.id);
+                        }}
+                      >
+                        {workOrder.request_no} {ko.dispatch.controls.title}
+                      </Button>
+                    ) : null}
                   </article>
                 ))}
               </div>
@@ -138,19 +169,4 @@ export function DispatchBoard({
       </div>
     </Card>
   );
-}
-
-function priorityClass(priority: WorkOrderListItem["priority"]) {
-  switch (priority) {
-    case "P1":
-      return "border-red-300 bg-red-50 text-red-800";
-    case "P2":
-      return "border-amber-300 bg-amber-50 text-amber-900";
-    case "P3":
-      return "border-emerald-300 bg-emerald-50 text-emerald-800";
-    case "OUTSOURCE":
-      return "border-sky-300 bg-sky-50 text-sky-800";
-    case "UNSET":
-      return "border-slate-300 bg-slate-50 text-slate-700";
-  }
 }

@@ -12,6 +12,18 @@ spec:
   resources:
     requests: { cpu: 250m, memory: 512Mi }
     limits: { memory: 1Gi }
+  # boto3 >= 1.36 (bundled in barman-cloud's S3 client) defaults to flexible
+  # checksums sent via AWS *chunked encoding* on PutObject. OCI Object Storage's
+  # S3-compatible API rejects that with "NotImplemented: AWS chunked encoding not
+  # supported", which broke EVERY WAL archive + base backup (continuous archiving
+  # stuck False, daily backup failing). Forcing checksum calc/validation to
+  # when_required disables the default chunked upload so OCI accepts it. The
+  # barman-cloud subprocess runs in the instance container and inherits these.
+  env:
+    - name: AWS_REQUEST_CHECKSUM_CALCULATION
+      value: when_required
+    - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+      value: when_required
   postgresql:
     parameters:
       # Deliberate sizing for the shared A1 node rather than container defaults.
@@ -22,7 +34,27 @@ spec:
   bootstrap:
     initdb:
       database: maintenance
+      # mnt_app OWNS every table and is used ONLY to run schema migrations
+      # (out of band, via the mnt-db-app secret). The running application does
+      # NOT connect as it — see managed.roles.mnt_rt below.
       owner: mnt_app
+  # mnt_rt is the least-privilege RUNTIME role the app/worker connect as. It
+  # owns nothing, is NOSUPERUSER + NOBYPASSRLS (so Postgres RLS applies to it),
+  # and gets only the GRANTs migration 0031 hands out. CNPG attaches LOGIN + the
+  # password from mnt-db-rt here; the role attributes are also pinned in 0031 so
+  # they hold regardless of creation order.
+  managed:
+    roles:
+      - name: mnt_rt
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        bypassrls: false
+        inherit: true
+        passwordSecret:
+          name: mnt-db-rt
   # Continuous WAL archiving + base backups via the Barman Cloud Plugin.
   plugins:
     - name: barman-cloud.cloudnative-pg.io
@@ -36,7 +68,10 @@ metadata:
   name: mnt-backups
   namespace: maintenance
 spec:
-  retentionPolicy: "30d"
+  # Indefinite retention (user 2026-06-23): with no retentionPolicy, barman-cloud
+  # never prunes base backups / WALs, so PITR reaches back to the first backup
+  # forever. NOTE: storage grows unbounded — re-add e.g. retentionPolicy: "90d"
+  # to cap it once the DB / OCI Always-Free object-storage budget warrants it.
   configuration:
     # OCI Object Storage, S3-compatible API, Chuncheon. NAMESPACE = the tenancy
     # object-storage namespace (oci os ns get); bucket pre-created out of band.

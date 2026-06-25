@@ -23,16 +23,18 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.PasskeyStepUpAssertion
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Contextual
 
 /**
- * Optional overrides for the authenticated session user's passkey registration. Both default to the user's stored profile when omitted.
+ * Optional overrides for the authenticated session user's passkey registration (username/display_name default to the user's stored profile when omitted), plus the step-up assertion required to ADD a passkey when the user already has one. A user with zero passkeys (initial enrollment) omits `step_up`; an already-enrolled user MUST supply a fresh `step_up` assertion of an existing passkey (user verification required), or register/start returns 401 — so a stolen session cannot silently add a credential.
  *
  * @param username
  * @param displayName
+ * @param stepUp
  */
 @Serializable
 
@@ -42,7 +44,10 @@ data class PasskeyRegisterStartRequest (
     val username: kotlin.String? = null,
 
     @SerialName(value = "display_name")
-    val displayName: kotlin.String? = null
+    val displayName: kotlin.String? = null,
+
+    @SerialName(value = "step_up")
+    val stepUp: PasskeyStepUpAssertion? = null
 
 ) {
 

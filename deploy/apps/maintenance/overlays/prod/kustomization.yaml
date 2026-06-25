@@ -8,14 +8,16 @@ resources:
 
 images:
   # Deploy by immutable, cosign-signed @sha256 digest (not a mutable tag): the
-  # exact scanned+signed artifact from image-release for main@528f1c4. Renovate /
-  # release-please bump these. mnt-worker shares the mnt-app image.
+  # exact scanned+signed artifact from image-release. mnt-app is the cutover
+  # build feat/multi-tenant-phase1@3b5bee8 (backend unchanged since); mnt-web is
+  # the one-stop front-door redesign @d919a66. Renovate / release-please bump
+  # these. mnt-worker shares the mnt-app image.
   - name: mnt-app
     newName: ghcr.io/jason931225/mnt-app
-    digest: sha256:64abad3f52a097a6e8584bf595136169fd0a3efd30da39a3e4f3d830067eab1b
+    digest: sha256:106398b3764d2ddb7860ca5533be08f1120cfc92a6e8d6e75800cf3784a43e4f
   - name: mnt-web
     newName: ghcr.io/jason931225/mnt-web
-    digest: sha256:b4279ab9211c5dfa344332b52b4e33a6a9d8ed38f1c7ee7d93d88eb8225cc8de
+    digest: sha256:5ccb94fd3f95552fcbeabc8f71e70b5ed0df8bb3f60a794b8554c395a7b82e36
 
 patches:
   # Public host (WebAuthn rp id/origin must equal the served origin) + the OCI
@@ -24,21 +26,44 @@ patches:
     patch: |-
       - op: replace
         path: /data/MNT_WEBAUTHN_RP_ID
-        value: fsm.knllogistic.com
+        value: knllogistic.com
       - op: replace
         path: /data/MNT_WEBAUTHN_RP_ORIGIN
-        value: https://fsm.knllogistic.com
+        value: https://console.knllogistic.com
       - op: replace
         path: /data/MNT_S3_ENDPOINT_URL
         value: https://axdotp9iv3ua.compat.objectstorage.ap-chuncheon-1.oraclecloud.com
   - target: { kind: Ingress, name: mnt }
     patch: |-
+      # Attach the fsm→console 301 redirect Middleware ingress-wide. Its
+      # redirectRegex is anchored to the fsm host, so it is a no-op for the
+      # apex/www storefront routers (their URLs don't match the regex).
+      - op: add
+        path: /metadata/annotations/traefik.ingress.kubernetes.io~1router.middlewares
+        value: maintenance-fsm-console-redirect@kubernetescrd
       - op: replace
-        path: /spec/tls/0/hosts/0
-        value: fsm.knllogistic.com
+        path: /spec/tls/0/hosts
+        value: [console.knllogistic.com, fsm.knllogistic.com, knllogistic.com, www.knllogistic.com]
       - op: replace
         path: /spec/rules/0/host
+        value: console.knllogistic.com
+      - op: replace
+        path: /spec/rules/1/host
+        value: knllogistic.com
+      - op: replace
+        path: /spec/rules/2/host
+        value: www.knllogistic.com
+      - op: replace
+        path: /spec/rules/3/host
         value: fsm.knllogistic.com
+  - target: { kind: Middleware, name: fsm-console-redirect }
+    patch: |-
+      - op: replace
+        path: /spec/redirectRegex/regex
+        value: ^https?://fsm\.knllogistic\.com/(.*)
+      - op: replace
+        path: /spec/redirectRegex/replacement
+        value: https://console.knllogistic.com/${1}
   - target: { kind: ObjectStore, name: mnt-backups }
     patch: |-
       - op: replace

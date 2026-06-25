@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { NAV_GROUPS, ROLES, hasAnyRole, isNavItemVisible } from "./nav";
+import {
+  NAV_GROUPS,
+  ROLES,
+  hasAnyRole,
+  isNavItemVisible,
+  isPendingMember,
+} from "./nav";
 
 /** Every nav item key declared in NAV_GROUPS. */
 const ALL_ITEM_KEYS = NAV_GROUPS.flatMap((group) =>
@@ -18,63 +24,102 @@ function visibleItems(roles: readonly string[]): string[] {
 const EXPECTED_VISIBLE: Record<string, string[]> = {
   [ROLES.SUPER_ADMIN]: [
     "dispatch",
+    "dispatch-map",
     "intake",
     "approvals",
+    "daily-plan",
+    "inspection",
     "messenger",
     "support",
     "kpi",
+    "ops",
+    "reporting",
     "equipment",
+    "equipment-manage",
+    "catalog",
+    "financial",
+    "integrity",
     "users",
     "org",
+    "sites",
     "profile",
     "location",
+    "email",
     "security",
   ],
   [ROLES.ADMIN]: [
     "dispatch",
+    "dispatch-map",
     "intake",
     "approvals",
+    "daily-plan",
+    "inspection",
     "messenger",
     "support",
     "kpi",
+    "ops",
+    "reporting",
     "equipment",
+    "equipment-manage",
+    "catalog",
+    "financial",
     "users",
     "org",
+    "sites",
     "profile",
     "location",
+    "email",
     "security",
   ],
-  // Executive: KPI yes; approvals/users/org/security no. Profile is shared.
+  // Executive: KPI yes; approvals/daily-plan/users/org/security no. Profile is
+  // shared; reporting (ExcelDownload) is allowed for every role.
   [ROLES.EXECUTIVE]: [
     "dispatch",
+    "dispatch-map",
     "intake",
     "messenger",
     "support",
     "kpi",
+    "reporting",
     "equipment",
+    "equipment-manage",
+    "financial",
+    "integrity",
     "profile",
     "location",
   ],
-  // Mechanic: operational pages only; no approvals/kpi/users/org/security.
+  // Mechanic: operational pages only; daily-plan yes (DailyPlanRequest); no
+  // approvals/kpi/users/org/security. reporting is shared (ExcelDownload [A...]).
   [ROLES.MECHANIC]: [
     "dispatch",
+    "dispatch-map",
     "intake",
+    "daily-plan",
     "messenger",
     "support",
+    "reporting",
     "equipment",
+    "financial",
     "profile",
     "location",
   ],
-  // Receptionist: same surface as mechanic (no approvals/kpi/users/org/security).
+  // Receptionist: same surface as mechanic minus daily-plan (no DailyPlanRequest).
   [ROLES.RECEPTIONIST]: [
     "dispatch",
+    "dispatch-map",
     "intake",
     "messenger",
     "support",
+    "reporting",
     "equipment",
+    "financial",
     "profile",
     "location",
   ],
+  // Member (just signed up, no role grant): default-deny. The backend denies
+  // every Feature but Login, so the nav shows ONLY Profile — never a destination
+  // that would 403.
+  [ROLES.MEMBER]: ["profile"],
 };
 
 describe("nav role gating", () => {
@@ -91,11 +136,22 @@ describe("nav role gating", () => {
       expect(isNavItemVisible("security", [role])).toBe(false);
       expect(isNavItemVisible("users", [role])).toBe(false);
       expect(isNavItemVisible("org", [role])).toBe(false);
+      expect(isNavItemVisible("sites", [role])).toBe(false);
+      expect(isNavItemVisible("email", [role])).toBe(false);
     }
   });
 
+  it("shows the mail-account config (MailAccountManage) only to ADMIN and SUPER_ADMIN", () => {
+    expect(isNavItemVisible("email", [ROLES.ADMIN])).toBe(true);
+    expect(isNavItemVisible("email", [ROLES.SUPER_ADMIN])).toBe(true);
+    expect(isNavItemVisible("email", [ROLES.EXECUTIVE])).toBe(false);
+    expect(isNavItemVisible("email", [ROLES.MECHANIC])).toBe(false);
+    expect(isNavItemVisible("email", [ROLES.RECEPTIONIST])).toBe(false);
+    expect(isNavItemVisible("email", [ROLES.MEMBER])).toBe(false);
+  });
+
   it("shows user and org management only to ADMIN and SUPER_ADMIN", () => {
-    for (const key of ["users", "org"]) {
+    for (const key of ["users", "org", "sites"]) {
       expect(isNavItemVisible(key, [ROLES.ADMIN])).toBe(true);
       expect(isNavItemVisible(key, [ROLES.SUPER_ADMIN])).toBe(true);
       expect(isNavItemVisible(key, [ROLES.EXECUTIVE])).toBe(false);
@@ -112,12 +168,76 @@ describe("nav role gating", () => {
     expect(isNavItemVisible("kpi", [ROLES.RECEPTIONIST])).toBe(false);
   });
 
-  it("shows shared pages to all roles", () => {
-    for (const role of Object.values(ROLES)) {
-      for (const key of ["dispatch", "intake", "messenger", "support", "equipment", "location", "profile"]) {
+  it("shows inspection (InspectionScheduleManage) only to ADMIN and SUPER_ADMIN", () => {
+    expect(isNavItemVisible("inspection", [ROLES.ADMIN])).toBe(true);
+    expect(isNavItemVisible("inspection", [ROLES.SUPER_ADMIN])).toBe(true);
+    expect(isNavItemVisible("inspection", [ROLES.EXECUTIVE])).toBe(false);
+    expect(isNavItemVisible("inspection", [ROLES.MECHANIC])).toBe(false);
+    expect(isNavItemVisible("inspection", [ROLES.RECEPTIONIST])).toBe(false);
+  });
+
+  it("shows integrity (IntegrityFindingsRead) only to EXECUTIVE and SUPER_ADMIN", () => {
+    // Labor-law sensitivity: ADMIN is deliberately excluded (matrix [D,D,D,D,A,A]).
+    expect(isNavItemVisible("integrity", [ROLES.EXECUTIVE])).toBe(true);
+    expect(isNavItemVisible("integrity", [ROLES.SUPER_ADMIN])).toBe(true);
+    expect(isNavItemVisible("integrity", [ROLES.ADMIN])).toBe(false);
+    expect(isNavItemVisible("integrity", [ROLES.MECHANIC])).toBe(false);
+    expect(isNavItemVisible("integrity", [ROLES.RECEPTIONIST])).toBe(false);
+  });
+
+  it("shows daily-plan to DailyPlanRequest holders only", () => {
+    expect(isNavItemVisible("daily-plan", [ROLES.MECHANIC])).toBe(true);
+    expect(isNavItemVisible("daily-plan", [ROLES.ADMIN])).toBe(true);
+    expect(isNavItemVisible("daily-plan", [ROLES.SUPER_ADMIN])).toBe(true);
+    expect(isNavItemVisible("daily-plan", [ROLES.EXECUTIVE])).toBe(false);
+    expect(isNavItemVisible("daily-plan", [ROLES.RECEPTIONIST])).toBe(false);
+  });
+
+  it("shows shared pages to every granted (non-MEMBER) role", () => {
+    // The five operational roles all see the shared pages. A bare MEMBER is
+    // default-denied every one of them (asserted separately below).
+    const grantedRoles = Object.values(ROLES).filter(
+      (role) => role !== ROLES.MEMBER,
+    );
+    for (const role of grantedRoles) {
+      for (const key of ["dispatch", "dispatch-map", "intake", "messenger", "support", "reporting", "equipment", "financial", "location", "profile"]) {
         expect(isNavItemVisible(key, [role])).toBe(true);
       }
     }
+  });
+
+  it("default-denies a no-grant MEMBER everything but Profile", () => {
+    // The dead-role fix: a just-signed-up MEMBER (or an empty roles claim) must
+    // see ONLY Profile — every other destination 403s on the backend.
+    for (const roles of [["MEMBER"], [] as string[], undefined]) {
+      expect(visibleItems(roles ?? [])).toEqual(["profile"]);
+      expect(isNavItemVisible("profile", roles)).toBe(true);
+      for (const key of [
+        "dispatch",
+        "dispatch-map",
+        "intake",
+        "messenger",
+        "support",
+        "reporting",
+        "equipment",
+        "financial",
+        "location",
+        "approvals",
+        "kpi",
+        "users",
+        "security",
+      ]) {
+        expect(isNavItemVisible(key, roles)).toBe(false);
+      }
+    }
+  });
+
+  it("isPendingMember flags an empty or MEMBER-only roles claim", () => {
+    expect(isPendingMember(undefined)).toBe(true);
+    expect(isPendingMember([])).toBe(true);
+    expect(isPendingMember(["MEMBER"])).toBe(true);
+    expect(isPendingMember(["MECHANIC"])).toBe(false);
+    expect(isPendingMember(["MEMBER", "ADMIN"])).toBe(false);
   });
 
   it("respects multiple roles by unioning their entitlements", () => {
@@ -127,14 +247,18 @@ describe("nav role gating", () => {
     );
   });
 
-  it("hides nothing-gated pages and all gated pages when roles are missing", () => {
-    // The bug this fixes: an undefined/empty role must not surface admin pages,
-    // but must also not hide shared pages behind a phantom gate.
-    expect(isNavItemVisible("dispatch", undefined)).toBe(true);
-    expect(isNavItemVisible("dispatch", [])).toBe(true);
+  it("default-denies every gated page (incl. shared pages) when roles are missing", () => {
+    // Default-deny: an undefined/empty roles claim is a no-grant session that the
+    // backend 403s on every Feature but Login, so the nav surfaces only Profile.
+    // Shared pages are now gated too (a phantom-ungated dispatch link would 403).
+    expect(isNavItemVisible("dispatch", undefined)).toBe(false);
+    expect(isNavItemVisible("dispatch", [])).toBe(false);
     expect(isNavItemVisible("approvals", undefined)).toBe(false);
     expect(isNavItemVisible("kpi", [])).toBe(false);
     expect(isNavItemVisible("security", undefined)).toBe(false);
+    // Profile stays visible — it is the one surface a no-grant session can use.
+    expect(isNavItemVisible("profile", undefined)).toBe(true);
+    expect(isNavItemVisible("profile", [])).toBe(true);
   });
 
   it("hasAnyRole matches against the supplied allowlist", () => {

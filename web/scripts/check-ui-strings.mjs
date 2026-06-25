@@ -7,6 +7,11 @@ const sourceRoot = fileURLToPath(new URL("../src", import.meta.url));
 const allowedDirectories = ["src/i18n/", "src/test/"];
 const allowedFilePatterns = [/\.test\.tsx?$/, /\.d\.ts$/];
 const hangulLiteral = /(["'`])(?:\\.|(?!\1)[\s\S])*[\u3131-\uD79D](?:\\.|(?!\1)[\s\S])*\1/g;
+// Strip comments before scanning for Hangul-bearing string literals: a `"`/`'`
+// literal followed later by a Korean `//` or `/* */` comment would otherwise let
+// the greedy literal regex run across the newline into the comment and flag the
+// comment's Hangul as a fake hardcoded string.
+const comments = /\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g;
 const commentsAndStringLiterals =
   /\/\*[\s\S]*?\*\/|\/\/[^\r\n]*|(["'`])(?:\\.|(?!\1)[\s\S])*\1/g;
 const hangul = /[\u3131-\uD79D]/;
@@ -46,7 +51,7 @@ for (const file of files) {
   }
 
   const content = await readFile(file, "utf8");
-  const matches = content.match(hangulLiteral);
+  const matches = content.replace(comments, "").match(hangulLiteral);
   if (matches) {
     violations.push(`${displayPath}: ${matches.join(", ")}`);
   }

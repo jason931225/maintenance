@@ -16,6 +16,16 @@ machine:
   install:
     disk: /dev/sda
     wipe: false
+  # OCI VNICs default to MTU 9000 (jumbo). The public-IP path PMTUD-blackholes
+  # oversized frames (OCI security lists drop ICMP frag-needed), which breaks
+  # ALL external traffic to the node — talosctl, kubectl, and app responses over
+  # Cloudflare. Pin eth0 to 1500 so the node never emits frames the path can't
+  # carry. Without this the cluster bootstraps but is unreachable from outside.
+  network:
+    interfaces:
+      - interface: eth0
+        mtu: 1500
+        dhcp: true
   # Oracle's link-local NTP — accurate time is required for TLS, JWT (ES256
   # exp/iat) and CNPG WAL ordering.
   time:

@@ -18,8 +18,8 @@ use mnt_financial_application::{
 };
 use mnt_financial_domain::{MoneyInput, RentalQuoteInput, compute_rental_quote};
 use mnt_kernel_core::{
-    BranchId, BranchScope, EquipmentId, ErrorKind, EvidenceId, KernelError, PurchaseRequestId,
-    QuoteId, TraceContext, UserId, WorkOrderId,
+    BranchId, BranchScope, EquipmentId, ErrorKind, EvidenceId, KernelError, OrgId,
+    PurchaseRequestId, QuoteId, TraceContext, UserId, WorkOrderId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
@@ -43,7 +43,9 @@ impl FinancialRestState {
 }
 
 pub fn router(state: FinancialRestState) -> Router {
-    Router::new()
+    let verifier = state.jwt_verifier.clone();
+    let pool = state.store.pool().clone();
+    let router = Router::new()
         .route(
             "/api/v1/financial/rental-quotes/compute",
             post(compute_quote),
@@ -56,6 +58,10 @@ pub fn router(state: FinancialRestState) -> Router {
         .route(
             "/api/v1/financial/equipment/{equipment_id}/cost-ledger",
             get(list_cost_ledger),
+        )
+        .route(
+            "/api/v1/financial/equipment/{equipment_id}/lifecycle-cost",
+            get(get_lifecycle_cost),
         )
         .route(
             "/api/v1/financial/equipment/{equipment_id}/cost-ledger/manual",
@@ -97,7 +103,8 @@ pub fn router(state: FinancialRestState) -> Router {
             "/api/v1/financial/purchase-requests/{purchase_request_id}/execute",
             post(execute_purchase),
         )
-        .with_state(state)
+        .with_state(state);
+    mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
 
 #[derive(Debug, Deserialize)]
@@ -258,6 +265,32 @@ async fn list_cost_ledger(
         .await
         .map_err(RestError::from_store)?;
     Ok(Json(entries))
+}
+
+async fn get_lifecycle_cost(
+    State(state): State<FinancialRestState>,
+    headers: HeaderMap,
+    Path(equipment_id): Path<uuid::Uuid>,
+) -> Result<impl IntoResponse, RestError> {
+    let equipment_id = EquipmentId::from_uuid(equipment_id);
+    let principal = principal_from_headers(&state, &headers)?;
+    let branch_id = state
+        .store
+        .equipment_branch(equipment_id)
+        .await
+        .map_err(RestError::from_store)?;
+    authorize(
+        &principal,
+        Action::new(Feature::EquipmentCostLedgerRead),
+        branch_id,
+    )
+    .map_err(RestError::from_kernel)?;
+    let summary = state
+        .store
+        .lifecycle_cost_for_equipment(equipment_id)
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(summary))
 }
 
 async fn append_manual_cost_ledger(
@@ -637,7 +670,9 @@ fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
         BranchScope::Branches(branches)
     };
 
-    Ok(Principal::new(user_id, roles, branch_scope))
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 
 #[derive(Debug)]

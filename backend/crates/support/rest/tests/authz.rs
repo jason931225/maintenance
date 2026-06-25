@@ -6,7 +6,7 @@
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode, header};
-use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, TraceContext, UserId};
+use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, OrgId, TraceContext, UserId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
 use mnt_platform_db::{DbError, with_audit};
 use mnt_support_adapter_postgres::PgSupportStore;
@@ -30,59 +30,64 @@ const TEST_AUDIENCE: &str = "mnt-api";
 /// branch's ticket and the spoofed claim is ignored.
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn list_tickets_resolves_branch_scope_from_db_not_token_claim(pool: PgPool) {
-    let signing_key = SigningKey::random(&mut OsRng);
-    let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
-    let public_key_pem = signing_key
-        .verifying_key()
-        .to_public_key_pem(LineEnding::LF)
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let signing_key = SigningKey::random(&mut OsRng);
+        let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+        let public_key_pem = signing_key
+            .verifying_key()
+            .to_public_key_pem(LineEnding::LF)
+            .unwrap();
+
+        let real_branch = seed_branch(&pool).await;
+        let claimed_branch = seed_branch(&pool).await;
+        let user = seed_user_in_branch(&pool, "Support Staff", real_branch).await;
+
+        let store = PgSupportStore::new(pool.clone());
+        let now = OffsetDateTime::now_utc();
+        let ticket = store
+            .create_internal_ticket(CreateInternalTicketCommand {
+                actor: user,
+                branch_id: real_branch,
+                category: TicketCategory::SystemBug,
+                priority: TicketPriority::High,
+                title: "real branch ticket".to_owned(),
+                body: "x".to_owned(),
+                trace: TraceContext::generate(),
+                occurred_at: now,
+            })
+            .await
+            .unwrap();
+
+        // Token names only `claimed_branch`, which the user is NOT a member of.
+        let token = issue_token(
+            private_pem.as_bytes(),
+            public_key_pem.as_bytes(),
+            user,
+            vec!["MECHANIC".to_owned()],
+            vec![claimed_branch],
+        );
+        let verifier = JwtVerifier::from_es256_public_pem(
+            JwtSettings {
+                issuer: TEST_ISSUER.to_owned(),
+                audience: TEST_AUDIENCE.to_owned(),
+                access_token_ttl: Duration::minutes(15),
+            },
+            public_key_pem.as_bytes(),
+        )
         .unwrap();
+        let service = router(SupportRestState::new(store, Some(verifier), None));
 
-    let real_branch = seed_branch(&pool).await;
-    let claimed_branch = seed_branch(&pool).await;
-    let user = seed_user_in_branch(&pool, "Support Staff", real_branch).await;
-
-    let store = PgSupportStore::new(pool.clone());
-    let now = OffsetDateTime::now_utc();
-    let ticket = store
-        .create_internal_ticket(CreateInternalTicketCommand {
-            actor: user,
-            branch_id: real_branch,
-            category: TicketCategory::SystemBug,
-            priority: TicketPriority::High,
-            title: "real branch ticket".to_owned(),
-            body: "x".to_owned(),
-            trace: TraceContext::generate(),
-            occurred_at: now,
-        })
-        .await
-        .unwrap();
-
-    // Token names only `claimed_branch`, which the user is NOT a member of.
-    let token = issue_token(
-        private_pem.as_bytes(),
-        public_key_pem.as_bytes(),
-        user,
-        vec!["MECHANIC".to_owned()],
-        vec![claimed_branch],
-    );
-    let verifier = JwtVerifier::from_es256_public_pem(
-        JwtSettings {
-            issuer: TEST_ISSUER.to_owned(),
-            audience: TEST_AUDIENCE.to_owned(),
-            access_token_ttl: Duration::minutes(15),
-        },
-        public_key_pem.as_bytes(),
-    )
-    .unwrap();
-    let service = router(SupportRestState::new(store, Some(verifier), None));
-
-    let response = get_json(service, "/api/v1/support/tickets", &token).await;
-    assert_eq!(response.0, StatusCode::OK, "{:?}", response.1);
-    let items = response.1.as_array().expect("array body");
-    // The user's REAL branch ticket is visible (DB scope), even though the token
-    // claimed a different branch.
-    assert_eq!(items.len(), 1, "{items:?}");
-    assert_eq!(items[0]["id"], Value::String(ticket.id.to_string()));
+        let response = get_json(service, "/api/v1/support/tickets", &token).await;
+        assert_eq!(response.0, StatusCode::OK, "{:?}", response.1);
+        let items = response.1["items"]
+            .as_array()
+            .expect("paginated items array");
+        // The user's REAL branch ticket is visible (DB scope), even though the token
+        // claimed a different branch.
+        assert_eq!(items.len(), 1, "{items:?}");
+        assert_eq!(items[0]["id"], Value::String(ticket.id.to_string()));
+    })
+    .await;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,8 +114,13 @@ fn issue_token(
     issuer
         .issue_access_token(AccessTokenInput {
             subject: user_id,
+            org_id: OrgId::knl(),
             roles,
             branches,
+            platform: false,
+            view_as: false,
+            read_only: false,
+            display_name: None,
             issued_at: OffsetDateTime::now_utc(),
         })
         .unwrap()
@@ -135,19 +145,23 @@ async fn seed_branch(pool: &PgPool) -> BranchId {
     .with_branch(branch_id);
     with_audit(pool, event, |tx| {
         Box::pin(async move {
-            sqlx::query("INSERT INTO regions (id, name) VALUES ($1, $2)")
+            sqlx::query("INSERT INTO regions (id, name, org_id) VALUES ($1, $2, $3)")
                 .bind(region_id)
                 .bind(region_name)
+                .bind(*OrgId::knl().as_uuid())
                 .execute(tx.as_mut())
                 .await
                 .map_err(DbError::Sqlx)?;
-            sqlx::query("INSERT INTO branches (id, region_id, name) VALUES ($1, $2, $3)")
-                .bind(*branch_id.as_uuid())
-                .bind(region_id)
-                .bind(branch_name)
-                .execute(tx.as_mut())
-                .await
-                .map_err(DbError::Sqlx)?;
+            sqlx::query(
+                "INSERT INTO branches (id, region_id, name, org_id) VALUES ($1, $2, $3, $4)",
+            )
+            .bind(*branch_id.as_uuid())
+            .bind(region_id)
+            .bind(branch_name)
+            .bind(*OrgId::knl().as_uuid())
+            .execute(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
             Ok::<BranchId, DbError>(branch_id)
         })
     })
@@ -169,19 +183,25 @@ async fn seed_user_in_branch(pool: &PgPool, name: &str, branch_id: BranchId) -> 
     .with_branch(branch_id);
     with_audit(pool, event, |tx| {
         Box::pin(async move {
-            sqlx::query("INSERT INTO users (id, display_name, roles) VALUES ($1, $2, $3)")
-                .bind(*user_id.as_uuid())
-                .bind(name)
-                .bind(Vec::from(["MECHANIC".to_owned()]))
-                .execute(tx.as_mut())
-                .await
-                .map_err(DbError::Sqlx)?;
-            sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
-                .bind(*user_id.as_uuid())
-                .bind(*branch_id.as_uuid())
-                .execute(tx.as_mut())
-                .await
-                .map_err(DbError::Sqlx)?;
+            sqlx::query(
+                "INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)",
+            )
+            .bind(*user_id.as_uuid())
+            .bind(name)
+            .bind(Vec::from(["MECHANIC".to_owned()]))
+            .bind(*OrgId::knl().as_uuid())
+            .execute(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+            sqlx::query(
+                "INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)",
+            )
+            .bind(*user_id.as_uuid())
+            .bind(*branch_id.as_uuid())
+            .bind(*OrgId::knl().as_uuid())
+            .execute(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
             Ok::<(), DbError>(())
         })
     })

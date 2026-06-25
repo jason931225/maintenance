@@ -9,11 +9,12 @@
 use mnt_kernel_core::{
     BranchId, BranchScope, ErrorKind, KernelError, SupportTicketCommentId, SupportTicketId, UserId,
 };
-use mnt_platform_db::{DbError, with_audit, with_audits};
+use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
+use mnt_platform_request_context::current_org;
 use mnt_support_application::{
     AddCommentCommand, AssignTicketCommand, CommentAudience, CommentView,
     CreateCustomerIntakeCommand, CreateInternalTicketCommand, ListTicketsQuery, TicketDetail,
-    TicketNotification, TicketNotificationKind, TicketSummary, TransitionTicketCommand,
+    TicketNotification, TicketNotificationKind, TicketPage, TicketSummary, TransitionTicketCommand,
     support_audit_event,
 };
 use mnt_support_domain::{SlaPolicy, TicketCategory, TicketOrigin, TicketPriority, TicketStatus};
@@ -85,6 +86,8 @@ impl PgSupportStore {
         &self,
         command: CreateInternalTicketCommand,
     ) -> Result<TicketSummary, PgSupportError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let title = require_non_empty(&command.title, "support ticket title is required")?;
         require_max_chars(&title, MAX_TITLE_CHARS, "support ticket title is too long")?;
         let body = require_non_empty(&command.body, "support ticket body is required")?;
@@ -109,7 +112,12 @@ impl PgSupportStore {
                 "status": TicketStatus::Open.as_db_str(),
                 "branch_id": command.branch_id.to_string(),
             })),
-        );
+        )
+        // Arm the tenant on the audit event so `with_audit` binds
+        // `app.current_org` BEFORE the closure runs. Without it, the
+        // ensure_active_user_in_branch SELECT + the INSERT execute under FORCE
+        // RLS with an unset GUC and fail closed as the real `mnt_rt` role.
+        .with_org(org);
 
         with_audit::<_, TicketSummary, PgSupportError>(&self.pool, event, |tx| {
             Box::pin(async move {
@@ -118,9 +126,9 @@ impl PgSupportStore {
                     r#"
                     INSERT INTO support_tickets (
                         id, branch_id, origin, category, priority, status,
-                        title, body, requester_user_id, due_at, created_at, updated_at
+                        title, body, requester_user_id, due_at, created_at, updated_at, org_id
                     )
-                    VALUES ($1, $2, 'INTERNAL', $3, $4, 'OPEN', $5, $6, $7, $8, $9, $9)
+                    VALUES ($1, $2, 'INTERNAL', $3, $4, 'OPEN', $5, $6, $7, $8, $9, $9, $10)
                     "#,
                 )
                 .bind(*ticket_id.as_uuid())
@@ -132,6 +140,7 @@ impl PgSupportStore {
                 .bind(*command.actor.as_uuid())
                 .bind(due_at)
                 .bind(command.occurred_at)
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
 
@@ -148,6 +157,8 @@ impl PgSupportStore {
         &self,
         command: CreateCustomerIntakeCommand,
     ) -> Result<TicketSummary, PgSupportError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let title = require_non_empty(&command.title, "support ticket title is required")?;
         require_max_chars(&title, MAX_TITLE_CHARS, "support ticket title is too long")?;
         let body = require_non_empty(&command.body, "support ticket body is required")?;
@@ -187,7 +198,11 @@ impl PgSupportStore {
                 "priority": command.priority.as_db_str(),
                 "status": TicketStatus::Open.as_db_str(),
             })),
-        );
+        )
+        // Arm the tenant on the audit event so `with_audit` binds
+        // `app.current_org` BEFORE the closure runs; otherwise the customer-row
+        // INSERT executes under FORCE RLS with an unset GUC and fails closed.
+        .with_org(org);
 
         with_audit::<_, TicketSummary, PgSupportError>(&self.pool, event, |tx| {
             Box::pin(async move {
@@ -196,9 +211,9 @@ impl PgSupportStore {
                     INSERT INTO support_tickets (
                         id, branch_id, origin, category, priority, status,
                         title, body, requester_name, requester_contact,
-                        due_at, created_at, updated_at
+                        due_at, created_at, updated_at, org_id
                     )
-                    VALUES ($1, NULL, 'CUSTOMER', $2, $3, 'OPEN', $4, $5, $6, $7, $8, $9, $9)
+                    VALUES ($1, NULL, 'CUSTOMER', $2, $3, 'OPEN', $4, $5, $6, $7, $8, $9, $9, $10)
                     "#,
                 )
                 .bind(*ticket_id.as_uuid())
@@ -210,6 +225,7 @@ impl PgSupportStore {
                 .bind(&requester_contact)
                 .bind(due_at)
                 .bind(command.occurred_at)
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
 
@@ -226,8 +242,10 @@ impl PgSupportStore {
         &self,
         command: AssignTicketCommand,
     ) -> Result<(TicketSummary, Vec<TicketNotification>), PgSupportError> {
+        let org = current_org().map_err(KernelError::from)?;
         with_audits::<_, (TicketSummary, Vec<TicketNotification>), PgSupportError>(
             &self.pool,
+            org,
             |tx| {
                 Box::pin(async move {
                     let ticket = lock_ticket_tx(tx, command.ticket_id).await?;
@@ -300,8 +318,10 @@ impl PgSupportStore {
         &self,
         command: TransitionTicketCommand,
     ) -> Result<(TicketSummary, Vec<TicketNotification>), PgSupportError> {
+        let org = current_org().map_err(KernelError::from)?;
         with_audits::<_, (TicketSummary, Vec<TicketNotification>), PgSupportError>(
             &self.pool,
+            org,
             |tx| {
                 Box::pin(async move {
                     let ticket = lock_ticket_tx(tx, command.ticket_id).await?;
@@ -363,10 +383,12 @@ impl PgSupportStore {
         &self,
         command: AddCommentCommand,
     ) -> Result<(CommentView, Vec<TicketNotification>), PgSupportError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let body = require_non_empty(&command.body, "comment body is required")?;
         let comment_id = SupportTicketCommentId::new();
 
-        with_audits::<_, (CommentView, Vec<TicketNotification>), PgSupportError>(&self.pool, |tx| {
+        with_audits::<_, (CommentView, Vec<TicketNotification>), PgSupportError>(&self.pool, org, |tx| {
             Box::pin(async move {
                 let ticket = lock_ticket_tx(tx, command.ticket_id).await?;
                 ensure_author_visible_to_ticket(tx, command.actor, &ticket).await?;
@@ -374,9 +396,9 @@ impl PgSupportStore {
                 sqlx::query(
                     r#"
                         INSERT INTO support_ticket_comments (
-                            id, ticket_id, author_user_id, body, is_internal_note, created_at
+                            id, ticket_id, author_user_id, body, is_internal_note, created_at, org_id
                         )
-                        VALUES ($1, $2, $3, $4, $5, $6)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)
                         "#,
                 )
                 .bind(*comment_id.as_uuid())
@@ -385,6 +407,7 @@ impl PgSupportStore {
                 .bind(&body)
                 .bind(command.is_internal_note)
                 .bind(command.occurred_at)
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
 
@@ -430,7 +453,7 @@ impl PgSupportStore {
     pub async fn list_tickets(
         &self,
         query: ListTicketsQuery,
-    ) -> Result<Vec<TicketSummary>, PgSupportError> {
+    ) -> Result<TicketPage, PgSupportError> {
         // Always clamp to a hard server-side cap so an unbounded fetch is
         // impossible, even when the client sends no limit.
         let limit = normalized_limit(query.limit);
@@ -440,41 +463,63 @@ impl PgSupportStore {
             None => None,
         };
 
+        // Branch scope + filters are shared by the page query and the COUNT.
+        // The COUNT must NOT apply the keyset cursor, so the total is the same
+        // across every page of the same filter set.
+        let branch_scope = query.branch_scope.clone();
+        let include_untriaged = query.include_untriaged;
+        let status = query.status;
+        let priority = query.priority;
+        let category = query.category;
+        let origin = query.origin;
+        let assignee_user_id = query.assignee_user_id;
+        let push_filters = move |builder: &mut QueryBuilder<Postgres>| {
+            builder.push("(");
+            push_branch_scope(builder, &branch_scope, include_untriaged);
+            builder.push(")");
+            if let Some(status) = status {
+                builder.push(" AND status = ");
+                builder.push_bind(status.as_db_str());
+            }
+            if let Some(priority) = priority {
+                builder.push(" AND priority = ");
+                builder.push_bind(priority.as_db_str());
+            }
+            if let Some(category) = category {
+                builder.push(" AND category = ");
+                builder.push_bind(category.as_db_str());
+            }
+            if let Some(origin) = origin {
+                builder.push(" AND origin = ");
+                builder.push_bind(origin.as_db_str());
+            }
+            if let Some(assignee) = assignee_user_id {
+                builder.push(" AND assignee_user_id = ");
+                builder.push_bind(*assignee.as_uuid());
+            }
+        };
+
+        let mut count_builder =
+            QueryBuilder::<Postgres>::new("SELECT COUNT(*) FROM support_tickets WHERE ");
+        push_filters(&mut count_builder);
+
         let mut builder = QueryBuilder::<Postgres>::new(
             r#"
             SELECT
                 id, branch_id, origin, category, priority, status, title,
-                requester_user_id, requester_name, assignee_user_id, due_at,
+                requester_user_id, requester_name, assignee_user_id,
+                -- Same-org correlated lookup (RLS-scoped to app.current_org,
+                -- exactly like the LEFT JOIN it stands in for): resolves the
+                -- assignee's display name, NULL when unassigned or deleted.
+                (SELECT u.display_name FROM users u
+                  WHERE u.id = support_tickets.assignee_user_id) AS assignee_name,
+                due_at,
                 created_at, updated_at, resolved_at, closed_at
             FROM support_tickets
-            WHERE (
+            WHERE
             "#,
         );
-        // Branch scoping: cross-branch principals may additionally opt into the
-        // untriaged (branch_id IS NULL) intake queue.
-        push_branch_scope(&mut builder, &query.branch_scope, query.include_untriaged);
-        builder.push(")");
-
-        if let Some(status) = query.status {
-            builder.push(" AND status = ");
-            builder.push_bind(status.as_db_str());
-        }
-        if let Some(priority) = query.priority {
-            builder.push(" AND priority = ");
-            builder.push_bind(priority.as_db_str());
-        }
-        if let Some(category) = query.category {
-            builder.push(" AND category = ");
-            builder.push_bind(category.as_db_str());
-        }
-        if let Some(origin) = query.origin {
-            builder.push(" AND origin = ");
-            builder.push_bind(origin.as_db_str());
-        }
-        if let Some(assignee) = query.assignee_user_id {
-            builder.push(" AND assignee_user_id = ");
-            builder.push_bind(*assignee.as_uuid());
-        }
+        push_filters(&mut builder);
         // Keyset: strictly after the cursor on the (created_at DESC, id) order.
         if let Some((created_at, id)) = cursor {
             builder.push(" AND (created_at, id) < (");
@@ -483,11 +528,40 @@ impl PgSupportStore {
             builder.push_bind(id);
             builder.push(")");
         }
+        // Fetch one extra row to know whether a further page exists; the extra
+        // row (if any) becomes the keyset cursor and is not returned.
         builder.push(" ORDER BY created_at DESC, id DESC LIMIT ");
-        builder.push_bind(limit);
+        builder.push_bind(limit + 1);
 
-        let rows = builder.build().fetch_all(&self.pool).await?;
-        rows.iter().map(summary_from_row).collect()
+        let org = current_org().map_err(KernelError::from)?;
+        let (total, rows) = with_org_conn::<_, _, PgSupportError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let total: i64 = count_builder
+                    .build_query_scalar()
+                    .fetch_one(tx.as_mut())
+                    .await?;
+                let rows = builder.build().fetch_all(tx.as_mut()).await?;
+                Ok((total, rows))
+            })
+        })
+        .await?;
+
+        let mut items = rows
+            .iter()
+            .map(summary_from_row)
+            .collect::<Result<Vec<_>, _>>()?;
+        let next_cursor = if i64::try_from(items.len()).unwrap_or(0) > limit {
+            // Drop the look-ahead row and expose the last KEPT id as the cursor.
+            items.truncate(usize::try_from(limit).unwrap_or(items.len()));
+            items.last().map(|ticket| ticket.id)
+        } else {
+            None
+        };
+        Ok(TicketPage {
+            items,
+            next_cursor,
+            total,
+        })
     }
 
     // -----------------------------------------------------------------------
@@ -503,7 +577,13 @@ impl PgSupportStore {
             r#"
             SELECT
                 id, branch_id, origin, category, priority, status, title,
-                requester_user_id, requester_name, assignee_user_id, due_at,
+                requester_user_id, requester_name, assignee_user_id,
+                -- Same-org correlated lookup (RLS-scoped to app.current_org,
+                -- exactly like the LEFT JOIN it stands in for): resolves the
+                -- assignee's display name, NULL when unassigned or deleted.
+                (SELECT u.display_name FROM users u
+                  WHERE u.id = support_tickets.assignee_user_id) AS assignee_name,
+                due_at,
                 created_at, updated_at, resolved_at, closed_at
             FROM support_tickets
             WHERE id =
@@ -514,11 +594,12 @@ impl PgSupportStore {
         // A branch-less customer ticket is only visible to cross-branch staff.
         push_branch_scope(&mut builder, branch_scope, true);
         builder.push(")");
-        let row = builder
-            .build()
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| KernelError::not_found("support ticket was not found"))?;
+        let org = current_org().map_err(KernelError::from)?;
+        let row = with_org_conn::<_, _, PgSupportError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_optional(tx.as_mut()).await?) })
+        })
+        .await?
+        .ok_or_else(|| KernelError::not_found("support ticket was not found"))?;
         let ticket = summary_from_row(&row)?;
 
         let comments = self.list_comments(ticket_id, audience).await?;
@@ -532,7 +613,11 @@ impl PgSupportStore {
     ) -> Result<Vec<CommentView>, PgSupportError> {
         let mut builder = QueryBuilder::<Postgres>::new(
             r#"
-            SELECT id, ticket_id, author_user_id, body, is_internal_note, created_at
+            SELECT id, ticket_id, author_user_id, body, is_internal_note, created_at,
+                -- Same-org correlated lookup (RLS-scoped to app.current_org):
+                -- the comment author's display name, NULL when authorless/deleted.
+                (SELECT u.display_name FROM users u
+                  WHERE u.id = support_ticket_comments.author_user_id) AS author_name
             FROM support_ticket_comments
             WHERE ticket_id =
             "#,
@@ -543,7 +628,11 @@ impl PgSupportStore {
             builder.push(" AND is_internal_note = FALSE");
         }
         builder.push(" ORDER BY created_at, id");
-        let rows = builder.build().fetch_all(&self.pool).await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgSupportError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
         rows.iter().map(comment_from_row).collect()
     }
 
@@ -573,6 +662,7 @@ impl PgSupportStore {
         .bind(client_key)
         .bind(endpoint)
         .bind(window_start)
+        // rls-arming: ok auth_rate_limit is a global table (no org_id, no RLS)
         .fetch_one(&self.pool)
         .await?;
         Ok(i64::from(attempts))
@@ -580,18 +670,25 @@ impl PgSupportStore {
 
     /// Active push tokens for a staff recipient, for notification fan-out.
     pub async fn active_push_tokens(&self, user_id: UserId) -> Result<Vec<String>, PgSupportError> {
-        let tokens: Vec<String> = sqlx::query_scalar(
-            r#"
+        let org = current_org().map_err(KernelError::from)?;
+        let tokens: Vec<String> =
+            with_org_conn::<_, _, PgSupportError>(&self.pool, org, move |tx| {
+                Box::pin(async move {
+                    Ok(sqlx::query_scalar(
+                        r#"
             SELECT push_token
             FROM registered_devices
             WHERE user_id = $1
               AND push_token IS NOT NULL
               AND btrim(push_token) <> ''
             "#,
-        )
-        .bind(*user_id.as_uuid())
-        .fetch_all(&self.pool)
-        .await?;
+                    )
+                    .bind(*user_id.as_uuid())
+                    .fetch_all(tx.as_mut())
+                    .await?)
+                })
+            })
+            .await?;
         Ok(tokens)
     }
 
@@ -607,11 +704,12 @@ impl PgSupportStore {
         builder.push(" AND (");
         push_branch_scope(&mut builder, branch_scope, true);
         builder.push(")");
-        let row = builder
-            .build()
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| KernelError::not_found("support ticket was not found"))?;
+        let org = current_org().map_err(KernelError::from)?;
+        let row = with_org_conn::<_, _, PgSupportError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_optional(tx.as_mut()).await?) })
+        })
+        .await?
+        .ok_or_else(|| KernelError::not_found("support ticket was not found"))?;
         let branch_id: Option<uuid::Uuid> = row.try_get("branch_id")?;
         Ok(branch_id.map(BranchId::from_uuid))
     }
@@ -733,7 +831,10 @@ async fn fetch_summary_tx(
         r#"
         SELECT
             id, branch_id, origin, category, priority, status, title,
-            requester_user_id, requester_name, assignee_user_id, due_at,
+            requester_user_id, requester_name, assignee_user_id,
+            (SELECT u.display_name FROM users u
+              WHERE u.id = support_tickets.assignee_user_id) AS assignee_name,
+            due_at,
             created_at, updated_at, resolved_at, closed_at
         FROM support_tickets
         WHERE id = $1
@@ -751,7 +852,9 @@ async fn fetch_comment_tx(
 ) -> Result<CommentView, PgSupportError> {
     let row = sqlx::query(
         r#"
-        SELECT id, ticket_id, author_user_id, body, is_internal_note, created_at
+        SELECT id, ticket_id, author_user_id, body, is_internal_note, created_at,
+            (SELECT u.display_name FROM users u
+              WHERE u.id = support_ticket_comments.author_user_id) AS author_name
         FROM support_ticket_comments
         WHERE id = $1
         "#,
@@ -769,11 +872,19 @@ async fn ticket_cursor(
     pool: &PgPool,
     ticket_id: SupportTicketId,
 ) -> Result<(OffsetDateTime, uuid::Uuid), PgSupportError> {
-    let row = sqlx::query("SELECT created_at, id FROM support_tickets WHERE id = $1")
-        .bind(*ticket_id.as_uuid())
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| KernelError::not_found("support ticket cursor was not found"))?;
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgSupportError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(
+                sqlx::query("SELECT created_at, id FROM support_tickets WHERE id = $1")
+                    .bind(*ticket_id.as_uuid())
+                    .fetch_optional(tx.as_mut())
+                    .await?,
+            )
+        })
+    })
+    .await?
+    .ok_or_else(|| KernelError::not_found("support ticket cursor was not found"))?;
     Ok((row.try_get("created_at")?, row.try_get("id")?))
 }
 
@@ -965,6 +1076,7 @@ fn summary_from_row(row: &sqlx::postgres::PgRow) -> Result<TicketSummary, PgSupp
         assignee_user_id: row
             .try_get::<Option<uuid::Uuid>, _>("assignee_user_id")?
             .map(UserId::from_uuid),
+        assignee_name: row.try_get("assignee_name")?,
         due_at: row.try_get("due_at")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
@@ -980,6 +1092,7 @@ fn comment_from_row(row: &sqlx::postgres::PgRow) -> Result<CommentView, PgSuppor
         author_user_id: row
             .try_get::<Option<uuid::Uuid>, _>("author_user_id")?
             .map(UserId::from_uuid),
+        author_name: row.try_get("author_name")?,
         body: row.try_get("body")?,
         is_internal_note: row.try_get("is_internal_note")?,
         created_at: row.try_get("created_at")?,

@@ -1,0 +1,24 @@
+[package]
+name = "mnt-comms-application"
+version = "0.1.0"
+description = "Webmail application layer: ports (MailStore, SmtpSender, CredentialCipher, MailNotifier), account/send commands + DTOs, audit builders, and the AccountService/SendService orchestrators. No sqlx/lettre."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mnt-comms-domain = { workspace = true }
+mnt-kernel-core = { workspace = true }
+secrecy = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

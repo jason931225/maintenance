@@ -1,12 +1,14 @@
 import { Copy, Ticket } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
+import type { BranchSummary, UserSummary } from "../api/types";
 import { PageHeader } from "../components/shell/PageHeader";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
-import { Input } from "../components/ui/input";
+import { Combobox, type ComboboxOption } from "../components/ui/combobox";
 import { useActiveBranchId, useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
+import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../lib/useAutoDismiss";
 import { issueAdminOtp } from "../auth/webauthn";
 
 interface IssuedOtp {
@@ -19,10 +21,51 @@ export function AdminSettingsPage() {
   const activeBranchId = useActiveBranchId();
   const [userId, setUserId] = useState("");
   const [branchId, setBranchId] = useState(activeBranchId ?? "");
+  const [users, setUsers] = useState<UserSummary[]>([]);
+  const [branches, setBranches] = useState<BranchSummary[]>([]);
   const [pending, setPending] = useState(false);
   const [issued, setIssued] = useState<IssuedOtp | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
   const [copied, setCopied] = useState(false);
+  // The "copied" confirmation reverts to the default copy label after a moment.
+  const clearCopied = useCallback(() => {
+    setCopied(false);
+  }, []);
+  useAutoDismiss(copied ? "copied" : undefined, clearCopied, SUCCESS_DISMISS_MS);
+
+  // Load the user + branch option sources so the admin picks by human name
+  // rather than transcribing a UUID.
+  const loadOptions = useCallback(async () => {
+    const [userRes, branchRes] = await Promise.all([
+      api
+        .GET("/api/v1/users", {
+          params: { query: { include_inactive: false } },
+        })
+        .catch(() => undefined),
+      api.GET("/api/v1/branches").catch(() => undefined),
+    ]);
+    if (userRes?.data) setUsers(userRes.data.items);
+    if (branchRes?.data) setBranches(branchRes.data);
+  }, [api]);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadOptions);
+  }, [loadOptions]);
+
+  const userOptions = useMemo<ComboboxOption[]>(
+    () =>
+      users.map((user) => ({
+        id: user.id,
+        label: user.display_name,
+        sublabel: user.phone ?? undefined,
+      })),
+    [users],
+  );
+
+  const branchOptions = useMemo<ComboboxOption[]>(
+    () => branches.map((branch) => ({ id: branch.id, label: branch.name })),
+    [branches],
+  );
 
   async function handleIssue() {
     setError(undefined);
@@ -65,45 +108,43 @@ export function AdminSettingsPage() {
       <div className="max-w-xl">
         <Card className="grid gap-4">
           <div className="grid gap-1">
-            <h2 className="text-lg font-semibold text-slate-950">
+            <h2 className="text-lg font-semibold text-ink">
               {ko.admin.issueOtpTitle}
             </h2>
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-steel">
               {ko.admin.issueOtpDescription}
             </p>
           </div>
 
           <div className="grid gap-2">
             <label
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-medium text-steel"
               htmlFor="admin-otp-user-id"
             >
-              {ko.admin.userIdLabel}
+              {ko.admin.userLabel}
             </label>
-            <Input
+            <Combobox
               id="admin-otp-user-id"
+              options={userOptions}
               value={userId}
-              placeholder={ko.admin.userIdPlaceholder}
-              onChange={(event) => {
-                setUserId(event.currentTarget.value);
-              }}
+              placeholder={ko.admin.userPlaceholder}
+              onChange={setUserId}
             />
           </div>
 
           <div className="grid gap-2">
             <label
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-medium text-steel"
               htmlFor="admin-otp-branch-id"
             >
-              {ko.admin.branchIdLabel}
+              {ko.admin.branchLabel}
             </label>
-            <Input
+            <Combobox
               id="admin-otp-branch-id"
+              options={branchOptions}
               value={branchId}
-              placeholder={ko.admin.branchIdPlaceholder}
-              onChange={(event) => {
-                setBranchId(event.currentTarget.value);
-              }}
+              placeholder={ko.admin.branchPlaceholder}
+              onChange={setBranchId}
             />
           </div>
 
@@ -119,12 +160,12 @@ export function AdminSettingsPage() {
           </Button>
 
           {issued ? (
-            <div className="grid gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-4">
-              <span className="text-sm font-medium text-emerald-900">
+            <div className="grid gap-2 rounded-md border border-brand-teal/30 bg-brand-teal/10 p-4">
+              <span className="text-sm font-medium text-brand-teal">
                 {ko.admin.issuedCode}
               </span>
               <div className="flex items-center gap-2">
-                <code className="rounded bg-white px-3 py-2 text-lg font-semibold tracking-widest text-slate-950">
+                <code className="rounded bg-white px-3 py-2 text-lg font-semibold tracking-widest text-ink">
                   {issued.otp}
                 </code>
                 <Button
@@ -142,7 +183,7 @@ export function AdminSettingsPage() {
               <span role="status" aria-live="polite" className="sr-only">
                 {copied ? ko.admin.copied : ""}
               </span>
-              <span className="text-sm text-emerald-900">
+              <span className="text-sm text-brand-teal">
                 {ko.admin.expiresAt}:{" "}
                 {new Date(issued.expiresAt).toLocaleString("ko-KR", {
                   dateStyle: "medium",

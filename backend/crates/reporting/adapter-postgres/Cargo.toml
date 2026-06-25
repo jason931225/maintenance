@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 mnt-kernel-core = { workspace = true }
 mnt-platform-db = { workspace = true }
+mnt-platform-request-context = { workspace = true }
 mnt-platform-excel = { workspace = true }
 mnt-reporting-application = { workspace = true }
 mnt-reporting-domain = { workspace = true }

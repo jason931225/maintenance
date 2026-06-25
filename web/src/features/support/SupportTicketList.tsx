@@ -1,8 +1,9 @@
 import type { SupportTicketSummary } from "../../api/types";
 import { Badge } from "../../components/ui/badge";
-import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import { LoadMoreButton } from "../../components/shell/LoadMoreButton";
 import { ko } from "../../i18n/ko";
+import { formatListCount, safeLabel } from "../../lib/utils";
 import {
   categoryLabel,
   formatDateTime,
@@ -25,6 +26,8 @@ interface SupportTicketListProps {
   hasMore?: boolean;
   isLoadingMore?: boolean;
   onLoadMore?: () => void;
+  /** Unpaged total matching the current filters, reported by the API. */
+  total?: number;
 }
 
 export function SupportTicketList({
@@ -36,23 +39,28 @@ export function SupportTicketList({
   hasMore = false,
   isLoadingMore = false,
   onLoadMore,
+  total,
 }: SupportTicketListProps) {
   return (
     <Card className="grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-slate-950">
+        <h2 className="text-lg font-semibold text-ink">
           {ko.support.listTitle}
         </h2>
-        <Badge>{tickets.length}</Badge>
+        <Badge>
+          {total !== undefined
+            ? formatListCount(total)
+            : formatListCount(tickets.length, { mayHaveMore: hasMore })}
+        </Badge>
       </div>
 
       {tickets.length === 0 ? (
         isLoading ? (
-          <p role="status" className="text-sm font-medium text-slate-700">
+          <p role="status" className="text-sm font-medium text-steel">
             {ko.common.loading}
           </p>
         ) : (
-          <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+          <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
             {ko.support.empty}
           </p>
         )
@@ -71,8 +79,8 @@ export function SupportTicketList({
                   }}
                   className={`grid w-full gap-2 rounded-md border p-3 text-left transition-colors ${
                     selected
-                      ? "border-slate-950 bg-slate-50"
-                      : "border-slate-200 hover:bg-slate-50"
+                      ? "border-ink bg-muted-panel"
+                      : "border-line hover:bg-muted-panel"
                   }`}
                 >
                   <div className="flex flex-wrap items-center gap-2">
@@ -93,9 +101,14 @@ export function SupportTicketList({
                       </Badge>
                     ) : null}
                   </div>
-                  <p className="font-semibold text-slate-950">{ticket.title}</p>
-                  <p className="text-sm text-slate-600">
+                  <p className="font-semibold text-ink">{ticket.title}</p>
+                  <p className="text-sm text-steel">
                     {categoryLabel(ticket.category)}
+                    {" · "}
+                    {ko.support.assignee}:{" "}
+                    {ticket.assignee_user_id
+                      ? safeLabel(ticket.assignee_name)
+                      : ko.support.unassigned}
                     {" · "}
                     {ko.support.createdAt} {formatDateTime(ticket.created_at)}
                   </p>
@@ -107,15 +120,12 @@ export function SupportTicketList({
       )}
 
       {hasMore && onLoadMore ? (
-        <Button
-          type="button"
-          variant="secondary"
-          className="justify-self-center"
-          disabled={isLoadingMore}
+        <LoadMoreButton
           onClick={onLoadMore}
-        >
-          {isLoadingMore ? ko.support.loadingMore : ko.support.loadMore}
-        </Button>
+          isLoading={isLoadingMore}
+          loaded={tickets.length}
+          total={total}
+        />
       ) : null}
     </Card>
   );

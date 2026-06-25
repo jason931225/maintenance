@@ -4,6 +4,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/auth";
 import { TitleProvider } from "../../context/title";
 import { ko } from "../../i18n/ko";
+import { ViewAsBanner } from "../../features/platform/ViewAsBanner";
 import { RouteErrorBoundary } from "../RouteErrorBoundary";
 import { PageSpinner } from "../states/PageSpinner";
 import { Sidebar } from "./Sidebar";
@@ -37,11 +38,11 @@ export function AppShell() {
 
   return (
     <TitleProvider>
-      <div className="flex h-screen overflow-hidden bg-slate-50">
+      <div className="flex h-screen overflow-hidden bg-muted-panel">
         {/* Skip-to-main */}
         <a
           href="#main-content"
-          className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:rounded-md focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-slate-950 focus:shadow-md focus:outline-2 focus:outline-slate-950"
+          className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:rounded-md focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-ink focus:shadow-md focus:outline-2 focus:outline-ink"
         >
           {ko.shell.skipToContent}
         </a>
@@ -55,6 +56,9 @@ export function AppShell() {
         />
 
         <div className="flex flex-1 flex-col overflow-hidden">
+          {/* Persistent read-only "view as" banner — renders only while a
+              platform operator is impersonating a tenant, on every page. */}
+          <ViewAsBanner />
           <Topbar onOpenMobileSidebar={() => { setSidebarOpen(true); }} />
           <main
             ref={mainRef}

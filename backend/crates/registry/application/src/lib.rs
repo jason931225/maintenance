@@ -5,11 +5,11 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId,
-    KernelError, Timestamp, TraceContext, UserId,
+    AuditAction, AuditEvent, BranchId, BranchScope, CustomerId, EquipmentId,
+    EquipmentSubstitutionId, KernelError, SiteId, Timestamp, TraceContext, UserId,
 };
 use mnt_registry_domain::{EquipmentNo, EquipmentStatus, MoneyWon, SubstituteMatchKind, Ton};
-use time::Date;
+use time::{Date, OffsetDateTime};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -204,6 +204,74 @@ pub struct CreateEquipmentCommand {
     pub occurred_at: Timestamp,
 }
 
+/// Create one customer (고객) directly, outside the bulk import path.
+///
+/// `branch_id` is the branch the new customer lands on: the REST handler passes
+/// the caller's own branch for a branch-scoped admin (so the new row is
+/// immediately visible to that admin's branch-scoped registry reads), and `None`
+/// for an org-wide principal (SUPER_ADMIN/EXECUTIVE), which falls back to the
+/// default HQ branch — the same branch the importer and equipment-create use.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CreateCustomerCommand {
+    pub actor: UserId,
+    pub branch_id: Option<BranchId>,
+    pub name: String,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+/// One newly created customer, returned so the console can show it immediately.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CreatedCustomer {
+    pub id: CustomerId,
+    pub branch_id: BranchId,
+    pub name: String,
+}
+
+/// Create one site (현장) under an existing customer, directly. The site lands on
+/// the org's default HQ branch under `customer_id`; the adapter validates that the
+/// customer belongs to the caller's org (RLS + an explicit check) before writing.
+/// Optional location/contact fields mirror the PATCH /sites surface so a site can
+/// be onboarded with its address and representative contact in one step.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CreateSiteCommand {
+    pub actor: UserId,
+    pub customer_id: CustomerId,
+    pub name: String,
+    pub address: Option<String>,
+    pub province: Option<String>,
+    pub city: Option<String>,
+    pub postal_code: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub geofence_radius_m: Option<f64>,
+    pub contact_name: Option<String>,
+    pub contact_phone: Option<String>,
+    pub contact_email: Option<String>,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+/// One newly created site, returned so the console can drop it into the list/map
+/// without a refetch.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CreatedSite {
+    pub id: SiteId,
+    pub customer_id: CustomerId,
+    pub branch_id: BranchId,
+    pub name: String,
+    pub address: Option<String>,
+    pub province: Option<String>,
+    pub city: Option<String>,
+    pub postal_code: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub geofence_radius_m: Option<f64>,
+    pub contact_name: Option<String>,
+    pub contact_phone: Option<String>,
+    pub contact_email: Option<String>,
+}
+
 /// A partial update to one equipment master row. `None` fields are left
 /// untouched; `Some` fields are written. Customer/site and financial fields can
 /// all be re-targeted here, including the 유효설비 `status` and 취득/잔존가액.
@@ -236,6 +304,11 @@ pub struct UpdateEquipmentFields {
     pub rental_fee: Option<Option<MoneyWon>>,
     pub vehicle_value: Option<Option<MoneyWon>>,
     pub residual_value: Option<Option<MoneyWon>>,
+    /// Acquisition cost (취득원가): a distinct accounting fact, never the
+    /// depreciation base. Independent of `vehicle_value`; never feeds the
+    /// residual engine.
+    pub acquisition_cost_won: Option<Option<MoneyWon>>,
+    pub acquisition_date: Option<Option<Date>>,
     pub note: Option<Option<String>>,
 }
 
@@ -265,6 +338,176 @@ pub struct DeleteEquipmentCommand {
     pub occurred_at: Timestamp,
 }
 
+/// Sort column for the paginated equipment list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum EquipmentSortBy {
+    /// 호기 번호 ascending (default).
+    #[default]
+    EquipmentNo,
+    /// Model name ascending.
+    Model,
+    /// Customer name ascending.
+    Customer,
+    /// Most-recently-updated first.
+    UpdatedAt,
+}
+
+/// Paginated, filterable, searchable equipment list query. The branch scope is
+/// always injected from the JWT principal, not from the caller. All other
+/// filters are optional and combinatorial (AND).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EquipmentListQuery {
+    /// Branch scope resolved from the JWT principal (SUPER_ADMIN = All, others =
+    /// their assigned branches). Never caller-supplied.
+    pub branch_scope: BranchScope,
+    /// Free-text search across management_no (호기-normalized, leading-zero-
+    /// insensitive), model, maker, equipment_no, customer name, site name, VIN.
+    pub q: Option<String>,
+    /// Filter to a single status.
+    pub status: Option<EquipmentStatus>,
+    /// Filter to a single branch (must be within the principal's branch_scope).
+    pub branch_id: Option<BranchId>,
+    /// Filter to a single customer.
+    pub customer_id: Option<CustomerId>,
+    /// Filter to a single site.
+    pub site_id: Option<SiteId>,
+    /// Filter by model name (exact, case-insensitive).
+    pub model: Option<String>,
+    /// Filter by maker name (exact, case-insensitive).
+    pub maker: Option<String>,
+    /// Sort column.
+    pub sort: EquipmentSortBy,
+    /// Max rows per page (1–200, default 50).
+    pub limit: i64,
+    /// Zero-based row offset.
+    pub offset: i64,
+}
+
+/// One row in the paginated equipment list.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EquipmentListItem {
+    pub equipment_id: EquipmentId,
+    pub branch_id: BranchId,
+    pub equipment_no: String,
+    pub management_no: Option<String>,
+    pub status: EquipmentStatus,
+    pub model: Option<String>,
+    pub maker: Option<String>,
+    pub specification: String,
+    pub ton_text: String,
+    pub customer_name: String,
+    pub site_name: String,
+    pub vin: Option<String>,
+    pub updated_at: OffsetDateTime,
+}
+
+/// Paginated equipment list result.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EquipmentListPage {
+    pub items: Vec<EquipmentListItem>,
+    pub total: i64,
+    pub limit: i64,
+    pub offset: i64,
+}
+
+/// Branch-scoped read of the dispatch map's per-site equipment aggregation.
+/// The scope is the principal's `branch_scope` so a non-SUPER_ADMIN sees only
+/// their branches — the same filter `list_equipment_substitutes` applies.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EquipmentByLocationQuery {
+    pub branch_scope: BranchScope,
+}
+
+/// One site row for the dispatch map. Sites with no entered coordinates come
+/// back with `latitude`/`longitude` = `None`; the UI lists them as "ungeocoded"
+/// instead of dropping a fabricated pin. Counts are computed in SQL from the
+/// Korean status literals (`임대` rented, `예비` spare) and the active-substitution
+/// table, so the map never shows a fake number either.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SiteLocationGroup {
+    pub site_id: SiteId,
+    pub site_name: String,
+    pub customer_id: CustomerId,
+    pub customer_name: String,
+    pub branch_id: BranchId,
+    pub address: Option<String>,
+    pub postal_code: Option<String>,
+    pub province: Option<String>,
+    pub city: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub geofence_radius_m: Option<f64>,
+    pub contact_name: Option<String>,
+    pub contact_phone: Option<String>,
+    pub contact_email: Option<String>,
+    pub equipment_count: i64,
+    pub rented_count: i64,
+    pub spare_count: i64,
+    pub substitution_active_count: i64,
+}
+
+/// Partial coordinate/address update for one site. Every field is optional so a
+/// caller can set only what it has; absent fields are left unchanged. This is
+/// the ONLY coordinate entry point — coordinates exist solely because an admin
+/// (EquipmentManage) typed them, satisfying "no fake pins until data entered".
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UpdateSiteFields {
+    pub address: Option<Option<String>>,
+    pub province: Option<Option<String>>,
+    pub city: Option<Option<String>>,
+    pub postal_code: Option<Option<String>>,
+    pub latitude: Option<Option<f64>>,
+    pub longitude: Option<Option<f64>>,
+    pub geofence_radius_m: Option<Option<f64>>,
+    pub contact_name: Option<Option<String>>,
+    pub contact_phone: Option<Option<String>>,
+    pub contact_email: Option<Option<String>>,
+}
+
+impl UpdateSiteFields {
+    /// True when no field would be written, so the adapter can reject an empty
+    /// patch with a validation error instead of opening a transaction.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UpdateSiteCommand {
+    pub actor: UserId,
+    pub site_id: SiteId,
+    pub fields: UpdateSiteFields,
+    /// The actor's branch scope. Sites are branch-scoped (unlike org-global
+    /// equipment), so the adapter rejects an edit to a site outside this scope —
+    /// a branch admin cannot write another branch's site even within the org.
+    pub branch_scope: BranchScope,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+pub fn site_update_audit_event(
+    actor: UserId,
+    branch_id: BranchId,
+    site_id: SiteId,
+    before: serde_json::Value,
+    after: serde_json::Value,
+    trace: TraceContext,
+    occurred_at: Timestamp,
+) -> Result<AuditEvent, KernelError> {
+    Ok(AuditEvent::new(
+        Some(actor),
+        AuditAction::new("site.update")?,
+        "registry_sites",
+        site_id.to_string(),
+        trace,
+        occurred_at,
+    )
+    .with_branch(branch_id)
+    .with_snapshots(Some(before), Some(after)))
+}
+
 pub fn equipment_create_audit_event(
     actor: UserId,
     branch_id: BranchId,
@@ -284,6 +527,65 @@ pub fn equipment_create_audit_event(
         AuditAction::new("equipment.create")?,
         "registry_equipment",
         equipment_id.to_string(),
+        trace,
+        occurred_at,
+    )
+    .with_branch(branch_id)
+    .with_snapshots(None, Some(after)))
+}
+
+pub fn customer_create_audit_event(
+    actor: UserId,
+    branch_id: BranchId,
+    customer: &CreatedCustomer,
+    trace: TraceContext,
+    occurred_at: Timestamp,
+) -> Result<AuditEvent, KernelError> {
+    let after = serde_json::json!({
+        "id": customer.id,
+        "branch_id": customer.branch_id,
+        "name": customer.name,
+    });
+    Ok(AuditEvent::new(
+        Some(actor),
+        AuditAction::new("customer.create")?,
+        "registry_customers",
+        customer.id.to_string(),
+        trace,
+        occurred_at,
+    )
+    .with_branch(branch_id)
+    .with_snapshots(None, Some(after)))
+}
+
+pub fn site_create_audit_event(
+    actor: UserId,
+    branch_id: BranchId,
+    site: &CreatedSite,
+    trace: TraceContext,
+    occurred_at: Timestamp,
+) -> Result<AuditEvent, KernelError> {
+    let after = serde_json::json!({
+        "id": site.id,
+        "customer_id": site.customer_id,
+        "branch_id": site.branch_id,
+        "name": site.name,
+        "address": site.address,
+        "province": site.province,
+        "city": site.city,
+        "postal_code": site.postal_code,
+        "latitude": site.latitude,
+        "longitude": site.longitude,
+        "geofence_radius_m": site.geofence_radius_m,
+        "contact_name": site.contact_name,
+        "contact_phone": site.contact_phone,
+        "contact_email": site.contact_email,
+    });
+    Ok(AuditEvent::new(
+        Some(actor),
+        AuditAction::new("site.create")?,
+        "registry_sites",
+        site.id.to_string(),
         trace,
         occurred_at,
     )

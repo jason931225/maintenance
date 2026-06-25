@@ -38,6 +38,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/.well-known/apple-app-site-association": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Apple App Site Association (native passkeys)
+         * @description Public, unauthenticated association document Apple fetches over the RP origin to authorize the native iOS app's passkeys. The `webcredentials.apps` list is sourced from `MNT_IOS_APP_IDS`; an unconfigured deployment serves a valid empty document. Served as `application/json` (no file extension, per Apple's requirement).
+         */
+        get: operations["appleAppSiteAssociation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/.well-known/assetlinks.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Android Digital Asset Links (native passkeys)
+         * @description Public, unauthenticated Digital Asset Links document Android fetches to authorize the native app's passkeys for the RP domain. The package and signing-cert fingerprints come from `MNT_ANDROID_PACKAGE` / `MNT_ANDROID_CERT_SHA256`; an unconfigured deployment serves an empty JSON array. Served as `application/json`.
+         */
+        get: operations["androidAssetLinks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ws": {
         parameters: {
             query?: never;
@@ -218,10 +258,31 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List branch-scoped daily work plans
+         * @description Returns branch-scoped daily work plans (the approval queue) ordered newest plan date first, with NO status filter so DRAFT/REQUESTED plans surface to approvers. Admins see the whole org; other roles see their branch set.
+         */
+        get: operations["listDailyWorkPlans"];
         put?: never;
         /** Create a daily work plan */
         post: operations["createDailyWorkPlan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/daily-work-plans/{planId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a daily work plan by id */
+        get: operations["getDailyWorkPlan"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -308,6 +369,26 @@ export interface paths {
          * @description Computes KPI metrics from approved work-order reports within the requested approval period. Metrics whose source domains have not merged yet are returned in `unavailable_metrics` instead of fabricated values.
          */
         get: operations["getKpiReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ops/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-tenant operational dashboard rollup
+         * @description Point-in-time operational rollup for the authenticated tenant: work-order funnel counts by stage, aging work orders, P1 SLA risk, mechanic utilization, equipment-status distribution, active substitutions, pending approvals, and open support tickets. Authorized for SUPER_ADMIN / ADMIN; every read is org-scoped under RLS.
+         */
+        get: operations["getOpsSummary"];
         put?: never;
         post?: never;
         delete?: never;
@@ -528,6 +609,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/equipment/list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Paginated, filterable, branch-scoped equipment list
+         * @description Read access (WorkOrderReadAll — all authenticated roles). Non-SUPER_ADMIN principals see only rows in their own branch(es). The `q` parameter is normalized like the 호기-lookup: strips a leading `#` and a trailing `호기` suffix then matches leading-zero-insensitively across management_no, equipment_no, model, maker, customer name, site name, and VIN.
+         */
+        get: operations["listEquipment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/equipment": {
         parameters: {
             query?: never;
@@ -638,6 +739,40 @@ export interface paths {
         put?: never;
         /** Confirm direct evidence upload completion and trigger replica verification */
         post: operations["confirmEvidenceUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/evidence/staging-presign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Issue a presigned STAGING upload ticket for mechanic evidence and begin server-side media processing (transcode/optimize before storage) */
+        post: operations["presignEvidenceStagingUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/evidence/{evidenceId}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Poll the server-side processing status of an evidence row */
+        get: operations["getEvidenceProcessingStatus"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -783,6 +918,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/location/arrival-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the site arrival/departure events log (#13)
+         * @description Ops-facing feed of mechanic site arrivals/departures derived from on-duty location pings (geofenced). OpsDashboardRead-gated; tenant + branch scoped.
+         */
+        get: operations["listArrivalEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/location-consents/ledger.csv": {
         parameters: {
             query?: never;
@@ -811,7 +966,7 @@ export interface paths {
         put?: never;
         /**
          * Start passkey registration (authenticated)
-         * @description Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token.
+         * @description Starts a passkey registration ceremony for the authenticated session user. Used during initial-settings passkey enrollment after an OTP first sign-in, or to add a device later. Requires a bearer token. Adding a passkey when the user already has one requires a fresh `step_up` assertion of an existing passkey (user verification required); omitting it returns 401. Initial enrollment (zero existing passkeys) needs no step-up.
          */
         post: {
             parameters: {
@@ -883,6 +1038,52 @@ export interface paths {
                 };
                 401: components["responses"]["Unauthorized"];
                 409: components["responses"]["Conflict"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/signup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open self-service signup
+         * @description Public, unauthenticated open signup. Creates a new lowest-privilege MEMBER account in the default organization and emails it a single-use one-time sign-in code; the caller then redeems that code via `POST /api/v1/auth/otp/redeem` and enrolls a passkey. The response reveals nothing about whether the email was newly registered (no account-existence oracle) and never mints a token. The new account sees the minimal role-gated surface until an admin elevates it. Rate-limited per client (IP and optional device).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SignupRequest"];
+                };
+            };
+            responses: {
+                /** @description The signup was accepted and a one-time code was sent. */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SignupResponse"];
+                    };
+                };
+                400: components["responses"]["ValidationError"];
+                429: components["responses"]["TooManyRequests"];
+                502: components["responses"]["BadGateway"];
             };
         };
         delete?: never;
@@ -1068,6 +1269,182 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/admin/credential-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset a user's credentials for account recovery (admin)
+         * @description Account-recovery escape hatch for a user who lost their only passkey. Revokes ALL of the target user's passkeys AND mints a fresh single-use sign-in one-time code, atomically and audited. Authz-gated to ADMIN / SUPER_ADMIN within the caller's own org and branch scope (same rules as issuing an admin one-time code); a non-SUPER_ADMIN caller cannot reset a privileged user, and a user in another org is not resettable. After the reset the old passkeys fail login and the returned code redeems for a first sign-in. The code is returned once; only its hash is stored.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AdminCredentialResetRequest"];
+                };
+            };
+            responses: {
+                /** @description The fresh one-time code and its expiry. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminCredentialResetResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/passkey/enroll-handoff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint a cross-device passkey-enrollment handoff (self)
+         * @description Mints a fresh single-use, short-lived (5 minutes) one-time code for the CURRENTLY AUTHENTICATED user so they can finish passkey enrollment on a SECOND device (typically a phone scanning a QR shown on the desktop console). SELF-ONLY — the user and org come from the verified access token, never the request body, so a caller can only ever mint a handoff for itself. When the caller is ALREADY enrolled (adding a device), a fresh `step_up` assertion of an existing passkey (user verification required) is mandatory, exactly like `passkey/register/start`; a mid-onboarding caller (no passkey yet) omits it. The response returns the code once (only its hash is stored) plus the ready-to-encode enrollment URL. The phone opens that URL, redeems the code via `POST /api/v1/auth/otp/redeem`, and enrolls a platform passkey — no Bluetooth required.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["EnrollHandoffRequest"];
+                };
+            };
+            responses: {
+                /** @description The minted single-use enrollment code, its expiry, and the QR enrollment URL. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EnrollHandoffResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/privacy-consent/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read required first-login privacy consent status
+         * @description Returns whether the authenticated user has accepted the current required Korean privacy collection/use notice and service terms version. This status is checked before initial passkey enrollment. Optional marketing consent and GPS/location consent are not bundled here and remain separate flows.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Current required privacy consent status. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PrivacyConsentStatusResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/privacy-consent/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept required first-login privacy terms
+         * @description Persists the authenticated user's required initial-login acknowledgement of the privacy collection/use notice and service terms as a tenant-scoped audit event. Both required agreements must be accepted explicitly; optional marketing and GPS/location consent are excluded.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PrivacyConsentAcceptRequest"];
+                };
+            };
+            responses: {
+                /** @description The accepted current required privacy consent status. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PrivacyConsentStatusResponse"];
+                    };
+                };
+                400: components["responses"]["ValidationError"];
+                401: components["responses"]["Unauthorized"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/token/refresh": {
         parameters: {
             query?: never;
@@ -1242,6 +1619,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/equipment-by-location": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Aggregate equipment by site for the dispatch map
+         * @description Every site visible to the principal with its equipment counts and admin-entered coordinates. Read access (WorkOrderReadAll, all roles); branch-scoped like the substitute search, so a non-SUPER_ADMIN sees only their own branches. Sites with no entered coordinates come back with null latitude/longitude and are listed as ungeocoded rather than pinned.
+         */
+        get: operations["listEquipmentByLocation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a customer (고객) directly
+         * @description Admin-gated (EquipmentManage, the same feature as the site PATCH). Creates a customer in the caller's org on the caller's branch (an org-wide SUPER_ADMIN/EXECUTIVE lands it on the default HQ branch). The name is required, trimmed, and bounded (≤ 200 characters). A same-name customer on that branch is a 409 conflict — an explicit create is a distinct intent from the importer's idempotent upsert, so it is surfaced, not merged.
+         */
+        post: operations["createCustomer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a site (현장) under an existing customer
+         * @description Admin-gated (EquipmentManage). Creates a site under a customer in the caller's org; the customer must belong to the caller's org or the request is a 404 (RLS hides another tenant's customer). The name is required and bounded; optional address / WGS84 coordinates / contact fields follow the same ranges and length bounds as PATCH /api/v1/sites/{id} (a one-sided coordinate or an over-long value is a 422). A duplicate site name under the same customer is a 409. The created site is returned so it appears in the 고객·현장 list immediately.
+         */
+        post: operations["createSite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sites/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update a site's coordinates and administrative address
+         * @description Admin-gated (EquipmentManage). The only coordinate entry point: a site is pinnable on the dispatch map only once an admin writes a valid lat/lon pair here. Latitude/longitude must be updated together and fall within WGS84 ranges; supplying one without the other is a 422. Only supplied fields are written; nullable fields explicitly set to null are cleared.
+         */
+        patch: operations["updateSite"];
+        trace?: never;
+    };
+    "/api/v1/equipment-substitutions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assign a substitute (대차) unit to a down/under-repair equipment
+         * @description Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+         */
+        post: operations["assignEquipmentSubstitute"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-substitutions/{id}/return": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Return an active substitute (대차) assignment
+         * @description Audited equipment-lifecycle write. Requires EquipmentManage (ADMIN/EXECUTIVE/SUPER_ADMIN).
+         */
+        post: operations["returnEquipmentSubstitute"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/financial/rental-quotes/compute": {
         parameters: {
             query?: never;
@@ -1302,6 +1799,26 @@ export interface paths {
         };
         /** List equipment cost ledger entries */
         get: operations["listEquipmentCostLedger"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/financial/equipment/{equipmentId}/lifecycle-cost": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-asset lifecycle cost, TCO, and gross margin
+         * @description Read-gated (EquipmentCostLedgerRead). Returns the asset's acquisition cost (with a source tag), maintenance total split by source, read-only outsource cost, current residual, latest realized sale price, total cost of ownership, gross margin, and per-month/per-hour maintenance intensity.
+         */
+        get: operations["getEquipmentLifecycleCost"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1712,6 +2229,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/regions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Soft-delete (deactivate) a region
+         * @description Soft-deletes a region. Refused with 409 while the region still has active branches, so live tenant data is never orphaned. Returns the deactivated region.
+         */
+        delete: operations["deactivateRegion"];
+        options?: never;
+        head?: never;
+        /** Rename a region */
+        patch: operations["updateRegion"];
+        trace?: never;
+    };
     "/api/v1/branches": {
         parameters: {
             query?: never;
@@ -1740,11 +2278,495 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Soft-delete (deactivate) a branch
+         * @description Soft-deletes a branch. Refused with 409 while the branch still has active users or non-terminal equipment, so live operational data is never orphaned. Returns the deactivated branch.
+         */
+        delete: operations["deactivateBranch"];
         options?: never;
         head?: never;
         /** Rename a branch or move it to another region */
         patch: operations["updateBranch"];
+        trace?: never;
+    };
+    "/api/v1/passkeys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the authenticated user's own passkey credentials
+         * @description Returns the caller's own WebAuthn credentials (id and registration / last-use timestamps). No secret material is ever returned.
+         */
+        get: operations["listPasskeys"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/passkeys/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke one of the authenticated user's own passkey credentials
+         * @description Deletes a credential owned by the caller. A credential that is not the caller's own returns 404. The caller's last remaining passkey cannot be deleted (409) so they do not lock themselves out.
+         */
+        delete: operations["deletePasskey"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storefront/listings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List published sales listings for the public storefront (#6)
+         * @description Public, unauthenticated catalog read. Returns only published/reserved listings (the storefront-visible set). Carries no bearer token; the store is scoped to the KNL org. Optional filters narrow by fuel/drive kind and sale/rental type; results are paged.
+         */
+        get: operations["storefrontListListings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storefront/listings/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one public sales listing (#6)
+         * @description Public, unauthenticated read of a single storefront-visible listing. Returns 404 if the listing does not exist or is not public.
+         */
+        get: operations["storefrontGetListing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storefront/listings/{id}/media/{media_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Serve one public sales-listing photo (#6)
+         * @description Public, unauthenticated serve of one listing photo's bytes, streamed from the object store. The media must belong to the listing and the listing must be storefront-visible (published/reserved); otherwise 404. The response body is the raw image with its stored content type.
+         */
+        get: operations["storefrontGetListingMedia"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storefront/inquiries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit a public customer inquiry (#6)
+         * @description Public, unauthenticated lead intake. Accepts the customer's contact details and topic and acknowledges receipt without echoing any field. Generic validation; a bad payload returns 400.
+         */
+        post: operations["submitInquiry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/listings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List all sales listings for the admin console (#6)
+         * @description Admin catalog read (SalesManage). Unlike the public storefront, returns listings in every status (including DRAFT/SOLD/WITHDRAWN). Optional filters narrow by fuel/drive kind and sale/rental type; results are paged.
+         */
+        get: operations["adminListListings"];
+        put?: never;
+        /**
+         * Create a sales listing (#6)
+         * @description Admin-gated (SalesManage). Creates a new catalog listing and returns its server-generated id.
+         */
+        post: operations["createListing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/listings/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a sales listing (#6)
+         * @description Admin-gated (SalesManage). Removes a listing from the catalog.
+         */
+        delete: operations["deleteListing"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a sales listing (#6)
+         * @description Admin-gated (SalesManage). Partial update: absent keys are left unchanged; nullable keys explicitly set to null clear the column. At least one field must be supplied.
+         */
+        patch: operations["updateListing"];
+        trace?: never;
+    };
+    "/api/v1/sales/inquiries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List customer inquiries for the admin inbox (#6)
+         * @description Admin-gated (SalesManage) inquiry inbox. Optional status filter; results are paged.
+         */
+        get: operations["listInquiries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/inquiries/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update a customer inquiry's triage status (#6)
+         * @description Admin-gated (SalesManage). Transitions an inquiry between NEW/CONTACTED/CLOSED.
+         */
+        patch: operations["updateInquiryStatus"];
+        trace?: never;
+    };
+    "/api/platform/orgs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a tenant — guarded shell removal, or opt-in force-delete with data (platform vendor tier)
+         * @description Remove a tenant organization. Platform-super-admin (vendor tier) ONLY: the route sits behind the platform extractor, so a tenant token is rejected with 403 before the handler runs and a tenant's own admin can never reach it.
+         *
+         *     Two paths, selected by the opt-in `delete_data` query parameter (default false):
+         *
+         *     - `delete_data=false` (default) — GUARDED removal, audited as `platform.tenant.remove`. Deletes only an empty/test tenant's onboarding shell (the seeded admin user, its auth credentials, branch memberships, branches, and regions). REFUSED with 409 (`code` = `tenant_has_data`) when the tenant owns real operational data (equipment, work orders, sites, customers, inspections, sales, financial, messenger, consents, attendance, or governance findings) — archive the tenant instead.
+         *
+         *     - `delete_data=true` — FORCE removal, audited as `platform.tenant.force_remove`. The DESTRUCTIVE path: erases the org AND all of its data. Fail-closed by a status rail — REFUSED with 409 (`code` = `tenant_active`) unless the tenant is ARCHIVED, so an active tenant can never be force-wiped by a single call; archive it (reversible) first.
+         *
+         *     Both paths delete in one transaction and preserve the tenant's immutable audit trail (re-homed to the platform sentinel).
+         */
+        delete: operations["removePlatformOrg"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrity/findings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List governance findings (anomaly / 검토 필요) for the current org
+         * @description Lists governance findings raised by the integrity engine (#34): records that need human review such as self-approval (자가 승인 기록) and price anomalies (이상 징후). Findings are framed as "검토 필요" — items requiring review, NOT accusations of wrongdoing. Gated to EXECUTIVE and SUPER_ADMIN only (IntegrityFindingsRead); an ADMIN must not read findings about themselves. RLS-armed to the caller's org. Results are ordered by severity (CRITICAL first) then detected_at descending. This endpoint is not paginated.
+         */
+        get: operations["listIntegrityFindings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrity/findings/{id}/triage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Triage (review) a governance finding
+         * @description Transitions an OPEN finding to REVIEWED, DISMISSED, or ESCALATED with an optional reviewer memo. A memo is required when dismissing or escalating. Only OPEN findings can be triaged. The triage itself is audited. Gated to EXECUTIVE and SUPER_ADMIN only (IntegrityFindingTriage).
+         */
+        post: operations["triageIntegrityFinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the tenant's configured webmail account (write-only password)
+         * @description Returns the configured corporate mailbox for the caller's tenant. The response NEVER contains a password; the has_smtp_password / has_imap_password booleans signal whether a credential is on file. Requires the MailAccountManage feature.
+         */
+        get: operations["getMailAccount"];
+        /**
+         * Configure (create or replace) the tenant's webmail account
+         * @description Upserts the mailbox config. Passwords are write-only: a present password is sealed (envelope AEAD) and only the ciphertext is stored; an absent/null password leaves the stored secret unchanged. A first-time configure requires both the SMTP and IMAP password. Audited. Requires the MailAccountManage feature.
+         */
+        put: operations["configureMailAccount"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/account/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test the SMTP connection with the stored credentials
+         * @description Authenticates to the tenant's configured SMTP server using the stored credentials and reports a structured result. Never leaks the secret; the error_code is a stable, non-secret token. Requires the MailAccountManage feature.
+         */
+        post: operations["testMailAccountConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compose and send a new message
+         * @description Sends a new outbound message through the tenant's SMTP server and persists it as a direction=OUT message. The From is constrained to the configured account address. Audited (email.send). Requires the MailUse feature.
+         */
+        post: operations["sendMail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/reply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reply to a message (sets In-Reply-To / References)
+         * @description Sends a reply through the tenant's SMTP server, stamping the In-Reply-To and References threading headers, and persists it as direction=OUT. Audited (email.reply). Requires the MailUse feature.
+         */
+        post: operations["replyMail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/forward": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Forward a message (sets In-Reply-To / References)
+         * @description Forwards a message through the tenant's SMTP server, stamping the In-Reply-To and References threading headers, and persists it as direction=OUT. Audited (email.forward). Requires the MailUse feature.
+         */
+        post: operations["forwardMail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the tenant mailbox folders
+         * @description Lists the configured mailbox's folders (Inbox/Sent/…) with per-folder unread + total counts. RLS-armed to the caller's org. Requires the MailUse feature.
+         */
+        get: operations["listMailFolders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/threads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List mail threads (paginated, unread filter, search)
+         * @description Lists the mailbox's threads newest-first. Optional filters: unread-only, a full-text search term q, a folder id, and a keyset cursor (before, a unix-second last_message_at). RLS-armed to the caller's org. Requires the MailUse feature.
+         */
+        get: operations["listMailThreads"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/threads/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one thread with its messages
+         * @description Returns the thread and its messages (oldest first). body_html is returned verbatim and MUST be sanitized by the client before render. RLS-armed to the caller's org. Requires the MailUse feature.
+         */
+        get: operations["getMailThread"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/messages/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one message with its attachments
+         * @description Returns one message (with attachment metadata; bytes are fetched via the attachment download endpoint). body_html is verbatim and MUST be sanitized by the client. RLS-armed to the caller's org. Requires the MailUse feature.
+         */
+        get: operations["getMailMessage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/attachments/{id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a presigned download URL for an attachment
+         * @description Resolves the attachment under the caller's org (cross-tenant invisible) and returns a short-lived presigned GET URL — the raw object key is never exposed. RLS-armed to the caller's org. Requires the MailUse feature.
+         */
+        get: operations["downloadMailAttachment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
 }
@@ -1811,6 +2833,8 @@ export interface components {
         };
         KpiRollup: {
             scope: components["schemas"]["KpiRollupScope"];
+            /** @description Human-readable name for the scope (region/branch/mechanic), resolved via a same-org lookup. Null for the company-wide scope or a deleted region/branch/user. Optional; absent on the pure-domain shape. */
+            scope_display_name?: string | null;
             /** Format: int32 */
             approved_report_count: number;
             /** Format: int32 */
@@ -1836,6 +2860,60 @@ export interface components {
             inspection_schedule_completed_count: number;
             /** Format: int32 */
             inspection_plan_completion_bps: number | null;
+            /** Format: int32 */
+            p1_dispatch_count: number;
+            /** Format: int32 */
+            p1_accepted_count: number;
+            /** Format: int32 */
+            p1_acceptance_bps: number | null;
+        };
+        OpsFunnel: {
+            /** Format: int32 */
+            received: number;
+            /** Format: int32 */
+            assigned: number;
+            /** Format: int32 */
+            in_progress: number;
+            /** Format: int32 */
+            completed: number;
+        };
+        OpsEquipmentStatus: {
+            /** Format: int32 */
+            rented: number;
+            /** Format: int32 */
+            spare: number;
+            /** Format: int32 */
+            scrapped: number;
+            /** Format: int32 */
+            replacement: number;
+            /** Format: int32 */
+            sold: number;
+        };
+        OpsMechanicLoad: {
+            /** Format: uuid */
+            mechanic_id: string;
+            display_name: string;
+            /** Format: int32 */
+            active_assignments: number;
+        };
+        OpsSummary: {
+            funnel: components["schemas"]["OpsFunnel"];
+            /** Format: int32 */
+            aging_hours: number;
+            /** Format: int32 */
+            aging_work_orders: number;
+            /** Format: int32 */
+            sla_breached: number;
+            /** Format: int32 */
+            sla_at_risk: number;
+            mechanic_load: components["schemas"]["OpsMechanicLoad"][];
+            equipment_status: components["schemas"]["OpsEquipmentStatus"];
+            /** Format: int32 */
+            active_substitutions: number;
+            /** Format: int32 */
+            pending_approvals: number;
+            /** Format: int32 */
+            open_support_tickets: number;
         };
         UnavailableMetric: {
             metric: components["schemas"]["KpiMetric"];
@@ -1912,6 +2990,11 @@ export interface components {
             id: components["schemas"]["Uuid"];
             name: string;
         };
+        SiteContact: {
+            name: string | null;
+            phone: string | null;
+            email: string | null;
+        };
         EquipmentSummary: {
             id: components["schemas"]["Uuid"];
             equipment_no: string;
@@ -1930,6 +3013,9 @@ export interface components {
             status: string;
             specification: string;
             ton_text: string;
+            maker: string | null;
+            vin: string | null;
+            vehicle_registration_no: string | null;
             customer: components["schemas"]["NamedEntity"];
             site: components["schemas"]["NamedEntity"];
         };
@@ -1938,6 +3024,8 @@ export interface components {
             branch_id: components["schemas"]["Uuid"];
             equipment_id: components["schemas"]["Uuid"];
             mechanic_id: components["schemas"]["Uuid"];
+            /** @description Assigned mechanic's display name, resolved via a same-org LEFT JOIN on users. Null when the mechanic account no longer exists. */
+            mechanic_display_name: string | null;
             cycle: components["schemas"]["InspectionCycle"];
             /** Format: int32 */
             interval_days: number;
@@ -1951,6 +3039,15 @@ export interface components {
             model: string | null;
             created_at: components["schemas"]["Timestamp"];
             updated_at: components["schemas"]["Timestamp"];
+        };
+        InspectionSchedulePage: {
+            items: components["schemas"]["InspectionScheduleSummary"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
         };
         InspectionRoundSummary: {
             id: components["schemas"]["Uuid"];
@@ -2012,6 +3109,8 @@ export interface components {
             requester_user_id: components["schemas"]["Uuid"];
             requester_name: string | null;
             assignee_user_id: components["schemas"]["Uuid"];
+            /** @description Assignee display name, resolved via a same-org LEFT JOIN on users. Null when unassigned or the assignee account no longer exists. */
+            assignee_name: string | null;
             /** Format: date-time */
             due_at: string | null;
             created_at: components["schemas"]["Timestamp"];
@@ -2025,6 +3124,8 @@ export interface components {
             id: components["schemas"]["Uuid"];
             ticket_id: components["schemas"]["Uuid"];
             author_user_id: components["schemas"]["Uuid"];
+            /** @description Comment author display name, resolved via a same-org LEFT JOIN on users. Null for an authorless comment or a deleted author. */
+            author_name: string | null;
             body: string;
             is_internal_note: boolean;
             created_at: components["schemas"]["Timestamp"];
@@ -2033,10 +3134,46 @@ export interface components {
             ticket: components["schemas"]["SupportTicketSummary"];
             comments: components["schemas"]["SupportTicketComment"][];
         };
+        SupportTicketPage: {
+            items: components["schemas"]["SupportTicketSummary"][];
+            /**
+             * Format: uuid
+             * @description Id to pass as `cursor` for the next page, or null on the last page.
+             */
+            next_cursor: string | null;
+            /** Format: int64 */
+            total: number;
+        };
         EquipmentAutocompletePage: {
             items: components["schemas"]["EquipmentLookupResponse"][];
             /** Format: int64 */
             limit: number;
+        };
+        /** @enum {string} */
+        EquipmentSortBy: "equipment_no" | "model" | "customer" | "updated_at";
+        EquipmentListItem: {
+            equipment_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            equipment_no: string;
+            management_no?: string | null;
+            status: components["schemas"]["EquipmentStatus"];
+            model?: string | null;
+            maker?: string | null;
+            specification: string;
+            ton_text: string;
+            customer_name: string;
+            site_name: string;
+            vin?: string | null;
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        EquipmentListPage: {
+            items: components["schemas"]["EquipmentListItem"][];
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
         };
         AssignmentSummary: {
             id: components["schemas"]["Uuid"];
@@ -2097,6 +3234,8 @@ export interface components {
             equipment: components["schemas"]["EquipmentSummary"];
             customer: components["schemas"]["NamedEntity"];
             site: components["schemas"]["NamedEntity"];
+            /** @description 사업장 대표 담당자 연락처 (#13). 등록된 연락처가 없으면 null. */
+            site_contact: null | components["schemas"]["SiteContact"];
             assignments: components["schemas"]["AssignmentSummary"][];
         };
         WorkOrderListPage: {
@@ -2197,6 +3336,40 @@ export interface components {
             retry_count: number;
             verified_at?: components["schemas"]["Timestamp"];
         };
+        /** @enum {string} */
+        ProcessingStatus: "PROCESSING" | "READY" | "FAILED";
+        /** @enum {string} */
+        MediaKind: "IMAGE" | "VIDEO";
+        EvidenceStagingPresignRequest: {
+            work_order_id: components["schemas"]["Uuid"];
+            stage: components["schemas"]["AttachmentStage"];
+            content_type: string;
+            /** Format: int64 */
+            size_bytes: number;
+            checksum_sha256?: string;
+        };
+        EvidenceStagingPresignResponse: {
+            id: components["schemas"]["Uuid"];
+            work_order_id: components["schemas"]["Uuid"];
+            stage: components["schemas"]["AttachmentStage"];
+            media_kind: components["schemas"]["MediaKind"];
+            processing_status: components["schemas"]["ProcessingStatus"];
+            upload: components["schemas"]["PresignedUpload"];
+        };
+        EvidenceStatusResponse: {
+            id: components["schemas"]["Uuid"];
+            work_order_id: components["schemas"]["Uuid"];
+            stage: components["schemas"]["AttachmentStage"];
+            processing_status: components["schemas"]["ProcessingStatus"];
+            content_type: string;
+            /**
+             * Format: uri
+             * @description Short-lived presigned GET URL for the generated thumbnail (absent until the row is READY). Replaces the previous thumbnail_s3_key, which exposed the internal object key; clients render this URL directly.
+             */
+            thumbnail_url?: string;
+            processing_error?: string;
+            processed_at?: components["schemas"]["Timestamp"];
+        };
         DeviceRegistrationRequest: {
             platform: components["schemas"]["DevicePlatform"];
             push_token?: string | null;
@@ -2267,10 +3440,51 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
-        /** @description Optional overrides for the authenticated session user's passkey registration. Both default to the user's stored profile when omitted. */
+        ArrivalEvent: {
+            id: string;
+            work_order_no: string;
+            site_name: string;
+            /** @enum {string} */
+            kind: "ARRIVAL" | "DEPARTURE";
+            occurred_at: components["schemas"]["Timestamp"];
+        };
+        ArrivalEventPage: {
+            items: components["schemas"]["ArrivalEvent"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
+        /** @description Optional overrides for the authenticated session user's passkey registration (username/display_name default to the user's stored profile when omitted), plus the step-up assertion required to ADD a passkey when the user already has one. A user with zero passkeys (initial enrollment) omits `step_up`; an already-enrolled user MUST supply a fresh `step_up` assertion of an existing passkey (user verification required), or register/start returns 401 — so a stolen session cannot silently add a credential. */
         PasskeyRegisterStartRequest: {
             username?: string;
             display_name?: string;
+            step_up?: components["schemas"]["PasskeyStepUpAssertion"];
+        };
+        /** @description A fresh assertion of an EXISTING passkey, proving the caller currently possesses an authenticator (not just a bearer token). The `ceremony_id` comes from a preceding `POST /api/v1/auth/passkey/login/start`; the `credential` is the resulting WebAuthn assertion. Verified with user verification (UV) required and rejected unless the asserted credential belongs to the authenticated caller. */
+        PasskeyStepUpAssertion: {
+            ceremony_id: components["schemas"]["Uuid"];
+            credential: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description Apple App Site Association document authorizing the native iOS app's passkeys for the RP domain. */
+        AppleAppSiteAssociation: {
+            webcredentials: {
+                /** @description iOS app identifiers (`<TeamID>.<bundle-id>`). */
+                apps: string[];
+            };
+        };
+        /** @description A single Android Digital Asset Links statement authorizing the native app's signing keys to provide login credentials for the RP domain. */
+        AndroidAssetLinkStatement: {
+            relation: string[];
+            target: {
+                namespace: string;
+                package_name: string;
+                sha256_cert_fingerprints: string[];
+            };
         };
         PasskeyRegisterStartResponse: {
             ceremony_id: components["schemas"]["Uuid"];
@@ -2289,6 +3503,17 @@ export interface components {
             passkey_id: components["schemas"]["Uuid"];
             user_id: components["schemas"]["Uuid"];
             credential_id: string;
+        };
+        SignupRequest: {
+            /**
+             * Format: email
+             * @description The email address to register and deliver the one-time code to.
+             */
+            email: string;
+        };
+        SignupResponse: {
+            /** @description Always true. The signup was accepted and a one-time code was sent; the response intentionally carries no account-existence or token information. */
+            accepted: boolean;
         };
         OtpRedeemRequest: {
             /** @description The one-time sign-in code (8 characters for admin-issued codes). */
@@ -2316,6 +3541,47 @@ export interface components {
             user_id: components["schemas"]["Uuid"];
             otp: string;
             expires_at: components["schemas"]["Timestamp"];
+        };
+        AdminCredentialResetRequest: {
+            user_id: components["schemas"]["Uuid"];
+        };
+        AdminCredentialResetResponse: {
+            user_id: components["schemas"]["Uuid"];
+            otp: string;
+            expires_at: components["schemas"]["Timestamp"];
+        };
+        /** @description Cross-device passkey-enrollment handoff request. Carries NO user/org — those come from the verified access token, so a caller can only mint a handoff for itself. `step_up` is REQUIRED only when the caller already has a passkey (adding a device); a mid-onboarding caller (zero passkeys) omits it. */
+        EnrollHandoffRequest: {
+            step_up?: components["schemas"]["PasskeyStepUpAssertion"];
+        };
+        /** @description The minted single-use, short-lived passkey-enrollment code (returned once, only its hash is stored) plus the ready-to-encode enrollment URL the frontend renders as a QR. The phone opens `enroll_url`, redeems `otp` via the first-sign-in path, and enrolls a platform passkey. */
+        EnrollHandoffResponse: {
+            /** @description The single-use enrollment handoff code. */
+            otp: string;
+            expires_at: components["schemas"]["Timestamp"];
+            /** @description The console enrollment URL carrying the handoff code in the fragment (`{origin}/login#otp=<code>`), to be rendered as a QR and scanned on a phone. */
+            enroll_url: string;
+        };
+        /** @description Required initial-login Korean privacy collection/use and service-terms acknowledgement. These required agreements are explicit booleans so the client cannot bundle them into one generic "agree all" flag. Optional marketing consent and GPS/location consent are not collected by this request. */
+        PrivacyConsentAcceptRequest: {
+            /** @description Required privacy/terms notice version being accepted. */
+            policy_version: string;
+            /** @description Required acknowledgement of collection/use purpose, items, retention period, refusal right, and refusal consequence. */
+            privacy_collection: boolean;
+            /** @description Required acknowledgement of service terms, security controls, and audit-log processing needed to operate the console. */
+            terms_of_service: boolean;
+        };
+        /** @description Current required first-login privacy/terms consent status. */
+        PrivacyConsentStatusResponse: {
+            /** @description Current required privacy/terms notice version. */
+            policy_version: string;
+            /** @description True when the authenticated user has accepted the current version. */
+            accepted: boolean;
+            /**
+             * Format: date-time
+             * @description UTC timestamp of the latest acceptance for the current version.
+             */
+            accepted_at?: string | null;
         };
         PasskeyLoginStartResponse: {
             ceremony_id: components["schemas"]["Uuid"];
@@ -2369,6 +3635,9 @@ export interface components {
             mechanic_id?: components["schemas"]["Uuid"];
             plan_date?: components["schemas"]["Date"];
             status?: components["schemas"]["DailyPlanStatus"];
+        };
+        DailyPlanListPage: {
+            items: components["schemas"]["DailyPlanSummary"][];
         };
         OutsourceWorkSummary: {
             id?: components["schemas"]["Uuid"];
@@ -2425,6 +3694,8 @@ export interface components {
             thread_id: components["schemas"]["Uuid"];
             branch_id: components["schemas"]["Uuid"];
             sender_id: components["schemas"]["Uuid"];
+            /** @description Sender display name, resolved via a same-org LEFT JOIN on users. Null when the sender account no longer exists. */
+            sender_name: string | null;
             body: string;
             attachment_evidence_ids: components["schemas"]["Uuid"][];
             sent_at: components["schemas"]["Timestamp"];
@@ -2472,6 +3743,153 @@ export interface components {
         SubstituteCandidatePage: {
             items: components["schemas"]["SubstituteCandidate"][];
             total: number;
+        };
+        SiteLocationGroup: {
+            site_id: components["schemas"]["Uuid"];
+            site_name: string;
+            customer_id: components["schemas"]["Uuid"];
+            customer_name: string;
+            branch_id: components["schemas"]["Uuid"];
+            address: string | null;
+            postal_code: string | null;
+            province: string | null;
+            city: string | null;
+            /** Format: double */
+            latitude: number | null;
+            /** Format: double */
+            longitude: number | null;
+            /**
+             * Format: double
+             * @description Per-site geofence radius in metres for arrival/departure detection; null uses the system default (150 m).
+             */
+            geofence_radius_m: number | null;
+            /** @description On-site representative contact name (담당자명). */
+            contact_name: string | null;
+            /** @description On-site contact phone (연락처). */
+            contact_phone: string | null;
+            /** @description Optional contact email (이메일). */
+            contact_email: string | null;
+            /** Format: int64 */
+            equipment_count: number;
+            /** Format: int64 */
+            rented_count: number;
+            /** Format: int64 */
+            spare_count: number;
+            /** Format: int64 */
+            substitution_active_count: number;
+        };
+        EquipmentByLocationPage: {
+            items: components["schemas"]["SiteLocationGroup"][];
+            total: number;
+        };
+        CreateCustomerRequest: {
+            /** @description Customer name (고객명). Required, trimmed, ≤ 200 characters. */
+            name: string;
+        };
+        CreatedCustomer: {
+            id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            name: string;
+        };
+        /** @description Create a site under an existing customer. Optional location/contact fields follow the same WGS84 ranges and length bounds as UpdateSiteRequest; latitude and longitude must be supplied together. */
+        CreateSiteRequest: {
+            customer_id: components["schemas"]["Uuid"];
+            /** @description Site name (현장명). Required, trimmed, ≤ 200 characters. */
+            name: string;
+            address?: string | null;
+            province?: string | null;
+            city?: string | null;
+            postal_code?: string | null;
+            /** Format: double */
+            latitude?: number | null;
+            /** Format: double */
+            longitude?: number | null;
+            /**
+             * Format: double
+             * @description Per-site geofence radius in metres (> 0, ≤ 100000). Null uses the system default (150 m).
+             */
+            geofence_radius_m?: number | null;
+            /** @description On-site representative contact name (담당자명). */
+            contact_name?: string | null;
+            /** @description On-site contact phone (연락처). */
+            contact_phone?: string | null;
+            /** @description Optional contact email (이메일). */
+            contact_email?: string | null;
+        };
+        CreatedSite: {
+            id: components["schemas"]["Uuid"];
+            customer_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            name: string;
+            address: string | null;
+            province: string | null;
+            city: string | null;
+            postal_code: string | null;
+            /** Format: double */
+            latitude: number | null;
+            /** Format: double */
+            longitude: number | null;
+            /** Format: double */
+            geofence_radius_m: number | null;
+            contact_name: string | null;
+            contact_phone: string | null;
+            contact_email: string | null;
+        };
+        /** @description Partial site update. Absent keys are left unchanged; nullable keys set to null clear the column. Latitude and longitude must be supplied together and within WGS84 ranges. */
+        UpdateSiteRequest: {
+            address?: string | null;
+            province?: string | null;
+            city?: string | null;
+            postal_code?: string | null;
+            /** Format: double */
+            latitude?: number | null;
+            /** Format: double */
+            longitude?: number | null;
+            /**
+             * Format: double
+             * @description Per-site geofence radius in metres (> 0, ≤ 100000). Null clears the override so the system default (150 m) applies.
+             */
+            geofence_radius_m?: number | null;
+            /** @description On-site representative contact name (담당자명). Null clears it. */
+            contact_name?: string | null;
+            /** @description On-site contact phone (연락처). Null clears it. */
+            contact_phone?: string | null;
+            /** @description Optional contact email (이메일). Null clears it. */
+            contact_email?: string | null;
+        };
+        AssignSubstituteRequest: {
+            /** Format: uuid */
+            source_equipment_id: string;
+            /** Format: uuid */
+            substitute_equipment_id: string;
+            /** Format: uuid */
+            assigned_to?: string | null;
+            assignment_location: string;
+        };
+        ReturnSubstituteRequest: {
+            return_note?: string | null;
+        };
+        SubstituteAssignment: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            branch_id: string;
+            /** Format: uuid */
+            source_equipment_id: string;
+            /** Format: uuid */
+            substitute_equipment_id: string;
+            /** Format: uuid */
+            assigned_by: string;
+            /** Format: uuid */
+            assigned_to?: string | null;
+            assignment_location: string;
+            /** Format: date-time */
+            assigned_at: string;
+            /** Format: uuid */
+            returned_by?: string | null;
+            /** Format: date-time */
+            returned_at?: string | null;
+            return_note?: string | null;
         };
         CreateEquipmentRequest: {
             /** @description Equipment number in AAANN-NNNN form; prefix derives manufacturer/kind/power codes. */
@@ -2562,6 +3980,13 @@ export interface components {
             vehicle_value?: number | null;
             /** Format: int64 */
             residual_value?: number | null;
+            /**
+             * Format: int64
+             * @description Acquisition cost in KRW. A distinct accounting fact, never the depreciation base.
+             */
+            acquisition_cost_won?: number | null;
+            /** Format: date */
+            acquisition_date?: string | null;
             note?: string | null;
         };
         RegistryRowError: {
@@ -2674,6 +4099,47 @@ export interface components {
             /** Format: int64 */
             residual_after_won: number;
             entry_at: components["schemas"]["Timestamp"];
+        };
+        /**
+         * @description Where the acquisition figure that anchors TCO came from.
+         * @enum {string}
+         */
+        AcquisitionBasis: "EXPLICIT" | "VEHICLE_VALUE_FALLBACK" | "NONE";
+        /** @description Per-asset lifecycle / total-cost-of-ownership rollup. outsource_unlinked_won is read-only and never summed into tco_won. */
+        AssetLifecycleCostSummary: {
+            equipment_id: components["schemas"]["Uuid"];
+            equipment_no: string;
+            status: string;
+            /** Format: int64 */
+            acquisition_cost_won?: number | null;
+            /** Format: date */
+            acquisition_date?: string | null;
+            acquisition_source: components["schemas"]["AcquisitionBasis"];
+            /** Format: int64 */
+            maintenance_total_won: number;
+            /** Format: int64 */
+            manual_total_won: number;
+            /** Format: int64 */
+            purchase_total_won: number;
+            /** Format: int64 */
+            entry_count: number;
+            /** Format: int64 */
+            outsource_unlinked_won?: number | null;
+            /** Format: int64 */
+            residual_value_won: number;
+            /** Format: int64 */
+            sale_price_won?: number | null;
+            /** Format: date */
+            sold_at?: string | null;
+            /** Format: int64 */
+            gross_margin_won?: number | null;
+            /** Format: int64 */
+            tco_won: number;
+            /** Format: int64 */
+            cost_per_month_won?: number | null;
+            /** Format: int64 */
+            cost_per_hour_won?: number | null;
+            timeline: components["schemas"]["CostLedgerEntrySummary"][];
         };
         CreatePurchaseRequest: {
             branch_id: components["schemas"]["Uuid"];
@@ -2789,6 +4255,11 @@ export interface components {
         };
         /** @enum {string} */
         Team: "MAINTENANCE" | "PREVENTION" | "MANAGEMENT" | "RECEPTION";
+        /**
+         * @description Derived account-setup state for the console roster. ACTIVE only once the user has enrolled a passkey (can sign in); PENDING_SETUP when created / OTP-issued but not yet enrolled; DEACTIVATED when soft-disabled.
+         * @enum {string}
+         */
+        AccountStatus: "ACTIVE" | "PENDING_SETUP" | "DEACTIVATED";
         UserSummary: {
             id: components["schemas"]["Uuid"];
             display_name: string;
@@ -2797,18 +4268,47 @@ export interface components {
             roles: string[];
             branch_ids: components["schemas"]["Uuid"][];
             is_active: boolean;
+            /** @description Whether the user has at least one enrolled passkey. A user can only sign in once this is true; until then the account is pending setup. */
+            has_passkey: boolean;
+            account_status: components["schemas"]["AccountStatus"];
             created_at: components["schemas"]["Timestamp"];
+        };
+        UserPage: {
+            items: components["schemas"]["UserSummary"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
         };
         RegionSummary: {
             id: components["schemas"]["Uuid"];
             name: string;
+            /**
+             * Format: date-time
+             * @description Set when the region has been soft-deleted (deactivated); null for an active region. Active-only listings omit deactivated rows.
+             */
+            deactivated_at: string | null;
             created_at: components["schemas"]["Timestamp"];
         };
         BranchSummary: {
             id: components["schemas"]["Uuid"];
             region_id: components["schemas"]["Uuid"];
             name: string;
+            /**
+             * Format: date-time
+             * @description Set when the branch has been soft-deleted (deactivated); null for an active branch. Active-only listings omit deactivated rows.
+             */
+            deactivated_at: string | null;
             created_at: components["schemas"]["Timestamp"];
+        };
+        /** @description A passkey credential summary for the self-service management surface. It deliberately carries no secret material (no passkey blob, public key, or raw credential id) — only the opaque row id and the registration / last-use timestamps. */
+        PasskeySummary: {
+            id: components["schemas"]["Uuid"];
+            created_at: components["schemas"]["Timestamp"];
+            /** Format: date-time */
+            last_used_at: string | null;
         };
         CreateUserRequest: {
             display_name: string;
@@ -2831,6 +4331,9 @@ export interface components {
         CreateRegionRequest: {
             name: string;
         };
+        UpdateRegionRequest: {
+            name?: string;
+        };
         CreateBranchRequest: {
             region_id: components["schemas"]["Uuid"];
             name: string;
@@ -2838,6 +4341,375 @@ export interface components {
         UpdateBranchRequest: {
             region_id?: components["schemas"]["Uuid"];
             name?: string;
+        };
+        /**
+         * @description Fuel / drive class of a listed forklift.
+         * @enum {string}
+         */
+        ListingKind: "ELECTRIC" | "DIESEL" | "LPG" | "REACH";
+        /**
+         * @description Whether a listed unit is used (중고) or brand-new (신차).
+         * @enum {string}
+         */
+        ListingCondition: "USED" | "NEW";
+        /**
+         * @description Whether a listing is offered for sale, rental, or both.
+         * @enum {string}
+         */
+        ListingType: "SALE" | "RENTAL" | "BOTH";
+        /**
+         * @description Publication lifecycle of a listing.
+         * @enum {string}
+         */
+        ListingStatus: "DRAFT" | "PUBLISHED" | "RESERVED" | "SOLD" | "WITHDRAWN";
+        /**
+         * @description Subject of a customer inquiry.
+         * @enum {string}
+         */
+        InquiryTopic: "RENTAL" | "USED_SALES" | "MAINTENANCE" | "OTHER";
+        /**
+         * @description Triage state of an inbound inquiry in the internal inbox.
+         * @enum {string}
+         */
+        InquiryStatus: "NEW" | "CONTACTED" | "CLOSED";
+        /** @description One photo attached to a sales listing. */
+        ListingMediaView: {
+            id: string;
+            url: string;
+            content_type: string;
+            alt_text: string | null;
+            /** Format: int32 */
+            sort_order: number;
+        };
+        /** @description A sales listing as read by the storefront or the admin console. */
+        SalesListingView: {
+            id: components["schemas"]["Uuid"];
+            equipment_id: components["schemas"]["Uuid"] | null;
+            kind: components["schemas"]["ListingKind"];
+            condition: components["schemas"]["ListingCondition"];
+            model_name: string;
+            /** Format: int64 */
+            capacity_milli: number | null;
+            /** Format: int32 */
+            model_year: number | null;
+            /** Format: int32 */
+            usage_hours: number | null;
+            /** Format: int64 */
+            price_won: number | null;
+            badge: string | null;
+            usage_label: string | null;
+            condition_label: string | null;
+            availability: string | null;
+            location: string | null;
+            description: string | null;
+            listing_type: components["schemas"]["ListingType"];
+            status: components["schemas"]["ListingStatus"];
+            /** Format: int32 */
+            sort_weight: number;
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+            media: components["schemas"]["ListingMediaView"][];
+        };
+        SalesListingPage: {
+            items: components["schemas"]["SalesListingView"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
+        CustomerInquiryView: {
+            id: components["schemas"]["Uuid"];
+            name: string;
+            phone: string;
+            topic: components["schemas"]["InquiryTopic"];
+            location: string | null;
+            message: string | null;
+            listing_id: components["schemas"]["Uuid"] | null;
+            status: components["schemas"]["InquiryStatus"];
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        CustomerInquiryPage: {
+            items: components["schemas"]["CustomerInquiryView"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
+        /** @description Public lead intake payload. `name` and `phone` are required; `location`, `message`, and `listing_id` are optional. The server never echoes any field back. */
+        SubmitInquiryRequest: {
+            name: string;
+            phone: string;
+            topic: components["schemas"]["InquiryTopic"];
+            location?: string | null;
+            message?: string | null;
+            listing_id?: components["schemas"]["Uuid"] | null;
+        };
+        /** @description Minimal acknowledgement of a submitted inquiry (no identifiers, no PII echo). */
+        InquiryAck: {
+            status: string;
+        };
+        /** @description Full editable field set for creating a sales listing. */
+        CreateListingRequest: {
+            kind: components["schemas"]["ListingKind"];
+            condition: components["schemas"]["ListingCondition"];
+            model_name: string;
+            /** Format: int64 */
+            capacity_milli?: number | null;
+            /** Format: int32 */
+            model_year?: number | null;
+            /** Format: int32 */
+            usage_hours?: number | null;
+            /** Format: int64 */
+            price_won?: number | null;
+            badge?: string | null;
+            usage_label?: string | null;
+            condition_label?: string | null;
+            availability?: string | null;
+            location?: string | null;
+            description?: string | null;
+            listing_type: components["schemas"]["ListingType"];
+            status: components["schemas"]["ListingStatus"];
+            /** Format: int32 */
+            sort_weight: number;
+            equipment_id?: components["schemas"]["Uuid"] | null;
+        };
+        /** @description Partial update. Absent keys are left unchanged; nullable keys explicitly set to null clear the column. At least one field must be supplied. */
+        UpdateListingRequest: {
+            kind?: components["schemas"]["ListingKind"];
+            condition?: components["schemas"]["ListingCondition"];
+            model_name?: string;
+            /** Format: int64 */
+            capacity_milli?: number | null;
+            /** Format: int32 */
+            model_year?: number | null;
+            /** Format: int32 */
+            usage_hours?: number | null;
+            /** Format: int64 */
+            price_won?: number | null;
+            badge?: string | null;
+            usage_label?: string | null;
+            condition_label?: string | null;
+            availability?: string | null;
+            location?: string | null;
+            description?: string | null;
+            listing_type?: components["schemas"]["ListingType"];
+            status?: components["schemas"]["ListingStatus"];
+            /** Format: int32 */
+            sort_weight?: number;
+            equipment_id?: components["schemas"]["Uuid"] | null;
+        };
+        UpdateInquiryStatusRequest: {
+            status: components["schemas"]["InquiryStatus"];
+        };
+        CreateListingResponse: {
+            id: components["schemas"]["Uuid"];
+        };
+        /** @enum {string} */
+        FindingSeverity: "INFO" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+        /**
+         * @description Lifecycle of a governance finding. OPEN findings are triaged to one of REVIEWED, DISMISSED, or ESCALATED.
+         * @enum {string}
+         */
+        FindingStatus: "OPEN" | "REVIEWED" | "DISMISSED" | "ESCALATED";
+        /** @description A governance finding raised by the integrity engine (#34). Findings are "검토 필요" (review needed) — e.g. a self-approval record (detector_id `anomaly.self_approval`) or a price anomaly (`anomaly.price_outlier`) — and are NOT accusations of wrongdoing. */
+        GovernanceFinding: {
+            id: components["schemas"]["Uuid"];
+            org_id: components["schemas"]["Uuid"];
+            /** @description Dot-namespaced detector identity, e.g. `anomaly.self_approval` or `anomaly.price_outlier`. */
+            detector_id: string;
+            /** @description The domain entity the finding concerns, e.g. `financial_purchase_request`. */
+            entity_type: string;
+            /** @description Identifier of the entity the finding concerns. */
+            entity_id: string;
+            /**
+             * Format: uuid
+             * @description Audit event that triggered the finding (OnWrite detectors); may be null.
+             */
+            source_audit_event_id?: string | null;
+            /**
+             * Format: uuid
+             * @description The user whose action was flagged (e.g. the self-approver). Null for non-person findings. A raw id; resolve to a display name in the UI.
+             */
+            subject_user_id?: string | null;
+            /**
+             * Format: double
+             * @description Non-negative detector score; the severity enum is the primary triage signal.
+             */
+            score: number;
+            severity: components["schemas"]["FindingSeverity"];
+            /** @description Detector-specific evidence bag. For `anomaly.self_approval` this includes action, requested_by, submitted_by, approver, and exemption_reason (org_lead_exempt or super_admin_exempt). */
+            evidence: {
+                [key: string]: unknown;
+            };
+            status: components["schemas"]["FindingStatus"];
+            detected_at: components["schemas"]["Timestamp"];
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+            /**
+             * Format: uuid
+             * @description The reviewer who triaged the finding; null until triaged.
+             */
+            reviewed_by?: string | null;
+            reviewed_at?: components["schemas"]["Timestamp"] | null;
+            /** @description Reviewer memo recorded at triage; required when dismissing or escalating. */
+            review_memo?: string | null;
+        };
+        /** @description Triage an OPEN finding. A memo is required when status is DISMISSED or ESCALATED, optional for REVIEWED. Max 2000 characters. */
+        TriageFindingRequest: {
+            /**
+             * @description Target triage status. OPEN is not a valid target.
+             * @enum {string}
+             */
+            status: "REVIEWED" | "DISMISSED" | "ESCALATED";
+            /** @description Reviewer memo. Required when dismissing or escalating. */
+            memo?: string | null;
+        };
+        /**
+         * @description Transport security. SSL_TLS is implicit TLS (port 993/465); START_TLS upgrades a plaintext connection (port 143/587). There is no plaintext option.
+         * @enum {string}
+         */
+        MailSecurity: "SSL_TLS" | "START_TLS";
+        MailAddress: {
+            /** @description The bare mailbox, e.g. user@example.com. */
+            address: string;
+            /** @description Optional display name. */
+            name?: string | null;
+        };
+        MailAttachment: {
+            filename: string;
+            content_type: string;
+            /** @description Standard-base64 encoded attachment bytes. */
+            content_base64: string;
+        };
+        /** @description The write-only view of a configured mailbox. It NEVER contains a password; has_smtp_password / has_imap_password signal whether a credential is on file. */
+        MailAccountView: {
+            id: components["schemas"]["Uuid"];
+            display_name: string;
+            email_address: string;
+            from_name?: string | null;
+            imap_host: string;
+            /** Format: int32 */
+            imap_port: number;
+            imap_security: components["schemas"]["MailSecurity"];
+            imap_username: string;
+            smtp_host: string;
+            /** Format: int32 */
+            smtp_port: number;
+            smtp_security: components["schemas"]["MailSecurity"];
+            smtp_username: string;
+            has_smtp_password: boolean;
+            has_imap_password: boolean;
+            status: string;
+        };
+        /** @description Configure (create or replace) the mailbox. A password field that is absent or null leaves the stored secret unchanged; a present value is re-sealed. A first-time configure requires both passwords. */
+        ConfigureMailAccountRequest: {
+            display_name: string;
+            email_address: string;
+            from_name?: string | null;
+            imap_host: string;
+            /** Format: int32 */
+            imap_port: number;
+            imap_security: components["schemas"]["MailSecurity"];
+            imap_username: string;
+            /** @description Write-only. Present = (re)seal; absent/null = keep the stored secret. */
+            imap_password?: string | null;
+            smtp_host: string;
+            /** Format: int32 */
+            smtp_port: number;
+            smtp_security: components["schemas"]["MailSecurity"];
+            smtp_username: string;
+            /** @description Write-only. Present = (re)seal; absent/null = keep the stored secret. */
+            smtp_password?: string | null;
+        };
+        MailTestConnectionResult: {
+            ok: boolean;
+            /** @description A stable, non-secret token when the connection failed. */
+            error_code?: string | null;
+        };
+        /** @description Compose a message. For reply/forward, in_reply_to is required and references carries the accumulated chain. The From is constrained to the configured account address (it cannot be set here). */
+        SendMailRequest: {
+            to: components["schemas"]["MailAddress"][];
+            cc?: components["schemas"]["MailAddress"][];
+            bcc?: components["schemas"]["MailAddress"][];
+            subject: string;
+            body_text: string;
+            attachments?: components["schemas"]["MailAttachment"][];
+            /** @description Required for reply/forward — the Message-ID being responded to. */
+            in_reply_to?: string | null;
+            references?: string[];
+        };
+        SendMailResult: {
+            message_id: components["schemas"]["Uuid"];
+            /** @description The RFC 5322 Message-ID stamped on the sent message. */
+            rfc_message_id: string;
+        };
+        MailFolderView: {
+            id: components["schemas"]["Uuid"];
+            /** @description INBOX | SENT | DRAFTS | ARCHIVE | TRASH | JUNK | CUSTOM. */
+            role: string;
+            name: string;
+            /** Format: int64 */
+            unread_count: number;
+            /** Format: int64 */
+            total_count: number;
+        };
+        MailThreadView: {
+            id: components["schemas"]["Uuid"];
+            subject: string;
+            /** Format: date-time */
+            last_message_at: string;
+            /** Format: int64 */
+            message_count: number;
+            /** Format: int64 */
+            unread_count: number;
+            has_attachments: boolean;
+            is_flagged: boolean;
+        };
+        MailThreadDetail: {
+            id: components["schemas"]["Uuid"];
+            subject: string;
+            messages: components["schemas"]["MailMessageView"][];
+        };
+        MailMessageView: {
+            id: components["schemas"]["Uuid"];
+            thread_id: components["schemas"]["Uuid"];
+            /** @description IN (mirrored from IMAP) or OUT (sent by the tenant). */
+            direction: string;
+            message_id?: string | null;
+            in_reply_to?: string | null;
+            from_address: string;
+            from_name?: string | null;
+            to: components["schemas"]["MailAddress"][];
+            cc: components["schemas"]["MailAddress"][];
+            subject: string;
+            snippet: string;
+            body_text?: string | null;
+            /** @description The stored HTML body, returned verbatim. The client MUST sanitize it (DOMPurify-class) before rendering. */
+            body_html?: string | null;
+            seen: boolean;
+            flagged: boolean;
+            answered: boolean;
+            has_attachments: boolean;
+            /** Format: date-time */
+            received_at: string;
+            attachments: components["schemas"]["MailAttachmentView"][];
+        };
+        MailAttachmentView: {
+            id: components["schemas"]["Uuid"];
+            filename: string;
+            content_type: string;
+            /** Format: int64 */
+            size_bytes: number;
+            is_inline: boolean;
+        };
+        MailAttachmentDownload: {
+            /** @description A short-lived presigned GET URL for the attachment bytes. */
+            url: string;
         };
     };
     responses: {
@@ -2895,6 +4767,24 @@ export interface components {
                 "application/json": components["schemas"]["ErrorBody"];
             };
         };
+        /** @description An upstream dependency (e.g. the email relay) failed. */
+        BadGateway: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorBody"];
+            };
+        };
+        /** @description Webmail is not configured on this server (the master key MNT_MAIL_MASTER_KEY is absent), or JWT verification is not configured. The app is otherwise healthy. */
+        MailUnavailable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorBody"];
+            };
+        };
     };
     parameters: {
         WorkOrderId: string;
@@ -2906,6 +4796,8 @@ export interface components {
         ThreadId: string;
         EquipmentId: string;
         QuoteId: string;
+        EquipmentSubstitutionId: string;
+        SiteId: string;
         EquipmentIdV2: string;
         PurchaseRequestId: string;
         DispatchId: string;
@@ -2958,6 +4850,46 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    appleAppSiteAssociation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Apple App Site Association document. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppleAppSiteAssociation"];
+                };
+            };
+        };
+    };
+    androidAssetLinks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Android Digital Asset Links statements. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AndroidAssetLinkStatement"][];
+                };
             };
         };
     };
@@ -3216,6 +5148,29 @@ export interface operations {
             };
         };
     };
+    listDailyWorkPlans: {
+        parameters: {
+            query?: {
+                /** @description Optional single-day filter (YYYY-MM-DD). Absent returns every day. */
+                plan_date?: components["schemas"]["Date"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Daily work plans for the caller's scope. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyPlanListPage"];
+                };
+            };
+        };
+    };
     createDailyWorkPlan: {
         parameters: {
             query?: never;
@@ -3231,6 +5186,28 @@ export interface operations {
         responses: {
             /** @description Daily plan created. */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyPlanSummary"];
+                };
+            };
+        };
+    };
+    getDailyWorkPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: components["parameters"]["PlanId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Daily plan found. */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3376,6 +5353,37 @@ export interface operations {
             };
         };
     };
+    getOpsSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operational summary scoped to the authenticated tenant. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpsSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     listWorkOrders: {
         parameters: {
             query?: {
@@ -3471,6 +5479,8 @@ export interface operations {
             query: {
                 due_start: components["schemas"]["Date"];
                 due_end: components["schemas"]["Date"];
+                limit?: number;
+                offset?: number;
             };
             header?: never;
             path?: never;
@@ -3478,13 +5488,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Inspection schedules due in the requested date range. */
+            /** @description A page of inspection schedules due in the requested range. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["InspectionScheduleSummary"][];
+                    "application/json": components["schemas"]["InspectionSchedulePage"];
                 };
             };
             400: components["responses"]["ValidationError"];
@@ -3600,13 +5610,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Support tickets visible in the principal's branch scope. */
+            /** @description A keyset page of support tickets visible in the principal's branch scope, plus the unpaged total for the same filters. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SupportTicketSummary"][];
+                    "application/json": components["schemas"]["SupportTicketPage"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -3862,6 +5872,46 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listEquipment: {
+        parameters: {
+            query?: {
+                /** @description Free-text search (호기-normalized, leading-zero-insensitive). */
+                q?: string;
+                status?: components["schemas"]["EquipmentStatus"];
+                /** @description Filter to a specific branch (UUID). */
+                branch_id?: string;
+                /** @description Filter to a specific customer (UUID). */
+                customer_id?: string;
+                /** @description Filter to a specific site (UUID). */
+                site_id?: string;
+                /** @description Filter by model name (case-insensitive exact match). */
+                model?: string;
+                /** @description Filter by maker name (case-insensitive exact match). */
+                maker?: string;
+                sort?: components["schemas"]["EquipmentSortBy"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated equipment list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EquipmentListPage"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     autocompleteEquipment: {
@@ -4139,6 +6189,78 @@ export interface operations {
             };
         };
     };
+    presignEvidenceStagingUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvidenceStagingPresignRequest"];
+            };
+        };
+        responses: {
+            /** @description Presigned staging upload ticket; the evidence row is created in PROCESSING and an async transcode job is enqueued. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceStagingPresignResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description Evidence storage or processing is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getEvidenceProcessingStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evidenceId: components["parameters"]["EvidenceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Evidence processing status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceStatusResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Evidence storage is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     registerMobileDevice: {
         parameters: {
             query?: never;
@@ -4351,6 +6473,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LocationConsentLedgerPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listArrivalEvents: {
+        parameters: {
+            query?: {
+                user_id?: components["schemas"]["Uuid"];
+                branch_id?: components["schemas"]["Uuid"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paged site arrival/departure events. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArrivalEventPage"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -4586,6 +6736,215 @@ export interface operations {
             };
         };
     };
+    listEquipmentByLocation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sites grouped with equipment counts and coordinates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EquipmentByLocationPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    createCustomer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCustomerRequest"];
+            };
+        };
+        responses: {
+            /** @description Customer created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedCustomer"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    createSite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSiteRequest"];
+            };
+        };
+        responses: {
+            /** @description Site created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedSite"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateSite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSiteRequest"];
+            };
+        };
+        responses: {
+            /** @description Site updated. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    assignEquipmentSubstitute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignSubstituteRequest"];
+            };
+        };
+        responses: {
+            /** @description Substitute assignment recorded. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubstituteAssignment"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    returnEquipmentSubstitute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["EquipmentSubstitutionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReturnSubstituteRequest"];
+            };
+        };
+        responses: {
+            /** @description Substitute assignment returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubstituteAssignment"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     computeRentalQuote: {
         parameters: {
             query?: never;
@@ -4684,6 +7043,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CostLedgerEntrySummary"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getEquipmentLifecycleCost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                equipmentId: components["parameters"]["EquipmentIdV2"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Asset lifecycle cost summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssetLifecycleCostSummary"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -5245,6 +7629,7 @@ export interface operations {
             query?: {
                 include_inactive?: boolean;
                 limit?: number;
+                offset?: number;
             };
             header?: never;
             path?: never;
@@ -5252,13 +7637,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Users in the principal's branch scope. */
+            /** @description A page of users in the principal's branch scope. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserSummary"][];
+                    "application/json": components["schemas"]["UserPage"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -5551,6 +7936,80 @@ export interface operations {
             };
         };
     };
+    deactivateRegion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deactivated region. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegionSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    updateRegion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRegionRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated region. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegionSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     listBranches: {
         parameters: {
             query?: never;
@@ -5618,6 +8077,41 @@ export interface operations {
             };
         };
     };
+    deactivateBranch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deactivated branch. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     updateBranch: {
         parameters: {
             query?: never;
@@ -5655,6 +8149,728 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+        };
+    };
+    listPasskeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The authenticated user's passkey credentials. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeySummary"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    deletePasskey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The passkey was revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    storefrontListListings: {
+        parameters: {
+            query?: {
+                kind?: components["schemas"]["ListingKind"];
+                condition?: components["schemas"]["ListingCondition"];
+                listing_type?: components["schemas"]["ListingType"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paged public sales listings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesListingPage"];
+                };
+            };
+        };
+    };
+    storefrontGetListing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sales listing. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesListingView"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    storefrontGetListingMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+                media_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The listing photo bytes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/*": string;
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    submitInquiry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitInquiryRequest"];
+            };
+        };
+        responses: {
+            /** @description Inquiry accepted for processing. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InquiryAck"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+        };
+    };
+    adminListListings: {
+        parameters: {
+            query?: {
+                kind?: components["schemas"]["ListingKind"];
+                condition?: components["schemas"]["ListingCondition"];
+                listing_type?: components["schemas"]["ListingType"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paged sales listings (all statuses). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesListingPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createListing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateListingRequest"];
+            };
+        };
+        responses: {
+            /** @description The listing was created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateListingResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    deleteListing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The listing was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateListing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateListingRequest"];
+            };
+        };
+        responses: {
+            /** @description The listing was updated. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listInquiries: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["InquiryStatus"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paged customer inquiries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerInquiryPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    updateInquiryStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateInquiryStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description The inquiry status was updated. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    removePlatformOrg: {
+        parameters: {
+            query?: {
+                /** @description Opt-in FORCE removal. When true, erase the tenant AND all of its data (requires the tenant to be ARCHIVED first). Defaults to false — the guarded path that removes only an empty onboarding shell. */
+                delete_data?: boolean;
+            };
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tenant (and, when forced, all of its data) was removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The removal was refused. On the guarded path (`delete_data` false), the tenant has operational data and cannot be removed (error body `code` is `tenant_has_data`) — archive it instead. On the force path (`delete_data` true), the tenant is not ARCHIVED (error body `code` is `tenant_active`) — archive the tenant before force-removing. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listIntegrityFindings: {
+        parameters: {
+            query?: {
+                /** @description Optional lifecycle filter. Omit to return findings of every status. */
+                status?: components["schemas"]["FindingStatus"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The list of governance findings for the current org. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GovernanceFinding"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    triageIntegrityFinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TriageFindingRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated governance finding after triage. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GovernanceFinding"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getMailAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The configured mailbox. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailAccountView"];
+                };
+            };
+            /** @description No mailbox is configured for this tenant. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    configureMailAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigureMailAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description The configured mailbox (write-only view). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailAccountView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    testMailAccountConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The structured test-connection result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailTestConnectionResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    sendMail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendMailRequest"];
+            };
+        };
+        responses: {
+            /** @description The message was sent and persisted. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendMailResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    replyMail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendMailRequest"];
+            };
+        };
+        responses: {
+            /** @description The reply was sent and persisted. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendMailResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    forwardMail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendMailRequest"];
+            };
+        };
+        responses: {
+            /** @description The forward was sent and persisted. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendMailResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    listMailFolders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The folders for the tenant's mailbox (empty if unconfigured). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailFolderView"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    listMailThreads: {
+        parameters: {
+            query?: {
+                unread?: boolean;
+                q?: string;
+                folder?: string;
+                before?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of threads (newest first). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailThreadView"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    getMailThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The thread and its ordered messages. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailThreadDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    getMailMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The message and its attachments. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailMessageView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["MailUnavailable"];
+        };
+    };
+    downloadMailAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A short-lived presigned download URL. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailAttachmentDownload"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["MailUnavailable"];
         };
     };
 }

@@ -15,6 +15,7 @@ struct MaintenanceFieldCoreBehaviorTests {
         try await offlineComposedMessagesQueueAndReplayDirectly()
         try messengerRealtimeRequestUsesBearerHeaderAndResumeCursor()
         try await keychainSessionStorePersistsTokensOutsideUserDefaults()
+        try await keychainSessionStoreMigratesLegacyGroupSessionForward()
         print("MaintenanceFieldCoreBehaviorTests passed")
     }
 
@@ -294,6 +295,39 @@ struct MaintenanceFieldCoreBehaviorTests {
         try expectEqual(await store.load(), nil)
         try expectEqual(provider.get(), nil)
         try expect(keychain.isEmpty(), "clear should remove the keychain item")
+    }
+
+    private static func keychainSessionStoreMigratesLegacyGroupSessionForward() async throws {
+        // A session written by a pre-shared-group build lives in the legacy
+        // (default-group) store. After the update, load() must find it, migrate
+        // it into the primary (shared-group) store, and remove the legacy copy —
+        // so the user is NOT logged out on the shared-group switch.
+        let primary = InMemoryKeychainAccess()
+        let legacy = InMemoryKeychainAccess()
+        let legacyTokens = AuthTokens(accessToken: "legacy.access", refreshToken: "legacy-refresh")
+        legacy.write(try JSONEncoder().encode(legacyTokens), service: "maintenance.field", account: "maintenance.field.session")
+
+        let provider = CurrentTokenProvider()
+        let store = KeychainSessionTokenStore(
+            tokenProvider: provider,
+            keychain: primary,
+            legacyKeychain: legacy
+        )
+
+        // init seeds the token provider from the legacy store (primary empty).
+        try expectEqual(provider.get(), "legacy.access")
+
+        // load() migrates: returns the tokens, writes them into primary, clears legacy.
+        try expectEqual(await store.load(), legacyTokens)
+        try expect(legacy.isEmpty(), "legacy session item should be removed after migration")
+        try expect(
+            primary.allStoredStrings().contains { $0.contains("legacy-refresh") },
+            "migrated session should now live in the primary (shared-group) store"
+        )
+
+        // A subsequent load() reads straight from primary (legacy already empty).
+        try expectEqual(await store.load(), legacyTokens)
+        try expectEqual(provider.get(), "legacy.access")
     }
 
     private static func messengerRealtimeRequestUsesBearerHeaderAndResumeCursor() throws {

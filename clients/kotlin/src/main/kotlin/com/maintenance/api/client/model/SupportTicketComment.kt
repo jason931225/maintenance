@@ -34,6 +34,7 @@ import kotlinx.serialization.Contextual
  * @param id
  * @param ticketId
  * @param authorUserId
+ * @param authorName Comment author display name, resolved via a same-org LEFT JOIN on users. Null for an authorless comment or a deleted author.
  * @param body
  * @param isInternalNote
  * @param createdAt
@@ -50,6 +51,10 @@ data class SupportTicketComment (
 
     @Contextual @SerialName(value = "author_user_id")
     val authorUserId: java.util.UUID,
+
+    /* Comment author display name, resolved via a same-org LEFT JOIN on users. Null for an authorless comment or a deleted author. */
+    @SerialName(value = "author_name")
+    val authorName: kotlin.String?,
 
     @SerialName(value = "body")
     val body: kotlin.String,

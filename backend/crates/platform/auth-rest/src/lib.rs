@@ -5,21 +5,28 @@
 //! those remain in the platform auth/provisioning crates.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+use std::collections::BTreeSet;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
-use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, BranchScope, TraceContext, UserId};
+use mnt_kernel_core::{
+    AuditAction, AuditEvent, BranchId, BranchScope, OrgId, TraceContext, UserId,
+};
 use mnt_platform_auth::{
     AccessClaims, AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier,
     PasskeyAuthenticationCredential, PasskeyRegistrationCredential, PasskeyRegistrationStart,
     PasskeyService, RefreshTokenStore, RefreshTokenUseError, WebauthnSettings,
 };
-use mnt_platform_authz::{Action, Feature, Principal, Role, authorize, resolve_branch_scope};
-use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_authz::{
+    Action, Feature, Principal, Role, authorize, resolve_branch_scope_in_org,
+};
+use mnt_platform_db::{DbError, with_audit, with_org_conn};
+use mnt_platform_email::{EmailSender, StubEmailSender};
 use mnt_platform_provisioning::{BootstrapCredentialStore, ProvisioningError};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
@@ -42,29 +49,61 @@ const REFRESH_COOKIE_NAME: &str = "mnt_refresh";
 /// the refresh/logout endpoints that need it.
 const REFRESH_COOKIE_PATH: &str = "/api/v1/auth";
 
+pub const SIGNUP_PATH: &str = "/api/v1/auth/signup";
 pub const PASSKEY_REGISTER_START_PATH: &str = "/api/v1/auth/passkey/register/start";
 pub const PASSKEY_REGISTER_FINISH_PATH: &str = "/api/v1/auth/passkey/register/finish";
 pub const PASSKEY_LOGIN_START_PATH: &str = "/api/v1/auth/passkey/login/start";
 pub const PASSKEY_LOGIN_FINISH_PATH: &str = "/api/v1/auth/passkey/login/finish";
 pub const OTP_REDEEM_PATH: &str = "/api/v1/auth/otp/redeem";
 pub const ADMIN_OTP_ISSUE_PATH: &str = "/api/v1/auth/admin/otp/issue";
+pub const ADMIN_CREDENTIAL_RESET_PATH: &str = "/api/v1/auth/admin/credential-reset";
+pub const PASSKEY_ENROLL_HANDOFF_PATH: &str = "/api/v1/auth/passkey/enroll-handoff";
+pub const PRIVACY_CONSENT_STATUS_PATH: &str = "/api/v1/auth/privacy-consent/status";
+pub const PRIVACY_CONSENT_ACCEPT_PATH: &str = "/api/v1/auth/privacy-consent/accept";
 pub const TOKEN_REFRESH_PATH: &str = "/api/v1/auth/token/refresh";
 pub const LOGOUT_PATH: &str = "/api/v1/auth/logout";
 pub const AUTH_ROUTE_PATHS: &[&str] = &[
+    SIGNUP_PATH,
     PASSKEY_REGISTER_START_PATH,
     PASSKEY_REGISTER_FINISH_PATH,
     PASSKEY_LOGIN_START_PATH,
     PASSKEY_LOGIN_FINISH_PATH,
     OTP_REDEEM_PATH,
     ADMIN_OTP_ISSUE_PATH,
+    ADMIN_CREDENTIAL_RESET_PATH,
+    PASSKEY_ENROLL_HANDOFF_PATH,
+    PRIVACY_CONSENT_STATUS_PATH,
+    PRIVACY_CONSENT_ACCEPT_PATH,
     TOKEN_REFRESH_PATH,
     LOGOUT_PATH,
 ];
 
-/// Default admin-issued OTP lifetime when the issuer omits a TTL.
-const DEFAULT_OTP_TTL: Duration = Duration::hours(24);
-/// Upper bound on a caller-specified OTP TTL; rejects absurd values.
-const MAX_OTP_TTL: Duration = Duration::days(30);
+/// Default lifetime for an open-signup OTP. A self-service code is a bearer
+/// secret delivered by email; 1h comfortably spans an enroll-now session while
+/// keeping the leaked-code window short.
+const DEFAULT_SIGNUP_OTP_TTL: Duration = Duration::hours(1);
+
+/// Default admin-issued OTP lifetime when the issuer omits a TTL. Tightened to
+/// 4h (from 24h): a bootstrap OTP is a bearer secret relayed out-of-band, so a
+/// shorter default shrinks the window in which a leaked code is redeemable while
+/// still comfortably spanning a single onboarding session. An issuer who needs
+/// longer can pass an explicit `ttl_seconds`, clamped to [`MAX_OTP_TTL`].
+const DEFAULT_OTP_TTL: Duration = Duration::hours(4);
+/// Upper bound on a caller-specified OTP TTL; rejects absurd values. Tightened to
+/// 24h (from 30d): no legitimate first sign-in needs a code that outlives a day.
+const MAX_OTP_TTL: Duration = Duration::hours(24);
+
+/// Lifetime of a cross-device passkey-enrollment HANDOFF code. Deliberately SHORT
+/// (5 min, distinct from the 4h admin OTP): the handoff is minted by the user for
+/// themselves and scanned onto a second device within seconds, so a tight window
+/// keeps the leaked-code blast radius minimal for this credential-handoff path.
+const ENROLL_HANDOFF_TTL: Duration = Duration::minutes(5);
+
+/// Required first-login privacy/terms notice version. This is an engineering
+/// control, not a substitute for counsel-approved policy text: bump it whenever
+/// the required collection/use notice or service terms materially change so users
+/// must accept the new version before initial passkey enrollment.
+const REQUIRED_PRIVACY_TERMS_VERSION: &str = "kr-pipa-v1-2026-06-25";
 
 /// Fixed-window length for the DB-backed unauthenticated-endpoint rate limiter.
 const RATE_LIMIT_WINDOW: Duration = Duration::minutes(1);
@@ -87,6 +126,11 @@ pub struct AuthRestConfig {
     pub jwt_private_key_pem: String,
     pub jwt_public_key_pem: String,
     pub refresh_token_ttl: Duration,
+    /// Absolute lifetime cap on a refresh-token family, measured from the
+    /// family's creation. Past this ceiling a rotation is rejected and the family
+    /// revoked, forcing a fresh primary authentication (NIST 800-63B AAL2).
+    /// Sourced from `MNT_REFRESH_FAMILY_ABSOLUTE_TTL_SECS` (default 24h).
+    pub refresh_family_absolute_ttl: Duration,
     /// Number of trusted reverse proxies in front of this service. The client IP
     /// used for rate limiting is the Nth-from-the-right `X-Forwarded-For` entry
     /// (the rightmost entry is appended by the closest proxy). Assumes the ingress
@@ -121,8 +165,19 @@ struct AuthServices {
     jwt_verifier: JwtVerifier,
     refresh_tokens: RefreshTokenStore,
     bootstrap_credentials: BootstrapCredentialStore,
+    /// The console's public origin (the WebAuthn RP origin, e.g.
+    /// `https://console.knllogistic.com`). Used to build the cross-device
+    /// passkey-enrollment handoff URL the frontend renders as a QR; the phone
+    /// opens it to redeem the handoff and enroll a passkey. Always a validated,
+    /// scheme+host origin with no path/query (parsed once at config time).
+    rp_origin: Url,
     refresh_token_ttl: Duration,
+    refresh_family_absolute_ttl: Duration,
     cookie_secure: bool,
+    /// Outbound OTP email sender for open self-service signup (#38). Always
+    /// present: a real SMTP sender when `MNT_EMAIL_*` is configured, otherwise a
+    /// `StubEmailSender` that logs the OTP (so dev/e2e read it from the logs).
+    email_sender: Arc<dyn EmailSender>,
 }
 
 impl AuthRestState {
@@ -139,6 +194,9 @@ impl AuthRestState {
 
     pub fn new(pool: PgPool, config: AuthRestConfig) -> Result<Self, AuthRestConfigError> {
         let rp_origin = Url::parse(&config.rp_origin)?;
+        // Keep a copy of the validated origin to build the cross-device enrollment
+        // handoff URL; `WebauthnSettings` takes ownership of the other clone below.
+        let handoff_origin = rp_origin.clone();
         let passkeys = PasskeyService::new(WebauthnSettings {
             rp_id: config.rp_id,
             rp_origin,
@@ -167,11 +225,27 @@ impl AuthRestState {
                 jwt_verifier,
                 refresh_tokens: RefreshTokenStore,
                 bootstrap_credentials: BootstrapCredentialStore,
+                rp_origin: handoff_origin,
                 refresh_token_ttl: config.refresh_token_ttl,
+                refresh_family_absolute_ttl: config.refresh_family_absolute_ttl,
                 cookie_secure: config.cookie_secure,
+                // Stub by default; the composition root swaps in the live SMTP
+                // sender via `with_email_sender` when `MNT_EMAIL_*` is configured.
+                email_sender: Arc::new(StubEmailSender),
             }),
             trusted_proxy_count: config.trusted_proxy_count.max(1),
         })
+    }
+
+    /// Install the outbound OTP email sender used by the open-signup endpoint.
+    /// The composition root calls this with the app's `Arc<dyn EmailSender>`
+    /// (live SMTP or the logging stub). A no-op when auth services are disabled.
+    #[must_use]
+    pub fn with_email_sender(mut self, email_sender: Arc<dyn EmailSender>) -> Self {
+        if let Some(services) = self.services.as_mut() {
+            services.email_sender = email_sender;
+        }
+        self
     }
 }
 
@@ -186,12 +260,17 @@ pub enum AuthRestConfigError {
 
 pub fn router(state: AuthRestState) -> Router {
     Router::new()
+        .route(SIGNUP_PATH, post(signup))
         .route(PASSKEY_REGISTER_START_PATH, post(start_registration))
         .route(PASSKEY_REGISTER_FINISH_PATH, post(finish_registration))
         .route(PASSKEY_LOGIN_START_PATH, post(start_login))
         .route(PASSKEY_LOGIN_FINISH_PATH, post(finish_login))
         .route(OTP_REDEEM_PATH, post(redeem_otp))
         .route(ADMIN_OTP_ISSUE_PATH, post(issue_admin_otp))
+        .route(ADMIN_CREDENTIAL_RESET_PATH, post(admin_credential_reset))
+        .route(PASSKEY_ENROLL_HANDOFF_PATH, post(enroll_handoff))
+        .route(PRIVACY_CONSENT_STATUS_PATH, post(privacy_consent_status))
+        .route(PRIVACY_CONSENT_ACCEPT_PATH, post(accept_privacy_consent))
         .route(TOKEN_REFRESH_PATH, post(refresh_token))
         .route(LOGOUT_PATH, post(logout))
         .with_state(state)
@@ -201,6 +280,20 @@ pub fn router(state: AuthRestState) -> Router {
 struct RegisterStartRequest {
     username: Option<String>,
     display_name: Option<String>,
+    /// Fresh step-up assertion of an EXISTING passkey, REQUIRED when the
+    /// authenticated user already has one or more passkeys (self-service
+    /// add-device). Omitted only for initial enrollment (the user has zero
+    /// passkeys). The ceremony id comes from a preceding `passkey/login/start`.
+    step_up: Option<StepUpAssertion>,
+}
+
+/// A step-up proof: a discoverable authentication ceremony id plus the asserted
+/// credential. Verified with user verification (UV) required before a new
+/// credential is issued, so a stolen session alone cannot add a passkey.
+#[derive(Debug, Deserialize)]
+struct StepUpAssertion {
+    ceremony_id: Uuid,
+    credential: PasskeyAuthenticationCredential,
 }
 
 #[derive(Debug, Serialize)]
@@ -234,6 +327,26 @@ struct LoginStartResponse {
 struct LoginFinishRequest {
     ceremony_id: Uuid,
     credential: PasskeyAuthenticationCredential,
+}
+
+/// Open self-service signup (#38). The body carries only the email address; the
+/// server creates a new low-privilege MEMBER account, mints a one-time code, and
+/// emails it. The caller then redeems that code via `/auth/otp/redeem` and
+/// enrolls a passkey — the same flow a pre-provisioned user follows.
+#[derive(Debug, Deserialize)]
+struct SignupRequest {
+    email: String,
+}
+
+/// Signup acknowledgement. Deliberately reveals NOTHING about whether the email
+/// was newly registered — a one-time code is "sent" (logged by the stub in
+/// dev/e2e) and the client always proceeds to the OTP step. No token is minted
+/// here; sign-in happens only after the code is redeemed.
+#[derive(Debug, Serialize)]
+struct SignupResponse {
+    /// Always `true`. Present so the response body is non-empty and the contract
+    /// is stable if richer status is added later.
+    accepted: bool,
 }
 
 /// First sign-in via a one-time admin-issued (or cold-start) OTP. The body
@@ -274,6 +387,64 @@ struct AdminIssueOtpResponse {
     user_id: Uuid,
     otp: String,
     expires_at: OffsetDateTime,
+}
+
+/// Admin request to reset a user's credentials for account recovery: revokes ALL
+/// the target's passkeys and mints a fresh single-use sign-in OTP. The body
+/// carries only the target user id; the target lives in the caller's own tenant.
+#[derive(Debug, Deserialize)]
+struct AdminCredentialResetRequest {
+    user_id: Uuid,
+}
+
+/// The fresh one-time OTP minted by a credential reset (returned once, never
+/// stored in plaintext) and its expiry. The admin relays this to the locked-out
+/// user out-of-band so they can sign in and re-enroll a passkey.
+#[derive(Debug, Serialize)]
+struct AdminCredentialResetResponse {
+    user_id: Uuid,
+    otp: String,
+    expires_at: OffsetDateTime,
+}
+
+/// Cross-device self passkey-enrollment handoff request. The body carries NO
+/// user/org — those come from the caller's verified access token, so a caller can
+/// only ever mint a handoff for ITSELF. `step_up` is required ONLY when the caller
+/// is already enrolled (add-device): exactly like `register/start`, an
+/// already-enrolled user must assert an existing passkey (UV) before a fresh
+/// enrollment credential is issued, so a stolen bearer token alone cannot mint a
+/// device-enrollment handoff. A mid-onboarding user (zero passkeys) omits it.
+#[derive(Debug, Deserialize, Default)]
+struct EnrollHandoffRequest {
+    step_up: Option<StepUpAssertion>,
+}
+
+/// The minted single-use, short-TTL passkey-enrollment handoff code (returned
+/// once, never stored in plaintext) plus the ready-to-encode enrollment URL the
+/// frontend renders as a QR. The phone opens `enroll_url`, redeems the `otp` via
+/// the ordinary first-sign-in path, and enrolls a platform passkey on the phone.
+#[derive(Debug, Serialize)]
+struct EnrollHandoffResponse {
+    otp: String,
+    expires_at: OffsetDateTime,
+    enroll_url: String,
+}
+
+/// Required first-login privacy/terms acceptance. The booleans are deliberately
+/// explicit and separate so the client cannot send one bundled "agree all" flag
+/// for legally distinct items.
+#[derive(Debug, Deserialize)]
+struct PrivacyConsentAcceptRequest {
+    policy_version: String,
+    privacy_collection: bool,
+    terms_of_service: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct PrivacyConsentStatusResponse {
+    policy_version: &'static str,
+    accepted: bool,
+    accepted_at: Option<OffsetDateTime>,
 }
 
 /// A minted access/refresh pair. `refresh_token` is `null` in the cookie
@@ -350,6 +521,14 @@ impl RestError {
         Self {
             status: StatusCode::SERVICE_UNAVAILABLE,
             code: "service_unavailable",
+            message: message.into(),
+        }
+    }
+
+    fn bad_gateway(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_GATEWAY,
+            code: "bad_gateway",
             message: message.into(),
         }
     }
@@ -437,18 +616,55 @@ impl IntoResponse for RestError {
 /// enrollment after an OTP first sign-in, or adding a device later). The
 /// usernameless first sign-in goes through `/auth/otp/redeem`, not here, so this
 /// path no longer accepts a bootstrap token.
+///
+/// Anti-silent-add step-up: when the caller ALREADY has one or more passkeys,
+/// adding another requires a fresh step-up assertion (`step_up`) of an existing
+/// passkey with user verification, so a stolen bearer token alone cannot enroll a
+/// new credential. Initial enrollment (zero existing passkeys) needs no step-up —
+/// there is no credential to assert, and the open bootstrap code still gates the
+/// finish.
 async fn start_registration(
     State(state): State<AuthRestState>,
     headers: HeaderMap,
     Json(body): Json<RegisterStartRequest>,
 ) -> Result<Json<RegisterStartResponse>, RestError> {
     let services = state.services()?;
-    let user_id = authenticated_user_id(services, &headers)?;
-    let user = load_user_auth_context(&state.pool, user_id).await?;
+    let (user_id, org_id) = authenticated_user_context(services, &headers)?;
+    let user = load_user_auth_context_in_org(&state.pool, org_id, user_id).await?;
+
+    // Step-up gate: an already-enrolled user MUST assert an existing passkey (UV)
+    // before a new credential challenge is issued. A user with zero passkeys is
+    // doing initial enrollment and is exempt.
+    let existing_passkeys = services
+        .passkeys
+        .count_user_passkeys(&state.pool, org_id, user_id)
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
+    if existing_passkeys == 0 {
+        ensure_required_privacy_consent(&state.pool, org_id, user_id).await?;
+    } else {
+        let step_up = body.step_up.ok_or_else(|| {
+            RestError::unauthorized(
+                "adding a passkey requires a step-up assertion of an existing passkey",
+            )
+        })?;
+        services
+            .passkeys
+            .verify_step_up_for_user(
+                &state.pool,
+                step_up.ceremony_id,
+                step_up.credential,
+                user_id,
+            )
+            .await
+            .map_err(|err| RestError::unauthorized(err.to_string()))?;
+    }
+
     let ceremony = services
         .passkeys
         .start_registration(
             &state.pool,
+            org_id,
             PasskeyRegistrationStart {
                 user_id,
                 username: body.username.unwrap_or(user.username),
@@ -473,8 +689,16 @@ async fn finish_registration(
     Json(body): Json<RegisterFinishRequest>,
 ) -> Result<(StatusCode, Json<RegisterFinishResponse>), RestError> {
     let services = state.services()?;
-    let user_id = authenticated_user_id(services, &headers)?;
+    let (user_id, org_id) = authenticated_user_context(services, &headers)?;
     ensure_registration_ceremony_owner(&state.pool, body.ceremony_id, user_id).await?;
+    let existing_passkeys = services
+        .passkeys
+        .count_user_passkeys(&state.pool, org_id, user_id)
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
+    if existing_passkeys == 0 {
+        ensure_required_privacy_consent(&state.pool, org_id, user_id).await?;
+    }
     let now = OffsetDateTime::now_utc();
 
     // Insert the passkey AND consume the user's open one-time code in ONE transaction,
@@ -488,7 +712,7 @@ async fn finish_registration(
         .map_err(|err| RestError::internal(err.to_string()))?;
     let passkey = services
         .passkeys
-        .finish_registration_in_tx(&mut tx, body.ceremony_id, body.credential, now)
+        .finish_registration_in_tx(&mut tx, org_id, body.ceremony_id, body.credential, now)
         .await
         .map_err(|err| RestError::internal(err.to_string()))?;
     services
@@ -551,7 +775,10 @@ async fn finish_login(
         .finish_authentication(&state.pool, body.ceremony_id, body.credential)
         .await
         .map_err(|err| RestError::unauthorized(err.to_string()))?;
-    let user = load_user_auth_context(&state.pool, outcome.user_id).await?;
+    // Passkey login is a pre-auth route (no tenant middleware): arm the GUC with
+    // the org resolved from the asserted credential so the `users` read + session
+    // mint run under the credential's tenant.
+    let user = load_user_auth_context_in_org(&state.pool, outcome.org_id, outcome.user_id).await?;
     let tokens = issue_token_pair(&state.pool, services, &user).await?;
     record_auth_audit(
         &state.pool,
@@ -568,6 +795,85 @@ async fn finish_login(
         &headers,
         services.cookie_secure,
     ))
+}
+
+/// Open self-service signup (#38): create a new low-privilege MEMBER account and
+/// email it a one-time sign-in code.
+///
+/// UNAUTHENTICATED and rate-limited (`Signup` bucket). Creates a fresh user in
+/// the default (KNL) org with the single lowest-privilege `MEMBER` role, mints a
+/// first-sign-in OTP via the same bootstrap machinery the admin path uses, and
+/// delivers it over email (the stub sender logs it in dev/e2e). The response
+/// reveals nothing — it always reports `accepted` and never a token — so it is
+/// not an account-existence oracle. The caller then redeems the emailed code via
+/// `/auth/otp/redeem` and enrolls a passkey, reusing the existing flow unchanged.
+async fn signup(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+    Json(body): Json<SignupRequest>,
+) -> Result<Response, RestError> {
+    let services = state.services()?;
+    let now = OffsetDateTime::now_utc();
+    rate_limit(
+        &state.pool,
+        &headers,
+        state.trusted_proxy_count,
+        RateLimitEndpoint::Signup,
+        now,
+    )
+    .await?;
+
+    let email = body.email.trim();
+    let display_name = signup_display_name(email)?;
+    let ttl = DEFAULT_SIGNUP_OTP_TTL;
+
+    let issue = services
+        .bootstrap_credentials
+        .signup_open_member(&state.pool, &display_name, now, ttl)
+        .await
+        .map_err(RestError::from_provisioning)?;
+
+    // Deliver the code out-of-band. The stub sender logs it (dev/e2e read it from
+    // the backend log); a real SMTP sender relays it. A delivery failure is a 502
+    // — the account + code exist, but we could not hand the code to the user.
+    services
+        .email_sender
+        .send_otp(email, issue.token.as_str(), duration_to_std(ttl))
+        .await
+        .map_err(|err| {
+            RestError::bad_gateway(format!("could not send the verification email: {err}"))
+        })?;
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(SignupResponse { accepted: true }),
+    )
+        .into_response())
+}
+
+/// Derive a human display name from the signup email: validate it has exactly one
+/// `@` with a non-empty local part and a dotted domain, then use the local part
+/// as the label. Keeps the (no-email-column) `users` row readable while the email
+/// itself is only used to deliver the OTP.
+fn signup_display_name(email: &str) -> Result<String, RestError> {
+    let (local, domain) = email
+        .split_once('@')
+        .ok_or_else(|| RestError::bad_request("a valid email address is required"))?;
+    let local_ok = !local.is_empty() && local.len() <= 64;
+    let domain_ok = domain.len() >= 3
+        && domain.contains('.')
+        && !domain.starts_with('.')
+        && !domain.ends_with('.');
+    if !local_ok || !domain_ok || email.len() > 320 {
+        return Err(RestError::bad_request("a valid email address is required"));
+    }
+    Ok(local.to_owned())
+}
+
+/// Convert a `time::Duration` to a `std::time::Duration` for the email port,
+/// clamping any (impossible here) negative value to zero.
+fn duration_to_std(ttl: Duration) -> std::time::Duration {
+    std::time::Duration::from_secs(ttl.whole_seconds().max(0) as u64)
 }
 
 /// Redeem a one-time OTP as a FIRST SIGN-IN.
@@ -611,7 +917,11 @@ async fn redeem_otp(
         }
     };
 
-    let user = load_user_auth_context(&state.pool, redemption.user_id).await?;
+    // OTP redeem is a pre-auth route (no tenant middleware): arm the GUC with the
+    // org resolved from the redeemed credential so the `users` read + session mint
+    // run under the credential's tenant.
+    let user =
+        load_user_auth_context_in_org(&state.pool, redemption.org_id, redemption.user_id).await?;
     let tokens = issue_token_pair(&state.pool, services, &user).await?;
     record_auth_audit(
         &state.pool,
@@ -657,12 +967,47 @@ async fn redeem_otp(
 /// `SubordinateUserCreate` feature. The issuance is audited inside
 /// `issue_for_zero_credential_user`. The returned OTP is shown once.
 ///
+/// The branch set a privileged admin credential action (issue-OTP /
+/// credential-reset) must authorize the caller against, given the TARGET user's
+/// resolved branch scope.
+///
+/// * `Branches(non-empty)` → `Some(branches)`: a branch-scoped target. The caller
+///   must be authorized for `SubordinateUserCreate` against EVERY one of them
+///   (the per-branch IDOR check, done by the caller).
+/// * `All` → `None`: an org-wide target (a `SUPER_ADMIN` / `EXECUTIVE`, for whom
+///   [`resolve_branch_scope_in_org`] returns `All`). There is no concrete branch
+///   to check. Such a target is always privileged, so by the privileged-target
+///   guard only a `SUPER_ADMIN` — who is authorized org-wide for this feature —
+///   can ever reach here; `caller_is_super_admin` is re-asserted as defense in
+///   depth so a future refactor of that guard cannot open a hole.
+/// * an empty branch set / any other scope → 403 (nothing issuable).
+///
+/// Shared by `issue_admin_otp` and `admin_credential_reset` so the two cannot
+/// drift: both previously matched only `Branches(non-empty)` and so 403'd on an
+/// `All`-scope (privileged) target — the "코드를 발급하지 못했습니다" OTP-issuance
+/// failure from issue #18. An org-wide target now resolves to `None` (authorized,
+/// no per-branch basis) instead of a hard 403.
+fn authorizable_target_branches(
+    target_scope: BranchScope,
+    caller_is_super_admin: bool,
+) -> Result<Option<BTreeSet<BranchId>>, RestError> {
+    match target_scope {
+        BranchScope::Branches(branches) if !branches.is_empty() => Ok(Some(branches)),
+        BranchScope::All if caller_is_super_admin => Ok(None),
+        _ => Err(RestError::forbidden(
+            "target user has no issuable branch scope",
+        )),
+    }
+}
+
 /// IDOR hardening: authorization is bound to the TARGET user's real branch/role
 /// resolved from the database, NOT to the client-supplied `body.branch_id`. The
 /// caller must be authorized for `SubordinateUserCreate` against EVERY branch the
 /// target belongs to, and a non-SUPER_ADMIN caller can never mint a code for an
 /// EXECUTIVE or SUPER_ADMIN target. This stops a branch-A admin from minting a
-/// sign-in OTP for a privileged user or for a user who lives in branch B.
+/// sign-in OTP for a privileged user or for a user who lives in branch B. An
+/// org-wide (privileged) target is issuable only by a SUPER_ADMIN — see
+/// [`authorizable_target_branches`].
 async fn issue_admin_otp(
     State(state): State<AuthRestState>,
     headers: HeaderMap,
@@ -673,8 +1018,10 @@ async fn issue_admin_otp(
 
     // Resolve the TARGET's real roles. A missing or inactive target is a 403 here
     // (the caller is authenticated; it is the requested target that is invalid),
-    // not the 401 the sign-in paths use.
-    let target = load_user_auth_context(&state.pool, body.user_id)
+    // not the 401 the sign-in paths use. The target lives in the caller's tenant
+    // (an admin can only manage users in its own org), so arm the GUC with the
+    // caller's verified org for this RLS-gated read.
+    let target = load_user_auth_context_in_org(&state.pool, principal.org_id, body.user_id)
         .await
         .map_err(forbidden_if_unauthorized)?;
     let target_roles = parse_roles(&target.roles)?;
@@ -694,41 +1041,39 @@ async fn issue_admin_otp(
     // Resolve the target's REAL branch scope and require the caller to be
     // authorized against every one of the target's branches. A target with All
     // scope (SUPER_ADMIN/EXECUTIVE) or no branches cannot be issued for here.
-    let target_scope = resolve_branch_scope(&state.pool, target.user_id, &target_roles)
-        .await
-        .map_err(|err| RestError::internal(err.to_string()))?;
-    let target_branches = match target_scope {
-        BranchScope::Branches(branches) if !branches.is_empty() => branches,
-        _ => {
+    let target_scope =
+        resolve_branch_scope_in_org(&state.pool, principal.org_id, target.user_id, &target_roles)
+            .await
+            .map_err(|err| RestError::internal(err.to_string()))?;
+    let target_branches = authorizable_target_branches(target_scope, caller_is_super_admin)?;
+
+    // A branch-scoped target authorizes per-branch: `body.branch_id` is still
+    // accepted for API stability but no longer grants access (it must be one of the
+    // target's real branches), and the caller must be authorized for
+    // `SubordinateUserCreate` against EVERY one of them. An org-wide target
+    // (`None`) is authorized above (SUPER_ADMIN, org-wide) — no per-branch basis.
+    if let Some(branches) = &target_branches {
+        let requested_branch = BranchId::from_uuid(body.branch_id);
+        if !branches.contains(&requested_branch) {
             return Err(RestError::forbidden(
-                "target user has no issuable branch scope",
+                "branch_id does not belong to the target user",
             ));
         }
-    };
-
-    // `body.branch_id` is still accepted for API stability but no longer grants
-    // access: it must be one of the target's real branches, never the authz basis.
-    let requested_branch = BranchId::from_uuid(body.branch_id);
-    if !target_branches.contains(&requested_branch) {
-        return Err(RestError::forbidden(
-            "branch_id does not belong to the target user",
-        ));
-    }
-
-    for branch_id in &target_branches {
-        authorize(
-            &principal,
-            Action::limited(Feature::SubordinateUserCreate),
-            *branch_id,
-        )
-        .map_err(|_| RestError::forbidden("not allowed to issue sign-in codes"))?;
+        for branch_id in branches {
+            authorize(
+                &principal,
+                Action::limited(Feature::SubordinateUserCreate),
+                *branch_id,
+            )
+            .map_err(|_| RestError::forbidden("not allowed to issue sign-in codes"))?;
+        }
     }
 
     let ttl = resolve_otp_ttl(body.ttl_seconds)?;
     let now = OffsetDateTime::now_utc();
     let issue = services
         .bootstrap_credentials
-        .issue_for_zero_credential_user(&state.pool, body.user_id, now, ttl)
+        .issue_for_zero_credential_user(&state.pool, body.user_id, principal.org_id, now, ttl)
         .await
         .map_err(RestError::from_provisioning)?;
 
@@ -739,8 +1084,255 @@ async fn issue_admin_otp(
     }))
 }
 
-/// Remap the `401` that `load_user_auth_context` returns for a missing/inactive
-/// user into a `403` for the admin issue-OTP path, where the CALLER is
+/// Reset a locked-out user's credentials: revoke ALL their passkeys AND mint a
+/// fresh single-use sign-in OTP, atomically and audited, so a user who lost their
+/// only passkey can re-enroll.
+///
+/// This is the admin-only account-recovery escape hatch. The normal admin-OTP
+/// path refuses a user who already has a passkey (409 `UserAlreadyHasPasskey`) and
+/// self-revoke refuses the last passkey, so neither can recover a locked-out user;
+/// this path deliberately overrides both — but ONLY for an admin, gated by the
+/// EXACT same authz/IDOR rules as `issue_admin_otp`:
+///   * Authz: ADMIN / SUPER_ADMIN via the `SubordinateUserCreate` feature against
+///     EVERY one of the target's real branches.
+///   * IDOR / cross-org: the target is read via `load_user_auth_context_in_org`
+///     armed with the CALLER's verified-token org, so a user in another tenant is
+///     invisible (a generic 403, no enumeration). A non-SUPER_ADMIN caller can
+///     never reset an EXECUTIVE / SUPER_ADMIN target.
+///
+/// On success the returned OTP is shown once. Generic errors only (no user
+/// enumeration). After the reset the user's old passkeys fail login and the new
+/// OTP redeems.
+async fn admin_credential_reset(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+    Json(body): Json<AdminCredentialResetRequest>,
+) -> Result<Json<AdminCredentialResetResponse>, RestError> {
+    let services = state.services()?;
+    let principal = principal_from_headers(&state.pool, services, &headers).await?;
+
+    // Resolve the TARGET's real roles inside the CALLER's tenant (IDOR / cross-org
+    // guard): a user in another org is not visible under the caller's org GUC and
+    // surfaces as the same generic 403 as a missing/inactive target.
+    let target = load_user_auth_context_in_org(&state.pool, principal.org_id, body.user_id)
+        .await
+        .map_err(forbidden_if_unauthorized)?;
+    let target_roles = parse_roles(&target.roles)?;
+
+    let caller_is_super_admin = principal.roles.contains(&Role::SuperAdmin);
+
+    // A non-SUPER_ADMIN caller may never reset a privileged target.
+    let target_is_privileged = target_roles
+        .iter()
+        .any(|role| matches!(role, Role::Executive | Role::SuperAdmin));
+    if target_is_privileged && !caller_is_super_admin {
+        return Err(RestError::forbidden(
+            "not allowed to reset credentials for a privileged user",
+        ));
+    }
+
+    // Require the caller to be authorized against EVERY one of the target's real
+    // branches, exactly like `issue_admin_otp`.
+    let target_scope =
+        resolve_branch_scope_in_org(&state.pool, principal.org_id, target.user_id, &target_roles)
+            .await
+            .map_err(|err| RestError::internal(err.to_string()))?;
+    let target_branches = authorizable_target_branches(target_scope, caller_is_super_admin)?;
+
+    // Branch-scoped target → authorize the caller against EVERY one of the target's
+    // real branches. Org-wide target (`None`) is authorized above (SUPER_ADMIN).
+    if let Some(branches) = &target_branches {
+        for branch_id in branches {
+            authorize(
+                &principal,
+                Action::limited(Feature::SubordinateUserCreate),
+                *branch_id,
+            )
+            .map_err(|_| RestError::forbidden("not allowed to reset credentials"))?;
+        }
+    }
+
+    let now = OffsetDateTime::now_utc();
+    let issue = services
+        .bootstrap_credentials
+        .reset_credentials_for_user(
+            &state.pool,
+            body.user_id,
+            principal.org_id,
+            now,
+            DEFAULT_OTP_TTL,
+        )
+        .await
+        .map_err(RestError::from_provisioning)?;
+
+    Ok(Json(AdminCredentialResetResponse {
+        user_id: issue.user_id,
+        otp: issue.token.as_str().to_owned(),
+        expires_at: issue.expires_at,
+    }))
+}
+
+/// Mint a cross-device passkey-enrollment handoff for the AUTHENTICATED user.
+///
+/// SELF-ONLY: the target user id and org come from the caller's VERIFIED access
+/// token (`authenticated_user_context`), NEVER from the request body, so a caller
+/// can only ever mint a handoff for itself — there is no path to hand off another
+/// user's enrollment.
+///
+/// Scoped to passkey enrollment: the returned code is a fresh single-use,
+/// short-TTL (5 min) bootstrap credential for THIS user, redeemed on a second
+/// device (a phone scanning the QR) through the ordinary first-sign-in path. The
+/// phone lands on its own onboarding page and enrolls a platform passkey there —
+/// no Bluetooth / caBLE hybrid tunnel.
+///
+/// Step-up gate (mirrors `start_registration` exactly): when the caller is ALREADY
+/// enrolled (has >=1 passkey, i.e. this is add-a-device), a fresh `step_up`
+/// assertion of an existing passkey (UV required) is mandatory before a handoff is
+/// minted, so a stolen bearer token alone cannot mint a device-enrollment code. A
+/// mid-onboarding caller (zero passkeys) is exempt — there is nothing to assert,
+/// and the redeem on the phone still gates the actual enrollment.
+///
+/// Audited inside `issue_self_enroll_handoff` as
+/// `auth.passkey.enroll_handoff_issued`; the code value is never logged.
+async fn enroll_handoff(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+    Json(body): Json<EnrollHandoffRequest>,
+) -> Result<Json<EnrollHandoffResponse>, RestError> {
+    let services = state.services()?;
+    // SELF-ONLY: user + org are taken from the verified token, never the body.
+    let (user_id, org_id) = authenticated_user_context(services, &headers)?;
+
+    // Step-up gate: an already-enrolled user MUST assert an existing passkey (UV)
+    // before a fresh enrollment handoff is minted; a user with zero passkeys is
+    // mid-onboarding and exempt — identical to `start_registration`.
+    let existing_passkeys = services
+        .passkeys
+        .count_user_passkeys(&state.pool, org_id, user_id)
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
+    if existing_passkeys == 0 {
+        ensure_required_privacy_consent(&state.pool, org_id, user_id).await?;
+    } else {
+        let step_up = body.step_up.ok_or_else(|| {
+            RestError::unauthorized(
+                "minting an enrollment handoff requires a step-up assertion of an existing passkey",
+            )
+        })?;
+        services
+            .passkeys
+            .verify_step_up_for_user(
+                &state.pool,
+                step_up.ceremony_id,
+                step_up.credential,
+                user_id,
+            )
+            .await
+            .map_err(|err| RestError::unauthorized(err.to_string()))?;
+    }
+
+    let now = OffsetDateTime::now_utc();
+    let issue = services
+        .bootstrap_credentials
+        .issue_self_enroll_handoff(&state.pool, user_id, org_id, now, ENROLL_HANDOFF_TTL)
+        .await
+        .map_err(RestError::from_provisioning)?;
+
+    Ok(Json(EnrollHandoffResponse {
+        enroll_url: build_enroll_url(&services.rp_origin, issue.token.as_str()),
+        otp: issue.token.as_str().to_owned(),
+        expires_at: issue.expires_at,
+    }))
+}
+
+/// Read whether the authenticated user has accepted the current required
+/// first-login privacy/terms notice. Served as POST instead of GET to stay within
+/// the auth router's existing verb/import surface and avoid changing generated
+/// client assumptions for an authenticated pre-shell call.
+async fn privacy_consent_status(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+) -> Result<Json<PrivacyConsentStatusResponse>, RestError> {
+    let services = state.services()?;
+    let (user_id, org_id) = authenticated_user_context(services, &headers)?;
+    let accepted_at = required_privacy_consent_accepted_at(&state.pool, org_id, user_id).await?;
+    Ok(Json(PrivacyConsentStatusResponse {
+        policy_version: REQUIRED_PRIVACY_TERMS_VERSION,
+        accepted: accepted_at.is_some(),
+        accepted_at,
+    }))
+}
+
+/// Persist required first-login privacy/terms acceptance as an append-only,
+/// tenant-scoped audit event. No marketing/location consent is collected here:
+/// those remain separate optional flows.
+async fn accept_privacy_consent(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+    Json(body): Json<PrivacyConsentAcceptRequest>,
+) -> Result<Json<PrivacyConsentStatusResponse>, RestError> {
+    let services = state.services()?;
+    let (user_id, org_id) = authenticated_user_context(services, &headers)?;
+    if body.policy_version != REQUIRED_PRIVACY_TERMS_VERSION {
+        return Err(RestError::bad_request(
+            "unsupported privacy consent version",
+        ));
+    }
+    if !body.privacy_collection || !body.terms_of_service {
+        return Err(RestError::bad_request(
+            "required privacy and terms agreements must be accepted separately",
+        ));
+    }
+
+    let now = OffsetDateTime::now_utc();
+    let event = AuditEvent::new(
+        Some(UserId::from_uuid(user_id)),
+        AuditAction::new("privacy.required_accept")
+            .map_err(|err| RestError::internal(err.to_string()))?,
+        "privacy_terms",
+        REQUIRED_PRIVACY_TERMS_VERSION,
+        TraceContext::generate(),
+        now,
+    )
+    .with_org(org_id)
+    .with_snapshots(
+        None,
+        Some(serde_json::json!({
+            "policy_version": REQUIRED_PRIVACY_TERMS_VERSION,
+            "privacy_collection": true,
+            "terms_of_service": true,
+            "optional_marketing": "not_requested",
+            "gps_location": "separate_consent_flow",
+        })),
+    );
+
+    with_audit::<_, (), RestError>(&state.pool, event, |_tx| Box::pin(async move { Ok(()) }))
+        .await?;
+
+    Ok(Json(PrivacyConsentStatusResponse {
+        policy_version: REQUIRED_PRIVACY_TERMS_VERSION,
+        accepted: true,
+        accepted_at: Some(now),
+    }))
+}
+
+/// Build the QR-encoded enrollment URL `{rp_origin}/login#otp=<handoff>` from the
+/// validated console origin and the freshly minted handoff code. The OTP is an
+/// auth secret, so keep it out of query strings that are commonly logged by
+/// servers and proxies; the fragment stays client-side and is cleared by the UI.
+fn build_enroll_url(rp_origin: &Url, otp: &str) -> String {
+    let mut url = rp_origin.clone();
+    url.set_path("/login");
+    url.set_query(None);
+    let fragment = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("otp", otp)
+        .finish();
+    url.set_fragment(Some(&fragment));
+    url.to_string()
+}
+
+/// Remap the `401` that `load_user_auth_context_in_org` returns for a
+/// missing/inactive user into a `403` for the admin issue-OTP path, where the CALLER is
 /// authenticated and it is the requested TARGET that is invalid. Other statuses
 /// (e.g. internal DB errors) pass through unchanged.
 fn forbidden_if_unauthorized(err: RestError) -> RestError {
@@ -785,10 +1377,18 @@ async fn refresh_token(
         .ok_or_else(|| RestError::unauthorized("missing refresh token"))?;
     let issue = services
         .refresh_tokens
-        .rotate(&state.pool, &refresh, now, services.refresh_token_ttl)
+        .rotate(
+            &state.pool,
+            &refresh,
+            now,
+            services.refresh_token_ttl,
+            services.refresh_family_absolute_ttl,
+        )
         .await
         .map_err(RestError::from_refresh)?;
-    let user = load_user_auth_context(&state.pool, issue.user_id).await?;
+    // Refresh is a pre-auth route (no tenant middleware): arm the GUC with the org
+    // the rotated token belongs to so the `users` read runs under that tenant.
+    let user = load_user_auth_context_in_org(&state.pool, issue.org_id, issue.user_id).await?;
     let access_token = issue_access_token(services, &user)?;
     if cookie_mode {
         let max_age = (issue.expires_at - now).whole_seconds();
@@ -854,6 +1454,7 @@ impl AuthRestState {
 #[derive(Debug)]
 struct UserAuthContext {
     user_id: UserId,
+    org_id: OrgId,
     display_name: String,
     username: String,
     roles: Vec<String>,
@@ -890,8 +1491,15 @@ async fn issue_token_pair(
         .jwt_issuer
         .issue_access_token(AccessTokenInput {
             subject: user.user_id,
+            org_id: user.org_id,
             roles: user.roles.clone(),
             branches: user.branches.clone(),
+            platform: user.org_id == OrgId::platform(),
+            // A normal login/refresh token is never an impersonation token.
+            view_as: false,
+            read_only: false,
+            // DISPLAY-ONLY identity for the topbar; never used for authz.
+            display_name: Some(user.display_name.clone()),
             issued_at: now,
         })
         .map_err(|err| RestError::internal(err.to_string()))?;
@@ -900,6 +1508,7 @@ async fn issue_token_pair(
         .issue_family(
             pool,
             *user.user_id.as_uuid(),
+            user.org_id,
             now,
             services.refresh_token_ttl,
         )
@@ -924,26 +1533,57 @@ fn issue_access_token(
         .jwt_issuer
         .issue_access_token(AccessTokenInput {
             subject: user.user_id,
+            org_id: user.org_id,
             roles: user.roles.clone(),
             branches: user.branches.clone(),
+            // A user homed in the platform sentinel org is the PLATFORM admin:
+            // mint a platform token so it can reach `/platform/*` (and is rejected
+            // on tenant `/api/*`). Every real tenant user gets `false`.
+            platform: user.org_id == OrgId::platform(),
+            // The ordinary refresh path never mints an impersonation token.
+            view_as: false,
+            read_only: false,
+            // DISPLAY-ONLY identity for the topbar; re-loaded from the user on
+            // every refresh so a renamed user's token reflects it. Never authz.
+            display_name: Some(user.display_name.clone()),
             issued_at: OffsetDateTime::now_utc(),
         })
         .map_err(|err| RestError::internal(err.to_string()))
 }
 
-async fn load_user_auth_context(
+/// Load a user's auth context when the caller already holds the request's tenant
+/// (e.g. from the verified JWT `org` claim, before the org middleware arms the
+/// GUC). `users` and `user_branches` are FORCE RLS, so as the non-owner `mnt_rt`
+/// role these reads return ZERO rows unless the GUC is armed; this variant arms
+/// it from `org` for the read transaction. A user whose row is not visible under
+/// `org` (wrong tenant, or no such user) is an unauthorized request.
+async fn load_user_auth_context_in_org(
     pool: &PgPool,
+    org: OrgId,
+    user_id: Uuid,
+) -> Result<UserAuthContext, RestError> {
+    with_org_conn::<_, UserAuthContext, RestError>(pool, org, move |tx| {
+        Box::pin(async move { load_user_auth_context_tx(tx, user_id).await })
+    })
+    .await
+}
+
+/// Load a user's auth context inside an EXISTING tenant-scoped transaction (the
+/// `app.current_org` GUC must already be armed by the caller). Shared core of
+/// [`load_user_auth_context_in_org`].
+async fn load_user_auth_context_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     user_id: Uuid,
 ) -> Result<UserAuthContext, RestError> {
     let row = sqlx::query(
         r#"
-        SELECT display_name, phone, roles, is_active
+        SELECT display_name, phone, roles, is_active, org_id
         FROM users
         WHERE id = $1
         "#,
     )
     .bind(user_id)
-    .fetch_optional(pool)
+    .fetch_optional(tx.as_mut())
     .await
     .map_err(|err| RestError::internal(err.to_string()))?
     .ok_or_else(|| RestError::unauthorized("user not found"))?;
@@ -951,6 +1591,12 @@ async fn load_user_auth_context(
     let display_name: String = row
         .try_get("display_name")
         .map_err(|err| RestError::internal(err.to_string()))?;
+    // The user's tenant. `users.org_id` is NOT NULL post-migration 0029, so a
+    // successful login always carries a real org into the access token.
+    let org_uuid: Uuid = row
+        .try_get("org_id")
+        .map_err(|err| RestError::internal(err.to_string()))?;
+    let org_id = OrgId::from_uuid(org_uuid);
     let phone: Option<String> = row
         .try_get("phone")
         .map_err(|err| RestError::internal(err.to_string()))?;
@@ -976,7 +1622,7 @@ async fn load_user_auth_context(
         "#,
     )
     .bind(user_id)
-    .fetch_all(pool)
+    .fetch_all(tx.as_mut())
     .await
     .map_err(|err| RestError::internal(err.to_string()))?;
     let branches = branch_rows
@@ -990,6 +1636,7 @@ async fn load_user_auth_context(
 
     Ok(UserAuthContext {
         user_id: UserId::from_uuid(user_id),
+        org_id,
         display_name,
         username: phone.unwrap_or_else(|| user_id.to_string()),
         roles,
@@ -1013,6 +1660,7 @@ async fn ensure_registration_ceremony_owner(
         "#,
     )
     .bind(ceremony_id)
+    // rls-arming: ok auth_webauthn_ceremonies is a global pre-auth table (no org_id, no RLS)
     .fetch_optional(pool)
     .await
     .map_err(|err| RestError::internal(err.to_string()))?
@@ -1029,17 +1677,74 @@ async fn ensure_registration_ceremony_owner(
     }
 }
 
-fn authenticated_user_id(services: &AuthServices, headers: &HeaderMap) -> Result<Uuid, RestError> {
+/// Verify the bearer token and return BOTH the authenticated user id AND the
+/// tenant from the verified `org` claim.
+///
+/// The passkey registration/start paths are pre-auth-middleware (no
+/// `app.current_org` is armed by the router), but the caller IS authenticated:
+/// the verified token carries the tenant. Using the JWT's org — never a `users`
+/// read under RLS — breaks the chicken-and-egg and stamps every passkey write
+/// with the correct tenant.
+fn authenticated_user_context(
+    services: &AuthServices,
+    headers: &HeaderMap,
+) -> Result<(Uuid, OrgId), RestError> {
     let token = bearer_token(headers)?;
     let claims = services
         .jwt_verifier
         .verify_access_token(token)
         .map_err(|_| RestError::unauthorized("invalid bearer token"))?;
-    user_id_from_claims(claims)
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token org claim is not a valid uuid"))?;
+    let user_id = user_id_from_claims(claims)?;
+    Ok((user_id, org_id))
 }
 
 fn user_id_from_claims(claims: AccessClaims) -> Result<Uuid, RestError> {
     Uuid::from_str(&claims.sub).map_err(|_| RestError::unauthorized("token subject is invalid"))
+}
+
+async fn ensure_required_privacy_consent(
+    pool: &PgPool,
+    org_id: OrgId,
+    user_id: Uuid,
+) -> Result<(), RestError> {
+    required_privacy_consent_accepted_at(pool, org_id, user_id)
+        .await?
+        .map(|_| ())
+        .ok_or_else(|| RestError::forbidden("required privacy consent has not been accepted"))
+}
+
+async fn required_privacy_consent_accepted_at(
+    pool: &PgPool,
+    org_id: OrgId,
+    user_id: Uuid,
+) -> Result<Option<OffsetDateTime>, RestError> {
+    let org_uuid = *org_id.as_uuid();
+    with_org_conn(pool, org_id, |tx| {
+        Box::pin(async move {
+            sqlx::query_scalar::<_, OffsetDateTime>(
+                r#"
+                SELECT occurred_at
+                FROM audit_events
+                WHERE org_id = $1
+                  AND actor = $2
+                  AND action = 'privacy.required_accept'
+                  AND target_type = 'privacy_terms'
+                  AND target_id = $3
+                ORDER BY occurred_at DESC
+                LIMIT 1
+                "#,
+            )
+            .bind(org_uuid)
+            .bind(user_id)
+            .bind(REQUIRED_PRIVACY_TERMS_VERSION)
+            .fetch_optional(tx.as_mut())
+            .await
+            .map_err(|err| RestError::internal(err.to_string()))
+        })
+    })
+    .await
 }
 
 fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {
@@ -1135,12 +1840,17 @@ async fn principal_from_headers(
         })
         .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
     let role_vec = roles.iter().copied().collect::<Vec<_>>();
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token org claim is not a valid uuid"))?;
     // Resolve the live branch scope from the database rather than trusting the
     // token's branch claim, matching the authz model's branch-membership gate.
-    let branch_scope = resolve_branch_scope(pool, user_id, &role_vec)
+    // This auth-rest route runs BEFORE the tenant middleware, so arm the GUC with
+    // the verified-token org: `user_branches` is FORCE RLS and would otherwise
+    // return zero branches for a non-super admin under `mnt_rt`.
+    let branch_scope = resolve_branch_scope_in_org(pool, org_id, user_id, &role_vec)
         .await
         .map_err(|err| RestError::internal(err.to_string()))?;
-    Ok(Principal::new(user_id, roles, branch_scope))
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 
 // ---------------------------------------------------------------------------
@@ -1149,6 +1859,7 @@ async fn principal_from_headers(
 
 #[derive(Debug, Clone, Copy)]
 enum RateLimitEndpoint {
+    Signup,
     OtpRedeem,
     LoginStart,
     Refresh,
@@ -1157,6 +1868,7 @@ enum RateLimitEndpoint {
 impl RateLimitEndpoint {
     const fn as_str(self) -> &'static str {
         match self {
+            Self::Signup => "signup",
             Self::OtpRedeem => "otp_redeem",
             Self::LoginStart => "login_start",
             Self::Refresh => "refresh",
@@ -1223,6 +1935,7 @@ async fn increment_rate_bucket(
     .bind(client_key)
     .bind(endpoint)
     .bind(window_start)
+    // rls-arming: ok auth_rate_limit is a global table (no org_id, no RLS)
     .fetch_one(pool)
     .await
     .map_err(|err| RestError::internal(err.to_string()))?;
@@ -1376,8 +2089,62 @@ fn with_refresh_cookie(mut response: Response, cookie: Option<HeaderValue>) -> R
 
 #[cfg(test)]
 mod tests {
-    use super::client_ip;
+    use super::{authorizable_target_branches, build_enroll_url, client_ip};
     use axum::http::HeaderMap;
+    use mnt_kernel_core::{BranchId, BranchScope};
+    use std::collections::BTreeSet;
+    use url::{Url, form_urlencoded};
+    use uuid::Uuid;
+
+    #[test]
+    fn build_enroll_url_keeps_otp_out_of_query_string() -> Result<(), url::ParseError> {
+        let origin = Url::parse("https://console.knllogistic.com/app?ignored=1")?;
+        let otp = "A&c#%_!9";
+
+        let enroll_url = build_enroll_url(&origin, otp);
+        let parsed = Url::parse(&enroll_url)?;
+        let decoded = parsed.fragment().and_then(|fragment| {
+            form_urlencoded::parse(fragment.as_bytes())
+                .find(|(key, _)| key == "otp")
+                .map(|(_, value)| value.into_owned())
+        });
+
+        assert_eq!(parsed.path(), "/login");
+        assert!(parsed.query().is_none());
+        assert_eq!(decoded.as_deref(), Some(otp));
+        assert!(!enroll_url.contains("?otp="));
+        Ok(())
+    }
+
+    #[test]
+    fn authorizable_branches_all_scope_issuable_only_by_super_admin() {
+        // The issue-#18 fix: an org-wide (SUPER_ADMIN / EXECUTIVE) target resolves
+        // to `All`. A SUPER_ADMIN caller may issue/reset for it with no per-branch
+        // basis (`None`); a non-SUPER_ADMIN caller can never reach a valid action
+        // (the privileged-target guard already blocks them earlier, and this is the
+        // defense-in-depth re-assertion).
+        assert!(matches!(
+            authorizable_target_branches(BranchScope::All, true),
+            Ok(None)
+        ));
+        assert!(authorizable_target_branches(BranchScope::All, false).is_err());
+    }
+
+    #[test]
+    fn authorizable_branches_branch_scoped_target() {
+        // A branch-scoped target returns its concrete branches for the per-branch
+        // authz loop (regardless of caller role — the loop enforces caller scope).
+        let branch = BranchId::from_uuid(Uuid::nil());
+        assert!(matches!(
+            authorizable_target_branches(BranchScope::single(branch), false),
+            Ok(Some(branches)) if branches == BTreeSet::from([branch])
+        ));
+        // An empty branch set is not issuable (matches the pre-fix behaviour for a
+        // genuinely unscoped target).
+        assert!(
+            authorizable_target_branches(BranchScope::Branches(BTreeSet::new()), true).is_err()
+        );
+    }
 
     fn headers_with_xff(value: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();

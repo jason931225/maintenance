@@ -15,22 +15,27 @@ use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, DailyPlanId, DeviceId, ErrorKind, EvidenceId,
-    KernelError, TraceContext, UserId, WorkOrderId,
+    KernelError, OrgId, TraceContext, UserId, WorkOrderId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
-use mnt_platform_authz::{Action, BranchColumn, Feature, Principal, Role, authorize};
-use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_authz::{
+    Action, BranchColumn, Feature, PermissionLevel, Principal, Role, authorize, permission_for,
+};
+use mnt_platform_db::{DbError, with_audit, with_org_conn};
+use mnt_platform_jobs::{JobQueue, JobRequest};
+use mnt_platform_request_context::current_org;
 use mnt_platform_storage::{
-    EvidenceService, EvidenceUploadCommand, EvidenceUploadTicket, PresignedUpload, S3ObjectStore,
-    StorageError, WormReplicaStatus,
+    EvidenceService, EvidenceUploadCommand, EvidenceUploadTicket, MediaKind, PresignedUpload,
+    ProcessingStatus, S3ObjectStore, StagingUploadCommand, StorageError, WormReplicaStatus,
 };
 use mnt_workorder_adapter_postgres::{PgWorkOrderError, PgWorkOrderStore};
 use mnt_workorder_application::{
     AssignmentInput, CreateDailyPlanCommand, CreateOutsourceWorkCommand, CreateWorkOrderCommand,
-    DailyPlanItemInput, DailyPlanStatus, RejectWorkOrderCommand, ReviewDailyPlanCommand,
-    ReviewTargetChangeCommand, SendDailyPlanForReviewCommand, SubmitReportCommand,
-    TargetChangeDecision, TargetChangeRequestCommand, UpdatePriorityCommand,
-    WorkOrderApprovalCommand, WorkOrderAssignmentCommand, WorkOrderStartCommand,
+    DailyPlanItemInput, DailyPlanListQuery, DailyPlanStatus, DailyPlanSummary,
+    RejectWorkOrderCommand, ReviewDailyPlanCommand, ReviewTargetChangeCommand,
+    SendDailyPlanForReviewCommand, SubmitReportCommand, TargetChangeDecision,
+    TargetChangeRequestCommand, UpdatePriorityCommand, WorkOrderApprovalCommand,
+    WorkOrderAssignmentCommand, WorkOrderStartCommand,
 };
 use mnt_workorder_domain::{
     AssignmentRole, AttachmentStage, PriorityLevel, WorkOrderStatus, WorkResultType,
@@ -38,16 +43,30 @@ use mnt_workorder_domain::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
+use std::sync::Arc;
 use time::format_description::well_known::Rfc3339;
+
+// ISO calendar-date (`YYYY-MM-DD`) serde for `time::Date` request fields. The
+// default `time::Date` serde shape is a structured array, which mismatches the
+// OpenAPI `Date` contract (`type: string, format: date`) and rejects the ISO
+// strings the web/mobile clients send. This module aligns the wire format.
+time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
 
 pub const SYNC_PATH: &str = "/api/v1/sync";
 pub const EVIDENCE_PRESIGN_PATH: &str = "/api/v1/evidence/presign";
 pub const EVIDENCE_CONFIRM_PATH_TEMPLATE: &str = "/api/v1/evidence/{evidenceId}/confirm";
+/// Media-processing staging-upload presign: the mechanic PUTs the ORIGINAL to a
+/// tenant-scoped staging key and a PROCESSING row + transcode job are created.
+pub const EVIDENCE_STAGING_PRESIGN_PATH: &str = "/api/v1/evidence/staging-presign";
+/// Per-row processing-status poll (처리 중 → 완료 / 실패) for the web UI.
+pub const EVIDENCE_STATUS_PATH_TEMPLATE: &str = "/api/v1/evidence/{evidenceId}/status";
 pub const DEVICES_PATH: &str = "/api/v1/devices";
 pub const MOBILE_ROUTE_PATHS: &[&str] = &[
     SYNC_PATH,
     EVIDENCE_PRESIGN_PATH,
     EVIDENCE_CONFIRM_PATH_TEMPLATE,
+    EVIDENCE_STAGING_PRESIGN_PATH,
+    EVIDENCE_STATUS_PATH_TEMPLATE,
     DEVICES_PATH,
 ];
 
@@ -73,12 +92,16 @@ impl WorkOrderRestState {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MobileRestState<S> {
     pool: PgPool,
     store: PgWorkOrderStore,
     jwt_verifier: Option<JwtVerifier>,
     evidence_service: Option<EvidenceService<S>>,
+    /// Job queue used to enqueue the async evidence transcode after a staging
+    /// upload presign. `None` disables the media-processing path (the staging
+    /// presign endpoint then returns 503).
+    job_queue: Option<Arc<dyn JobQueue>>,
 }
 
 impl<S> MobileRestState<S> {
@@ -94,12 +117,22 @@ impl<S> MobileRestState<S> {
             store,
             jwt_verifier,
             evidence_service,
+            job_queue: None,
         }
+    }
+
+    /// Attach the job queue that backs the async evidence-transcode pipeline.
+    #[must_use]
+    pub fn with_job_queue(mut self, job_queue: Option<Arc<dyn JobQueue>>) -> Self {
+        self.job_queue = job_queue;
+        self
     }
 }
 
 pub fn router(state: WorkOrderRestState) -> Router {
-    Router::new()
+    let verifier = state.jwt_verifier.clone();
+    let pool = state.store.pool().clone();
+    let router = Router::new()
         .route("/api/v1/work-orders", get(list_work_orders))
         .route(
             "/api/v1/work-orders/{work_order_id}",
@@ -138,7 +171,11 @@ pub fn router(state: WorkOrderRestState) -> Router {
             "/api/target-change-requests/{request_id}/review",
             post(review_target_change),
         )
-        .route("/api/daily-work-plans", post(create_daily_plan))
+        .route(
+            "/api/daily-work-plans",
+            get(list_daily_plans).post(create_daily_plan),
+        )
+        .route("/api/daily-work-plans/{plan_id}", get(get_daily_plan))
         .route(
             "/api/daily-work-plans/{plan_id}/request-review",
             post(request_daily_plan_review),
@@ -155,14 +192,17 @@ pub fn router(state: WorkOrderRestState) -> Router {
             "/api/work-orders/{work_order_id}/outsource-works",
             post(create_outsource_work),
         )
-        .with_state(state)
+        .with_state(state);
+    mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
 
 pub fn mobile_router<S>(state: MobileRestState<S>) -> Router
 where
     S: S3ObjectStore + Clone + Send + Sync + 'static,
 {
-    Router::new()
+    let verifier = state.jwt_verifier.clone();
+    let pool = state.pool.clone();
+    let router = Router::new()
         .route(SYNC_PATH, post(sync_batch::<S>))
         .route(DEVICES_PATH, post(register_device::<S>))
         .route(EVIDENCE_PRESIGN_PATH, post(presign_evidence::<S>))
@@ -170,7 +210,16 @@ where
             "/api/v1/evidence/{evidence_id}/confirm",
             post(confirm_evidence::<S>),
         )
-        .with_state(state)
+        .route(
+            EVIDENCE_STAGING_PRESIGN_PATH,
+            post(presign_evidence_staging::<S>),
+        )
+        .route(
+            "/api/v1/evidence/{evidence_id}/status",
+            get(evidence_status::<S>),
+        )
+        .with_state(state);
+    mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
 
 #[derive(Debug, Deserialize)]
@@ -209,6 +258,10 @@ struct SubmitReportRequest {
 
 #[derive(Debug, Deserialize)]
 struct TargetChangeRequestBody {
+    // The OpenAPI contract types this as an rfc3339 `string`; a bare OffsetDateTime
+    // serde impl expects the array form and rejects the ISO instant the web client
+    // sends (422). Deserialize it from the rfc3339 string instead.
+    #[serde(with = "time::serde::rfc3339")]
     requested_target_due_at: time::OffsetDateTime,
     reason: String,
 }
@@ -229,6 +282,7 @@ struct DailyPlanItemRequest {
 struct CreateDailyPlanRequest {
     branch_id: BranchId,
     mechanic_id: UserId,
+    #[serde(with = "iso_date")]
     plan_date: time::Date,
     items: Vec<DailyPlanItemRequest>,
 }
@@ -237,6 +291,17 @@ struct CreateDailyPlanRequest {
 struct ReviewDailyPlanRequestBody {
     decision: DailyPlanStatus,
     memo: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct ListDailyPlansQuery {
+    /// Optional `YYYY-MM-DD` filter for a single plan day; absent = all days.
+    plan_date: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct DailyPlanListResponse {
+    items: Vec<DailyPlanSummary>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -310,6 +375,9 @@ struct WorkOrderListItem {
     equipment: EquipmentSummary,
     customer: NamedEntity,
     site: NamedEntity,
+    // Site's registered representative contact (#13), so the dispatch board can
+    // show who to call on site. None when the site has no contact registered.
+    site_contact: Option<SiteContact>,
     assignments: Vec<AssignmentSummary>,
 }
 
@@ -337,6 +405,10 @@ struct WorkOrderDetail {
     equipment: EquipmentSummary,
     customer: NamedEntity,
     site: NamedEntity,
+    // The site's registered representative contact (대표 담당자 연락처, #13), so the
+    // dispatched mechanic/admin can see who to call on site. None when the site
+    // has no contact registered.
+    site_contact: Option<SiteContact>,
     assignments: Vec<AssignmentSummary>,
     approval_line: Vec<ApprovalStepSummary>,
     status_history: Vec<StatusHistorySummary>,
@@ -358,6 +430,13 @@ struct EquipmentSummary {
 struct NamedEntity {
     id: uuid::Uuid,
     name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SiteContact {
+    name: Option<String>,
+    phone: Option<String>,
+    email: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -420,6 +499,9 @@ struct EquipmentLookupResponse {
     status: String,
     specification: String,
     ton_text: String,
+    maker: Option<String>,
+    vin: Option<String>,
+    vehicle_registration_no: Option<String>,
     customer: NamedEntity,
     site: NamedEntity,
 }
@@ -577,6 +659,42 @@ struct EvidenceConfirmResponse {
     verified_at: Option<time::OffsetDateTime>,
 }
 
+#[derive(Debug, Deserialize)]
+struct EvidenceStagingPresignRequest {
+    work_order_id: WorkOrderId,
+    stage: AttachmentStage,
+    /// The ORIGINAL upload's content type (image/* or video/*); validated and
+    /// classified server-side.
+    content_type: String,
+    size_bytes: i64,
+    checksum_sha256: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct EvidenceStagingPresignResponse {
+    id: EvidenceId,
+    work_order_id: WorkOrderId,
+    stage: AttachmentStage,
+    media_kind: MediaKind,
+    processing_status: ProcessingStatus,
+    upload: PresignedUpload,
+}
+
+#[derive(Debug, Serialize)]
+struct EvidenceStatusResponse {
+    id: EvidenceId,
+    work_order_id: WorkOrderId,
+    stage: AttachmentStage,
+    processing_status: ProcessingStatus,
+    content_type: String,
+    /// Short-lived presigned GET URL for the generated thumbnail (null until the
+    /// row is READY). Replaces the raw `thumbnail_s3_key`, which leaked the
+    /// internal object key; the client renders this URL directly.
+    thumbnail_url: Option<String>,
+    processing_error: Option<String>,
+    processed_at: Option<time::OffsetDateTime>,
+}
+
 #[derive(Debug, Serialize)]
 struct ErrorBody {
     error: ErrorPayload,
@@ -649,7 +767,8 @@ impl RestError {
             StorageError::Db(error) => Self::from_db(error),
             StorageError::S3(message)
             | StorageError::Presign(message)
-            | StorageError::Verification(message) => Self::internal(message),
+            | StorageError::Verification(message)
+            | StorageError::Processing(message) => Self::internal(message),
         }
     }
 
@@ -1122,6 +1241,8 @@ async fn claim_sync_request(
     payload_hash: &str,
     payload_envelope: &serde_json::Value,
 ) -> Result<SyncClaim, RestError> {
+    let org = current_org().map_err(|err| RestError::from_kernel(err.into()))?;
+    let org_uuid = *org.as_uuid();
     let event: AuditEvent = AuditEvent::new(
         Some(actor),
         AuditAction::new("offline_sync.receive").map_err(RestError::from_kernel)?,
@@ -1130,6 +1251,7 @@ async fn claim_sync_request(
         TraceContext::generate(),
         time::OffsetDateTime::now_utc(),
     )
+    .with_org(org)
     .with_snapshots(
         None,
         Some(serde_json::json!({
@@ -1186,9 +1308,9 @@ async fn claim_sync_request(
                 r#"
                 INSERT INTO offline_sync_requests (
                     user_id, device_hash, request_id, sync_id, operation_type,
-                    client_created_at, status, payload_hash, request_payload
+                    client_created_at, status, payload_hash, request_payload, org_id
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, 'IN_PROGRESS', $7, $8)
+                VALUES ($1, $2, $3, $4, $5, $6, 'IN_PROGRESS', $7, $8, $9)
                 RETURNING id
                 "#,
             )
@@ -1200,6 +1322,7 @@ async fn claim_sync_request(
             .bind(client_created_at)
             .bind(&payload_hash)
             .bind(&payload_envelope)
+            .bind(org_uuid)
             .fetch_one(tx.as_mut())
             .await?;
             Ok(SyncClaim::Claimed(id))
@@ -1271,6 +1394,7 @@ where
     let device_hash = device_hash_from_headers(&headers)?;
     let app_version = normalize_non_empty(body.app_version, "app_version")?;
     let now = time::OffsetDateTime::now_utc();
+    let org_uuid = *principal.org_id.as_uuid();
     let event: AuditEvent = AuditEvent::new(
         Some(principal.user_id),
         AuditAction::new("device.register").map_err(RestError::from_kernel)?,
@@ -1279,6 +1403,7 @@ where
         TraceContext::generate(),
         now,
     )
+    .with_org(principal.org_id)
     .with_branch(audit_branch_for_principal(&principal)?)
     .with_snapshots(
         None,
@@ -1296,9 +1421,9 @@ where
                     r#"
                     INSERT INTO registered_devices (
                         user_id, device_hash, platform, push_token, app_version,
-                        last_registered_at, created_at, updated_at
+                        last_registered_at, created_at, updated_at, org_id
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $6, $6)
+                    VALUES ($1, $2, $3, $4, $5, $6, $6, $6, $7)
                     ON CONFLICT (user_id, device_hash) DO UPDATE
                     SET platform = EXCLUDED.platform,
                         push_token = EXCLUDED.push_token,
@@ -1315,6 +1440,7 @@ where
                 .bind(body.push_token.as_deref().map(str::trim))
                 .bind(&app_version)
                 .bind(now)
+                .bind(org_uuid)
                 .fetch_one(tx.as_mut())
                 .await?;
                 device_registration_from_row(&row)
@@ -1436,6 +1562,138 @@ where
     }))
 }
 
+/// Media-processing staging-upload presign. The mechanic PUTs the ORIGINAL to a
+/// tenant-scoped staging key; a PROCESSING evidence row is created and an async
+/// transcode job is enqueued. The optimized 1080p/recompressed artifact replaces
+/// the original at the FINAL key before the row becomes READY. Same authz as the
+/// direct presign: only an ASSIGNED mechanic (or admin) on the work order.
+async fn presign_evidence_staging<S>(
+    State(state): State<MobileRestState<S>>,
+    headers: HeaderMap,
+    Json(body): Json<EvidenceStagingPresignRequest>,
+) -> Result<Json<EvidenceStagingPresignResponse>, RestError>
+where
+    S: S3ObjectStore + Clone + Send + Sync + 'static,
+{
+    let principal = mobile_principal_from_headers(&state, &headers)?;
+    let work_order = state
+        .store
+        .work_order(body.work_order_id)
+        .await
+        .map_err(RestError::from_store)?;
+    authorize_evidence_access(&state, &principal, body.work_order_id, work_order.branch_id).await?;
+    if matches!(body.stage, AttachmentStage::After | AttachmentStage::Report)
+        && is_terminal_work_order_status(work_order.status)
+    {
+        return Err(RestError::from_kernel(KernelError::conflict(format!(
+            "cannot attach {} evidence to a work order in terminal status {}",
+            body.stage.as_db_str(),
+            work_order.status.as_db_str()
+        ))));
+    }
+    let service = state.evidence_service.as_ref().ok_or_else(|| {
+        RestError::unavailable("evidence storage is not configured for mobile API")
+    })?;
+    let job_queue = state.job_queue.as_ref().ok_or_else(|| {
+        RestError::unavailable("evidence processing is not configured for mobile API")
+    })?;
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+    let ticket = service
+        .issue_staging_upload(StagingUploadCommand {
+            actor: principal.user_id,
+            work_order_id: body.work_order_id,
+            stage: body.stage,
+            content_type: body.content_type,
+            size_bytes: body.size_bytes,
+            checksum_sha256: body.checksum_sha256,
+            trace: TraceContext::generate(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_storage)?;
+    // Enqueue the async transcode carrying the owning tenant so the worker arms
+    // app.current_org correctly. Enqueue AFTER the PROCESSING row commits so the
+    // worker can always find the row to claim.
+    let request = JobRequest::evidence_transcode(org, ticket.media.id)
+        .map_err(|err| RestError::internal(err.to_string()))?;
+    job_queue
+        .enqueue(request)
+        .await
+        .map_err(|err| RestError::internal(err.to_string()))?;
+    record_evidence_presign_audit_named(
+        &state.pool,
+        &principal,
+        work_order.branch_id,
+        ticket.media.id,
+        ticket.media.stage,
+        "evidence.staging.presign",
+    )
+    .await?;
+
+    Ok(Json(EvidenceStagingPresignResponse {
+        id: ticket.media.id,
+        work_order_id: ticket.media.work_order_id,
+        stage: ticket.media.stage,
+        media_kind: ticket.media_kind,
+        processing_status: ticket.media.processing_status,
+        upload: ticket.upload,
+    }))
+}
+
+/// Poll the server-side processing status of an evidence row (처리 중 → 완료 /
+/// 실패). Same assigned-mechanic/admin authz as the upload path.
+async fn evidence_status<S>(
+    State(state): State<MobileRestState<S>>,
+    headers: HeaderMap,
+    Path(evidence_id): Path<uuid::Uuid>,
+) -> Result<Json<EvidenceStatusResponse>, RestError>
+where
+    S: S3ObjectStore + Clone + Send + Sync + 'static,
+{
+    let principal = mobile_principal_from_headers(&state, &headers)?;
+    let media_id = EvidenceId::from_uuid(evidence_id);
+    let service = state.evidence_service.as_ref().ok_or_else(|| {
+        RestError::unavailable("evidence storage is not configured for mobile API")
+    })?;
+    let media = service
+        .evidence_media(media_id)
+        .await
+        .map_err(RestError::from_storage)?;
+    let work_order = state
+        .store
+        .work_order(media.work_order_id)
+        .await
+        .map_err(RestError::from_store)?;
+    authorize_evidence_access(
+        &state,
+        &principal,
+        media.work_order_id,
+        work_order.branch_id,
+    )
+    .await?;
+
+    // Hand the client a short-lived presigned GET URL for the thumbnail instead
+    // of the raw object key (which leaked internal storage layout). Null until
+    // the row is READY and a thumbnail exists.
+    let thumbnail_url = service
+        .presigned_thumbnail_url(&media)
+        .await
+        .map_err(RestError::from_storage)?;
+
+    Ok(Json(EvidenceStatusResponse {
+        id: media.id,
+        work_order_id: media.work_order_id,
+        stage: media.stage,
+        processing_status: media.processing_status,
+        content_type: media.content_type,
+        thumbnail_url,
+        processing_error: media.processing_error,
+        processed_at: media.processed_at,
+    }))
+}
+
 async fn authorize_evidence_access<S>(
     state: &MobileRestState<S>,
     principal: &Principal,
@@ -1463,16 +1721,26 @@ async fn is_assigned_to_work_order(
     work_order_id: WorkOrderId,
     user_id: UserId,
 ) -> Result<bool, RestError> {
-    let count: i64 = sqlx::query_scalar(
-        r#"
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+    let work_order_uuid = *work_order_id.as_uuid();
+    let user_uuid = *user_id.as_uuid();
+    let count: i64 = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query_scalar(
+                r#"
         SELECT COUNT(*)
         FROM work_order_assignments
         WHERE work_order_id = $1 AND mechanic_id = $2
         "#,
-    )
-    .bind(*work_order_id.as_uuid())
-    .bind(*user_id.as_uuid())
-    .fetch_one(pool)
+            )
+            .bind(work_order_uuid)
+            .bind(user_uuid)
+            .fetch_one(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     Ok(count > 0)
 }
@@ -1482,6 +1750,36 @@ fn is_admin_like(principal: &Principal) -> bool {
         .roles
         .iter()
         .any(|role| matches!(role, Role::Admin | Role::SuperAdmin))
+}
+
+/// Whether the principal may read the work-order + daily-plan queues org-wide
+/// (every branch in the tenant) regardless of branch membership.
+///
+/// Gated on the [`Feature::OrgWideQueueTriage`] capability — EXECUTIVE +
+/// SUPER_ADMIN today — NOT a role string. A branch-scoped ADMIN does NOT hold
+/// it and stays confined to its branch set, matching `resolve_branch_scope_in_org`.
+fn has_org_wide_queue_triage(principal: &Principal) -> bool {
+    principal
+        .roles
+        .iter()
+        .any(|role| permission_for(*role, Feature::OrgWideQueueTriage) == PermissionLevel::Allow)
+}
+
+/// The branch scope to apply when triaging the work-order queue.
+///
+/// A receptionist files a work order against a branch they belong to; the
+/// org-wide triager who must act on it may not be a member of that branch, so a
+/// strict branch-scope filter would hide the just-created order from them
+/// (#19.13b). Principals holding `OrgWideQueueTriage` (EXECUTIVE + SUPER_ADMIN)
+/// see the whole org — RLS still confines the read to the caller's tenant —
+/// while every other role (including a branch-scoped ADMIN) keeps its explicit
+/// branch set.
+fn work_order_list_scope(principal: &Principal) -> BranchScope {
+    if has_org_wide_queue_triage(principal) {
+        BranchScope::All
+    } else {
+        principal.branch_scope.clone()
+    }
 }
 
 /// Work orders in these statuses are closed: their completion evidence set is
@@ -1519,6 +1817,40 @@ async fn record_evidence_presign_audit(
     with_audit::<_, (), RestError>(pool, event, |_tx| Box::pin(async move { Ok(()) })).await
 }
 
+/// Audit a media-processing staging presign under an explicit action name.
+/// Mirrors [`record_evidence_presign_audit`]; the org is armed by `with_audit`
+/// via the event's org stamp so the audit insert is RLS-correct as `mnt_rt`.
+async fn record_evidence_presign_audit_named(
+    pool: &PgPool,
+    principal: &Principal,
+    branch_id: BranchId,
+    media_id: EvidenceId,
+    stage: AttachmentStage,
+    action: &str,
+) -> Result<(), RestError> {
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+    let event: AuditEvent = AuditEvent::new(
+        Some(principal.user_id),
+        AuditAction::new(action).map_err(RestError::from_kernel)?,
+        "evidence_media",
+        media_id.to_string(),
+        TraceContext::generate(),
+        time::OffsetDateTime::now_utc(),
+    )
+    .with_branch(branch_id)
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(serde_json::json!({
+            "stage": stage,
+            "processing_status": "PROCESSING",
+        })),
+    );
+    with_audit::<_, (), RestError>(pool, event, |_tx| Box::pin(async move { Ok(()) })).await
+}
+
 async fn list_work_orders(
     State(state): State<WorkOrderRestState>,
     headers: HeaderMap,
@@ -1528,15 +1860,30 @@ async fn list_work_orders(
     authorize_read_access(&principal)?;
     let query = parse_work_order_list_query(raw_query.as_deref(), principal.user_id)?;
     let pool = state.store.pool();
+    // Admins triage org-wide so a just-filed order is never hidden from them by a
+    // branch-scope filter (#19.13b); other roles keep their explicit branch set.
+    let list_scope = work_order_list_scope(&principal);
+
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
 
     let total = {
         let mut builder =
             QueryBuilder::<Postgres>::new("SELECT COUNT(*) FROM work_orders w WHERE ");
-        push_work_order_filters(&mut builder, &principal.branch_scope, &query)?;
-        builder.build_query_scalar::<i64>().fetch_one(pool).await?
+        push_work_order_filters(&mut builder, &list_scope, &query)?;
+        with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(builder
+                    .build_query_scalar::<i64>()
+                    .fetch_one(tx.as_mut())
+                    .await?)
+            })
+        })
+        .await?
     };
 
-    let mut builder = QueryBuilder::<Postgres>::new(
+    let mut list_builder = QueryBuilder::<Postgres>::new(
         r#"
         SELECT
             w.id, w.request_no, w.branch_id, w.status, w.priority, w.result_type,
@@ -1544,7 +1891,10 @@ async fn list_work_orders(
             e.id AS equipment_id, e.equipment_no, e.management_no, e.model,
             e.status AS equipment_status, e.specification, e.ton_text,
             c.id AS customer_id, c.name AS customer_name,
-            s.id AS site_id, s.name AS site_name
+            s.id AS site_id, s.name AS site_name,
+            s.contact_name AS site_contact_name,
+            s.contact_phone AS site_contact_phone,
+            s.contact_email AS site_contact_email
         FROM work_orders w
         JOIN registry_equipment e ON e.id = w.equipment_id
         JOIN registry_customers c ON c.id = w.customer_id
@@ -1552,8 +1902,8 @@ async fn list_work_orders(
         WHERE
         "#,
     );
-    push_work_order_filters(&mut builder, &principal.branch_scope, &query)?;
-    builder.push(
+    push_work_order_filters(&mut list_builder, &list_scope, &query)?;
+    list_builder.push(
         r#"
         ORDER BY
             CASE w.priority
@@ -1569,10 +1919,13 @@ async fn list_work_orders(
         LIMIT
         "#,
     );
-    builder.push_bind(query.limit);
-    builder.push(" OFFSET ");
-    builder.push_bind(query.offset);
-    let rows = builder.build().fetch_all(pool).await?;
+    list_builder.push_bind(query.limit);
+    list_builder.push(" OFFSET ");
+    list_builder.push_bind(query.offset);
+    let rows = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move { Ok(list_builder.build().fetch_all(tx.as_mut()).await?) })
+    })
+    .await?;
     let work_order_ids = rows
         .iter()
         .map(|row| row.try_get("id"))
@@ -1599,6 +1952,9 @@ async fn get_work_order_detail(
     let principal = principal_from_headers(&state, &headers)?;
     authorize_read_access(&principal)?;
     let pool = state.store.pool();
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
     let mut builder = QueryBuilder::<Postgres>::new(
         r#"
         SELECT
@@ -1622,7 +1978,10 @@ async fn get_work_order_detail(
             e.id AS equipment_id, e.equipment_no, e.management_no, e.model,
             e.status AS equipment_status, e.specification, e.ton_text,
             c.id AS customer_id, c.name AS customer_name,
-            s.id AS site_id, s.name AS site_name
+            s.id AS site_id, s.name AS site_name,
+            s.contact_name AS site_contact_name,
+            s.contact_phone AS site_contact_phone,
+            s.contact_email AS site_contact_email
         FROM work_orders w
         JOIN registry_equipment e ON e.id = w.equipment_id
         JOIN registry_customers c ON c.id = w.customer_id
@@ -1637,9 +1996,11 @@ async fn get_work_order_detail(
         &principal.branch_scope,
         BranchColumn::new("w.branch_id").map_err(RestError::from_kernel)?,
     );
-    let row = builder.build().fetch_optional(pool).await?.ok_or_else(|| {
-        RestError::from_kernel(KernelError::not_found("work order was not found"))
-    })?;
+    let row = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move { Ok(builder.build().fetch_optional(tx.as_mut()).await?) })
+    })
+    .await?
+    .ok_or_else(|| RestError::from_kernel(KernelError::not_found("work order was not found")))?;
     let work_order_id = WorkOrderId::from_uuid(work_order_id);
     let assignments = fetch_assignment_map(pool, &[*work_order_id.as_uuid()])
         .await?
@@ -1658,6 +2019,52 @@ async fn get_work_order_detail(
     )?))
 }
 
+/// Fetch up to 2 candidate equipment rows matching `management_no` within the
+/// caller's branch scope. `exact = true` uses `e.management_no = $typed`;
+/// `exact = false` uses the leading-zero-insensitive normalized form
+/// `ltrim(e.management_no,'0') = ltrim($typed,'0')`. LIMIT 2 is enough to
+/// distinguish "exactly one" from "ambiguous" without a full table scan.
+async fn fetch_equipment_lookup_candidates(
+    state: &WorkOrderRestState,
+    org: uuid::Uuid,
+    branch_scope: &BranchScope,
+    management_no: String,
+    exact: bool,
+) -> Result<Vec<sqlx::postgres::PgRow>, RestError> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            e.id, e.branch_id, e.equipment_no, e.management_no, e.model, e.status,
+            e.specification, e.ton_text, e.maker, e.vin, e.vehicle_registration_no,
+            c.id AS customer_id, c.name AS customer_name,
+            s.id AS site_id, s.name AS site_name
+        FROM registry_equipment e
+        JOIN registry_customers c ON c.id = e.customer_id
+        JOIN registry_sites s ON s.id = e.site_id
+        WHERE
+"#,
+    );
+    push_branch_scope_filter(
+        &mut builder,
+        branch_scope,
+        BranchColumn::new("e.branch_id").map_err(RestError::from_kernel)?,
+    );
+    if exact {
+        builder.push(" AND e.management_no = ");
+        builder.push_bind(management_no);
+    } else {
+        builder.push(" AND ltrim(e.management_no, '0') = ltrim(");
+        builder.push_bind(management_no);
+        builder.push(", '0')");
+    }
+    builder.push(" LIMIT 2");
+    let org_id = mnt_kernel_core::OrgId::from_uuid(org);
+    with_org_conn::<_, _, RestError>(state.store.pool(), org_id, move |tx| {
+        Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+    })
+    .await
+}
+
 async fn lookup_equipment(
     State(state): State<WorkOrderRestState>,
     headers: HeaderMap,
@@ -1666,33 +2073,51 @@ async fn lookup_equipment(
     let principal = principal_from_headers(&state, &headers)?;
     authorize_read_access(&principal)?;
     let management_no = normalize_management_no(&query.management_no)?;
-    let mut builder = QueryBuilder::<Postgres>::new(
-        r#"
-        SELECT
-            e.id, e.branch_id, e.equipment_no, e.management_no, e.model, e.status,
-            e.specification, e.ton_text,
-            c.id AS customer_id, c.name AS customer_name,
-            s.id AS site_id, s.name AS site_name
-        FROM registry_equipment e
-        JOIN registry_customers c ON c.id = e.customer_id
-        JOIN registry_sites s ON s.id = e.site_id
-        WHERE
-        "#,
-    );
-    push_branch_scope_filter(
-        &mut builder,
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+
+    // 1. EXACT match first: a stored `10` and a stored `0010` are DIFFERENT
+    //    equipment; an exact hit is always the unambiguous answer.
+    let exact_rows = fetch_equipment_lookup_candidates(
+        &state,
+        *org.as_uuid(),
         &principal.branch_scope,
-        BranchColumn::new("e.branch_id").map_err(RestError::from_kernel)?,
-    );
-    builder.push(" AND e.management_no = ");
-    builder.push_bind(management_no);
-    builder.push(" ORDER BY e.updated_at DESC LIMIT 1");
-    let row = builder
-        .build()
-        .fetch_optional(state.store.pool())
-        .await?
-        .ok_or_else(|| RestError::from_kernel(KernelError::not_found("equipment was not found")))?;
-    Ok(Json(equipment_lookup_from_row(&row)?))
+        management_no.clone(),
+        true,
+    )
+    .await?;
+    match exact_rows.as_slice() {
+        [row] => return Ok(Json(equipment_lookup_from_row(row)?)),
+        [] => {} // fall through to normalized fallback
+        _ => {
+            return Err(RestError::from_kernel(KernelError::conflict(
+                "여러 장비의 관리번호가 같은 번호로 정규화됩니다. 앞자리 0을 포함한 정확한 관리번호를 입력하세요 \
+                 (multiple equipment share this normalized management number — enter the exact management_no including any leading zeros)",
+            )));
+        }
+    }
+
+    // 2. Leading-zero-insensitive fallback: `42` typed resolves stored `0042`,
+    //    but ONLY when exactly one row matches — never a silent "newest wins" guess.
+    let norm_rows = fetch_equipment_lookup_candidates(
+        &state,
+        *org.as_uuid(),
+        &principal.branch_scope,
+        management_no,
+        false,
+    )
+    .await?;
+    match norm_rows.as_slice() {
+        [row] => Ok(Json(equipment_lookup_from_row(row)?)),
+        [] => Err(RestError::from_kernel(KernelError::not_found(
+            "equipment was not found",
+        ))),
+        _ => Err(RestError::from_kernel(KernelError::conflict(
+            "여러 장비의 관리번호가 같은 번호로 정규화됩니다. 앞자리 0을 포함한 정확한 관리번호를 입력하세요 \
+             (multiple equipment share this normalized management number — enter the exact management_no including any leading zeros)",
+        ))),
+    }
 }
 
 async fn autocomplete_equipment(
@@ -1704,34 +2129,44 @@ async fn autocomplete_equipment(
     authorize_read_access(&principal)?;
     let raw_query = normalize_management_no(&query.q)?;
     let limit = normalize_limit(query.limit, 10, 20)?;
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
     let prefix = format!("{raw_query}%");
     let mut builder = QueryBuilder::<Postgres>::new(
         r#"
         SELECT
             e.id, e.branch_id, e.equipment_no, e.management_no, e.model, e.status,
-            e.specification, e.ton_text,
+            e.specification, e.ton_text, e.maker, e.vin, e.vehicle_registration_no,
             c.id AS customer_id, c.name AS customer_name,
             s.id AS site_id, s.name AS site_name
         FROM registry_equipment e
         JOIN registry_customers c ON c.id = e.customer_id
         JOIN registry_sites s ON s.id = e.site_id
         WHERE
-        "#,
+"#,
     );
     push_branch_scope_filter(
         &mut builder,
         &principal.branch_scope,
         BranchColumn::new("e.branch_id").map_err(RestError::from_kernel)?,
     );
-    builder.push(" AND (e.management_no ILIKE ");
-    builder.push_bind(prefix.clone());
+    // management_no is leading-zero-insensitive (stored '010' matches typed
+    // '10' / '10호기'); equipment_no/model keep the plain normalized prefix so
+    // model / equipment-number search still works.
+    builder.push(" AND (ltrim(e.management_no, '0') ILIKE ltrim(");
+    builder.push_bind(raw_query.clone());
+    builder.push(", '0') || '%'");
     builder.push(" OR e.equipment_no ILIKE ");
     builder.push_bind(prefix.clone());
     builder.push(" OR e.model ILIKE ");
     builder.push_bind(prefix);
     builder.push(") ORDER BY e.management_no ASC NULLS LAST, e.updated_at DESC LIMIT ");
     builder.push_bind(limit);
-    let rows = builder.build().fetch_all(state.store.pool()).await?;
+    let rows = with_org_conn::<_, _, RestError>(state.store.pool(), org, move |tx| {
+        Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+    })
+    .await?;
     let items = rows
         .iter()
         .map(equipment_lookup_from_row)
@@ -2029,6 +2464,40 @@ async fn review_target_change(
     Ok(Json(summary))
 }
 
+async fn list_daily_plans(
+    State(state): State<WorkOrderRestState>,
+    headers: HeaderMap,
+    Query(query): Query<ListDailyPlansQuery>,
+) -> Result<Json<DailyPlanListResponse>, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    authorize_daily_plan_list(&principal)?;
+    let plan_date = query
+        .plan_date
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            time::Date::parse(
+                value,
+                time::macros::format_description!("[year]-[month]-[day]"),
+            )
+            .map_err(|_| RestError::bad_request("plan_date must use YYYY-MM-DD"))
+        })
+        .transpose()?;
+    // Admins triage the queue org-wide so DRAFT/REQUESTED plans in any branch are
+    // reachable (#19.17); other roles keep their explicit branch set.
+    let branch_scope = work_order_list_scope(&principal);
+    let page = state
+        .store
+        .list_daily_plans(DailyPlanListQuery {
+            branch_scope,
+            plan_date,
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(DailyPlanListResponse { items: page.items }))
+}
+
 async fn create_daily_plan(
     State(state): State<WorkOrderRestState>,
     headers: HeaderMap,
@@ -2078,6 +2547,30 @@ async fn request_daily_plan_review(
         DailyPlanEndpointAction::RequestReview,
     )
     .await
+}
+
+async fn get_daily_plan(
+    State(state): State<WorkOrderRestState>,
+    headers: HeaderMap,
+    Path(plan_id): Path<uuid::Uuid>,
+) -> Result<impl IntoResponse, RestError> {
+    let plan_id = DailyPlanId::from_uuid(plan_id);
+    let principal = principal_from_headers(&state, &headers)?;
+    let plan = state
+        .store
+        .daily_plan(plan_id)
+        .await
+        .map_err(RestError::from_store)?;
+    // Both the creating mechanic and the reviewing admin hold DailyPlanRequest
+    // (Mechanic/Admin = Allow), so it scopes the read to the plan's branch
+    // without granting it to roles that have no business in the plan flow.
+    authorize(
+        &principal,
+        Action::new(Feature::DailyPlanRequest),
+        plan.branch_id,
+    )
+    .map_err(RestError::from_kernel)?;
+    Ok(Json(plan))
 }
 
 async fn review_daily_plan(
@@ -2195,18 +2688,35 @@ async fn transition_daily_plan_endpoint(
 }
 
 fn authorize_read_access(principal: &Principal) -> Result<(), RestError> {
+    authorize_feature_in_scope(principal, Feature::WorkOrderReadAll)
+}
+
+/// Authorize the daily-plan LIST: the queue is a MECHANIC-requests / ADMIN-reviews
+/// flow, so visibility is gated on holding `DailyPlanRequest` OR `DailyPlanReview`
+/// — NOT the broad `WorkOrderReadAll` (which RECEPTIONIST + EXECUTIVE also pass).
+/// A RECEPTIONIST or EXECUTIVE with no daily-plan permission gets a 403. Branch
+/// filtering still happens via `work_order_list_scope`.
+fn authorize_daily_plan_list(principal: &Principal) -> Result<(), RestError> {
+    // The daily-plan request/review participants OR an org-wide queue triager
+    // (EXECUTIVE / SUPER_ADMIN, via OrgWideQueueTriage) may read the queue — the
+    // latter for org-wide oversight, mirroring their work-order-queue visibility.
+    // RECEPTIONIST (none of these capabilities) stays excluded.
+    authorize_feature_in_scope(principal, Feature::DailyPlanRequest)
+        .or_else(|_| authorize_feature_in_scope(principal, Feature::DailyPlanReview))
+        .or_else(|_| authorize_feature_in_scope(principal, Feature::OrgWideQueueTriage))
+}
+
+/// Authorize a read-style feature against a representative branch from the
+/// principal's scope (the first branch it belongs to, or any branch when the
+/// scope is `All`). Shared by the work-order and daily-plan list gates.
+fn authorize_feature_in_scope(principal: &Principal, feature: Feature) -> Result<(), RestError> {
     let resource_branch = match &principal.branch_scope {
         BranchScope::All => BranchId::new(),
         BranchScope::Branches(branches) => branches.iter().next().copied().ok_or_else(|| {
             RestError::from_kernel(KernelError::forbidden("principal has no branch scope"))
         })?,
     };
-    authorize(
-        principal,
-        Action::new(Feature::WorkOrderReadAll),
-        resource_branch,
-    )
-    .map_err(RestError::from_kernel)
+    authorize(principal, Action::new(feature), resource_branch).map_err(RestError::from_kernel)
 }
 
 fn parse_work_order_list_query(
@@ -2396,7 +2906,12 @@ fn normalize_assigned_to(raw: Option<String>, actor: UserId) -> Result<Option<Us
 }
 
 fn normalize_management_no(raw: &str) -> Result<String, RestError> {
-    let normalized = raw.trim().trim_start_matches('#').trim();
+    let normalized = raw
+        .trim()
+        .trim_start_matches('#')
+        .trim()
+        .trim_end_matches("호기")
+        .trim();
     if normalized.is_empty() {
         return Err(RestError::from_kernel(KernelError::validation(
             "management_no must not be empty",
@@ -2509,8 +3024,14 @@ async fn fetch_assignment_map(
     if work_order_ids.is_empty() {
         return Ok(BTreeMap::new());
     }
-    let rows = sqlx::query(
-        r#"
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+    let ids = work_order_ids.to_vec();
+    let rows = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
         SELECT
             a.work_order_id, a.id, a.mechanic_id, u.display_name AS mechanic_name,
             a.role, a.assigned_at
@@ -2522,9 +3043,12 @@ async fn fetch_assignment_map(
                  a.assigned_at,
                  a.id
         "#,
-    )
-    .bind(work_order_ids.to_vec())
-    .fetch_all(pool)
+            )
+            .bind(ids)
+            .fetch_all(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     let mut assignments = BTreeMap::<uuid::Uuid, Vec<AssignmentSummary>>::new();
     for row in rows {
@@ -2541,8 +3065,14 @@ async fn fetch_approval_line(
     pool: &PgPool,
     work_order_id: WorkOrderId,
 ) -> Result<Vec<ApprovalStepSummary>, RestError> {
-    let rows = sqlx::query(
-        r#"
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+    let wo_uuid = *work_order_id.as_uuid();
+    let rows = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
         SELECT
             id, step_order, role, approver_id, status, requested_at,
             approved_at, approved_by_id
@@ -2550,9 +3080,12 @@ async fn fetch_approval_line(
         WHERE work_order_id = $1
         ORDER BY step_order
         "#,
-    )
-    .bind(*work_order_id.as_uuid())
-    .fetch_all(pool)
+            )
+            .bind(wo_uuid)
+            .fetch_all(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     rows.iter().map(approval_step_from_row).collect()
 }
@@ -2561,16 +3094,25 @@ async fn fetch_status_history(
     pool: &PgPool,
     work_order_id: WorkOrderId,
 ) -> Result<Vec<StatusHistorySummary>, RestError> {
-    let rows = sqlx::query(
-        r#"
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+    let wo_uuid = *work_order_id.as_uuid();
+    let rows = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
         SELECT id, actor, action, from_status, to_status, occurred_at
         FROM work_order_status_history
         WHERE work_order_id = $1
         ORDER BY occurred_at, id
         "#,
-    )
-    .bind(*work_order_id.as_uuid())
-    .fetch_all(pool)
+            )
+            .bind(wo_uuid)
+            .fetch_all(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     rows.iter().map(status_history_from_row).collect()
 }
@@ -2579,8 +3121,14 @@ async fn fetch_evidence_summaries(
     pool: &PgPool,
     work_order_id: WorkOrderId,
 ) -> Result<Vec<EvidenceSummary>, RestError> {
-    let rows = sqlx::query(
-        r#"
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+    let wo_uuid = *work_order_id.as_uuid();
+    let rows = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
         SELECT
             id, stage, content_type, size_bytes, uploaded_by,
             worm_replica_status, retry_count, verified_at, created_at
@@ -2588,9 +3136,12 @@ async fn fetch_evidence_summaries(
         WHERE work_order_id = $1
         ORDER BY created_at, id
         "#,
-    )
-    .bind(*work_order_id.as_uuid())
-    .fetch_all(pool)
+            )
+            .bind(wo_uuid)
+            .fetch_all(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     rows.iter().map(evidence_from_row).collect()
 }
@@ -2619,6 +3170,7 @@ fn work_order_list_item_from_row(
             id: row.try_get("site_id")?,
             name: row.try_get("site_name")?,
         },
+        site_contact: site_contact_from_row(row)?,
         assignments: assignments.get(&id).cloned().unwrap_or_default(),
     })
 }
@@ -2661,11 +3213,26 @@ fn work_order_detail_from_row(
             id: row.try_get("site_id")?,
             name: row.try_get("site_name")?,
         },
+        site_contact: site_contact_from_row(row)?,
         assignments,
         approval_line,
         status_history,
         evidence,
     })
+}
+
+/// Build the site's representative contact from the detail row. Returns None when
+/// the site has no contact registered (all three columns NULL) so the response
+/// omits an empty object.
+fn site_contact_from_row(row: &sqlx::postgres::PgRow) -> Result<Option<SiteContact>, RestError> {
+    let name: Option<String> = row.try_get("site_contact_name")?;
+    let phone: Option<String> = row.try_get("site_contact_phone")?;
+    let email: Option<String> = row.try_get("site_contact_email")?;
+    if name.is_none() && phone.is_none() && email.is_none() {
+        Ok(None)
+    } else {
+        Ok(Some(SiteContact { name, phone, email }))
+    }
 }
 
 fn equipment_summary_from_row(row: &sqlx::postgres::PgRow) -> Result<EquipmentSummary, RestError> {
@@ -2692,6 +3259,9 @@ fn equipment_lookup_from_row(
         status: row.try_get("status")?,
         specification: row.try_get("specification")?,
         ton_text: row.try_get("ton_text")?,
+        maker: row.try_get("maker")?,
+        vin: row.try_get("vin")?,
+        vehicle_registration_no: row.try_get("vehicle_registration_no")?,
         customer: NamedEntity {
             id: row.try_get("customer_id")?,
             name: row.try_get("customer_name")?,
@@ -2842,7 +3412,9 @@ fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
         BranchScope::Branches(branches)
     };
 
-    Ok(Principal::new(user_id, roles, branch_scope))
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 
 fn device_hash_from_headers(headers: &HeaderMap) -> Result<String, RestError> {
@@ -2902,5 +3474,40 @@ fn status_for_error_kind(kind: ErrorKind) -> StatusCode {
         ErrorKind::Forbidden => StatusCode::FORBIDDEN,
         ErrorKind::Conflict | ErrorKind::InvalidTransition => StatusCode::CONFLICT,
         ErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_management_no;
+
+    /// The console equipment search lets a user type the 호기 the way it appears
+    /// on the floor: a leading '#', a trailing '호기', or both, with stray
+    /// whitespace. They must all normalize to the same bare token, which the
+    /// leading-zero-insensitive SQL then matches against the stored zero-padded
+    /// `management_no` (e.g. '010').
+    #[test]
+    fn normalize_management_no_strips_hash_and_hogi_suffix() {
+        for raw in ["#10호기", "10호기", " 10호기 ", "#10", "010", "10"] {
+            assert_eq!(
+                normalize_management_no(raw).unwrap(),
+                if raw.trim() == "010" { "010" } else { "10" },
+                "input {raw:?} must normalize to its bare 호기 core"
+            );
+        }
+        // '010' keeps its stored zero-padding; ltrim(...,'0') in SQL handles the
+        // leading-zero match, NOT this Rust normalization.
+        assert_eq!(normalize_management_no("010").unwrap(), "010");
+        assert_eq!(normalize_management_no("#010호기").unwrap(), "010");
+    }
+
+    #[test]
+    fn normalize_management_no_rejects_empty_input() {
+        for raw in ["", "   ", "#", "호기", " #호기 "] {
+            assert!(
+                normalize_management_no(raw).is_err(),
+                "blank-after-normalization input {raw:?} must error, never match every row"
+            );
+        }
     }
 }

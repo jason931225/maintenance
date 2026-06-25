@@ -1,5 +1,12 @@
-import { KeyRound, Pencil, UserPlus } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import {
+  KeyRound,
+  MoreHorizontal,
+  Pencil,
+  RotateCcwKey,
+  UserPlus,
+  X,
+} from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type {
   BranchSummary,
@@ -11,11 +18,15 @@ import type {
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import { ConfirmDialog } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { PageEmpty } from "../components/states/PageEmpty";
 import { PageError } from "../components/states/PageError";
+import { SkeletonTable } from "../components/states/Skeleton";
+import { FeedbackBanner } from "../components/states/FeedbackBanner";
 import { PageHeader } from "../components/shell/PageHeader";
+import { LoadMoreButton } from "../components/shell/LoadMoreButton";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { useAuth } from "../context/auth";
 import {
@@ -24,10 +35,20 @@ import {
   teamLabel,
   TEAMS,
 } from "../features/org/org-format";
-import { issueAdminOtp } from "../auth/webauthn";
+import { issueAdminOtp, resetUserCredentials } from "../auth/webauthn";
 import { ko } from "../i18n/ko";
+import {
+  SUCCESS_DISMISS_MS,
+  useAutoDismiss,
+} from "../lib/useAutoDismiss";
+import { formatListCount, safeLabel } from "../lib/utils";
 
 type ReadState = "idle" | "loading" | "error";
+
+// The /api/v1/users endpoint now returns a UserPage with `total` + `offset`, so
+// the roster pages properly: fetch one page at a time and append via offset, and
+// show the honest unpaged total from the API.
+const USERS_PAGE_LIMIT = 200;
 
 interface IssuedOtp {
   otp: string;
@@ -38,30 +59,82 @@ export function UsersPage() {
   const { api } = useAuth();
 
   const [users, setUsers] = useState<UserSummary[]>([]);
+  const [userTotal, setUserTotal] = useState<number>();
+  const [loadingMore, setLoadingMore] = useState(false);
   const [branches, setBranches] = useState<BranchSummary[]>([]);
   const [listState, setListState] = useState<ReadState>("loading");
   const [includeInactive, setIncludeInactive] = useState(false);
 
-  // `undefined` => create mode; a user => edit mode.
+  // The editor slide-over: closed, "create" mode, or a user in "edit" mode.
+  const [editorMode, setEditorMode] = useState<"closed" | "create" | "edit">(
+    "closed",
+  );
   const [editing, setEditing] = useState<UserSummary | undefined>(undefined);
   // The OTP target user, when the issue dialog is open.
   const [otpUser, setOtpUser] = useState<UserSummary | undefined>(undefined);
+  // The credential-reset target user, when the reset dialog is open.
+  const [resetUser, setResetUser] = useState<UserSummary | undefined>(
+    undefined,
+  );
+  // The deactivation target user, when the confirm dialog is open, plus the
+  // in-flight flag that drives the dialog's busy state.
+  const [deactivateTarget, setDeactivateTarget] = useState<
+    UserSummary | undefined
+  >(undefined);
+  const [deactivating, setDeactivating] = useState(false);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
+  const clearFeedback = useCallback(() => {
+    setFeedback(undefined);
+  }, []);
+  useAutoDismiss(feedback, clearFeedback, SUCCESS_DISMISS_MS);
+  // Track the most-recently created user so we can nudge the admin to issue OTP.
+  const [newUserId, setNewUserId] = useState<string | undefined>(undefined);
 
   const loadUsers = useCallback(async () => {
     setListState("loading");
     const response = await api
       .GET("/api/v1/users", {
-        params: { query: { include_inactive: includeInactive } },
+        params: {
+          query: {
+            include_inactive: includeInactive,
+            limit: USERS_PAGE_LIMIT,
+            offset: 0,
+          },
+        },
       })
       .catch(() => undefined);
     if (!response?.data) {
       setListState("error");
       return;
     }
-    setUsers(response.data);
+    setUsers(response.data.items);
+    setUserTotal(response.data.total);
     setListState("idle");
   }, [api, includeInactive]);
+
+  const loadMoreUsers = useCallback(async () => {
+    setLoadingMore(true);
+    try {
+      const response = await api
+        .GET("/api/v1/users", {
+          params: {
+            query: {
+              include_inactive: includeInactive,
+              limit: USERS_PAGE_LIMIT,
+              offset: users.length,
+            },
+          },
+        })
+        .catch(() => undefined);
+      if (response?.data) {
+        const next = response.data;
+        setUsers((current) => [...current, ...next.items]);
+        setUserTotal(next.total);
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [api, includeInactive, users.length]);
 
   const loadBranches = useCallback(async () => {
     const response = await api.GET("/api/v1/branches").catch(() => undefined);
@@ -77,14 +150,24 @@ export function UsersPage() {
   }, [loadBranches]);
 
   const branchName = useCallback(
-    (id: string) => branches.find((b) => b.id === id)?.name ?? id,
+    // Never surface the raw branch UUID when the branch list is missing the row
+    // (e.g. a separate branch-fetch failure, or a branch outside the caller's
+    // scope); fall back to a human label instead.
+    (id: string) => safeLabel(branches.find((b) => b.id === id)?.name),
     [branches],
   );
+
+  function closeEditor() {
+    setEditorMode("closed");
+    setEditing(undefined);
+  }
 
   async function createUser(body: CreateUserRequest): Promise<void> {
     const response = await api.POST("/api/v1/users", { body });
     if (!response.data) throw new Error("createUser failed");
+    setNewUserId(response.data.id);
     setFeedback(ko.users.form.created);
+    closeEditor();
     await loadUsers();
   }
 
@@ -98,17 +181,19 @@ export function UsersPage() {
     });
     if (!response.data) throw new Error("updateUser failed");
     setFeedback(ko.users.form.saved);
-    setEditing(undefined);
+    closeEditor();
     await loadUsers();
   }
 
   async function deactivateUser(user: UserSummary): Promise<void> {
-    if (!window.confirm(ko.users.deactivateConfirm)) return;
+    setDeactivating(true);
     const response = await api
       .POST("/api/v1/users/{id}/deactivate", {
         params: { path: { id: user.id } },
       })
       .catch(() => undefined);
+    setDeactivating(false);
+    setDeactivateTarget(undefined);
     if (!response?.data) {
       setFeedback(ko.users.deactivateFailed);
       return;
@@ -123,31 +208,53 @@ export function UsersPage() {
         title={ko.users.title}
         description={ko.users.description}
         actions={
-          <RefreshButton
-            onClick={() => {
-              void loadUsers();
-            }}
-            isLoading={listState === "loading"}
-          />
+          <div className="flex items-center gap-2">
+            <RefreshButton
+              onClick={() => {
+                void loadUsers();
+              }}
+              isLoading={listState === "loading"}
+            />
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                setFeedback(undefined);
+                setNewUserId(undefined);
+                setEditing(undefined);
+                setEditorMode("create");
+              }}
+            >
+              <UserPlus aria-hidden="true" size={16} />
+              {ko.users.create}
+            </Button>
+          </div>
         }
       />
 
-      {feedback ? (
+      <FeedbackBanner
+        kind="success"
+        message={feedback}
+        onDismiss={clearFeedback}
+        className="mb-4"
+      />
+
+      {newUserId ? (
         <p
-          role="status"
+          role="alert"
           aria-live="polite"
-          className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900"
+          className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-900"
         >
-          {feedback}
+          {ko.users.noCredentialPrompt}
         </p>
       ) : null}
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-        <div className="grid gap-4">
-          <label className="flex items-center gap-2 text-sm text-slate-700">
+      <div className="grid gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <label className="flex items-center gap-2 text-sm text-steel">
             <input
               type="checkbox"
-              className="size-4 rounded border-slate-300"
+              className="size-4 rounded border-line"
               checked={includeInactive}
               onChange={(event) => {
                 setIncludeInactive(event.currentTarget.checked);
@@ -155,53 +262,78 @@ export function UsersPage() {
             />
             {ko.users.includeInactive}
           </label>
-
-          {listState === "error" ? (
-            <PageError
-              message={ko.users.loadFailed}
-              onRetry={() => {
-                void loadUsers();
-              }}
-            />
-          ) : (
-            <UserTable
-              users={users}
-              isLoading={listState === "loading"}
-              branchName={branchName}
-              onEdit={(user) => {
-                setFeedback(undefined);
-                setEditing(user);
-              }}
-              onDeactivate={(user) => {
-                setFeedback(undefined);
-                void deactivateUser(user);
-              }}
-              onIssueOtp={(user) => {
-                setFeedback(undefined);
-                setOtpUser(user);
-              }}
-            />
-          )}
+          {listState === "idle" && users.length > 0 ? (
+            <Badge>
+              {formatListCount(userTotal ?? users.length)}
+            </Badge>
+          ) : null}
         </div>
 
-        <div className="grid gap-4">
-          <UserForm
-            key={editing?.id ?? "create"}
-            editing={editing}
-            branches={branches}
-            onSubmit={async (body) => {
-              if (editing) {
-                await updateUser(editing.id, body);
-              } else {
-                await createUser(body as CreateUserRequest);
-              }
-            }}
-            onCancel={() => {
-              setEditing(undefined);
+        {listState === "error" ? (
+          <PageError
+            message={ko.users.loadFailed}
+            onRetry={() => {
+              void loadUsers();
             }}
           />
-        </div>
+        ) : (
+          <UserTable
+            users={users}
+            isLoading={listState === "loading"}
+            newUserId={newUserId}
+            branchName={branchName}
+            onEdit={(user) => {
+              setFeedback(undefined);
+              setNewUserId(undefined);
+              setEditing(user);
+              setEditorMode("edit");
+            }}
+            onDeactivate={(user) => {
+              setFeedback(undefined);
+              setNewUserId(undefined);
+              setDeactivateTarget(user);
+            }}
+            onIssueOtp={(user) => {
+              setFeedback(undefined);
+              if (user.id === newUserId) setNewUserId(undefined);
+              setOtpUser(user);
+            }}
+            onResetCredentials={(user) => {
+              setFeedback(undefined);
+              if (user.id === newUserId) setNewUserId(undefined);
+              setResetUser(user);
+            }}
+          />
+        )}
+        {listState === "idle" &&
+        userTotal !== undefined &&
+        users.length < userTotal ? (
+          <LoadMoreButton
+            onClick={() => {
+              void loadMoreUsers();
+            }}
+            isLoading={loadingMore}
+            loaded={users.length}
+            total={userTotal}
+          />
+        ) : null}
       </div>
+
+      {editorMode !== "closed" ? (
+        <UserFormDrawer
+          key={editing?.id ?? "create"}
+          editing={editing}
+          branches={branches}
+          onSubmit={async (body) => {
+            if (editing) {
+              await updateUser(editing.id, body);
+            } else {
+              await createUser(body as CreateUserRequest);
+            }
+          }}
+          onClose={closeEditor}
+        />
+      ) : null}
 
       {otpUser ? (
         <IssueOtpDialog
@@ -212,6 +344,38 @@ export function UsersPage() {
           }}
         />
       ) : null}
+
+      {resetUser ? (
+        <ResetCredentialsDialog
+          user={resetUser}
+          onClose={() => {
+            setResetUser(undefined);
+          }}
+        />
+      ) : null}
+
+      <ConfirmDialog
+        open={deactivateTarget !== undefined}
+        title={ko.users.deactivateTitle}
+        message={
+          deactivateTarget
+            ? ko.users.deactivateConfirm.replace(
+                "{name}",
+                deactivateTarget.display_name,
+              )
+            : ""
+        }
+        confirmLabel={ko.users.deactivate}
+        busyLabel={ko.users.deactivating}
+        destructive
+        busy={deactivating}
+        onConfirm={() => {
+          if (deactivateTarget) void deactivateUser(deactivateTarget);
+        }}
+        onCancel={() => {
+          setDeactivateTarget(undefined);
+        }}
+      />
     </>
   );
 }
@@ -219,26 +383,26 @@ export function UsersPage() {
 function UserTable({
   users,
   isLoading,
+  newUserId,
   branchName,
   onEdit,
   onDeactivate,
   onIssueOtp,
+  onResetCredentials,
 }: {
   users: UserSummary[];
   isLoading: boolean;
+  newUserId: string | undefined;
   branchName: (id: string) => string;
   onEdit: (user: UserSummary) => void;
   onDeactivate: (user: UserSummary) => void;
   onIssueOtp: (user: UserSummary) => void;
+  onResetCredentials: (user: UserSummary) => void;
 }) {
-  if (isLoading) {
-    return (
-      <Card>
-        <p role="status" className="text-sm font-medium text-slate-700">
-          {ko.common.loading}
-        </p>
-      </Card>
-    );
+  // Only show the skeleton on the first load; a refetch keeps the existing rows
+  // visible (stale-while-revalidate) instead of flashing back to placeholders.
+  if (isLoading && users.length === 0) {
+    return <SkeletonTable rows={5} cols={7} />;
   }
 
   if (users.length === 0) {
@@ -247,68 +411,84 @@ function UserTable({
 
   return (
     <Card className="overflow-x-auto p-0">
-      <table className="w-full text-left text-sm">
+      <table className="w-full min-w-[56rem] text-left text-sm">
         <thead>
-          <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <tr className="border-b border-line text-xs font-semibold uppercase tracking-wider text-steel">
             <th className="px-4 py-3">{ko.users.columns.name}</th>
             <th className="px-4 py-3">{ko.users.columns.phone}</th>
             <th className="px-4 py-3">{ko.users.columns.team}</th>
             <th className="px-4 py-3">{ko.users.columns.roles}</th>
             <th className="px-4 py-3">{ko.users.columns.branches}</th>
             <th className="px-4 py-3">{ko.users.columns.active}</th>
-            <th className="px-4 py-3" />
+            <th className="px-4 py-3 text-right">{ko.common.actions}</th>
           </tr>
         </thead>
         <tbody>
           {users.map((user) => (
             <tr
               key={user.id}
-              className="border-b border-slate-100 last:border-0 align-top"
+              className="border-b border-line align-top last:border-0"
             >
-              <td className="px-4 py-3 font-medium text-slate-950">
+              <td className="whitespace-nowrap px-4 py-3 font-medium text-ink">
                 {user.display_name}
               </td>
-              <td className="px-4 py-3 text-slate-700">
+              <td className="whitespace-nowrap px-4 py-3 text-steel">
                 {user.phone ?? ko.common.notSet}
               </td>
-              <td className="px-4 py-3 text-slate-700">
+              <td className="whitespace-nowrap px-4 py-3 text-steel">
                 {teamLabel(user.team)}
               </td>
               <td className="px-4 py-3">
                 {user.roles.length > 0 ? (
                   <div className="flex flex-wrap gap-1">
                     {user.roles.map((role) => (
-                      <Badge key={role}>{roleLabel(role)}</Badge>
+                      <Badge key={role} className="whitespace-nowrap">
+                        {roleLabel(role)}
+                      </Badge>
                     ))}
                   </div>
                 ) : (
-                  <span className="text-slate-400">{ko.users.noRoles}</span>
+                  <span className="text-steel">{ko.users.noRoles}</span>
                 )}
               </td>
               <td className="px-4 py-3">
                 {user.branch_ids.length > 0 ? (
                   <div className="flex flex-wrap gap-1">
                     {user.branch_ids.map((id) => (
-                      <Badge key={id}>{branchName(id)}</Badge>
+                      <Badge key={id} className="whitespace-nowrap">
+                        {branchName(id)}
+                      </Badge>
                     ))}
                   </div>
                 ) : (
-                  <span className="text-slate-400">{ko.users.noBranches}</span>
+                  <span className="text-steel">{ko.users.noBranches}</span>
                 )}
               </td>
               <td className="px-4 py-3">
-                {user.is_active ? (
-                  <Badge className="border-emerald-300 text-emerald-800">
+                {user.account_status === "ACTIVE" ? (
+                  <Badge className="whitespace-nowrap border-brand-teal/30 text-brand-teal">
                     {ko.users.active}
                   </Badge>
+                ) : user.account_status === "PENDING_SETUP" ? (
+                  <Badge
+                    className="whitespace-nowrap border-amber-300 bg-amber-50 text-amber-800"
+                    title={ko.users.pendingSetupHint}
+                  >
+                    {ko.users.pendingSetup}
+                  </Badge>
                 ) : (
-                  <Badge className="border-slate-300 text-slate-500">
+                  <Badge className="whitespace-nowrap border-line text-steel">
                     {ko.users.inactive}
                   </Badge>
                 )}
               </td>
               <td className="px-4 py-3">
-                <div className="flex flex-wrap items-center justify-end gap-2">
+                <div className="flex items-center justify-end gap-2">
+                  {user.id === newUserId ? (
+                    <Badge className="whitespace-nowrap border-amber-300 bg-amber-50 text-amber-800">
+                      {ko.users.noCredentialBadge}
+                    </Badge>
+                  ) : null}
                   <Button
                     type="button"
                     variant="secondary"
@@ -320,29 +500,13 @@ function UserTable({
                     <Pencil aria-hidden="true" size={14} />
                     {ko.users.edit}
                   </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => {
-                      onIssueOtp(user);
-                    }}
-                  >
-                    <KeyRound aria-hidden="true" size={14} />
-                    {ko.users.otp.issue}
-                  </Button>
-                  {user.is_active ? (
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => {
-                        onDeactivate(user);
-                      }}
-                    >
-                      {ko.users.deactivate}
-                    </Button>
-                  ) : null}
+                  <RowActionsMenu
+                    user={user}
+                    isNewUser={user.id === newUserId}
+                    onIssueOtp={onIssueOtp}
+                    onResetCredentials={onResetCredentials}
+                    onDeactivate={onDeactivate}
+                  />
                 </div>
               </td>
             </tr>
@@ -353,16 +517,134 @@ function UserTable({
   );
 }
 
-function UserForm({
+/**
+ * Overflow menu for the less-common per-row actions (issue OTP, reset
+ * credentials, deactivate). Keeps the row to two visible controls so a
+ * narrowed table never wraps the action cell. Closes on Escape or an
+ * outside click; the trigger reflects open state for assistive tech.
+ */
+function RowActionsMenu({
+  user,
+  isNewUser,
+  onIssueOtp,
+  onResetCredentials,
+  onDeactivate,
+}: {
+  user: UserSummary;
+  isNewUser: boolean;
+  onIssueOtp: (user: UserSummary) => void;
+  onResetCredentials: (user: UserSummary) => void;
+  onDeactivate: (user: UserSummary) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocPointerDown(event: PointerEvent) {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onDocPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onDocPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  function run(action: () => void) {
+    setOpen(false);
+    action();
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`${user.display_name} ${ko.users.moreActionsFor}`}
+        onClick={() => {
+          setOpen((prev) => !prev);
+        }}
+      >
+        <MoreHorizontal aria-hidden="true" size={14} />
+        {ko.users.moreActions}
+      </Button>
+      {open ? (
+        <div
+          role="menu"
+          className="absolute right-0 z-10 mt-1 flex w-56 flex-col gap-1 rounded-md border border-line bg-white p-1 shadow-lg"
+        >
+          <Button
+            role="menuitem"
+            type="button"
+            variant={isNewUser ? "default" : "ghost"}
+            size="sm"
+            className="w-full justify-start"
+            onClick={() => {
+              run(() => {
+                onIssueOtp(user);
+              });
+            }}
+          >
+            <KeyRound aria-hidden="true" size={14} />
+            {ko.users.otp.issue}
+          </Button>
+          <Button
+            role="menuitem"
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start"
+            onClick={() => {
+              run(() => {
+                onResetCredentials(user);
+              });
+            }}
+          >
+            <RotateCcwKey aria-hidden="true" size={14} />
+            {ko.users.reset.action}
+          </Button>
+          {user.is_active ? (
+            <Button
+              role="menuitem"
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-red-700 hover:bg-red-50 hover:text-red-800"
+              onClick={() => {
+                run(() => {
+                  onDeactivate(user);
+                });
+              }}
+            >
+              {ko.users.deactivate}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function UserFormDrawer({
   editing,
   branches,
   onSubmit,
-  onCancel,
+  onClose,
 }: {
   editing: UserSummary | undefined;
   branches: BranchSummary[];
   onSubmit: (body: CreateUserRequest | UpdateUserRequest) => Promise<void>;
-  onCancel: () => void;
+  onClose: () => void;
 }) {
   const [displayName, setDisplayName] = useState(editing?.display_name ?? "");
   const [phone, setPhone] = useState(editing?.phone ?? "");
@@ -373,6 +655,17 @@ function UserForm({
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
+
+  // Close on Escape, matching the OTP/reset dialogs' keyboard affordance.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !pending) onClose();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose, pending]);
 
   function toggle(list: string[], value: string): string[] {
     return list.includes(value)
@@ -411,158 +704,193 @@ function UserForm({
   }
 
   return (
-    <Card className="grid gap-4">
-      <h2 className="text-lg font-semibold text-slate-950">
-        {editing ? ko.users.editTitle : ko.users.createTitle}
-      </h2>
-
-      <div className="grid gap-2">
-        <label
-          className="text-sm font-medium text-slate-700"
-          htmlFor="user-display-name"
-        >
-          {ko.users.form.displayName}
-        </label>
-        <Input
-          id="user-display-name"
-          value={displayName}
-          placeholder={ko.users.form.displayNamePlaceholder}
-          onChange={(event) => {
-            setDisplayName(event.currentTarget.value);
-          }}
-        />
-      </div>
-
-      <div className="grid gap-2">
-        <label
-          className="text-sm font-medium text-slate-700"
-          htmlFor="user-phone"
-        >
-          {ko.users.form.phone}
-        </label>
-        <Input
-          id="user-phone"
-          value={phone}
-          placeholder={ko.users.form.phonePlaceholder}
-          onChange={(event) => {
-            setPhone(event.currentTarget.value);
-          }}
-        />
-      </div>
-
-      <div className="grid gap-2">
-        <label className="text-sm font-medium text-slate-700" htmlFor="user-team">
-          {ko.users.form.team}
-        </label>
-        <Select
-          id="user-team"
-          value={team}
-          onChange={(event) => {
-            setTeam(event.currentTarget.value as Team);
-          }}
-        >
-          {TEAMS.map((value) => (
-            <option key={value} value={value}>
-              {teamLabel(value)}
-            </option>
-          ))}
-        </Select>
-      </div>
-
-      <fieldset className="grid gap-2">
-        <legend className="text-sm font-medium text-slate-700">
-          {ko.users.form.roles}
-        </legend>
-        <div className="grid gap-1">
-          {ASSIGNABLE_ROLES.map((role) => (
-            <label
-              key={role}
-              className="flex items-center gap-2 text-sm text-slate-700"
-            >
-              <input
-                type="checkbox"
-                className="size-4 rounded border-slate-300"
-                checked={roles.includes(role)}
-                onChange={() => {
-                  setRoles((prev) => toggle(prev, role));
-                }}
-              />
-              {roleLabel(role)}
-            </label>
-          ))}
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={editing ? ko.users.editTitle : ko.users.createTitle}
+      className="fixed inset-0 z-40 flex justify-end bg-ink/40"
+    >
+      {/* Click-away scrim closes the editor. */}
+      <button
+        type="button"
+        aria-label={ko.users.closeEditor}
+        tabIndex={-1}
+        className="absolute inset-0 cursor-default"
+        onClick={() => {
+          if (!pending) onClose();
+        }}
+      />
+      <div className="relative flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-line bg-white shadow-xl">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-line bg-white px-5 py-4">
+          <h2 className="text-lg font-semibold text-ink">
+            {editing ? ko.users.editTitle : ko.users.createTitle}
+          </h2>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-label={ko.users.closeEditor}
+            disabled={pending}
+            onClick={onClose}
+          >
+            <X aria-hidden="true" size={18} />
+          </Button>
         </div>
-      </fieldset>
 
-      <fieldset className="grid gap-2">
-        <legend className="text-sm font-medium text-slate-700">
-          {ko.users.form.branches}
-        </legend>
-        {branches.length === 0 ? (
-          <p className="text-sm text-slate-500">
-            {ko.users.form.noBranchOptions}
-          </p>
-        ) : (
-          <>
-            <p className="text-xs text-slate-500">
-              {ko.users.form.branchesHint}
-            </p>
+        <div className="grid gap-4 p-5">
+          <div className="grid gap-2">
+            <label
+              className="text-sm font-medium text-steel"
+              htmlFor="user-display-name"
+            >
+              {ko.users.form.displayName}
+            </label>
+            <Input
+              id="user-display-name"
+              value={displayName}
+              placeholder={ko.users.form.displayNamePlaceholder}
+              onChange={(event) => {
+                setDisplayName(event.currentTarget.value);
+              }}
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <label
+              className="text-sm font-medium text-steel"
+              htmlFor="user-phone"
+            >
+              {ko.users.form.phone}
+            </label>
+            <Input
+              id="user-phone"
+              type="tel"
+              inputMode="numeric"
+              autoComplete="tel"
+              value={phone}
+              placeholder={ko.users.form.phonePlaceholder}
+              onChange={(event) => {
+                setPhone(event.currentTarget.value);
+              }}
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <label
+              className="text-sm font-medium text-steel"
+              htmlFor="user-team"
+            >
+              {ko.users.form.team}
+            </label>
+            <Select
+              id="user-team"
+              value={team}
+              onChange={(event) => {
+                setTeam(event.currentTarget.value as Team);
+              }}
+            >
+              {TEAMS.map((value) => (
+                <option key={value} value={value}>
+                  {teamLabel(value)}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <fieldset className="grid gap-2">
+            <legend className="text-sm font-medium text-steel">
+              {ko.users.form.roles}
+            </legend>
             <div className="grid gap-1">
-              {branches.map((branch) => (
+              {ASSIGNABLE_ROLES.map((role) => (
                 <label
-                  key={branch.id}
-                  className="flex items-center gap-2 text-sm text-slate-700"
+                  key={role}
+                  className="flex items-center gap-2 text-sm text-steel"
                 >
                   <input
                     type="checkbox"
-                    className="size-4 rounded border-slate-300"
-                    checked={branchIds.includes(branch.id)}
+                    className="size-4 rounded border-line"
+                    checked={roles.includes(role)}
                     onChange={() => {
-                      setBranchIds((prev) => toggle(prev, branch.id));
+                      setRoles((prev) => toggle(prev, role));
                     }}
                   />
-                  {branch.name}
+                  {roleLabel(role)}
                 </label>
               ))}
             </div>
-          </>
-        )}
-      </fieldset>
+          </fieldset>
 
-      {error ? (
-        <p role="alert" className="text-sm font-medium text-red-700">
-          {error}
-        </p>
-      ) : null}
+          <fieldset className="grid gap-2">
+            <legend className="text-sm font-medium text-steel">
+              {ko.users.form.branches}
+            </legend>
+            {branches.length === 0 ? (
+              <p className="text-sm text-steel">
+                {ko.users.form.noBranchOptions}
+              </p>
+            ) : (
+              <>
+                <p className="text-xs text-steel">
+                  {ko.users.form.branchesHint}
+                </p>
+                <div className="grid gap-1">
+                  {branches.map((branch) => (
+                    <label
+                      key={branch.id}
+                      className="flex items-center gap-2 text-sm text-steel"
+                    >
+                      <input
+                        type="checkbox"
+                        className="size-4 rounded border-line"
+                        checked={branchIds.includes(branch.id)}
+                        onChange={() => {
+                          setBranchIds((prev) => toggle(prev, branch.id));
+                        }}
+                      />
+                      {branch.name}
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+          </fieldset>
 
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          disabled={pending}
-          onClick={() => {
-            void handleSubmit();
-          }}
-        >
-          {editing ? null : <UserPlus aria-hidden="true" size={18} />}
-          {editing
-            ? pending
-              ? ko.users.form.saving
-              : ko.users.form.save
-            : pending
-              ? ko.users.form.creating
-              : ko.users.form.create}
-        </Button>
-        {editing ? (
+          {error ? (
+            <p role="alert" className="text-sm font-medium text-red-700">
+              {error}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="sticky bottom-0 z-10 mt-auto flex items-center gap-2 border-t border-line bg-white px-5 py-4">
+          <Button
+            type="button"
+            disabled={pending}
+            onClick={() => {
+              void handleSubmit();
+            }}
+          >
+            {editing ? null : <UserPlus aria-hidden="true" size={18} />}
+            {editing
+              ? pending
+                ? ko.users.form.saving
+                : ko.users.form.save
+              : pending
+                ? ko.users.form.creating
+                : ko.users.form.create}
+          </Button>
           <Button
             type="button"
             variant="secondary"
             disabled={pending}
-            onClick={onCancel}
+            onClick={onClose}
           >
             {ko.users.form.cancel}
           </Button>
-        ) : null}
+        </div>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -581,6 +909,11 @@ function IssueOtpDialog({
   const [issued, setIssued] = useState<IssuedOtp | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
   const [copied, setCopied] = useState(false);
+  // The "copied" confirmation reverts to the default copy label after a moment.
+  const clearCopied = useCallback(() => {
+    setCopied(false);
+  }, []);
+  useAutoDismiss(copied ? "copied" : undefined, clearCopied, SUCCESS_DISMISS_MS);
 
   async function handleIssue() {
     if (!branchId) return;
@@ -614,21 +947,21 @@ function IssueOtpDialog({
       role="dialog"
       aria-modal="true"
       aria-label={ko.users.otp.title}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-4"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
     >
       <Card className="grid w-full max-w-md gap-4">
         <div className="grid gap-1">
-          <h2 className="text-lg font-semibold text-slate-950">
+          <h2 className="text-lg font-semibold text-ink">
             {ko.users.otp.title}
           </h2>
-          <p className="text-sm text-slate-600">{ko.users.otp.description}</p>
-          <p className="text-sm font-medium text-slate-800">
+          <p className="text-sm text-steel">{ko.users.otp.description}</p>
+          <p className="text-sm font-medium text-steel">
             {user.display_name}
           </p>
         </div>
 
         {branchId ? (
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-steel">
             {ko.users.otp.branchLabel}: {branchName(branchId)}
           </p>
         ) : (
@@ -638,12 +971,12 @@ function IssueOtpDialog({
         )}
 
         {issued ? (
-          <div className="grid gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-4">
-            <span className="text-sm font-medium text-emerald-900">
+          <div className="grid gap-2 rounded-md border border-brand-teal/30 bg-brand-teal/10 p-4">
+            <span className="text-sm font-medium text-brand-teal">
               {ko.users.otp.issued}
             </span>
             <div className="flex items-center gap-2">
-              <code className="rounded bg-white px-3 py-2 text-lg font-semibold tracking-widest text-slate-950">
+              <code className="rounded bg-white px-3 py-2 text-lg font-semibold tracking-widest text-ink">
                 {issued.otp}
               </code>
               <Button
@@ -660,7 +993,7 @@ function IssueOtpDialog({
             <span role="status" aria-live="polite" className="sr-only">
               {copied ? ko.users.otp.copied : ""}
             </span>
-            <span className="text-sm text-emerald-900">
+            <span className="text-sm text-brand-teal">
               {ko.users.otp.expiresAt}:{" "}
               {new Date(issued.expiresAt).toLocaleString("ko-KR", {
                 dateStyle: "medium",
@@ -691,6 +1024,142 @@ function IssueOtpDialog({
           ) : null}
           <Button type="button" variant="secondary" onClick={onClose}>
             {ko.users.otp.close}
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function ResetCredentialsDialog({
+  user,
+  onClose,
+}: {
+  user: UserSummary;
+  onClose: () => void;
+}) {
+  const { api } = useAuth();
+  const [pending, setPending] = useState(false);
+  const [issued, setIssued] = useState<IssuedOtp | undefined>(undefined);
+  const [error, setError] = useState<string | undefined>(undefined);
+  const [copied, setCopied] = useState(false);
+  // The "copied" confirmation reverts to the default copy label after a moment.
+  const clearCopied = useCallback(() => {
+    setCopied(false);
+  }, []);
+  useAutoDismiss(copied ? "copied" : undefined, clearCopied, SUCCESS_DISMISS_MS);
+
+  async function handleReset() {
+    // The reset dialog itself is the destructive-action confirmation surface:
+    // it shows the red "existing passkeys will be removed" warning and gates the
+    // mutation behind this explicit button. No redundant native window.confirm.
+    setError(undefined);
+    setCopied(false);
+    setPending(true);
+    try {
+      const result = await resetUserCredentials(api, { user_id: user.id });
+      setIssued({ otp: result.otp, expiresAt: result.expires_at });
+    } catch {
+      setError(ko.users.reset.failed);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function handleCopy(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={ko.users.reset.title}
+      className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4"
+    >
+      <Card className="grid w-full max-w-md gap-4">
+        <div className="grid gap-1">
+          <h2 className="text-lg font-semibold text-ink">
+            {ko.users.reset.title}
+          </h2>
+          <p className="text-sm text-steel">
+            {ko.users.reset.description}
+          </p>
+          <p className="text-sm font-medium text-steel">
+            {user.display_name}
+          </p>
+        </div>
+
+        <p
+          role="alert"
+          className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-900"
+        >
+          {ko.users.reset.warning}
+        </p>
+
+        {issued ? (
+          <div className="grid gap-2 rounded-md border border-brand-teal/30 bg-brand-teal/10 p-4">
+            <span className="text-sm font-medium text-brand-teal">
+              {ko.users.reset.issued}
+            </span>
+            <div className="flex items-center gap-2">
+              <code className="rounded bg-white px-3 py-2 text-lg font-semibold tracking-widest text-ink">
+                {issued.otp}
+              </code>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  void handleCopy(issued.otp);
+                }}
+              >
+                {copied ? ko.users.reset.copied : ko.users.reset.copy}
+              </Button>
+            </div>
+            <span role="status" aria-live="polite" className="sr-only">
+              {copied ? ko.users.reset.copied : ""}
+            </span>
+            <span className="text-sm text-brand-teal">
+              {ko.users.reset.expiresAt}:{" "}
+              {new Date(issued.expiresAt).toLocaleString("ko-KR", {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
+            </span>
+            <span className="text-sm text-brand-teal">
+              {ko.users.reset.handoff}
+            </span>
+          </div>
+        ) : null}
+
+        {error ? (
+          <p role="alert" className="text-sm font-medium text-red-700">
+            {error}
+          </p>
+        ) : null}
+
+        <div className="flex items-center justify-end gap-2">
+          {!issued ? (
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={pending}
+              onClick={() => {
+                void handleReset();
+              }}
+            >
+              <RotateCcwKey aria-hidden="true" size={18} />
+              {pending ? ko.users.reset.submitting : ko.users.reset.submit}
+            </Button>
+          ) : null}
+          <Button type="button" variant="secondary" onClick={onClose}>
+            {ko.users.reset.close}
           </Button>
         </div>
       </Card>

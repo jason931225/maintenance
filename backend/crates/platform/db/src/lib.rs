@@ -27,5 +27,5 @@
 pub mod audit_tx;
 pub mod error;
 
-pub use audit_tx::{insert_audit_event, with_audit, with_audits};
+pub use audit_tx::{insert_audit_event, with_audit, with_audits, with_org_conn};
 pub use error::DbError;

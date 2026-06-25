@@ -9,6 +9,7 @@ import React, {
 
 import { createConsoleApiClient } from "../api/client";
 import type { ConsoleApiClient } from "../api/client";
+import { setRefreshCallbacks } from "../api/refresh";
 import {
   finishPasskeyLogin,
   logout as logoutWebAuthn,
@@ -21,6 +22,15 @@ export interface AuthSession {
   access_token: string;
   user_id?: string;
   /**
+   * JWT `name` claim — the signed-in user's display name. Present on tenant and
+   * platform login/refresh tokens (absent on legacy and read-only view-as
+   * tokens). Display only: render this (falling back to `email`, then a generic
+   * label) instead of the raw `user_id` UUID. Never used for authorization.
+   */
+  display_name?: string;
+  /** JWT `email` claim, when present. Display-only fallback for the identity label. */
+  email?: string;
+  /**
    * JWT `roles` claim, e.g. `["ADMIN"]` / `["SUPER_ADMIN"]`. Canonical role
    * codes match the backend `Role` enum and drive client-side nav gating; the
    * backend re-verifies authorization on every call.
@@ -28,6 +38,13 @@ export interface AuthSession {
   roles?: string[];
   /** JWT `branches` claim; the first entry scopes admin actions like issuing OTPs. */
   branches?: string[];
+  /**
+   * JWT `platform` claim. True for the vendor platform-admin tier (multi-tenant
+   * console) rather than a tenant session. Drives client-side routing between the
+   * tenant app and the `/platform` console; the backend re-verifies on every call
+   * (a tenant token is rejected on /platform/*, and vice-versa).
+   */
+  isPlatform?: boolean;
   /**
    * True when the user signed in via OTP and has no passkey yet. While set, the
    * shell forces the initial-settings passkey enrollment step.
@@ -43,6 +60,25 @@ export interface AuthSession {
 export interface AcceptableTokens {
   access_token: string;
   requires_passkey_setup?: boolean;
+}
+
+/**
+ * An active PLATFORM "view as" (read-only impersonation) session. Present ONLY
+ * while a platform operator is viewing a tenant. While set, the app behaves as
+ * the impersonated tenant/role (the active `session` is the view_as token), and
+ * the banner is shown on every page. `platformSession` is the operator's real
+ * platform session, restored on exit.
+ */
+export interface ViewAsState {
+  /** The short-lived read-only impersonation access token. */
+  token: string;
+  /** Acting tenant id + display name, for the banner and exit audit. */
+  actingOrgId: string;
+  actingOrgName: string;
+  /** Acting tenant role code (e.g. `ADMIN`). */
+  actingRole: string;
+  /** The operator's real platform session, restored verbatim on exit. */
+  platformSession: AuthSession;
 }
 
 export interface AuthContextValue {
@@ -61,6 +97,29 @@ export interface AuthContextValue {
   /** Clear the requires_passkey_setup flag after enrollment succeeds. */
   clearPasskeySetup: () => void;
   api: ConsoleApiClient;
+  /**
+   * The active read-only impersonation session, or `undefined` when not viewing
+   * as a tenant. Drives the persistent banner and exit affordance.
+   */
+  viewAs: ViewAsState | undefined;
+  /**
+   * Enter a read-only "view as" session: switch the app to the impersonated
+   * tenant/role using the supplied view_as token, saving the current platform
+   * session so it can be restored on exit. Must be called from a platform
+   * session.
+   */
+  enterViewAs: (params: {
+    token: string;
+    actingOrgId: string;
+    actingOrgName: string;
+    actingRole: string;
+  }) => void;
+  /**
+   * Exit the active "view as" session and restore the platform session. Returns
+   * the operator's platform access token so the caller can audit the exit via
+   * the platform EXIT endpoint; `undefined` when no session was active.
+   */
+  exitViewAs: () => string | undefined;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
@@ -88,8 +147,11 @@ export function useActiveBranchId(): string | undefined {
  */
 function decodeAccessClaims(accessToken: string): {
   user_id?: string;
+  display_name?: string;
+  email?: string;
   roles?: string[];
   branches?: string[];
+  isPlatform?: boolean;
 } {
   try {
     const payload = accessToken.split(".")[1];
@@ -99,19 +161,37 @@ function decodeAccessClaims(accessToken: string): {
       normalized.length + ((4 - (normalized.length % 4)) % 4),
       "=",
     );
-    const claims = JSON.parse(atob(padded)) as {
+    // The `name` claim can be a non-ASCII (e.g. Korean) display name, so decode
+    // the base64 payload as UTF-8 rather than passing the raw `atob` binary
+    // string to JSON.parse (which would mangle multi-byte characters).
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    const json = new TextDecoder().decode(bytes);
+    const claims = JSON.parse(json) as {
       sub?: string;
+      name?: unknown;
+      email?: unknown;
       roles?: unknown;
       branches?: unknown;
+      platform?: unknown;
     };
     return {
       user_id: typeof claims.sub === "string" ? claims.sub : undefined,
+      display_name:
+        typeof claims.name === "string" && claims.name.trim()
+          ? claims.name
+          : undefined,
+      email:
+        typeof claims.email === "string" && claims.email.trim()
+          ? claims.email
+          : undefined,
       roles: Array.isArray(claims.roles)
         ? claims.roles.filter((r): r is string => typeof r === "string")
         : undefined,
       branches: Array.isArray(claims.branches)
         ? claims.branches.filter((b): b is string => typeof b === "string")
         : undefined,
+      isPlatform: claims.platform === true,
     };
   } catch {
     return {};
@@ -136,15 +216,66 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // synchronously — we recover the session via a silent cookie refresh instead.
   const [session, setSession] = useState<AuthSession | undefined>(undefined);
   const [restoring, setRestoring] = useState(true);
+  // Active read-only impersonation, if any. While set, the app runs as the
+  // impersonated tenant/role (see `activeSession` below) and the banner shows.
+  const [viewAs, setViewAs] = useState<ViewAsState | undefined>(undefined);
+
+  // The session the app actually runs under: the impersonation session when
+  // viewing as a tenant, otherwise the operator/user's own session. Building it
+  // from the view_as token (via `sessionFromAccessToken`) gives `isPlatform =
+  // false` and the acting role, so routing drops into the tenant AppShell.
+  const activeSession = useMemo<AuthSession | undefined>(
+    () => (viewAs ? sessionFromAccessToken(viewAs.token) : session),
+    [viewAs, session],
+  );
 
   // A bootstrap api client (no bearer) just for the boot refresh; the per-session
   // client below carries the access token once we have one.
   const bootApi = useMemo(() => createConsoleApiClient(undefined), []);
 
   const api = useMemo(
-    () => createConsoleApiClient(session?.access_token),
-    [session?.access_token],
+    () => createConsoleApiClient(activeSession?.access_token),
+    [activeSession?.access_token],
   );
+
+  // Wire the single-flight refresh interceptor (client.ts / platform.ts) to this
+  // provider's refresh logic. Runs on every api/session change so the interceptor
+  // always holds a closure over the current token-bearing api instance.
+  //
+  // While impersonating (`viewAs` set) the refresh path is deliberately disabled:
+  // the cookie refresh would mint a fresh PLATFORM token (the operator's), which
+  // must never silently replace the read-only view_as token. A 401 on an expired
+  // impersonation token instead drops the session and exits view-as, returning the
+  // operator to the platform console — the safe, explicit outcome.
+  useEffect(() => {
+    if (viewAs) {
+      setRefreshCallbacks(
+        () => Promise.reject(new Error("view-as session cannot refresh")),
+        () => {
+          setViewAs(undefined);
+        },
+      );
+      return;
+    }
+    setRefreshCallbacks(
+      async () => {
+        const tokens = await refreshTokenFn(api);
+        setSession((current) =>
+          current
+            ? {
+                ...current,
+                access_token: tokens.access_token,
+                ...decodeAccessClaims(tokens.access_token),
+              }
+            : current,
+        );
+        return { access_token: tokens.access_token };
+      },
+      () => {
+        setSession(undefined);
+      },
+    );
+  }, [api, viewAs]);
 
   // Boot-time silent refresh: POST /refresh with the HttpOnly cookie. Success ->
   // authenticated with a fresh access token; any failure (e.g. 401, no cookie)
@@ -181,8 +312,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function logout() {
+    // If impersonating, drop the view-as session first so logout acts on the
+    // operator's real session, not the read-only impersonation token.
+    setViewAs(undefined);
     if (session) {
-      await logoutWebAuthn(api).catch(() => {});
+      const operatorApi = viewAs
+        ? createConsoleApiClient(viewAs.platformSession.access_token)
+        : api;
+      await logoutWebAuthn(operatorApi).catch(() => {});
     }
     setSession(undefined);
   }
@@ -217,10 +354,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
   }
 
+  function enterViewAs(params: {
+    token: string;
+    actingOrgId: string;
+    actingOrgName: string;
+    actingRole: string;
+  }) {
+    // Capture the current (platform) session so exit restores it verbatim. Guard
+    // against entering with no session — view-as is only ever started from a
+    // platform session.
+    if (!session) return;
+    setViewAs({
+      token: params.token,
+      actingOrgId: params.actingOrgId,
+      actingOrgName: params.actingOrgName,
+      actingRole: params.actingRole,
+      platformSession: session,
+    });
+  }
+
+  function exitViewAs(): string | undefined {
+    if (!viewAs) return undefined;
+    // Restore the operator's platform session and drop the impersonation token.
+    setSession(viewAs.platformSession);
+    setViewAs(undefined);
+    return viewAs.platformSession.access_token;
+  }
+
   return (
     <AuthContext.Provider
       value={{
-        session,
+        session: activeSession,
         restoring,
         login,
         logout,
@@ -228,6 +392,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         acceptTokens,
         clearPasskeySetup,
         api,
+        viewAs,
+        enterViewAs,
+        exitViewAs,
       }}
     >
       {children}

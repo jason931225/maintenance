@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Period {
+    #[serde(with = "time::serde::rfc3339")]
     pub start: Timestamp,
+    #[serde(with = "time::serde::rfc3339")]
     pub end: Timestamp,
 }
 
@@ -81,12 +83,23 @@ impl KpiReport {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KpiRollup {
     pub scope: KpiRollupScope,
+    /// Human-readable name for the scope (region/branch/mechanic), resolved by
+    /// the adapter via a same-org lookup after the pure aggregation runs. `None`
+    /// for the company-wide scope (which has no id) or a since-deleted
+    /// region/branch/user; the web renders it through `safeLabel` so a missing
+    /// name never leaks the UUID. `#[serde(default)]` keeps the pure domain
+    /// calculation (which leaves it `None`) and older payloads valid.
+    #[serde(default)]
+    pub scope_display_name: Option<String>,
     pub approved_report_count: u32,
     pub completed_count: u32,
     pub weighted_completed_points: u32,
     pub inspection_schedule_due_count: u32,
     pub inspection_schedule_completed_count: u32,
     pub inspection_plan_completion_bps: Option<u32>,
+    pub p1_dispatch_count: u32,
+    pub p1_accepted_count: u32,
+    pub p1_acceptance_bps: Option<u32>,
     pub average_response_seconds: Option<i64>,
     pub average_completion_seconds: Option<i64>,
     pub target_due_compliance_bps: Option<u32>,
@@ -122,12 +135,26 @@ pub struct KpiInspectionRecord {
     pub completed: bool,
 }
 
+/// One P1 emergency dispatch broadcast whose accept window opened within the
+/// reporting period. `accepted` is true when a mechanic accepted the broadcast
+/// (the dispatch reached `AUTO_ASSIGNED`, or at least one target responded
+/// `ACCEPT`) — i.e. the broadcast was answered without a manager force-assign.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KpiP1Record {
+    pub dispatch_id: uuid::Uuid,
+    pub branch_id: BranchId,
+    pub region_id: RegionId,
+    pub technician_id: Option<UserId>,
+    pub accepted: bool,
+}
+
 #[must_use]
 pub fn calculate_kpi_report(
     period: Period,
     requested_scope: KpiScope,
     records: &[KpiInputRecord],
     inspection_records: &[KpiInspectionRecord],
+    p1_records: &[KpiP1Record],
     unavailable_metrics: Vec<UnavailableMetric>,
 ) -> KpiReport {
     let mut builders = BTreeMap::<KpiRollupScope, KpiRollupBuilder>::new();
@@ -169,6 +196,26 @@ pub fn calculate_kpi_report(
             record,
         );
     }
+    for record in p1_records {
+        add_p1_record(&mut builders, KpiRollupScope::Company, record);
+        add_p1_record(
+            &mut builders,
+            KpiRollupScope::Region(record.region_id),
+            record,
+        );
+        add_p1_record(
+            &mut builders,
+            KpiRollupScope::Branch(record.branch_id),
+            record,
+        );
+        if let Some(technician_id) = record.technician_id {
+            add_p1_record(
+                &mut builders,
+                KpiRollupScope::Technician(technician_id),
+                record,
+            );
+        }
+    }
 
     KpiReport {
         period,
@@ -197,6 +244,14 @@ fn add_inspection_record(
     builders.entry(scope).or_default().push_inspection(record);
 }
 
+fn add_p1_record(
+    builders: &mut BTreeMap<KpiRollupScope, KpiRollupBuilder>,
+    scope: KpiRollupScope,
+    record: &KpiP1Record,
+) {
+    builders.entry(scope).or_default().push_p1(record);
+}
+
 #[derive(Debug, Default)]
 struct KpiRollupBuilder {
     approved_report_count: u32,
@@ -210,6 +265,8 @@ struct KpiRollupBuilder {
     target_due_compliant_count: u32,
     inspection_schedule_due_count: u32,
     inspection_schedule_completed_count: u32,
+    p1_dispatch_count: u32,
+    p1_accepted_count: u32,
     revisit_count: u32,
     delay_count: u32,
     delay_reason_distribution: BTreeMap<String, u32>,
@@ -271,10 +328,20 @@ impl KpiRollupBuilder {
         }
     }
 
+    fn push_p1(&mut self, record: &KpiP1Record) {
+        self.p1_dispatch_count += 1;
+        if record.accepted {
+            self.p1_accepted_count += 1;
+        }
+    }
+
     fn finish(mut self, scope: KpiRollupScope) -> KpiRollup {
         self.work_order_ids.sort_unstable();
         KpiRollup {
             scope,
+            // Names are resolved by the adapter post-pass (DB lookup); the pure
+            // domain calculation has no access to region/branch/user names.
+            scope_display_name: None,
             approved_report_count: self.approved_report_count,
             completed_count: self.completed_count,
             weighted_completed_points: self.weighted_completed_points,
@@ -284,6 +351,9 @@ impl KpiRollupBuilder {
                 self.inspection_schedule_completed_count,
                 self.inspection_schedule_due_count,
             ),
+            p1_dispatch_count: self.p1_dispatch_count,
+            p1_accepted_count: self.p1_accepted_count,
+            p1_acceptance_bps: rate_bps(self.p1_accepted_count, self.p1_dispatch_count),
             average_response_seconds: average_i64(self.response_seconds_total, self.response_count),
             average_completion_seconds: average_i64(
                 self.completion_seconds_total,
@@ -421,4 +491,75 @@ pub struct WorkDiaryDraft {
     pub body: WorkDiaryBody,
     pub confirmed_by: Option<UserId>,
     pub confirmed_at: Option<Timestamp>,
+}
+
+// ---------------------------------------------------------------------------
+// Operational dashboard (per-tenant ops console)
+// ---------------------------------------------------------------------------
+
+/// One stage of the work-order funnel with its current open count.
+///
+/// `접수`/RECEIVED → `배정`/ASSIGNED → `진행`/IN_PROGRESS → `완료`/COMPLETED.
+/// Counts are point-in-time (current `work_orders.status`), org-scoped by RLS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpsFunnel {
+    /// RECEIVED + UNASSIGNED (intake, not yet assigned).
+    pub received: u32,
+    /// ASSIGNED (a mechanic is on it, work not started).
+    pub assigned: u32,
+    /// IN_PROGRESS + REPORT_SUBMITTED + ADMIN_REVIEW (active work).
+    pub in_progress: u32,
+    /// FINAL_COMPLETED (terminal success).
+    pub completed: u32,
+}
+
+/// Distribution of equipment by lifecycle status (Korean enum values).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpsEquipmentStatus {
+    /// 임대 — rented out.
+    pub rented: u32,
+    /// 예비 — spare / reserve.
+    pub spare: u32,
+    /// 폐기 — scrapped.
+    pub scrapped: u32,
+    /// 대체 — replacement unit.
+    pub replacement: u32,
+    /// 매각 — sold.
+    pub sold: u32,
+}
+
+/// One mechanic's current active-assignment load (utilization top-N row).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpsMechanicLoad {
+    pub mechanic_id: uuid::Uuid,
+    pub display_name: String,
+    /// Count of assignments on work orders that are not yet terminal.
+    pub active_assignments: u32,
+}
+
+/// Point-in-time operational rollup for one tenant (org-scoped under RLS).
+///
+/// All counts are computed from the requesting tenant's data only — every read
+/// runs inside `with_org_conn(current_org())`, so a second org's rows are never
+/// visible. `aging_hours` is the threshold used for `aging_work_orders`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpsSummary {
+    pub funnel: OpsFunnel,
+    /// Threshold (hours) past which an unresolved work order counts as aging.
+    pub aging_hours: u32,
+    /// Open work orders older than `aging_hours` with no terminal status.
+    pub aging_work_orders: u32,
+    /// P1 dispatches still BROADCASTING whose accept window has expired.
+    pub sla_breached: u32,
+    /// P1 dispatches still BROADCASTING whose accept window expires soon.
+    pub sla_at_risk: u32,
+    /// Top-N mechanics by current active-assignment count.
+    pub mechanic_load: Vec<OpsMechanicLoad>,
+    pub equipment_status: OpsEquipmentStatus,
+    /// Equipment substitutions (대차) currently active (not yet returned).
+    pub active_substitutions: u32,
+    /// Work-order approval steps awaiting a decision (PENDING).
+    pub pending_approvals: u32,
+    /// Support tickets not yet resolved/closed (OPEN + IN_PROGRESS + ON_HOLD).
+    pub open_support_tickets: u32,
 }

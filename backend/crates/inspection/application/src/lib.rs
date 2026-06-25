@@ -40,6 +40,21 @@ pub struct ListInspectionSchedulesQuery {
     pub branch_scope: BranchScope,
     pub due_start: Date,
     pub due_end: Date,
+    /// Page size. The adapter clamps to a hard cap so an unbounded fetch over a
+    /// wide date range is impossible even when the client sends no limit.
+    pub limit: i64,
+    /// Zero-based row offset into the date-range ordering for offset pagination.
+    pub offset: i64,
+}
+
+/// One page of inspection schedules plus the unpaged `total` for the matching
+/// date range, so the console can show an honest count and page beyond the cap.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InspectionSchedulePage {
+    pub items: Vec<InspectionScheduleSummary>,
+    pub limit: i64,
+    pub offset: i64,
+    pub total: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,16 +63,23 @@ pub struct InspectionScheduleSummary {
     pub branch_id: BranchId,
     pub equipment_id: EquipmentId,
     pub mechanic_id: UserId,
+    /// Assigned mechanic's display name, resolved via a same-org LEFT JOIN on
+    /// `users`. `None` when the mechanic account no longer exists; the web
+    /// renders it through `safeLabel` so a missing name never leaks the UUID.
+    pub mechanic_display_name: Option<String>,
     pub cycle: InspectionCycle,
     pub interval_days: i32,
     pub due_date: Date,
     pub status: InspectionScheduleStatus,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub completed_at: Option<Timestamp>,
     pub note: Option<String>,
     pub site_name: String,
     pub management_no: Option<String>,
     pub model: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: Timestamp,
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: Timestamp,
 }
 
@@ -72,6 +94,7 @@ pub struct InspectionRoundSummary {
     pub outcome: InspectionRoundOutcome,
     pub findings: String,
     pub note: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
     pub completed_at: Timestamp,
 }
 

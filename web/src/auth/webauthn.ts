@@ -70,6 +70,36 @@ export async function redeemOtp(
   return result.data;
 }
 
+/**
+ * Open self-service signup (#38): register an email for a new lowest-privilege
+ * MEMBER account. The backend emails a single-use one-time code (logged by the
+ * stub sender in dev/e2e); the caller then redeems it via {@link redeemOtp} and
+ * enrolls a passkey, reusing the existing first-sign-in flow. The response
+ * carries no token and reveals nothing about prior registration.
+ */
+export class SignupError extends Error {
+  readonly status: number | undefined;
+  constructor(status: number | undefined) {
+    super(`signup failed with status ${String(status)}`);
+    this.name = "SignupError";
+    this.status = status;
+  }
+}
+
+export async function signupOpen(
+  api: WebAuthnApi,
+  email: string,
+): Promise<void> {
+  const result = await api.POST("/api/v1/auth/signup", {
+    body: { email: email.trim() },
+  });
+  // Signup returns 202 (no token); openapi-fetch only surfaces typed `data` for
+  // the default-2xx body, so gate on the raw HTTP status instead.
+  if (!result.response.ok) {
+    throw new SignupError(result.response.status);
+  }
+}
+
 export async function finishPasskeyLogin(
   api: WebAuthnApi,
   ceremony: LoginCeremony,
@@ -99,18 +129,112 @@ export async function issueAdminOtp(
   return requireData<AdminIssueOtpResponse>(result.data);
 }
 
+type AdminCredentialResetRequest =
+  components["schemas"]["AdminCredentialResetRequest"];
+type AdminCredentialResetResponse =
+  components["schemas"]["AdminCredentialResetResponse"];
+type PrivacyConsentAcceptRequest =
+  components["schemas"]["PrivacyConsentAcceptRequest"];
+type PrivacyConsentStatusResponse =
+  components["schemas"]["PrivacyConsentStatusResponse"];
+
+/**
+ * Admin-only account recovery: revoke ALL of a user's passkeys AND mint a fresh
+ * single-use sign-in code so a user who lost their only passkey can re-enroll.
+ * Authz-gated to ADMIN / SUPER_ADMIN server-side; the old passkeys stop working.
+ */
+export async function resetUserCredentials(
+  api: WebAuthnApi,
+  body: AdminCredentialResetRequest,
+): Promise<AdminCredentialResetResponse> {
+  const result = await api.POST("/api/v1/auth/admin/credential-reset", {
+    body,
+  });
+  return requireData<AdminCredentialResetResponse>(result.data);
+}
+
+/**
+ * Required initial-login Korean privacy/terms gate. The backend stores the
+ * acceptance as a tenant-scoped audit event before any zero-passkey user can
+ * enroll a passkey.
+ */
+export async function getPrivacyConsentStatus(
+  api: WebAuthnApi,
+): Promise<PrivacyConsentStatusResponse> {
+  const result = await api.POST("/api/v1/auth/privacy-consent/status", {});
+  return requireData<PrivacyConsentStatusResponse>(result.data);
+}
+
+export async function acceptPrivacyConsent(
+  api: WebAuthnApi,
+  body: PrivacyConsentAcceptRequest,
+): Promise<PrivacyConsentStatusResponse> {
+  const result = await api.POST("/api/v1/auth/privacy-consent/accept", {
+    body,
+  });
+  return requireData<PrivacyConsentStatusResponse>(result.data);
+}
+
+type EnrollHandoffResponse = components["schemas"]["EnrollHandoffResponse"];
+
+/**
+ * Mint a cross-device passkey-enrollment handoff for the authenticated user. The
+ * backend returns a fresh single-use, short-lived code plus a ready-to-encode
+ * `enroll_url`; the frontend renders that URL as a QR for the user to scan on
+ * their phone, where it redeems via the first-sign-in flow and enrolls a passkey
+ * — no Bluetooth/hybrid tunnel.
+ *
+ * SELF-ONLY server-side: the target user/org come from the verified access token,
+ * never the request. When the caller already has a passkey (adding a device) the
+ * backend requires a fresh step-up assertion of an existing passkey, so this
+ * performs one first; a mid-onboarding caller (no passkey yet) skips it.
+ */
+export async function issueEnrollHandoff(
+  api: WebAuthnApi,
+  requireStepUp = false,
+): Promise<EnrollHandoffResponse> {
+  const stepUp = requireStepUp ? await assertStepUp(api) : undefined;
+  const result = await api.POST("/api/v1/auth/passkey/enroll-handoff", {
+    body: stepUp ? { step_up: stepUp } : {},
+  });
+  return requireData<EnrollHandoffResponse>(result.data);
+}
+
 export async function startPasskeyRegistration(
   api: WebAuthnApi,
   body: components["schemas"]["PasskeyRegisterStartRequest"],
   attachment?: AuthenticatorAttachment,
+  requireStepUp = false,
 ): Promise<RegisterCeremony> {
+  // Adding a passkey to an already-enrolled user requires a FRESH step-up
+  // assertion of an existing passkey (the backend rejects register/start with
+  // 401 otherwise), so a stolen session alone cannot silently enroll a device.
+  // Initial enrollment (the user has no passkey yet) skips this.
+  const stepUp = requireStepUp ? await assertStepUp(api) : undefined;
   const result = await api.POST("/api/v1/auth/passkey/register/start", {
-    body,
+    body: stepUp ? { ...body, step_up: stepUp } : body,
   });
   const data = requireData<RegisterStartResponse>(result.data);
   return {
     ceremonyId: data.ceremony_id,
     publicKey: toCreationOptions(data.challenge, attachment),
+  };
+}
+
+/**
+ * Perform a step-up: assert an EXISTING passkey (with user verification) and
+ * return the proof the backend requires before issuing an add-device challenge.
+ * Reuses the discoverable login ceremony — no token is minted, the assertion only
+ * proves the caller currently possesses an authenticator.
+ */
+async function assertStepUp(
+  api: WebAuthnApi,
+): Promise<components["schemas"]["PasskeyStepUpAssertion"]> {
+  const ceremony = await startPasskeyLogin(api);
+  const credential = await getCredential(ceremony.publicKey);
+  return {
+    ceremony_id: ceremony.ceremonyId,
+    credential: publicKeyCredentialToJson(credential),
   };
 }
 
@@ -164,7 +288,11 @@ function requireData<T>(data: T | undefined): T {
 function toRequestOptions(
   challenge: Record<string, unknown>,
 ): PublicKeyCredentialRequestOptions {
-  const options = { ...challenge };
+  // The server returns a full CredentialRequestOptions whose WebAuthn fields are
+  // nested under `publicKey` (alongside a wrapper `mediation`); unwrap to the
+  // inner PublicKeyCredentialRequestOptions before converting challenge buffers.
+  const source = isRecord(challenge.publicKey) ? challenge.publicKey : challenge;
+  const options = { ...source };
   if (typeof options.challenge === "string") {
     options.challenge = base64urlToArrayBuffer(options.challenge);
   }
@@ -180,7 +308,11 @@ function toCreationOptions(
   challenge: Record<string, unknown>,
   attachment?: AuthenticatorAttachment,
 ): PublicKeyCredentialCreationOptions {
-  const options = { ...challenge };
+  // The server returns a full CredentialCreationOptions whose WebAuthn fields are
+  // nested under `publicKey`; unwrap to the inner PublicKeyCredentialCreationOptions
+  // before converting the challenge/user buffers.
+  const source = isRecord(challenge.publicKey) ? challenge.publicKey : challenge;
+  const options = { ...source };
   if (typeof options.challenge === "string") {
     options.challenge = base64urlToArrayBuffer(options.challenge);
   }
@@ -201,17 +333,21 @@ function toCreationOptions(
   if (attachment) {
     // Steer which authenticator the user chose without weakening the server's
     // resident-key requirement — passkeys MUST stay discoverable for usernameless
-    // login. "platform" = this device (Touch ID / Windows Hello); "cross-platform"
-    // = a phone or security key, which makes the browser show its native QR /
-    // hybrid (cross-device) flow.
+    // login. We only pass "platform" (this device: Touch ID / Windows Hello): the
+    // unreliable browser-native cross-device hybrid/QR flow was replaced by the
+    // app-level scan-to-enroll-on-phone handoff (issueEnrollHandoff), so a
+    // "cross-platform" attachment is no longer used here.
     const existing = isRecord(options.authenticatorSelection)
       ? options.authenticatorSelection
       : {};
     options.authenticatorSelection = {
+      ...existing,
+      // Force discoverable (resident-key) enrollment LAST so it cannot be
+      // weakened by the server payload: usernameless login uses an empty
+      // allowCredentials, so a non-resident credential would be unusable.
       residentKey: "required",
       requireResidentKey: true,
       userVerification: "required",
-      ...existing,
       authenticatorAttachment: attachment,
     };
   }

@@ -8,7 +8,7 @@ use mnt_dispatch_adapter_postgres::{
     PendingAlimtalkAlert, PendingFcmPush, PgDispatchError, PgDispatchStore,
 };
 use mnt_dispatch_application::ExpireP1DispatchCommand;
-use mnt_kernel_core::{P1DispatchAlertId, TraceContext};
+use mnt_kernel_core::{OrgId, P1DispatchAlertId, TraceContext};
 use mnt_platform_jobs::{
     BoxFuture, DispatchTimerJob, JobQueueError, PlatformJob, PlatformJobHandler,
 };
@@ -70,6 +70,18 @@ impl DispatchWorker {
     }
 
     pub async fn handle(&self, job: PlatformJob) -> Result<(), DispatchWorkerError> {
+        // The timer worker is a background (non-request) processor, so it has no
+        // request task-local org. Its adapter reads/writes still need
+        // `app.current_org` armed under the non-owner RLS role, so we enter the
+        // tenant scope here — using the org carried ON THE JOB PAYLOAD (the
+        // dispatch's tenant), so background processing is tenant-correct for ANY
+        // tenant, not just the bootstrap one. A job with no org (legacy payload)
+        // defaults to KNL via serde, preserving single-tenant behavior.
+        let org = job_org(&job);
+        mnt_platform_request_context::scope_org(org, self.handle_inner(job)).await
+    }
+
+    async fn handle_inner(&self, job: PlatformJob) -> Result<(), DispatchWorkerError> {
         match job {
             PlatformJob::DispatchAcceptWindowExpired(job) => {
                 self.handle_accept_window(job).await?;
@@ -83,7 +95,9 @@ impl DispatchWorker {
                 self.handle_manual_call_required(job).await?;
                 Ok(())
             }
-            PlatformJob::EscalationTimer(_) => Err(DispatchWorkerError::UnsupportedJob),
+            PlatformJob::EscalationTimer(_) | PlatformJob::EvidenceTranscode(_) => {
+                Err(DispatchWorkerError::UnsupportedJob)
+            }
         }
     }
 
@@ -330,6 +344,19 @@ impl PlatformJobHandler for DispatchWorker {
                 .await
                 .map_err(|err| JobQueueError::Worker(err.to_string()))
         })
+    }
+}
+
+/// The tenant a job belongs to, read off its payload. Every dispatch-timer job
+/// carries it; the escalation-timer job has no tenant context and falls back to
+/// the bootstrap tenant (it is unsupported by this worker anyway).
+fn job_org(job: &PlatformJob) -> OrgId {
+    match job {
+        PlatformJob::DispatchAcceptWindowExpired(j)
+        | PlatformJob::DispatchAlimtalkNoAck(j)
+        | PlatformJob::DispatchManualCallRequired(j) => j.org_id,
+        PlatformJob::EvidenceTranscode(j) => j.org_id,
+        PlatformJob::EscalationTimer(_) => OrgId::knl(),
     }
 }
 

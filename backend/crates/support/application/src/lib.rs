@@ -122,10 +122,19 @@ pub struct TicketSummary {
     pub requester_user_id: Option<UserId>,
     pub requester_name: Option<String>,
     pub assignee_user_id: Option<UserId>,
+    /// Assignee display name, resolved via a same-org LEFT JOIN on `users`.
+    /// `None` for an unassigned ticket or a deleted assignee; the web renders
+    /// it through `safeLabel` so a missing name never leaks the UUID.
+    pub assignee_name: Option<String>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub due_at: Option<Timestamp>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: Timestamp,
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: Timestamp,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub resolved_at: Option<Timestamp>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub closed_at: Option<Timestamp>,
 }
 
@@ -134,8 +143,13 @@ pub struct CommentView {
     pub id: SupportTicketCommentId,
     pub ticket_id: SupportTicketId,
     pub author_user_id: Option<UserId>,
+    /// Author display name, resolved via a same-org LEFT JOIN on `users`. `None`
+    /// for a system/customer comment with no author or a deleted author; the web
+    /// renders it through `safeLabel` so a missing name never leaks the UUID.
+    pub author_name: Option<String>,
     pub body: String,
     pub is_internal_note: bool,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: Timestamp,
 }
 
@@ -143,6 +157,17 @@ pub struct CommentView {
 pub struct TicketDetail {
     pub ticket: TicketSummary,
     pub comments: Vec<CommentView>,
+}
+
+/// One keyset page of tickets plus the unpaged `total` matching the same
+/// filters, so the console can show an honest count while still paging via the
+/// cursor. `next_cursor` is the id to pass as `cursor` for the next page, or
+/// `None` when this is the last page. Mirrors `MessagePage`, with `total` added.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TicketPage {
+    pub items: Vec<TicketSummary>,
+    pub next_cursor: Option<SupportTicketId>,
+    pub total: i64,
 }
 
 /// Audience filter for [`TicketDetail`] reads. The customer-visible path drops

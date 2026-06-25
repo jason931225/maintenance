@@ -15,7 +15,9 @@ mnt-dispatch-domain = { workspace = true }
 mnt-kernel-core = { workspace = true }
 mnt-platform-auth = { path = "../../platform/auth" }
 mnt-platform-authz = { path = "../../platform/authz" }
+mnt-platform-db = { workspace = true }
 mnt-platform-jobs = { workspace = true }
+mnt-platform-request-context = { workspace = true }
 mnt-platform-push = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

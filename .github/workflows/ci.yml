@@ -11,6 +11,8 @@ on:
       - "backend/openapi/**"
       - "clients/**"
       - "web/**"
+      - "e2e/**"
+      - "playwright.config.ts"
       - "android/**"
       - "ios/**"
       - "docs/i18n.md"
@@ -27,6 +29,8 @@ on:
       - "backend/openapi/**"
       - "clients/**"
       - "web/**"
+      - "e2e/**"
+      - "playwright.config.ts"
       - "android/**"
       - "ios/**"
       - "docs/i18n.md"
@@ -37,6 +41,10 @@ on:
       - "openapitools.json"
       - "tsconfig.json"
       - ".github/workflows/ci.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend:
@@ -109,8 +117,14 @@ jobs:
       - name: Migration-safety gate
         run: cargo run -p mnt-gate-migration-safety
 
+      - name: Tenant-isolation gate
+        run: cargo run -p mnt-gate-tenant-isolation
+
       - name: PII-no-logs gate
         run: cargo run -p mnt-gate-pii-no-logs
+
+      - name: RLS-arming gate
+        run: cargo run -p mnt-gate-rls-arming
 
   api-clients:
     name: API clients — TypeScript / Kotlin generation and compile
@@ -400,7 +414,98 @@ jobs:
 
       - name: Gradle build
         working-directory: android
-        run: ./gradlew build
+        # Exclude unit-test tasks from the build step: testDebugUnitTest is run in the
+        # dedicated step below, and testReleaseUnitTest cannot be run here because
+        # ui-test-manifest (debugImplementation) provides ComponentActivity only to the
+        # debug unit-test manifest — not the release one. AGP does not support merging
+        # additional AAR manifests into the release JVM unit-test binary via any test
+        # source-set scope. The debug run provides equivalent coverage; the release APK
+        # is still assembled and lint-checked here.
+        run: ./gradlew build -x testReleaseUnitTest -x testDebugUnitTest
+
+      - name: Robolectric Compose UI + accessibility tests
+        working-directory: android
+        run: ./gradlew testDebugUnitTest
+
+      - name: Roborazzi screenshot verification
+        working-directory: android
+        # Goldens are recorded and committed under android/app/src/test/snapshots.
+        # verifyRoborazziDebug is the regression gate; it fails on any pixel diff.
+        run: ./gradlew verifyRoborazziDebug
+
+      - name: Upload test + Roborazzi reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-test-reports
+          path: |
+            android/app/build/reports/tests/**
+            android/app/build/test-results/**
+            android/app/build/outputs/roborazzi/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+  android-instrumented:
+    name: Android app — instrumented post-login E2E (emulator)
+    runs-on: ubuntu-latest
+    needs: android-app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Enable KVM for hardware-accelerated emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Set up Java
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.1.0"
+
+      - name: Mint a real backend session for the test user
+        id: session
+        # No fakes: obtain a REAL session from the REAL backend. The test user's passkey
+        # was registered through the automatable web ceremony; here we refresh its token at
+        # run start and hand the fresh access+refresh pair to the instrumented test.
+        # When the backend secret is absent (e.g. forks), the test self-skips via Assume.
+        env:
+          FIELD_E2E_BASE_URL: ${{ secrets.FIELD_E2E_BASE_URL }}
+          FIELD_E2E_SEED_REFRESH_TOKEN: ${{ secrets.FIELD_E2E_SEED_REFRESH_TOKEN }}
+        run: |
+          if [ -z "$FIELD_E2E_BASE_URL" ] || [ -z "$FIELD_E2E_SEED_REFRESH_TOKEN" ]; then
+            echo "No backend E2E secrets configured; instrumented test will self-skip."
+            echo "access=" >> "$GITHUB_OUTPUT"
+            echo "refresh=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          resp=$(curl -fsS -X POST "$FIELD_E2E_BASE_URL/api/v1/auth/refresh" \
+            -H 'Content-Type: application/json' \
+            -d "{\"refresh_token\":\"$FIELD_E2E_SEED_REFRESH_TOKEN\"}")
+          echo "access=$(echo "$resp" | jq -r '.access_token')" >> "$GITHUB_OUTPUT"
+          echo "refresh=$(echo "$resp" | jq -r '.refresh_token')" >> "$GITHUB_OUTPUT"
+
+      - name: Instrumented post-login E2E on Gradle Managed Device
+        working-directory: android
+        # Gradle Managed Device: API 34, google_apis_playstore, swiftshader_indirect.
+        # The device is declared in app/build.gradle.kts (fieldApi34 GMD).
+        run: |
+          ./gradlew fieldApi34DebugAndroidTest \
+            -Pandroid.testInstrumentationRunnerArguments.FIELD_E2E_ACCESS_TOKEN="${{ steps.session.outputs.access }}" \
+            -Pandroid.testInstrumentationRunnerArguments.FIELD_E2E_REFRESH_TOKEN="${{ steps.session.outputs.refresh }}"
 
   ios-app:
     name: iOS app — Swift build and behavior tests
@@ -425,3 +530,90 @@ jobs:
       - name: Behavior runner
         working-directory: ios
         run: swift run MaintenanceFieldCoreBehaviorTests
+
+  browser-e2e:
+    name: Browser E2E — Playwright (all user stories)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18.4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+          # The harness builds passwordless postgres:// URLs (sqlx + psql connect
+          # as the `postgres` superuser, which owns the schema and bypasses RLS for
+          # seeding); trust auth lets them connect without a password.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      CI: "true"
+      # Point the harness (e2e/harness/*.sh) at the service as the postgres superuser.
+      E2E_PG_SUPERUSER: postgres
+      E2E_PG_HOST: localhost
+      E2E_PG_PORT: "5432"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install Rust toolchain (pinned via rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: "1.96.0"
+
+      - name: Cache Cargo registry + build artifacts
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            backend/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('backend/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Install PostgreSQL client (psql for the harness seeding)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Build backend binary (mnt-app) for the harness
+        working-directory: backend
+        # SQLX_OFFLINE so the query! macros compile against the committed .sqlx cache
+        # (same contract as the backend job). The harness then runs target/debug/mnt-app
+        # for the migrate + api roles.
+        run: SQLX_OFFLINE=true cargo build -q -p mnt-app
+
+      - name: Install Playwright Chromium + OS deps
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser E2E suite
+        # e2e/run.sh: gen-keys -> db (drop+migrate+seed mnt_e2e) -> boot backend
+        # (api role, /readyz) -> playwright (builds + previews web on :5173, proxies
+        # /api) -> teardown. Every user-story spec across all roles, real WebAuthn
+        # via the CDP virtual authenticator.
+        run: bash e2e/run.sh
+
+      - name: Upload Playwright report + traces
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: browser-e2e-report
+          path: |
+            e2e/.artifacts/html-report
+            e2e/.artifacts/test-results
+          retention-days: 7

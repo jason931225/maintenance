@@ -97,6 +97,25 @@ describe("messengerReducer", () => {
     expect(afterDuplicate.lastMessageIdByThread[threadId]).toBe(liveMessage.id);
     expect(resumeCursor(afterDuplicate)).toBe(liveMessage.id);
   });
+
+  it("prepends and selects a newly created thread", () => {
+    const existingId = "99999999-9999-4999-8999-999999999999";
+    const state = messengerReducer(createMessengerState(), {
+      type: "threadsLoaded",
+      threads: [thread({ id: existingId, title: "기존 채널" })],
+    });
+
+    const created = thread({
+      id: threadId,
+      title: "새 대화",
+      last_message_at: "2026-06-12T10:00:00Z",
+      updated_at: "2026-06-12T10:00:00Z",
+    });
+    const next = messengerReducer(state, { type: "threadCreated", thread: created });
+
+    expect(next.threads.map((item) => item.id)).toEqual([threadId, existingId]);
+    expect(next.selectedThreadId).toBe(threadId);
+  });
 });
 
 function thread(

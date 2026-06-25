@@ -12,12 +12,21 @@ name: Image Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/multi-tenant-phase1]
     tags: ["v*"]
+    # The auto digest-bump job (below) commits the freshly built digests into
+    # deploy/apps/maintenance/overlays/prod/kustomization.yaml. paths-ignore keeps
+    # that bot commit from retriggering this workflow (an infinite build loop).
+    # A mixed commit that also touches source still rebuilds — paths-ignore only
+    # suppresses when EVERY changed path is under deploy/. ci.yml does not watch
+    # deploy/, so it is unaffected.
+    paths-ignore:
+      - "deploy/**"
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read          # read the same SHA's CI result before building images
   packages: write        # push to GHCR
   id-token: write        # cosign keyless (Fulcio/Rekor) + provenance attest
   attestations: write    # SLSA build provenance
@@ -27,8 +36,40 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  ci-gate:
+    name: Require CI success for this SHA
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for CI success
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          deadline=$((SECONDS + 3600))
+          while (( SECONDS < deadline )); do
+            runs="$(gh run list --repo "$REPO" --workflow ci.yml --commit "$SHA" --event push --limit 5 --json status,conclusion,url)"
+            if [[ "$(jq 'length' <<<"$runs")" -gt 0 ]]; then
+              status="$(jq -r '.[0].status' <<<"$runs")"
+              conclusion="$(jq -r '.[0].conclusion // ""' <<<"$runs")"
+              url="$(jq -r '.[0].url' <<<"$runs")"
+              echo "CI for $SHA: ${status}/${conclusion} ${url}"
+              if [[ "$status" == "completed" ]]; then
+                [[ "$conclusion" == "success" ]] && exit 0
+                echo "::error::CI did not pass for ${SHA}: ${conclusion} ${url}"
+                exit 1
+              fi
+            else
+              echo "No CI run for $SHA yet."
+            fi
+            sleep 30
+          done
+          echo "::error::Timed out waiting for CI to finish for ${SHA}"
+          exit 1
+
   images:
     name: ${{ matrix.image }} — build / scan / sign / push
+    needs: ci-gate
     runs-on: ubuntu-24.04-arm # free native arm64 for public repos — the A1 cluster is arm64
     strategy:
       fail-fast: false
@@ -154,3 +195,79 @@ jobs:
             echo '```'
             echo "- scanned (HIGH/CRITICAL gate), SBOM + provenance attested, cosign-signed."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Carry this leg's signed digest to the bump-digests job. A matrix collapses
+      # to one shared job-outputs map (legs overwrite each other), so a tiny
+      # per-image artifact is the robust fan-in for the downstream consumer.
+      - name: Stash digest for the bump job
+        run: printf '%s' "${{ steps.build.outputs.digest }}" > "digest-${{ matrix.image }}.txt"
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: digest-${{ matrix.image }}
+          path: digest-${{ matrix.image }}.txt
+          retention-days: 1
+          if-no-files-found: error
+
+  # Auto digest-bump: writes the two freshly built+signed digests into the prod
+  # kustomize overlay and commits back to the triggering branch, eliminating the
+  # manual "extract digest -> hand-edit kustomization" toil. The Argo Rollouts
+  # blue/green canary on mnt-app/mnt-web still gates a bad release at deploy time.
+  # Skipped on tag builds (detached HEAD — no branch to push to) and dispatch.
+  bump-digests:
+    name: Auto-bump prod overlay digests
+    runs-on: ubuntu-latest
+    needs: images
+    if: >-
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/heads/') &&
+      github.actor != 'github-actions[bot]'
+    permissions:
+      contents: write # job-level: only this job may push the bump commit
+
+    steps:
+      - name: Checkout (full history for rebase before push)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Download mnt-app digest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: digest-mnt-app
+          path: digests
+      - name: Download mnt-web digest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: digest-mnt-web
+          path: digests
+
+      - name: Bump prod overlay digests
+        run: |
+          APP_DIGEST="$(cat digests/digest-mnt-app.txt)"
+          WEB_DIGEST="$(cat digests/digest-mnt-web.txt)"
+          bash scripts/bump-prod-digests.sh "${APP_DIGEST}" "${WEB_DIGEST}"
+
+      - name: Commit + push the bump (rebase-and-retry on a racing push)
+        env:
+          OVERLAY: deploy/apps/maintenance/overlays/prod/kustomization.yaml
+        run: |
+          if git diff --quiet -- "$OVERLAY"; then
+            echo "Digests already current; nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$OVERLAY"
+          git commit -m "deploy(prod): auto-bump mnt-app/mnt-web @${GITHUB_SHA:0:7}"
+          for attempt in 1 2 3 4 5; do
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              echo "Pushed on attempt ${attempt}."
+              exit 0
+            fi
+            echo "Push rejected (attempt ${attempt}); rebasing on the latest remote head."
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
+          done
+          echo "Failed to push the digest bump after 5 attempts." >&2
+          exit 1

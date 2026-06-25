@@ -45,11 +45,14 @@ struct FieldAuthenticatedTabs: View {
                 .tabItem {
                     Label("today_title", systemImage: "list.bullet")
                 }
+                .accessibilityIdentifier(FieldAccessibilityID.todayTab)
             MessengerTabView(viewModel: viewModel)
                 .tabItem {
                     Label("messenger_title", systemImage: "message.fill")
                 }
+                .accessibilityIdentifier(FieldAccessibilityID.messengerTab)
         }
+        .accessibilityIdentifier(FieldAccessibilityID.authenticatedTabs)
     }
 }
 
@@ -64,12 +67,14 @@ struct LoginView: View {
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
                     #endif
+                    .accessibilityIdentifier(FieldAccessibilityID.loginUserIDField)
                 Button {
                     Task { await viewModel.login() }
                 } label: {
                     Label("login_button", systemImage: "person.badge.key")
                 }
                 .disabled(viewModel.isLoading)
+                .accessibilityIdentifier(FieldAccessibilityID.loginButton)
             } header: {
                 Text("login_title")
             }
@@ -77,6 +82,7 @@ struct LoginView: View {
             if let messageKey = viewModel.messageKey {
                 Text(LocalizedStringKey(messageKey))
                     .foregroundStyle(.red)
+                    .accessibilityIdentifier(FieldAccessibilityID.loginErrorMessage)
             }
         }
     }
@@ -90,6 +96,7 @@ struct TodayListView: View {
             LocationConsentSection(viewModel: viewModel)
             if viewModel.today.isEmpty {
                 Text("empty_today")
+                    .accessibilityIdentifier(FieldAccessibilityID.todayEmpty)
             }
             ForEach(viewModel.today) { workOrder in
                 Button {
@@ -98,8 +105,10 @@ struct TodayListView: View {
                     WorkOrderRow(workOrder: workOrder)
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier(FieldAccessibilityID.workOrderRow(workOrder.id))
             }
         }
+        .accessibilityIdentifier(FieldAccessibilityID.todayList)
         .navigationTitle(Text("today_title"))
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
@@ -108,16 +117,19 @@ struct TodayListView: View {
                 } label: {
                     Label("refresh", systemImage: "arrow.clockwise")
                 }
+                .accessibilityIdentifier(FieldAccessibilityID.todayRefreshButton)
                 Button {
                     Task { await viewModel.logout() }
                 } label: {
                     Label("logout", systemImage: "rectangle.portrait.and.arrow.right")
                 }
+                .accessibilityIdentifier(FieldAccessibilityID.todayLogoutButton)
             }
         }
         .overlay {
             if viewModel.isLoading {
                 ProgressView("loading")
+                    .accessibilityIdentifier(FieldAccessibilityID.todayLoading)
             }
         }
         .sheet(item: $viewModel.selectedWorkOrder) { _ in
@@ -134,11 +146,13 @@ struct MessengerTabView: View {
             Section {
                 HStack {
                     TextField(String(localized: "messenger_search"), text: $viewModel.messengerSearchQuery)
+                        .accessibilityIdentifier(FieldAccessibilityID.messengerSearchField)
                     Button {
                         Task { await viewModel.searchMessengerMessages() }
                     } label: {
                         Label("messenger_search_button", systemImage: "magnifyingglass")
                     }
+                    .accessibilityIdentifier(FieldAccessibilityID.messengerSearchButton)
                 }
                 if viewModel.messengerState.searchResults.isEmpty == false {
                     ForEach(viewModel.messengerState.searchResults) { message in
@@ -147,12 +161,14 @@ struct MessengerTabView: View {
                 } else if viewModel.messengerHasSearched {
                     Text("messenger_search_no_results")
                         .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(FieldAccessibilityID.messengerSearchNoResults)
                 }
             }
 
             Section {
                 if viewModel.messengerState.threads.isEmpty {
                     Text("messenger_empty_threads")
+                        .accessibilityIdentifier(FieldAccessibilityID.messengerEmptyThreads)
                 }
                 ForEach(viewModel.messengerState.threads) { thread in
                     Button {
@@ -163,6 +179,7 @@ struct MessengerTabView: View {
                             isSelected: viewModel.messengerState.selectedThreadID == thread.id
                         )
                     }
+                    .accessibilityIdentifier(FieldAccessibilityID.messengerThreadRow(thread.id))
                 }
             } header: {
                 Text("messenger_threads")
@@ -186,13 +203,16 @@ struct MessengerTabView: View {
                     }
                     TextField(String(localized: "messenger_composer"), text: $viewModel.messengerDraft, axis: .vertical)
                         .lineLimit(2...5)
+                        .accessibilityIdentifier(FieldAccessibilityID.messengerComposerField)
                     Button {
                         Task { await viewModel.sendMessengerMessage() }
                     } label: {
                         Label("messenger_send", systemImage: "paperplane.fill")
                     }
+                    .accessibilityIdentifier(FieldAccessibilityID.messengerSendButton)
                 } else {
                     Text("messenger_select_thread")
+                        .accessibilityIdentifier(FieldAccessibilityID.messengerSelectThreadPrompt)
                 }
             } header: {
                 Text("messenger_messages")
@@ -210,11 +230,13 @@ struct MessengerTabView: View {
                 } label: {
                     Label("refresh", systemImage: "arrow.clockwise")
                 }
+                .accessibilityIdentifier(FieldAccessibilityID.messengerRefreshButton)
                 Button {
                     Task { await viewModel.logout() }
                 } label: {
                     Label("logout", systemImage: "rectangle.portrait.and.arrow.right")
                 }
+                .accessibilityIdentifier(FieldAccessibilityID.messengerLogoutButton)
             }
         }
         .overlay {
@@ -336,6 +358,7 @@ struct WorkOrderDetailView: View {
                         } label: {
                             Label("detail_start_work", systemImage: "play.fill")
                         }
+                        .accessibilityIdentifier(FieldAccessibilityID.detailStartWorkButton)
                     }
 
                     Section {
@@ -344,15 +367,19 @@ struct WorkOrderDetailView: View {
                                 Text(LocalizedStringKey(result.fieldLabelKey)).tag(result)
                             }
                         }
+                        .accessibilityIdentifier(FieldAccessibilityID.detailResultTypePicker)
                         TextField(String(localized: "report_diagnosis"), text: $viewModel.diagnosis, axis: .vertical)
                             .lineLimit(3...6)
+                            .accessibilityIdentifier(FieldAccessibilityID.detailDiagnosisField)
                         TextField(String(localized: "report_action"), text: $viewModel.actionTaken, axis: .vertical)
                             .lineLimit(3...6)
+                            .accessibilityIdentifier(FieldAccessibilityID.detailActionTakenField)
                         Button {
                             Task { await viewModel.submitReport() }
                         } label: {
                             Label("submit_report", systemImage: "paperplane.fill")
                         }
+                        .accessibilityIdentifier(FieldAccessibilityID.detailSubmitReportButton)
                     }
 
                     Section {
@@ -361,12 +388,15 @@ struct WorkOrderDetailView: View {
                         } label: {
                             Label("capture_evidence", systemImage: "camera.fill")
                         }
+                        .accessibilityIdentifier(FieldAccessibilityID.detailCaptureEvidenceButton)
                     }
 
                     if let messageKey = viewModel.messageKey {
                         Text(LocalizedStringKey(messageKey))
+                            .accessibilityIdentifier(FieldAccessibilityID.detailMessage)
                     }
                 }
+                .accessibilityIdentifier(FieldAccessibilityID.detailView)
                 .navigationTitle(Text(workOrder.requestNo))
                 .toolbar {
                     Button {
@@ -374,6 +404,7 @@ struct WorkOrderDetailView: View {
                     } label: {
                         Label("back", systemImage: "xmark")
                     }
+                    .accessibilityIdentifier(FieldAccessibilityID.detailBackButton)
                 }
             }
         }
@@ -411,6 +442,7 @@ struct LocationConsentSection: View {
                 }
             }
             .disabled(viewModel.isLoading || state == .granted)
+            .accessibilityIdentifier(FieldAccessibilityID.locationConsentGrantButton)
 
             Button {
                 Task { await viewModel.suspendLocationConsent() }
@@ -418,6 +450,7 @@ struct LocationConsentSection: View {
                 Label("location_consent_suspend", systemImage: "location.slash")
             }
             .disabled(viewModel.isLoading || state != .granted)
+            .accessibilityIdentifier(FieldAccessibilityID.locationConsentSuspendButton)
 
             Button {
                 Task { await viewModel.resumeLocationConsent() }
@@ -425,6 +458,7 @@ struct LocationConsentSection: View {
                 Label("location_consent_resume", systemImage: "location")
             }
             .disabled(viewModel.isLoading || state != .suspended)
+            .accessibilityIdentifier(FieldAccessibilityID.locationConsentResumeButton)
 
             Button(role: .destructive) {
                 Task { await viewModel.withdrawLocationConsent() }
@@ -432,6 +466,7 @@ struct LocationConsentSection: View {
                 Label("location_consent_withdraw", systemImage: "trash")
             }
             .disabled(viewModel.isLoading || (state != .granted && state != .suspended))
+            .accessibilityIdentifier(FieldAccessibilityID.locationConsentWithdrawButton)
         } header: {
             Text("location_consent_title")
         }
@@ -451,8 +486,16 @@ struct FieldChip: View {
 }
 
 private func localizedString(_ key: String, _ arguments: CVarArg...) -> String {
-    let format = NSLocalizedString(key, bundle: .module, comment: "")
+    let format = NSLocalizedString(key, bundle: fieldLocalizationBundle, comment: "")
     return String(format: format, locale: Locale.current, arguments: arguments)
+}
+
+private var fieldLocalizationBundle: Bundle {
+    #if SWIFT_PACKAGE
+    .module
+    #else
+    .main
+    #endif
 }
 
 private func locationConsentStateKey(_ state: Components.Schemas.LocationConsentState) -> String {

@@ -17,8 +17,8 @@ use mnt_dispatch_application::{
 };
 use mnt_dispatch_domain::{DispatchResponseKind, DispatchTimerConfig};
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, KernelError, P1DispatchAlertId, P1DispatchId, TraceContext,
-    UserId, WorkOrderId,
+    BranchId, BranchScope, ErrorKind, KernelError, OrgId, P1DispatchAlertId, P1DispatchId,
+    TraceContext, UserId, WorkOrderId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
@@ -55,7 +55,9 @@ impl DispatchRestState {
 }
 
 pub fn router(state: DispatchRestState) -> Router {
-    Router::new()
+    let verifier = state.jwt_verifier.clone();
+    let pool = state.store.pool().clone();
+    let router = Router::new()
         .route(
             "/api/v1/work-orders/{work_order_id}/p1-dispatch",
             post(start_dispatch),
@@ -69,7 +71,8 @@ pub fn router(state: DispatchRestState) -> Router {
             "/api/v1/p1-dispatches/{dispatch_id}/force-assign",
             post(force_assign),
         )
-        .with_state(state)
+        .with_state(state);
+    mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
 
 #[derive(Debug, Deserialize)]
@@ -227,8 +230,13 @@ async fn schedule_dispatch_jobs(
     let Some(queue) = state.job_queue.as_ref() else {
         return Ok(());
     };
+    // Carry the dispatch's tenant onto every scheduled job so the background
+    // worker arms the correct `app.current_org`. This handler runs inside the
+    // request's tenant scope, so the org is the in-flight tenant.
+    let org = mnt_platform_request_context::current_org()
+        .map_err(|err| RestError::internal(err.to_string()))?;
     let accept =
-        JobRequest::dispatch_accept_window_expired(summary.id, summary.accept_window_ends_at)
+        JobRequest::dispatch_accept_window_expired(summary.id, org, summary.accept_window_ends_at)
             .map_err(RestError::from_jobs)?;
     queue
         .schedule_at(accept, summary.accept_window_ends_at)
@@ -238,7 +246,7 @@ async fn schedule_dispatch_jobs(
         .accept_window_started_at
         .checked_add(state.timers.alimtalk_no_ack_after)
         .ok_or_else(|| RestError::internal("dispatch Alimtalk timer overflows time"))?;
-    let no_ack = JobRequest::dispatch_alimtalk_no_ack(summary.id, no_ack_at)
+    let no_ack = JobRequest::dispatch_alimtalk_no_ack(summary.id, org, no_ack_at)
         .map_err(RestError::from_jobs)?;
     queue
         .schedule_at(no_ack, no_ack_at)
@@ -248,7 +256,7 @@ async fn schedule_dispatch_jobs(
         .accept_window_started_at
         .checked_add(state.timers.force_assign_alert_after)
         .ok_or_else(|| RestError::internal("dispatch manual-call timer overflows time"))?;
-    let manual_call = JobRequest::dispatch_manual_call_required(summary.id, manual_call_at)
+    let manual_call = JobRequest::dispatch_manual_call_required(summary.id, org, manual_call_at)
         .map_err(RestError::from_jobs)?;
     queue
         .schedule_at(manual_call, manual_call_at)
@@ -396,7 +404,9 @@ fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
         BranchScope::Branches(branches)
     };
 
-    Ok(Principal::new(user_id, roles, branch_scope))
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 
 fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {

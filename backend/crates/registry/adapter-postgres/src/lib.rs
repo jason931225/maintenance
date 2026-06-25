@@ -11,16 +11,21 @@ use std::path::Path;
 
 use calamine::{Data, DataType, Range, Reader, open_workbook_auto};
 use mnt_kernel_core::{
-    BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId, KernelError, TraceContext, UserId,
+    BranchId, BranchScope, CustomerId, EquipmentId, EquipmentSubstitutionId, KernelError, SiteId,
+    TraceContext, UserId,
 };
-use mnt_platform_db::{DbError, with_audit, with_audits};
+use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
+use mnt_platform_request_context::current_org;
 use mnt_registry_application::{
-    CreateEquipmentCommand, DeleteEquipmentCommand, ImportSheet, MasterListEquipment,
-    ParsedMasterList, RegistryImportReport, RegistryRowError, SubstituteAssignment,
+    CreateCustomerCommand, CreateEquipmentCommand, CreateSiteCommand, CreatedCustomer, CreatedSite,
+    DeleteEquipmentCommand, EquipmentByLocationQuery, EquipmentListItem, EquipmentListPage,
+    EquipmentListQuery, EquipmentSortBy, ImportSheet, MasterListEquipment, ParsedMasterList,
+    RegistryImportReport, RegistryRowError, SiteLocationGroup, SubstituteAssignment,
     SubstituteAssignmentCommand, SubstituteCandidate, SubstituteReturnCommand, SubstituteSearch,
-    UpdateEquipmentCommand, equipment_create_audit_event, equipment_delete_audit_event,
-    equipment_update_audit_event, registry_import_audit_event, substitute_assign_audit_event,
-    substitute_return_audit_event,
+    UpdateEquipmentCommand, UpdateSiteCommand, UpdateSiteFields, customer_create_audit_event,
+    equipment_create_audit_event, equipment_delete_audit_event, equipment_update_audit_event,
+    registry_import_audit_event, site_create_audit_event, site_update_audit_event,
+    substitute_assign_audit_event, substitute_return_audit_event,
 };
 use mnt_registry_domain::{
     EquipmentNo, EquipmentStatus, MoneyWon, SubstituteEquipmentProfile, Ton,
@@ -121,10 +126,15 @@ impl PgRegistryStore {
         let trace = command.trace;
         let occurred_at = command.occurred_at;
 
-        with_audits::<_, EquipmentId, PgRegistryError>(&self.pool, move |tx| {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+
+        with_audits::<_, EquipmentId, PgRegistryError>(&self.pool, org, move |tx| {
             Box::pin(async move {
-                let customer_id = upsert_customer(tx, branch_uuid, &row.customer_name).await?;
-                let site_id = upsert_site(tx, branch_uuid, customer_id, &row.site_name).await?;
+                let customer_id =
+                    upsert_customer(tx, branch_uuid, &row.customer_name, org_uuid).await?;
+                let site_id =
+                    upsert_site(tx, branch_uuid, customer_id, &row.site_name, org_uuid).await?;
                 let existing: Option<uuid::Uuid> =
                     sqlx::query_scalar("SELECT id FROM registry_equipment WHERE equipment_no = $1")
                         .bind(row.equipment_no.as_str())
@@ -137,7 +147,7 @@ impl PgRegistryStore {
                     ))
                     .into());
                 }
-                insert_equipment(tx, branch_uuid, customer_id, site_id, &row).await?;
+                insert_equipment(tx, branch_uuid, customer_id, site_id, &row, org_uuid).await?;
                 let id: uuid::Uuid =
                     sqlx::query_scalar("SELECT id FROM registry_equipment WHERE equipment_no = $1")
                         .bind(row.equipment_no.as_str())
@@ -159,6 +169,190 @@ impl PgRegistryStore {
         .await
     }
 
+    /// Create one customer (고객) directly on the default HQ branch, audited.
+    ///
+    /// Unlike the importer's `upsert_customer` (idempotent ON CONFLICT DO UPDATE so
+    /// a re-import never duplicates), an explicit admin create is a distinct intent:
+    /// a same-name customer already on the HQ branch is a `conflict` (→ 409), not a
+    /// silent merge into the existing row. The duplicate is detected inside the
+    /// armed transaction (mirroring `create_equipment`'s equipment-no check) so the
+    /// conflict surfaces as a domain error; the `registry_customers (branch_id, name)`
+    /// UNIQUE key is the backstop for a TOCTOU race.
+    // mnt-gate: state-changing-handler
+    pub async fn create_customer(
+        &self,
+        command: CreateCustomerCommand,
+    ) -> Result<CreatedCustomer, PgRegistryError> {
+        let name = command.name;
+        let actor = command.actor;
+        let trace = command.trace;
+        let occurred_at = command.occurred_at;
+        let requested_branch = command.branch_id;
+
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+
+        with_audits::<_, CreatedCustomer, PgRegistryError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                // Land on the caller's branch when supplied (so a branch-scoped
+                // admin sees the new customer in its own branch-scoped reads), else
+                // on the org's default HQ. Either way the branch lookup/upsert runs
+                // on the armed tx so it passes FORCE-RLS WITH CHECK as `mnt_rt`.
+                let branch_uuid = resolve_create_branch(tx, requested_branch, org_uuid).await?;
+                let branch_id = BranchId::from_uuid(branch_uuid);
+                let existing: Option<uuid::Uuid> = sqlx::query_scalar(
+                    "SELECT id FROM registry_customers WHERE branch_id = $1 AND name = $2",
+                )
+                .bind(branch_uuid)
+                .bind(&name)
+                .fetch_optional(tx.as_mut())
+                .await?;
+                if existing.is_some() {
+                    return Err(
+                        KernelError::conflict(format!("customer {name:?} already exists")).into(),
+                    );
+                }
+                let id: uuid::Uuid = sqlx::query_scalar(
+                    r#"
+                    INSERT INTO registry_customers (branch_id, name, org_id)
+                    VALUES ($1, $2, $3)
+                    RETURNING id
+                    "#,
+                )
+                .bind(branch_uuid)
+                .bind(&name)
+                .bind(org_uuid)
+                .fetch_one(tx.as_mut())
+                .await?;
+                let customer = CreatedCustomer {
+                    id: CustomerId::from_uuid(id),
+                    branch_id,
+                    name,
+                };
+                let event =
+                    customer_create_audit_event(actor, branch_id, &customer, trace, occurred_at)?;
+                Ok((customer, vec![event]))
+            })
+        })
+        .await
+    }
+
+    /// Create one site (현장) under an existing customer, directly, audited.
+    ///
+    /// The customer must belong to the caller's org: the in-transaction lookup runs
+    /// under the armed `app.current_org`, so RLS already hides another tenant's
+    /// customer — a foreign-org (or unknown) `customer_id` returns `not_found`
+    /// (→ 404), never a leak and never a cross-tenant write. The site lands on the
+    /// customer's own branch. A same-name site under the same customer is a
+    /// `conflict` (→ 409); the optional location/contact fields are written in the
+    /// same INSERT so a site can be onboarded with its address in one step.
+    // mnt-gate: state-changing-handler
+    pub async fn create_site(
+        &self,
+        command: CreateSiteCommand,
+    ) -> Result<CreatedSite, PgRegistryError> {
+        let customer_id = command.customer_id;
+        let customer_uuid = *customer_id.as_uuid();
+        let name = command.name;
+        let actor = command.actor;
+        let trace = command.trace;
+        let occurred_at = command.occurred_at;
+        let address = command.address;
+        let province = command.province;
+        let city = command.city;
+        let postal_code = command.postal_code;
+        let latitude = command.latitude;
+        let longitude = command.longitude;
+        let geofence_radius_m = command.geofence_radius_m;
+        let contact_name = command.contact_name;
+        let contact_phone = command.contact_phone;
+        let contact_email = command.contact_email;
+
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+
+        with_audits::<_, CreatedSite, PgRegistryError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                // The customer must exist in the caller's org. RLS scopes this read
+                // to app.current_org, so a foreign-org customer is invisible and
+                // resolves to not_found — the explicit ownership check the spec
+                // requires, enforced by the policy rather than trusted from input.
+                let branch_uuid: uuid::Uuid = sqlx::query_scalar(
+                    "SELECT branch_id FROM registry_customers WHERE id = $1",
+                )
+                .bind(customer_uuid)
+                .fetch_optional(tx.as_mut())
+                .await?
+                .ok_or_else(|| KernelError::not_found("customer was not found"))?;
+
+                let existing: Option<uuid::Uuid> = sqlx::query_scalar(
+                    "SELECT id FROM registry_sites WHERE branch_id = $1 AND customer_id = $2 AND name = $3",
+                )
+                .bind(branch_uuid)
+                .bind(customer_uuid)
+                .bind(&name)
+                .fetch_optional(tx.as_mut())
+                .await?;
+                if existing.is_some() {
+                    return Err(KernelError::conflict(format!(
+                        "site {name:?} already exists for this customer"
+                    ))
+                    .into());
+                }
+
+                let id: uuid::Uuid = sqlx::query_scalar(
+                    r#"
+                    INSERT INTO registry_sites (
+                        branch_id, customer_id, name, org_id,
+                        address, province, city, postal_code,
+                        latitude, longitude, geofence_radius_m,
+                        contact_name, contact_phone, contact_email
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    RETURNING id
+                    "#,
+                )
+                .bind(branch_uuid)
+                .bind(customer_uuid)
+                .bind(&name)
+                .bind(org_uuid)
+                .bind(&address)
+                .bind(&province)
+                .bind(&city)
+                .bind(&postal_code)
+                .bind(latitude)
+                .bind(longitude)
+                .bind(geofence_radius_m)
+                .bind(&contact_name)
+                .bind(&contact_phone)
+                .bind(&contact_email)
+                .fetch_one(tx.as_mut())
+                .await?;
+
+                let branch_id = BranchId::from_uuid(branch_uuid);
+                let site = CreatedSite {
+                    id: SiteId::from_uuid(id),
+                    customer_id,
+                    branch_id,
+                    name,
+                    address,
+                    province,
+                    city,
+                    postal_code,
+                    latitude,
+                    longitude,
+                    geofence_radius_m,
+                    contact_name,
+                    contact_phone,
+                    contact_email,
+                };
+                let event = site_create_audit_event(actor, branch_id, &site, trace, occurred_at)?;
+                Ok((site, vec![event]))
+            })
+        })
+        .await
+    }
+
     /// Apply a partial update to one equipment row, audited with before/after.
     // mnt-gate: state-changing-handler
     pub async fn update_equipment(
@@ -171,6 +365,8 @@ impl PgRegistryStore {
         let existing = fetch_equipment_admin_row(self.pool(), command.equipment_id)
             .await?
             .ok_or_else(|| KernelError::not_found("equipment was not found"))?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let event = equipment_update_audit_event(
             command.actor,
             existing.branch_id,
@@ -179,7 +375,8 @@ impl PgRegistryStore {
             update_after_snapshot(&existing.snapshot, &command.fields),
             command.trace.clone(),
             command.occurred_at,
-        )?;
+        )?
+        .with_org(org);
         let equipment_id = command.equipment_id;
         let branch_uuid = *existing.branch_id.as_uuid();
         let fields = command.fields;
@@ -187,12 +384,14 @@ impl PgRegistryStore {
         with_audit::<_, (), PgRegistryError>(&self.pool, event, move |tx| {
             Box::pin(async move {
                 if let Some(customer_name) = fields.customer_name.as_deref() {
-                    let customer_id = upsert_customer(tx, branch_uuid, customer_name).await?;
+                    let customer_id =
+                        upsert_customer(tx, branch_uuid, customer_name, org_uuid).await?;
                     let site_name = fields
                         .site_name
                         .clone()
                         .unwrap_or_else(|| customer_name.to_owned());
-                    let site_id = upsert_site(tx, branch_uuid, customer_id, &site_name).await?;
+                    let site_id =
+                        upsert_site(tx, branch_uuid, customer_id, &site_name, org_uuid).await?;
                     sqlx::query(
                         "UPDATE registry_equipment SET customer_id = $2, site_id = $3, updated_at = now() WHERE id = $1",
                     )
@@ -208,7 +407,8 @@ impl PgRegistryStore {
                     .bind(*equipment_id.as_uuid())
                     .fetch_one(tx.as_mut())
                     .await?;
-                    let site_id = upsert_site(tx, branch_uuid, customer_id, site_name).await?;
+                    let site_id =
+                        upsert_site(tx, branch_uuid, customer_id, site_name, org_uuid).await?;
                     sqlx::query(
                         "UPDATE registry_equipment SET site_id = $2, updated_at = now() WHERE id = $1",
                     )
@@ -237,6 +437,7 @@ impl PgRegistryStore {
         if existing.status == EquipmentStatus::Disposed {
             return Err(KernelError::conflict("equipment is already disposed").into());
         }
+        let org = current_org().map_err(KernelError::from)?;
         let event = equipment_delete_audit_event(
             command.actor,
             existing.branch_id,
@@ -245,7 +446,8 @@ impl PgRegistryStore {
             existing.status,
             command.trace.clone(),
             command.occurred_at,
-        )?;
+        )?
+        .with_org(org);
         let equipment_id = command.equipment_id;
 
         with_audit::<_, (), PgRegistryError>(&self.pool, event, move |tx| {
@@ -263,15 +465,273 @@ impl PgRegistryStore {
         .await
     }
 
+    /// Aggregate every site visible to `query.branch_scope` with its equipment
+    /// counts and (admin-entered) coordinates, for the dispatch map. RLS-armed:
+    /// the whole aggregation runs inside `with_org_conn`, so a missing tenant
+    /// sees nothing. Sites with NULL coordinates are returned with `None`
+    /// coordinates so the UI can list them as ungeocoded instead of pinning a
+    /// fabricated location. The branch filter mirrors `substitute_candidates`.
+    pub async fn equipment_by_location(
+        &self,
+        query: EquipmentByLocationQuery,
+    ) -> Result<Vec<SiteLocationGroup>, PgRegistryError> {
+        let mut builder = QueryBuilder::<Postgres>::new(
+            r#"
+        SELECT
+            s.id            AS site_id,
+            s.name          AS site_name,
+            c.id            AS customer_id,
+            c.name          AS customer_name,
+            s.branch_id     AS branch_id,
+            s.address       AS address,
+            s.postal_code   AS postal_code,
+            s.province      AS province,
+            s.city          AS city,
+            s.latitude      AS latitude,
+            s.longitude     AS longitude,
+            s.geofence_radius_m AS geofence_radius_m,
+            s.contact_name  AS contact_name,
+            s.contact_phone AS contact_phone,
+            s.contact_email AS contact_email,
+            COUNT(e.id) FILTER (WHERE e.id IS NOT NULL)        AS equipment_count,
+            COUNT(e.id) FILTER (WHERE e.status = '임대')         AS rented_count,
+            COUNT(e.id) FILTER (WHERE e.status = '예비')         AS spare_count,
+            COUNT(sub.id)                                      AS substitution_active_count
+        FROM registry_sites s
+        JOIN registry_customers c ON c.id = s.customer_id
+        LEFT JOIN registry_equipment e ON e.site_id = s.id
+        LEFT JOIN equipment_substitutions sub
+            ON sub.substitute_equipment_id = e.id
+           AND sub.returned_at IS NULL
+        "#,
+        );
+        push_site_branch_filter(&mut builder, &query.branch_scope)?;
+        builder.push(
+            r#"
+        GROUP BY s.id, s.name, c.id, c.name, s.branch_id, s.address, s.postal_code, s.province,
+                 s.city, s.latitude, s.longitude, s.geofence_radius_m, s.contact_name,
+                 s.contact_phone, s.contact_email
+        ORDER BY s.province NULLS LAST, s.city NULLS LAST, s.name ASC
+        "#,
+        );
+
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgRegistryError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
+        rows.iter().map(site_location_group_from_row).collect()
+    }
+
+    /// Paginated, filterable, branch-scoped equipment list. RLS-armed via
+    /// `with_org_conn` so a missing or mismatched `app.current_org` returns zero
+    /// rows (FORCE RLS) rather than leaking cross-tenant data. The branch filter
+    /// mirrors `equipment_by_location` and `substitute_candidates` so non-SUPER_ADMIN
+    /// principals only see rows in their own branches.
+    pub async fn list_equipment(
+        &self,
+        query: EquipmentListQuery,
+    ) -> Result<EquipmentListPage, PgRegistryError> {
+        let org = current_org().map_err(KernelError::from)?;
+
+        // Normalize the free-text search term the same way find_model_by_management_no
+        // does so floor-typed "10호기" / "#010호기" match stored "010".
+        let q_normalized = query.q.as_deref().map(|raw| {
+            raw.trim()
+                .trim_start_matches('#')
+                .trim()
+                .trim_end_matches("호기")
+                .trim()
+                .to_owned()
+        });
+
+        let branch_scope = query.branch_scope.clone();
+        let status = query.status;
+        let branch_id_filter = query.branch_id;
+        let customer_id_filter = query.customer_id;
+        let site_id_filter = query.site_id;
+        let model_filter = query.model.as_deref().map(str::to_lowercase);
+        let maker_filter = query.maker.as_deref().map(str::to_lowercase);
+        let sort = query.sort;
+        let limit = query.limit.clamp(1, 200);
+        let offset = query.offset.max(0);
+
+        let (items, total) = with_org_conn::<_, _, PgRegistryError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                // --- COUNT query ---
+                let mut count_builder = QueryBuilder::<Postgres>::new(
+                    r#"
+                    SELECT COUNT(*) AS total
+                    FROM registry_equipment e
+                    JOIN registry_customers c ON c.id = e.customer_id
+                    JOIN registry_sites s ON s.id = e.site_id
+                    WHERE TRUE
+                    "#,
+                );
+                push_equipment_list_filters(
+                    &mut count_builder,
+                    &branch_scope,
+                    status,
+                    branch_id_filter,
+                    customer_id_filter,
+                    site_id_filter,
+                    &model_filter,
+                    &maker_filter,
+                    &q_normalized,
+                );
+                let total: i64 = count_builder
+                    .build_query_scalar()
+                    .fetch_one(tx.as_mut())
+                    .await?;
+
+                // --- ROWS query ---
+                let mut rows_builder = QueryBuilder::<Postgres>::new(
+                    r#"
+                    SELECT
+                        e.id            AS equipment_id,
+                        e.branch_id     AS branch_id,
+                        e.equipment_no  AS equipment_no,
+                        e.management_no AS management_no,
+                        e.status        AS status,
+                        e.model         AS model,
+                        e.maker         AS maker,
+                        e.specification AS specification,
+                        e.ton_text      AS ton_text,
+                        c.name          AS customer_name,
+                        s.name          AS site_name,
+                        e.vin           AS vin,
+                        e.updated_at    AS updated_at
+                    FROM registry_equipment e
+                    JOIN registry_customers c ON c.id = e.customer_id
+                    JOIN registry_sites s ON s.id = e.site_id
+                    WHERE TRUE
+                    "#,
+                );
+                push_equipment_list_filters(
+                    &mut rows_builder,
+                    &branch_scope,
+                    status,
+                    branch_id_filter,
+                    customer_id_filter,
+                    site_id_filter,
+                    &model_filter,
+                    &maker_filter,
+                    &q_normalized,
+                );
+                match sort {
+                    EquipmentSortBy::EquipmentNo => {
+                        rows_builder.push(" ORDER BY e.equipment_no ASC");
+                    }
+                    EquipmentSortBy::Model => {
+                        rows_builder.push(" ORDER BY e.model ASC NULLS LAST, e.equipment_no ASC");
+                    }
+                    EquipmentSortBy::Customer => {
+                        rows_builder.push(" ORDER BY c.name ASC, s.name ASC, e.equipment_no ASC");
+                    }
+                    EquipmentSortBy::UpdatedAt => {
+                        rows_builder.push(" ORDER BY e.updated_at DESC, e.equipment_no ASC");
+                    }
+                }
+                rows_builder.push(" LIMIT ");
+                rows_builder.push_bind(limit);
+                rows_builder.push(" OFFSET ");
+                rows_builder.push_bind(offset);
+
+                let rows = rows_builder.build().fetch_all(tx.as_mut()).await?;
+                let items = rows
+                    .iter()
+                    .map(equipment_list_item_from_row)
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                Ok((items, total))
+            })
+        })
+        .await?;
+
+        Ok(EquipmentListPage {
+            items,
+            total,
+            limit,
+            offset,
+        })
+    }
+
+    /// Apply a partial coordinate/address update to one site, audited with
+    /// before/after snapshots. This is the only coordinate entry point: a site
+    /// is pinnable only once an admin writes a valid lat/lon pair here.
+    // mnt-gate: state-changing-handler
+    pub async fn update_site(&self, command: UpdateSiteCommand) -> Result<(), PgRegistryError> {
+        if command.fields.is_empty() {
+            return Err(KernelError::validation("no site fields to update").into());
+        }
+        let existing = fetch_site_admin_row(self.pool(), command.site_id)
+            .await?
+            .ok_or_else(|| KernelError::not_found("site was not found"))?;
+        // Sites are branch-scoped: a branch-limited actor may only edit sites in
+        // its own branch(es). A site in another branch of the same org is treated
+        // as not found so its existence is not revealed (RLS already blocks
+        // cross-tenant; this closes the within-org cross-branch gap).
+        if !command.branch_scope.allows(existing.branch_id) {
+            return Err(KernelError::not_found("site was not found").into());
+        }
+        let org = current_org().map_err(KernelError::from)?;
+        let after = site_after_snapshot(&existing.snapshot, &command.fields);
+        let event = site_update_audit_event(
+            command.actor,
+            existing.branch_id,
+            command.site_id,
+            existing.snapshot.clone(),
+            after,
+            command.trace.clone(),
+            command.occurred_at,
+        )?
+        .with_org(org);
+        let site_id = command.site_id;
+        let fields = command.fields;
+
+        with_audit::<_, (), PgRegistryError>(&self.pool, event, move |tx| {
+            Box::pin(async move {
+                let mut builder =
+                    QueryBuilder::<Postgres>::new("UPDATE registry_sites SET updated_at = now()");
+                push_site_assignment(&mut builder, "address", &fields.address);
+                push_site_assignment(&mut builder, "province", &fields.province);
+                push_site_assignment(&mut builder, "city", &fields.city);
+                push_site_assignment(&mut builder, "postal_code", &fields.postal_code);
+                push_site_assignment(&mut builder, "contact_name", &fields.contact_name);
+                push_site_assignment(&mut builder, "contact_phone", &fields.contact_phone);
+                push_site_assignment(&mut builder, "contact_email", &fields.contact_email);
+                push_site_f64_assignment(&mut builder, "latitude", &fields.latitude);
+                push_site_f64_assignment(&mut builder, "longitude", &fields.longitude);
+                push_site_f64_assignment(
+                    &mut builder,
+                    "geofence_radius_m",
+                    &fields.geofence_radius_m,
+                );
+                builder.push(" WHERE id = ");
+                builder.push_bind(*site_id.as_uuid());
+                builder.build().execute(tx.as_mut()).await?;
+                Ok(())
+            })
+        })
+        .await
+    }
+
     async fn import_master_list_with_actor(
         &self,
         path: &Path,
         actor: Option<UserId>,
         source_name: &str,
     ) -> Result<RegistryImportReport, PgRegistryError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let parsed = parse_master_list(path)?;
         let branch_id = self.ensure_default_hq_branch().await?;
-        let event = equipment_import_event(actor, branch_id, source_name, &parsed)?;
+        // Tag the audit event with the calling tenant so `with_audit` arms the
+        // transaction-local `app.current_org` GUC before the upsert loop runs.
+        // Without this, the customer/site/equipment INSERTs hit FORCE RLS with an
+        // unset GUC and are rejected as `mnt_rt` (the production 500); the
+        // BYPASSRLS superuser tests never exercise that path.
+        let event = equipment_import_event(actor, branch_id, source_name, &parsed)?.with_org(org);
         let branch_uuid = *branch_id.as_uuid();
         let input_rows = parsed.input_rows;
         let equipment_count = parsed.equipment.len();
@@ -290,7 +750,7 @@ impl PgRegistryStore {
 
                 for row in equipment {
                     imported_equipment_numbers.push(row.equipment_no.as_str().to_string());
-                    match upsert_equipment(tx, branch_uuid, &row).await? {
+                    match upsert_equipment(tx, branch_uuid, &row, org_uuid).await? {
                         UpsertOutcome::Added => report.added += 1,
                         UpsertOutcome::Updated => report.updated += 1,
                         UpsertOutcome::Unchanged => report.unchanged += 1,
@@ -322,18 +782,30 @@ impl PgRegistryStore {
         &self,
         management_no: &str,
     ) -> Result<Option<String>, PgRegistryError> {
-        let normalized = management_no.trim().trim_start_matches('#');
-        let model = sqlx::query_scalar(
-            r#"
+        let normalized = management_no
+            .trim()
+            .trim_start_matches('#')
+            .trim()
+            .trim_end_matches("호기")
+            .trim()
+            .to_owned();
+        let org = current_org().map_err(KernelError::from)?;
+        let model = with_org_conn::<_, _, PgRegistryError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query_scalar(
+                    r#"
             SELECT model
             FROM registry_equipment
-            WHERE management_no = $1
+            WHERE ltrim(management_no, '0') = ltrim($1, '0')
             ORDER BY updated_at DESC
             LIMIT 1
             "#,
-        )
-        .bind(normalized)
-        .fetch_optional(&self.pool)
+                )
+                .bind(normalized)
+                .fetch_optional(tx.as_mut())
+                .await?)
+            })
+        })
         .await?;
         Ok(model.flatten())
     }
@@ -342,11 +814,18 @@ impl PgRegistryStore {
         &self,
         equipment_no: &str,
     ) -> Result<Option<i64>, PgRegistryError> {
-        let residual = sqlx::query_scalar(
-            "SELECT residual_value FROM registry_equipment WHERE equipment_no = $1",
-        )
-        .bind(equipment_no)
-        .fetch_optional(&self.pool)
+        let equipment_no = equipment_no.to_owned();
+        let org = current_org().map_err(KernelError::from)?;
+        let residual = with_org_conn::<_, _, PgRegistryError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query_scalar(
+                    "SELECT residual_value FROM registry_equipment WHERE equipment_no = $1",
+                )
+                .bind(equipment_no)
+                .fetch_optional(tx.as_mut())
+                .await?)
+            })
+        })
         .await?;
         Ok(residual.flatten())
     }
@@ -396,7 +875,10 @@ impl PgRegistryStore {
             .ok_or_else(|| KernelError::not_found("substitute equipment was not found"))?;
         validate_substitute_pair(&source, &candidate)?;
 
-        let event = substitute_assign_audit_event(&command, source.branch_id, substitution_id)?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let event = substitute_assign_audit_event(&command, source.branch_id, substitution_id)?
+            .with_org(org);
         let actor = command.actor;
         let source_id = command.source_equipment_id;
         let substitute_id = command.substitute_equipment_id;
@@ -419,9 +901,9 @@ impl PgRegistryStore {
                     r#"
                     INSERT INTO equipment_substitutions (
                         id, branch_id, source_equipment_id, substitute_equipment_id,
-                        assigned_by, assigned_to, assignment_location, assigned_at
+                        assigned_by, assigned_to, assignment_location, assigned_at, org_id
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                     "#,
                 )
                 .bind(*substitution_id.as_uuid())
@@ -432,6 +914,7 @@ impl PgRegistryStore {
                 .bind(assigned_to.map(|user_id| *user_id.as_uuid()))
                 .bind(assignment_location.as_str())
                 .bind(assigned_at)
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
 
@@ -465,7 +948,8 @@ impl PgRegistryStore {
                 KernelError::conflict("substitution assignment was already returned").into(),
             );
         }
-        let event = substitute_return_audit_event(&command, &before)?;
+        let org = current_org().map_err(KernelError::from)?;
+        let event = substitute_return_audit_event(&command, &before)?.with_org(org);
         let actor = command.actor;
         let substitution_id = command.substitution_id;
         let returned_at = command.returned_at;
@@ -511,33 +995,50 @@ impl PgRegistryStore {
         .await
     }
 
+    /// Resolve (creating on first use) the calling tenant's default `HQ`
+    /// region/branch, the single branch every master-list row is assigned to.
+    ///
+    /// RLS-armed: the region/branch upserts run inside `with_org_conn`, which
+    /// binds the transaction-local `app.current_org` GUC to `current_org()`, so
+    /// the `org_id = current_org` WITH CHECK on `regions`/`branches` passes under
+    /// FORCE RLS as the runtime role `mnt_rt`. Both rows carry the caller's org,
+    /// so a non-KNL tenant gets its own HQ rather than KNL's — equipment import
+    /// lands in the CALLER's org. A bare-pool transaction (no armed GUC) would
+    /// fail closed in production while passing the BYPASSRLS superuser tests.
     async fn ensure_default_hq_branch(&self) -> Result<BranchId, PgRegistryError> {
-        let mut tx = self.pool.begin().await?;
-        let region_id: uuid::Uuid = sqlx::query_scalar(
-            r#"
-            INSERT INTO regions (name)
-            VALUES ('HQ')
-            ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-            RETURNING id
-            "#,
-        )
-        .fetch_one(tx.as_mut())
-        .await?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        with_org_conn::<_, BranchId, PgRegistryError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let region_id: uuid::Uuid = sqlx::query_scalar(
+                    r#"
+                    INSERT INTO regions (name, org_id)
+                    VALUES ('HQ', $1)
+                    ON CONFLICT (org_id, name) DO UPDATE SET name = EXCLUDED.name
+                    RETURNING id
+                    "#,
+                )
+                .bind(org_uuid)
+                .fetch_one(tx.as_mut())
+                .await?;
 
-        let branch_id: uuid::Uuid = sqlx::query_scalar(
-            r#"
-            INSERT INTO branches (region_id, name)
-            VALUES ($1, 'HQ')
-            ON CONFLICT (region_id, name) DO UPDATE SET name = EXCLUDED.name
-            RETURNING id
-            "#,
-        )
-        .bind(region_id)
-        .fetch_one(tx.as_mut())
-        .await?;
+                let branch_id: uuid::Uuid = sqlx::query_scalar(
+                    r#"
+                    INSERT INTO branches (region_id, name, org_id)
+                    VALUES ($1, 'HQ', $2)
+                    ON CONFLICT (region_id, name) DO UPDATE SET name = EXCLUDED.name
+                    RETURNING id
+                    "#,
+                )
+                .bind(region_id)
+                .bind(org_uuid)
+                .fetch_one(tx.as_mut())
+                .await?;
 
-        tx.commit().await?;
-        Ok(BranchId::from_uuid(branch_id))
+                Ok(BranchId::from_uuid(branch_id))
+            })
+        })
+        .await
     }
 }
 
@@ -558,15 +1059,21 @@ async fn fetch_substitute_profile(
     pool: &PgPool,
     equipment_id: EquipmentId,
 ) -> Result<Option<SubstituteEquipmentProfile>, PgRegistryError> {
-    let row = sqlx::query(
-        r#"
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgRegistryError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
         SELECT id, branch_id, equipment_no, status, specification, ton_text, ton_milli
         FROM registry_equipment
         WHERE id = $1
         "#,
-    )
-    .bind(*equipment_id.as_uuid())
-    .fetch_optional(pool)
+            )
+            .bind(*equipment_id.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     row.map(|row| substitute_profile_from_row(&row)).transpose()
 }
@@ -621,7 +1128,11 @@ async fn fetch_candidate_rows(
     push_candidate_branch_filter(&mut builder, down, search)?;
     builder.push(" ORDER BY e.equipment_no ASC");
 
-    let rows = builder.build().fetch_all(pool).await?;
+    let org = current_org().map_err(KernelError::from)?;
+    let rows = with_org_conn::<_, _, PgRegistryError>(pool, org, move |tx| {
+        Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+    })
+    .await?;
     rows.iter().map(candidate_row_from_row).collect()
 }
 
@@ -652,6 +1163,285 @@ fn push_candidate_branch_filter(
             builder.push(")");
             Ok(())
         }
+    }
+}
+
+/// Apply all WHERE-clause filters for the equipment list query onto `builder`.
+/// All filters are combinatorial (AND). The branch-scope filter is always applied
+/// and mirrors the substitute-candidates / by-location guards so a non-SUPER_ADMIN
+/// sees only their branches.
+#[allow(clippy::too_many_arguments)]
+fn push_equipment_list_filters(
+    builder: &mut QueryBuilder<Postgres>,
+    branch_scope: &BranchScope,
+    status: Option<EquipmentStatus>,
+    branch_id_filter: Option<mnt_kernel_core::BranchId>,
+    customer_id_filter: Option<mnt_kernel_core::CustomerId>,
+    site_id_filter: Option<mnt_kernel_core::SiteId>,
+    model_filter: &Option<String>,
+    maker_filter: &Option<String>,
+    q_normalized: &Option<String>,
+) {
+    // Branch-scope guard (always applied — mirrors push_site_branch_filter).
+    match branch_scope {
+        BranchScope::All => {}
+        BranchScope::Branches(branches) if branches.is_empty() => {
+            builder.push(" AND FALSE");
+            return;
+        }
+        BranchScope::Branches(branches) => {
+            let branch_ids = branches.iter().map(|id| *id.as_uuid()).collect::<Vec<_>>();
+            builder.push(" AND e.branch_id = ANY(");
+            builder.push_bind(branch_ids);
+            builder.push(")");
+        }
+    }
+
+    // Explicit branch_id filter (must be within scope — already enforced above).
+    if let Some(bid) = branch_id_filter {
+        builder.push(" AND e.branch_id = ");
+        builder.push_bind(*bid.as_uuid());
+    }
+
+    // Status filter.
+    if let Some(st) = status {
+        builder.push(" AND e.status = ");
+        builder.push_bind(st.as_db_str());
+    }
+
+    // Customer filter.
+    if let Some(cid) = customer_id_filter {
+        builder.push(" AND e.customer_id = ");
+        builder.push_bind(*cid.as_uuid());
+    }
+
+    // Site filter.
+    if let Some(sid) = site_id_filter {
+        builder.push(" AND e.site_id = ");
+        builder.push_bind(*sid.as_uuid());
+    }
+
+    // Model (case-insensitive exact match).
+    if let Some(m) = model_filter {
+        builder.push(" AND lower(e.model) = ");
+        builder.push_bind(m.clone());
+    }
+
+    // Maker (case-insensitive exact match).
+    if let Some(mk) = maker_filter {
+        builder.push(" AND lower(e.maker) = ");
+        builder.push_bind(mk.clone());
+    }
+
+    // Free-text search: management_no (leading-zero-insensitive), equipment_no,
+    // model, maker, customer name, site name, VIN. The normalized q has already
+    // had the 호기 suffix stripped so ltrim('0') comparison works the same way
+    // find_model_by_management_no does.
+    if let Some(q) = q_normalized
+        && !q.is_empty()
+    {
+        let like_q = format!("%{}%", q.to_lowercase());
+        builder.push(" AND (ltrim(e.management_no, '0') = ltrim(");
+        builder.push_bind(q.clone());
+        builder.push(", '0')");
+        builder.push(" OR lower(e.equipment_no) LIKE ");
+        builder.push_bind(like_q.clone());
+        builder.push(" OR lower(e.model) LIKE ");
+        builder.push_bind(like_q.clone());
+        builder.push(" OR lower(e.maker) LIKE ");
+        builder.push_bind(like_q.clone());
+        builder.push(" OR lower(c.name) LIKE ");
+        builder.push_bind(like_q.clone());
+        builder.push(" OR lower(s.name) LIKE ");
+        builder.push_bind(like_q.clone());
+        builder.push(" OR lower(e.vin) LIKE ");
+        builder.push_bind(like_q);
+        builder.push(")");
+    }
+}
+
+fn equipment_list_item_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<EquipmentListItem, PgRegistryError> {
+    let status: String = row.try_get("status")?;
+    Ok(EquipmentListItem {
+        equipment_id: EquipmentId::from_uuid(row.try_get("equipment_id")?),
+        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+        equipment_no: row.try_get("equipment_no")?,
+        management_no: row.try_get("management_no")?,
+        status: EquipmentStatus::parse(&status)?,
+        model: row.try_get("model")?,
+        maker: row.try_get("maker")?,
+        specification: row.try_get("specification")?,
+        ton_text: row.try_get("ton_text")?,
+        customer_name: row.try_get("customer_name")?,
+        site_name: row.try_get("site_name")?,
+        vin: row.try_get("vin")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+/// Restrict the by-location aggregation to `scope`'s branches. `s.branch_id` is
+/// the site's branch; an empty branch list yields no rows (`WHERE FALSE`). This
+/// is the same scope rule `push_candidate_branch_filter` applies, so a
+/// non-SUPER_ADMIN only ever aggregates their own branches.
+fn push_site_branch_filter(
+    builder: &mut QueryBuilder<Postgres>,
+    scope: &BranchScope,
+) -> Result<(), PgRegistryError> {
+    match scope {
+        BranchScope::All => Ok(()),
+        BranchScope::Branches(branches) if branches.is_empty() => {
+            builder.push(" WHERE FALSE");
+            Ok(())
+        }
+        BranchScope::Branches(branches) => {
+            let branch_ids = branches
+                .iter()
+                .map(|branch_id| *branch_id.as_uuid())
+                .collect::<Vec<_>>();
+            builder.push(" WHERE s.branch_id = ANY(");
+            builder.push_bind(branch_ids);
+            builder.push(")");
+            Ok(())
+        }
+    }
+}
+
+fn site_location_group_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<SiteLocationGroup, PgRegistryError> {
+    Ok(SiteLocationGroup {
+        site_id: SiteId::from_uuid(row.try_get("site_id")?),
+        site_name: row.try_get("site_name")?,
+        customer_id: CustomerId::from_uuid(row.try_get("customer_id")?),
+        customer_name: row.try_get("customer_name")?,
+        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+        address: row.try_get("address")?,
+        postal_code: row.try_get("postal_code")?,
+        province: row.try_get("province")?,
+        city: row.try_get("city")?,
+        latitude: row.try_get("latitude")?,
+        longitude: row.try_get("longitude")?,
+        geofence_radius_m: row.try_get("geofence_radius_m")?,
+        contact_name: row.try_get("contact_name")?,
+        contact_phone: row.try_get("contact_phone")?,
+        contact_email: row.try_get("contact_email")?,
+        equipment_count: row.try_get("equipment_count")?,
+        rented_count: row.try_get("rented_count")?,
+        spare_count: row.try_get("spare_count")?,
+        substitution_active_count: row.try_get("substitution_active_count")?,
+    })
+}
+
+/// One site row plus the JSON before-snapshot used to audit a coordinate write.
+struct SiteAdminRow {
+    branch_id: BranchId,
+    snapshot: serde_json::Value,
+}
+
+async fn fetch_site_admin_row(
+    pool: &PgPool,
+    site_id: SiteId,
+) -> Result<Option<SiteAdminRow>, PgRegistryError> {
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgRegistryError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
+        SELECT id, branch_id, name, address, province, city, postal_code, latitude, longitude,
+               geofence_radius_m, contact_name, contact_phone, contact_email
+        FROM registry_sites
+        WHERE id = $1
+        "#,
+            )
+            .bind(*site_id.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?)
+        })
+    })
+    .await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let snapshot = json!({
+        "id": SiteId::from_uuid(row.try_get("id")?),
+        "name": row.try_get::<String, _>("name")?,
+        "address": row.try_get::<Option<String>, _>("address")?,
+        "province": row.try_get::<Option<String>, _>("province")?,
+        "city": row.try_get::<Option<String>, _>("city")?,
+        "postal_code": row.try_get::<Option<String>, _>("postal_code")?,
+        "latitude": row.try_get::<Option<f64>, _>("latitude")?,
+        "longitude": row.try_get::<Option<f64>, _>("longitude")?,
+        "geofence_radius_m": row.try_get::<Option<f64>, _>("geofence_radius_m")?,
+        "contact_name": row.try_get::<Option<String>, _>("contact_name")?,
+        "contact_phone": row.try_get::<Option<String>, _>("contact_phone")?,
+        "contact_email": row.try_get::<Option<String>, _>("contact_email")?,
+    });
+    Ok(Some(SiteAdminRow {
+        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+        snapshot,
+    }))
+}
+
+/// Build the audit after-snapshot by overlaying the requested field changes onto
+/// the before-snapshot. `Some(value)` sets, `Some(None)` clears (JSON null),
+/// `None` leaves the prior value untouched.
+fn site_after_snapshot(before: &serde_json::Value, fields: &UpdateSiteFields) -> serde_json::Value {
+    let mut after = before.clone();
+    overlay_text(&mut after, "address", &fields.address);
+    overlay_text(&mut after, "province", &fields.province);
+    overlay_text(&mut after, "city", &fields.city);
+    overlay_text(&mut after, "postal_code", &fields.postal_code);
+    overlay_text(&mut after, "contact_name", &fields.contact_name);
+    overlay_text(&mut after, "contact_phone", &fields.contact_phone);
+    overlay_text(&mut after, "contact_email", &fields.contact_email);
+    overlay_f64(&mut after, "latitude", &fields.latitude);
+    overlay_f64(&mut after, "longitude", &fields.longitude);
+    overlay_f64(&mut after, "geofence_radius_m", &fields.geofence_radius_m);
+    after
+}
+
+fn overlay_text(target: &mut serde_json::Value, key: &str, change: &Option<Option<String>>) {
+    if let Some(value) = change {
+        target[key] = match value {
+            Some(text) => serde_json::Value::String(text.clone()),
+            None => serde_json::Value::Null,
+        };
+    }
+}
+
+fn overlay_f64(target: &mut serde_json::Value, key: &str, change: &Option<Option<f64>>) {
+    if let Some(value) = change {
+        target[key] = match value {
+            Some(number) => serde_json::json!(number),
+            None => serde_json::Value::Null,
+        };
+    }
+}
+
+/// Push ` , <col> = <bind>` for a nullable text field when the caller supplied a
+/// change. `Some(text)` sets the value; `Some(None)` clears it to NULL.
+fn push_site_assignment(
+    builder: &mut QueryBuilder<Postgres>,
+    column: &str,
+    change: &Option<Option<String>>,
+) {
+    if let Some(value) = change {
+        builder.push(format!(", {column} = "));
+        builder.push_bind(value.clone());
+    }
+}
+
+/// Like [`push_site_assignment`] for a nullable `DOUBLE PRECISION` column.
+fn push_site_f64_assignment(
+    builder: &mut QueryBuilder<Postgres>,
+    column: &str,
+    change: &Option<Option<f64>>,
+) {
+    if let Some(value) = change {
+        builder.push(format!(", {column} = "));
+        builder.push_bind(*value);
     }
 }
 
@@ -744,17 +1534,23 @@ async fn fetch_substitution(
     pool: &PgPool,
     substitution_id: EquipmentSubstitutionId,
 ) -> Result<Option<SubstituteAssignment>, PgRegistryError> {
-    let row = sqlx::query(
-        r#"
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgRegistryError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
         SELECT id, branch_id, source_equipment_id, substitute_equipment_id,
                assigned_by, assigned_to, assignment_location, assigned_at,
                returned_by, returned_at, return_note
         FROM equipment_substitutions
         WHERE id = $1
         "#,
-    )
-    .bind(*substitution_id.as_uuid())
-    .fetch_optional(pool)
+            )
+            .bind(*substitution_id.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     row.map(|row| substitution_from_row(&row)).transpose()
 }
@@ -815,9 +1611,10 @@ async fn upsert_equipment(
     tx: &mut Transaction<'_, Postgres>,
     branch_id: uuid::Uuid,
     row: &MasterListEquipment,
+    org_uuid: uuid::Uuid,
 ) -> Result<UpsertOutcome, PgRegistryError> {
-    let customer_id = upsert_customer(tx, branch_id, &row.customer_name).await?;
-    let site_id = upsert_site(tx, branch_id, customer_id, &row.site_name).await?;
+    let customer_id = upsert_customer(tx, branch_id, &row.customer_name, org_uuid).await?;
+    let site_id = upsert_site(tx, branch_id, customer_id, &row.site_name, org_uuid).await?;
     let equipment_no = row.equipment_no.as_str();
 
     let existing_id: Option<uuid::Uuid> =
@@ -827,7 +1624,7 @@ async fn upsert_equipment(
             .await?;
 
     if existing_id.is_none() {
-        insert_equipment(tx, branch_id, customer_id, site_id, row).await?;
+        insert_equipment(tx, branch_id, customer_id, site_id, row, org_uuid).await?;
         return Ok(UpsertOutcome::Added);
     }
 
@@ -926,15 +1723,75 @@ async fn upsert_equipment(
     }
 }
 
+/// Resolve the default HQ branch for `org_uuid` on an ALREADY-ARMED transaction
+/// (one where `app.current_org` is set, e.g. inside a `with_audits` closure).
+///
+/// This mirrors `ensure_default_hq_branch` but runs on the caller's armed tx
+/// instead of an unscoped standalone transaction, so the `regions`/`branches`
+/// upserts satisfy the FORCE-RLS `WITH CHECK` as the runtime role `mnt_rt`. The
+/// direct customer/site creates use this so the whole create — branch resolution
+/// plus the row INSERT plus the audit row — is one atomic, org-scoped unit.
+async fn ensure_hq_branch_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+) -> Result<uuid::Uuid, PgRegistryError> {
+    let region_id: uuid::Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO regions (name, org_id)
+        VALUES ('HQ', $1)
+        ON CONFLICT (org_id, name) DO UPDATE SET name = EXCLUDED.name
+        RETURNING id
+        "#,
+    )
+    .bind(org_uuid)
+    .fetch_one(tx.as_mut())
+    .await?;
+
+    let branch_id: uuid::Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO branches (region_id, name, org_id)
+        VALUES ($1, 'HQ', $2)
+        ON CONFLICT (region_id, name) DO UPDATE SET name = EXCLUDED.name
+        RETURNING id
+        "#,
+    )
+    .bind(region_id)
+    .bind(org_uuid)
+    .fetch_one(tx.as_mut())
+    .await?;
+
+    Ok(branch_id)
+}
+
+/// Resolve the branch a direct create lands on, on an ALREADY-ARMED transaction.
+///
+/// A `requested` branch is the caller's own branch, taken from the server-resolved
+/// principal (a branch-scoped admin); it is used directly. Org membership is
+/// enforced by the row's composite FK `(branch_id, org_id) REFERENCES
+/// branches(id, org_id)` and FORCE-RLS WITH CHECK, so an out-of-org branch fails
+/// the insert rather than silently landing elsewhere. With no requested branch (an
+/// org-wide SUPER_ADMIN/EXECUTIVE principal) the org's default HQ branch is used.
+async fn resolve_create_branch(
+    tx: &mut Transaction<'_, Postgres>,
+    requested: Option<BranchId>,
+    org_uuid: uuid::Uuid,
+) -> Result<uuid::Uuid, PgRegistryError> {
+    match requested {
+        Some(branch_id) => Ok(*branch_id.as_uuid()),
+        None => ensure_hq_branch_in_tx(tx, org_uuid).await,
+    }
+}
+
 async fn upsert_customer(
     tx: &mut Transaction<'_, Postgres>,
     branch_id: uuid::Uuid,
     name: &str,
+    org_uuid: uuid::Uuid,
 ) -> Result<uuid::Uuid, PgRegistryError> {
     let id = sqlx::query_scalar(
         r#"
-        INSERT INTO registry_customers (branch_id, name)
-        VALUES ($1, $2)
+        INSERT INTO registry_customers (branch_id, name, org_id)
+        VALUES ($1, $2, $3)
         ON CONFLICT (branch_id, name) DO UPDATE
             SET updated_at = registry_customers.updated_at
         RETURNING id
@@ -942,6 +1799,7 @@ async fn upsert_customer(
     )
     .bind(branch_id)
     .bind(name)
+    .bind(org_uuid)
     .fetch_one(tx.as_mut())
     .await?;
     Ok(id)
@@ -952,11 +1810,12 @@ async fn upsert_site(
     branch_id: uuid::Uuid,
     customer_id: uuid::Uuid,
     name: &str,
+    org_uuid: uuid::Uuid,
 ) -> Result<uuid::Uuid, PgRegistryError> {
     let id = sqlx::query_scalar(
         r#"
-        INSERT INTO registry_sites (branch_id, customer_id, name)
-        VALUES ($1, $2, $3)
+        INSERT INTO registry_sites (branch_id, customer_id, name, org_id)
+        VALUES ($1, $2, $3, $4)
         ON CONFLICT (branch_id, customer_id, name) DO UPDATE
             SET updated_at = registry_sites.updated_at
         RETURNING id
@@ -965,6 +1824,7 @@ async fn upsert_site(
     .bind(branch_id)
     .bind(customer_id)
     .bind(name)
+    .bind(org_uuid)
     .fetch_one(tx.as_mut())
     .await?;
     Ok(id)
@@ -976,6 +1836,7 @@ async fn insert_equipment(
     customer_id: uuid::Uuid,
     site_id: uuid::Uuid,
     row: &MasterListEquipment,
+    org_uuid: uuid::Uuid,
 ) -> Result<(), PgRegistryError> {
     bind_equipment_insert(
         sqlx::query(
@@ -987,7 +1848,8 @@ async fn insert_equipment(
                 specification, ton_text, ton_milli, maker, model, vin, year, hours,
                 vehicle_registration_no, insured, insurer, policy_holder, insured_party,
                 asset_owner, asset_registered_on, rental_started_on,
-                rental_fee, vehicle_value, residual_value, note, source_sheet, source_row
+                rental_fee, vehicle_value, residual_value, note, source_sheet, source_row,
+                org_id
             )
             VALUES (
                 $1, $2, $3, $4,
@@ -996,7 +1858,8 @@ async fn insert_equipment(
                 $15, $16, $17, $18, $19, $20, $21, $22,
                 $23, $24, $25, $26, $27,
                 $28, $29, $30,
-                $31, $32, $33, $34, $35, $36
+                $31, $32, $33, $34, $35, $36,
+                $37
             )
             "#,
         ),
@@ -1005,6 +1868,7 @@ async fn insert_equipment(
         site_id,
         row,
     )
+    .bind(org_uuid)
     .execute(tx.as_mut())
     .await?;
     Ok(())
@@ -1024,8 +1888,11 @@ async fn fetch_equipment_admin_row(
     pool: &PgPool,
     equipment_id: EquipmentId,
 ) -> Result<Option<EquipmentAdminRow>, PgRegistryError> {
-    let row = sqlx::query(
-        r#"
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgRegistryError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
         SELECT id, branch_id, equipment_no, status, management_no, model,
                specification, ton_text, ton_milli, power_label,
                manager_name, placement_location, placement_no, operation_shift,
@@ -1035,9 +1902,12 @@ async fn fetch_equipment_admin_row(
         FROM registry_equipment
         WHERE id = $1
         "#,
-    )
-    .bind(*equipment_id.as_uuid())
-    .fetch_optional(pool)
+            )
+            .bind(*equipment_id.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?)
+        })
+    })
     .await?;
     let Some(row) = row else {
         return Ok(None);
@@ -1180,6 +2050,15 @@ fn update_after_snapshot(
             json!(value.map(MoneyWon::amount)),
         );
     }
+    if let Some(value) = fields.acquisition_cost_won {
+        map.insert(
+            "acquisition_cost_won".to_owned(),
+            json!(value.map(MoneyWon::amount)),
+        );
+    }
+    if let Some(date) = fields.acquisition_date {
+        map.insert("acquisition_date".to_owned(), json!(date));
+    }
     after
 }
 
@@ -1274,6 +2153,14 @@ async fn apply_scalar_equipment_update(
     if let Some(value) = fields.residual_value {
         builder.push(", residual_value = ");
         builder.push_bind(value.map(MoneyWon::amount));
+    }
+    if let Some(value) = fields.acquisition_cost_won {
+        builder.push(", acquisition_cost_won = ");
+        builder.push_bind(value.map(MoneyWon::amount));
+    }
+    if let Some(date) = fields.acquisition_date {
+        builder.push(", acquisition_date = ");
+        builder.push_bind(date);
     }
     builder.push(" WHERE id = ");
     builder.push_bind(*equipment_id.as_uuid());

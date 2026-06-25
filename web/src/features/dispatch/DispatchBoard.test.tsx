@@ -21,7 +21,7 @@ describe("DispatchBoard", () => {
     expect(screen.getByRole("heading", { name: "접수" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "배정" })).toBeVisible();
     expect(screen.getByText("20260612-001")).toBeVisible();
-    expect(screen.getByText("P1")).toBeVisible();
+    expect(screen.getByText("긴급")).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "20260612-001 배정" }));
 

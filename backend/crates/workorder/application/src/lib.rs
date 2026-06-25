@@ -8,12 +8,18 @@ use std::future::Future;
 use std::pin::Pin;
 
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, CustomerId, DailyPlanId, EquipmentId, KernelError, SiteId,
-    Timestamp, TraceContext, UserId, VendorId, WorkOrderId,
+    AuditAction, AuditEvent, BranchId, BranchScope, CustomerId, DailyPlanId, EquipmentId,
+    KernelError, OrgId, SiteId, Timestamp, TraceContext, UserId, VendorId, WorkOrderId,
 };
 use mnt_workorder_domain::{AssignmentRole, PriorityLevel, WorkOrderStatus, WorkResultType};
 use serde::{Deserialize, Serialize};
 use time::Date;
+
+// ISO calendar-date (`YYYY-MM-DD`) serde for `Date` fields exposed on the wire.
+// The default `time::Date` serde shape is a structured array, which mismatches
+// the OpenAPI `Date` contract (`type: string, format: date`) and the ISO strings
+// clients send/expect.
+time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
 
 macro_rules! application_enum {
     (
@@ -453,6 +459,10 @@ pub struct TargetChangeRequestSummary {
     pub id: uuid::Uuid,
     pub work_order_id: WorkOrderId,
     pub branch_id: BranchId,
+    // The OpenAPI contract types this as an rfc3339 `string` (format: date-time).
+    // Without this the bare `OffsetDateTime` serializes as a serde numeric array,
+    // breaking the contract and any client that parses it as a string.
+    #[serde(with = "time::serde::rfc3339")]
     pub requested_target_due_at: Timestamp,
     pub status: TargetChangeStatus,
 }
@@ -462,8 +472,24 @@ pub struct DailyPlanSummary {
     pub id: DailyPlanId,
     pub branch_id: BranchId,
     pub mechanic_id: UserId,
+    #[serde(with = "iso_date")]
     pub plan_date: Date,
     pub status: DailyPlanStatus,
+}
+
+/// Query for the approval-queue list of daily work plans (#19.17). Branch-scoped
+/// to the caller; an optional `plan_date` narrows to one day. Intentionally
+/// carries NO status filter so DRAFT/REQUESTED plans surface to approvers — the
+/// reporting read filters APPROVED/FINAL_CONFIRMED separately and is unchanged.
+#[derive(Debug, Clone)]
+pub struct DailyPlanListQuery {
+    pub branch_scope: BranchScope,
+    pub plan_date: Option<Date>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DailyPlanListPage {
+    pub items: Vec<DailyPlanSummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -491,7 +517,8 @@ pub fn work_order_audit_event(
         trace,
         occurred_at,
     )
-    .with_branch(branch_id))
+    .with_branch(branch_id)
+    .with_org(OrgId::knl()))
 }
 
 pub fn daily_plan_audit_event(
@@ -510,5 +537,6 @@ pub fn daily_plan_audit_event(
         trace,
         occurred_at,
     )
-    .with_branch(branch_id))
+    .with_branch(branch_id)
+    .with_org(OrgId::knl()))
 }

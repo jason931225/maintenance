@@ -1,0 +1,30 @@
+[package]
+name = "mnt-comms-adapter-postgres"
+version = "0.1.0"
+description = "Postgres adapter for webmail (PgMailStore): all SQL RLS-armed via with_org_conn/with_audit + current_org(); stores credential ciphertext only, persists OUT messages. Passwords are write-only (never read back)."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mnt-comms-application = { workspace = true }
+mnt-comms-domain = { workspace = true }
+mnt-kernel-core = { workspace = true }
+mnt-platform-db = { workspace = true }
+mnt-platform-request-context = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+mnt-comms-credential-cipher = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+secrecy = { workspace = true }
+base64 = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

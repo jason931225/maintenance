@@ -3,7 +3,8 @@
 
 use mnt_inspection_application::{
     CompleteInspectionRoundCommand, CreateInspectionScheduleCommand, InspectionRoundSummary,
-    InspectionScheduleSummary, ListInspectionSchedulesQuery, inspection_audit_event,
+    InspectionSchedulePage, InspectionScheduleSummary, ListInspectionSchedulesQuery,
+    inspection_audit_event,
 };
 use mnt_inspection_domain::{
     InspectionRoundOutcome, InspectionScheduleStatus, validate_interval_days,
@@ -12,8 +13,13 @@ use mnt_kernel_core::{
     BranchId, BranchScope, EquipmentId, ErrorKind, InspectionRoundId, InspectionScheduleId,
     KernelError, UserId,
 };
-use mnt_platform_db::{DbError, with_audit, with_audits};
+use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
+use mnt_platform_request_context::current_org;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row, Transaction};
+
+/// Hard server-side cap on a single schedule page, so a wide date range can
+/// never trigger an unbounded fetch even if the client over-asks.
+const MAX_SCHEDULE_LIMIT: i64 = 500;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PgInspectionError {
@@ -66,6 +72,8 @@ impl PgInspectionStore {
         &self,
         command: CreateInspectionScheduleCommand,
     ) -> Result<InspectionScheduleSummary, PgInspectionError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         validate_interval_days(command.interval_days)?;
         let schedule_id = InspectionScheduleId::new();
         let event = inspection_audit_event(
@@ -76,7 +84,8 @@ impl PgInspectionStore {
             schedule_id,
             command.trace,
             command.occurred_at,
-        )?;
+        )?
+        .with_org(org);
 
         with_audit::<_, InspectionScheduleSummary, PgInspectionError>(&self.pool, event, |tx| {
             Box::pin(async move {
@@ -93,9 +102,9 @@ impl PgInspectionStore {
                     r#"
                     INSERT INTO regular_inspection_schedules (
                         id, branch_id, equipment_id, mechanic_id, cycle, interval_days,
-                        due_date, status, note, created_by, created_at, updated_at
+                        due_date, status, note, created_by, created_at, updated_at, org_id
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, 'SCHEDULED', $8, $9, $10, $10)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, 'SCHEDULED', $8, $9, $10, $10, $11)
                     "#,
                 )
                 .bind(*schedule_id.as_uuid())
@@ -108,6 +117,7 @@ impl PgInspectionStore {
                 .bind(note)
                 .bind(*command.actor.as_uuid())
                 .bind(command.occurred_at)
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
 
@@ -121,9 +131,11 @@ impl PgInspectionStore {
         &self,
         command: CompleteInspectionRoundCommand,
     ) -> Result<InspectionRoundSummary, PgInspectionError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let round_id = InspectionRoundId::new();
 
-        with_audits::<_, InspectionRoundSummary, PgInspectionError>(&self.pool, |tx| {
+        with_audits::<_, InspectionRoundSummary, PgInspectionError>(&self.pool, org, |tx| {
             Box::pin(async move {
                 if command.findings.trim().is_empty() {
                     return Err(KernelError::validation("inspection findings are required").into());
@@ -157,9 +169,9 @@ impl PgInspectionStore {
                     r#"
                     INSERT INTO inspection_rounds (
                         id, schedule_id, branch_id, equipment_id, mechanic_id, completed_by,
-                        outcome, findings, note, completed_at, created_at
+                        outcome, findings, note, completed_at, created_at, org_id
                     )
-                    VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10)
+                    VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $11)
                     "#,
                 )
                 .bind(*round_id.as_uuid())
@@ -172,6 +184,7 @@ impl PgInspectionStore {
                 .bind(note)
                 .bind(command.completed_at)
                 .bind(command.occurred_at)
+                .bind(org_uuid)
                 .execute(tx.as_mut())
                 .await?;
 
@@ -236,12 +249,25 @@ impl PgInspectionStore {
     pub async fn list_due_schedules(
         &self,
         query: ListInspectionSchedulesQuery,
-    ) -> Result<Vec<InspectionScheduleSummary>, PgInspectionError> {
+    ) -> Result<InspectionSchedulePage, PgInspectionError> {
         if query.due_start >= query.due_end {
             return Err(
                 KernelError::validation("inspection due_start must be before due_end").into(),
             );
         }
+        let limit = query.limit.clamp(1, MAX_SCHEDULE_LIMIT);
+        let offset = query.offset.max(0);
+
+        // Unpaged total for the same date range + branch scope, so the console
+        // can show an honest count and page beyond the cap.
+        let mut count_builder = QueryBuilder::<Postgres>::new(
+            "SELECT COUNT(*) FROM regular_inspection_schedules s WHERE s.due_date >= ",
+        );
+        count_builder.push_bind(query.due_start);
+        count_builder.push(" AND s.due_date < ");
+        count_builder.push_bind(query.due_end);
+        count_builder.push(" AND s.status <> 'CANCELLED' AND ");
+        push_branch_column_filter(&mut count_builder, &query.branch_scope, "s.branch_id");
 
         let mut builder = QueryBuilder::<Postgres>::new(
             r#"
@@ -249,10 +275,15 @@ impl PgInspectionStore {
                 s.id, s.branch_id, s.equipment_id, s.mechanic_id, s.cycle,
                 s.interval_days, s.due_date, s.status, s.completed_at, s.note,
                 site.name AS site_name, e.management_no, e.model,
+                mech.display_name AS mechanic_display_name,
                 s.created_at, s.updated_at
             FROM regular_inspection_schedules s
             JOIN registry_equipment e ON e.id = s.equipment_id
             JOIN registry_sites site ON site.id = e.site_id
+            -- Same-org LEFT JOIN: `users` is RLS-scoped to app.current_org like
+            -- the schedules, so a mechanic only resolves within the caller's
+            -- tenant; a hard-deleted mechanic simply yields NULL.
+            LEFT JOIN users mech ON mech.id = s.mechanic_id
             WHERE s.due_date >=
             "#,
         );
@@ -261,21 +292,53 @@ impl PgInspectionStore {
         builder.push_bind(query.due_end);
         builder.push(" AND s.status <> 'CANCELLED' AND ");
         push_branch_column_filter(&mut builder, &query.branch_scope, "s.branch_id");
-        builder.push(" ORDER BY s.due_date, site.name, e.management_no, s.id");
+        builder.push(" ORDER BY s.due_date, site.name, e.management_no, s.id LIMIT ");
+        builder.push_bind(limit);
+        builder.push(" OFFSET ");
+        builder.push_bind(offset);
 
-        let rows = builder.build().fetch_all(&self.pool).await?;
-        rows.iter().map(schedule_from_row).collect()
+        let org = current_org().map_err(KernelError::from)?;
+        let (total, rows) = with_org_conn::<_, _, PgInspectionError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let total: i64 = count_builder
+                    .build_query_scalar()
+                    .fetch_one(tx.as_mut())
+                    .await?;
+                let rows = builder.build().fetch_all(tx.as_mut()).await?;
+                Ok((total, rows))
+            })
+        })
+        .await?;
+        let items = rows
+            .iter()
+            .map(schedule_from_row)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(InspectionSchedulePage {
+            items,
+            limit,
+            offset,
+            total,
+        })
     }
 
     pub async fn schedule_branch(
         &self,
         schedule_id: InspectionScheduleId,
     ) -> Result<BranchId, PgInspectionError> {
+        let schedule_uuid = *schedule_id.as_uuid();
+        let org = current_org().map_err(KernelError::from)?;
         let branch_id: uuid::Uuid =
-            sqlx::query_scalar("SELECT branch_id FROM regular_inspection_schedules WHERE id = $1")
-                .bind(*schedule_id.as_uuid())
-                .fetch_one(&self.pool)
-                .await?;
+            with_org_conn::<_, _, PgInspectionError>(&self.pool, org, move |tx| {
+                Box::pin(async move {
+                    Ok(sqlx::query_scalar(
+                        "SELECT branch_id FROM regular_inspection_schedules WHERE id = $1",
+                    )
+                    .bind(schedule_uuid)
+                    .fetch_one(tx.as_mut())
+                    .await?)
+                })
+            })
+            .await?;
         Ok(BranchId::from_uuid(branch_id))
     }
 
@@ -291,11 +354,17 @@ impl PgInspectionStore {
         builder.push(" AND ");
         push_branch_column_filter(&mut builder, branch_scope, "branch_id");
 
-        let branch_id = builder
-            .build_query_scalar::<uuid::Uuid>()
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| KernelError::not_found("inspection schedule was not found"))?;
+        let org = current_org().map_err(KernelError::from)?;
+        let branch_id = with_org_conn::<_, _, PgInspectionError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(builder
+                    .build_query_scalar::<uuid::Uuid>()
+                    .fetch_optional(tx.as_mut())
+                    .await?)
+            })
+        })
+        .await?
+        .ok_or_else(|| KernelError::not_found("inspection schedule was not found"))?;
         Ok(BranchId::from_uuid(branch_id))
     }
 }
@@ -407,10 +476,12 @@ async fn fetch_schedule_summary_tx(
             s.id, s.branch_id, s.equipment_id, s.mechanic_id, s.cycle,
             s.interval_days, s.due_date, s.status, s.completed_at, s.note,
             site.name AS site_name, e.management_no, e.model,
+            mech.display_name AS mechanic_display_name,
             s.created_at, s.updated_at
         FROM regular_inspection_schedules s
         JOIN registry_equipment e ON e.id = s.equipment_id
         JOIN registry_sites site ON site.id = e.site_id
+        LEFT JOIN users mech ON mech.id = s.mechanic_id
         WHERE s.id = $1
         "#,
     )
@@ -448,6 +519,7 @@ fn schedule_from_row(
         branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
         equipment_id: EquipmentId::from_uuid(row.try_get("equipment_id")?),
         mechanic_id: UserId::from_uuid(row.try_get("mechanic_id")?),
+        mechanic_display_name: row.try_get("mechanic_display_name")?,
         cycle: mnt_inspection_domain::InspectionCycle::from_db_str(&cycle_raw)?,
         interval_days: row.try_get("interval_days")?,
         due_date: row.try_get("due_date")?,

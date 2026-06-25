@@ -3,7 +3,7 @@
 use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode, header};
 use mnt_app::{AppConfig, AppRole, AppState, DatabaseDependency, build_router};
-use mnt_kernel_core::{BranchId, UserId};
+use mnt_kernel_core::{BranchId, OrgId, UserId};
 use mnt_platform_provisioning::BootstrapCredentialStore;
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
@@ -59,6 +59,13 @@ struct OtpRedeemResponse {
 struct AdminIssueOtpResponse {
     otp: String,
     user_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+struct PrivacyConsentStatusResponse {
+    policy_version: String,
+    accepted: bool,
+    accepted_at: Option<OffsetDateTime>,
 }
 
 /// End-to-end: an admin issues a one-time code; the new user signs in for the
@@ -187,6 +194,104 @@ async fn otp_first_signin_then_passkey_enrollment_then_usernameless_login(pool: 
 
     assert_audit_count(&pool, "auth.otp.signin", 2).await; // admin + new user
     assert_audit_count(&pool, "auth.login", 1).await; // usernameless login
+}
+
+/// Initial passkey enrollment is gated on separate privacy/data-collection and
+/// service-terms agreements. A freshly OTP-authenticated user can read the
+/// required version, cannot start enrollment until both required boxes are true,
+/// and can proceed after acceptance is recorded.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn first_passkey_enrollment_requires_privacy_terms(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_id = seed_branch(&pool, "Privacy Region", "Privacy Branch").await;
+    let user_id = seed_user_with_branch(
+        &pool,
+        "Privacy User",
+        "010-4050-0001",
+        "MECHANIC",
+        branch_id,
+    )
+    .await;
+    let service = build_router(
+        app_state(
+            pool.clone(),
+            private_key_pem.to_string(),
+            public_key_pem.clone(),
+        )
+        .unwrap(),
+    );
+
+    let issue = BootstrapCredentialStore
+        .issue_for_zero_credential_user(
+            &pool,
+            *user_id.as_uuid(),
+            OrgId::knl(),
+            OffsetDateTime::now_utc(),
+            Duration::hours(24),
+        )
+        .await
+        .unwrap();
+    let redeem: OtpRedeemResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/otp/redeem",
+        None,
+        json!({ "otp": issue.token.as_str() }),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(redeem.requires_passkey_setup);
+
+    let initial_status: PrivacyConsentStatusResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/privacy-consent/status",
+        Some(&redeem.access_token),
+        json!({}),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(!initial_status.accepted);
+    assert!(initial_status.accepted_at.is_none());
+
+    let blocked = post_raw(
+        service.clone(),
+        "/api/v1/auth/passkey/register/start",
+        Some(&redeem.access_token),
+        json!({ "username": "privacy.user", "display_name": "Privacy User" }),
+    )
+    .await;
+    assert_eq!(blocked.status(), StatusCode::FORBIDDEN);
+
+    let bundled_or_partial_consent = post_raw(
+        service.clone(),
+        "/api/v1/auth/privacy-consent/accept",
+        Some(&redeem.access_token),
+        json!({
+            "policy_version": initial_status.policy_version,
+            "privacy_collection": true,
+            "terms_of_service": false
+        }),
+    )
+    .await;
+    assert_eq!(bundled_or_partial_consent.status(), StatusCode::BAD_REQUEST);
+
+    let accepted = accept_required_privacy_consent(&service, &redeem.access_token).await;
+    assert!(accepted.accepted);
+    assert!(accepted.accepted_at.is_some());
+
+    let allowed: RegisterStartResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/passkey/register/start",
+        Some(&redeem.access_token),
+        json!({ "username": "privacy.user", "display_name": "Privacy User" }),
+        StatusCode::OK,
+    )
+    .await;
+    assert_ne!(allowed.ceremony_id, Uuid::nil());
 }
 
 /// The one-time code is consumed on PASSKEY REGISTRATION, not on redeem. A redeem
@@ -581,6 +686,7 @@ async fn cookie_mode_redeem_sets_httponly_cookie_and_omits_body_refresh(pool: Pg
         .issue_for_zero_credential_user(
             &pool,
             *user_id.as_uuid(),
+            OrgId::knl(),
             OffsetDateTime::now_utc(),
             Duration::hours(24),
         )
@@ -650,6 +756,7 @@ async fn cookie_mode_login_then_refresh_reads_and_rotates_cookie(pool: PgPool) {
         .issue_for_zero_credential_user(
             &pool,
             *user_id.as_uuid(),
+            OrgId::knl(),
             OffsetDateTime::now_utc(),
             Duration::hours(24),
         )
@@ -751,6 +858,7 @@ async fn body_mode_without_header_is_unchanged_and_sets_no_cookie(pool: PgPool) 
         .issue_for_zero_credential_user(
             &pool,
             *user_id.as_uuid(),
+            OrgId::knl(),
             OffsetDateTime::now_utc(),
             Duration::hours(24),
         )
@@ -849,6 +957,7 @@ async fn admin_session_via_otp(service: &axum::Router, pool: &PgPool, user_id: U
         .issue_for_zero_credential_user(
             pool,
             *user_id.as_uuid(),
+            OrgId::knl(),
             OffsetDateTime::now_utc(),
             Duration::hours(24),
         )
@@ -871,6 +980,7 @@ async fn enroll_passkey(
     authenticator: &mut WebauthnAuthenticator<SoftPasskey>,
     access_token: &str,
 ) -> String {
+    accept_required_privacy_consent(service, access_token).await;
     let registration: RegisterStartResponse = post_json(
         service.clone(),
         "/api/v1/auth/passkey/register/start",
@@ -891,6 +1001,42 @@ async fn enroll_passkey(
     )
     .await;
     finish.credential_id
+}
+
+async fn accept_required_privacy_consent(
+    service: &axum::Router,
+    access_token: &str,
+) -> PrivacyConsentStatusResponse {
+    let status: PrivacyConsentStatusResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/privacy-consent/status",
+        Some(access_token),
+        json!({}),
+        StatusCode::OK,
+    )
+    .await;
+    if status.accepted {
+        return status;
+    }
+
+    let accepted: PrivacyConsentStatusResponse = post_json(
+        service.clone(),
+        "/api/v1/auth/privacy-consent/accept",
+        Some(access_token),
+        json!({
+            "policy_version": status.policy_version,
+            "privacy_collection": true,
+            "terms_of_service": true
+        }),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(accepted.accepted);
+    assert!(
+        accepted.accepted_at.is_some(),
+        "accepted consent must record an audit timestamp"
+    );
+    accepted
 }
 
 async fn usernameless_login(
@@ -1087,18 +1233,21 @@ fn app_state(
 
 async fn seed_branch(pool: &PgPool, region_name: &str, branch_name: &str) -> BranchId {
     let region_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO regions (name) VALUES ($1) RETURNING id")
+        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
             .bind(region_name)
+            .bind(*OrgId::knl().as_uuid())
             .fetch_one(pool)
             .await
             .unwrap();
-    let branch_id: uuid::Uuid =
-        sqlx::query_scalar("INSERT INTO branches (region_id, name) VALUES ($1, $2) RETURNING id")
-            .bind(region_id)
-            .bind(branch_name)
-            .fetch_one(pool)
-            .await
-            .unwrap();
+    let branch_id: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(region_id)
+    .bind(branch_name)
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
     BranchId::from_uuid(branch_id)
 }
 
@@ -1110,17 +1259,21 @@ async fn seed_user_with_branch(
     branch_id: BranchId,
 ) -> UserId {
     let user_id = UserId::new();
-    sqlx::query("INSERT INTO users (id, display_name, phone, roles) VALUES ($1, $2, $3, $4)")
-        .bind(*user_id.as_uuid())
-        .bind(display_name)
-        .bind(phone)
-        .bind(Vec::from([role]))
-        .execute(pool)
-        .await
-        .unwrap();
-    sqlx::query("INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)")
+    sqlx::query(
+        "INSERT INTO users (id, display_name, phone, roles, org_id) VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(*user_id.as_uuid())
+    .bind(display_name)
+    .bind(phone)
+    .bind(Vec::from([role]))
+    .bind(*OrgId::knl().as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
         .bind(*user_id.as_uuid())
         .bind(*branch_id.as_uuid())
+        .bind(*OrgId::knl().as_uuid())
         .execute(pool)
         .await
         .unwrap();
@@ -1130,19 +1283,21 @@ async fn seed_user_with_branch(
 async fn seed_equipment(pool: &PgPool, branch_id: BranchId, management_no: &str) {
     let equipment_suffix = format!("{:0>4}", management_no);
     let customer_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO registry_customers (branch_id, name) VALUES ($1, $2) RETURNING id",
+        "INSERT INTO registry_customers (branch_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
     )
     .bind(*branch_id.as_uuid())
     .bind(format!("Customer {management_no}"))
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
     let site_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO registry_sites (branch_id, customer_id, name) VALUES ($1, $2, $3) RETURNING id",
+        "INSERT INTO registry_sites (branch_id, customer_id, name, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
     )
     .bind(*branch_id.as_uuid())
     .bind(customer_id)
     .bind(format!("Site {management_no}"))
+    .bind(*OrgId::knl().as_uuid())
     .fetch_one(pool)
     .await
     .unwrap();
@@ -1151,10 +1306,10 @@ async fn seed_equipment(pool: &PgPool, branch_id: BranchId, management_no: &str)
         INSERT INTO registry_equipment (
             branch_id, customer_id, site_id, equipment_no, management_no,
             manufacturer_code, kind_code, power_code, status,
-            specification, ton_text, model, source_sheet, source_row
+            specification, ton_text, model, source_sheet, source_row, org_id
         )
         VALUES ($1, $2, $3, $4, $5,
-                'A', 'B', 'C', '임대', '좌식', '2.5', 'GTS25DE', 'test', 1)
+                'A', 'B', 'C', '임대', '좌식', '2.5', 'GTS25DE', 'test', 1, $6)
         "#,
     )
     .bind(*branch_id.as_uuid())
@@ -1162,6 +1317,7 @@ async fn seed_equipment(pool: &PgPool, branch_id: BranchId, management_no: &str)
     .bind(site_id)
     .bind(format!("ABC12-{equipment_suffix}"))
     .bind(management_no)
+    .bind(*OrgId::knl().as_uuid())
     .execute(pool)
     .await
     .unwrap();

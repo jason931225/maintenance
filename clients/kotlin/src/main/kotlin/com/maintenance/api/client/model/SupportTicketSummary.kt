@@ -45,6 +45,7 @@ import kotlinx.serialization.Contextual
  * @param requesterUserId
  * @param requesterName
  * @param assigneeUserId
+ * @param assigneeName Assignee display name, resolved via a same-org LEFT JOIN on users. Null when unassigned or the assignee account no longer exists.
  * @param dueAt
  * @param createdAt
  * @param updatedAt
@@ -84,6 +85,10 @@ data class SupportTicketSummary (
 
     @Contextual @SerialName(value = "assignee_user_id")
     val assigneeUserId: java.util.UUID,
+
+    /* Assignee display name, resolved via a same-org LEFT JOIN on users. Null when unassigned or the assignee account no longer exists. */
+    @SerialName(value = "assignee_name")
+    val assigneeName: kotlin.String?,
 
     @Contextual @SerialName(value = "due_at")
     val dueAt: java.time.OffsetDateTime?,

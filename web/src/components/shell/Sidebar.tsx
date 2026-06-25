@@ -44,7 +44,7 @@ export function Sidebar({
       {/* Mobile backdrop */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-20 bg-slate-950/40 lg:hidden"
+          className="fixed inset-0 z-20 bg-ink/40 lg:hidden"
           onClick={onMobileClose}
           aria-hidden="true"
         />
@@ -52,17 +52,17 @@ export function Sidebar({
       <aside
         aria-label={ko.shell.title}
         className={cn(
-          "fixed inset-y-0 left-0 z-30 flex flex-col bg-white border-r border-slate-200 transition-all duration-200",
+          "fixed inset-y-0 left-0 z-30 flex flex-col bg-white border-r border-line transition-all duration-200",
           collapsed ? "w-16" : "w-60",
           mobileOpen ? "translate-x-0" : "-translate-x-full",
           "lg:static lg:translate-x-0 lg:z-auto",
         )}
       >
         {/* Brand */}
-        <div className="flex h-14 items-center gap-3 px-4 border-b border-slate-200 shrink-0">
-          <Wrench size={20} className="text-slate-950 shrink-0" aria-hidden="true" />
+        <div className="flex h-14 items-center gap-3 px-4 border-b border-line shrink-0">
+          <Wrench size={20} className="text-ink shrink-0" aria-hidden="true" />
           {!collapsed && (
-            <span className="font-bold text-slate-950 truncate">{ko.shell.title}</span>
+            <span className="font-bold text-ink truncate">{ko.shell.title}</span>
           )}
         </div>
 
@@ -74,7 +74,7 @@ export function Sidebar({
           {filteredGroups.map((group) => (
             <div key={group.key}>
               {!collapsed && (
-                <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-steel">
                   {navGroupLabel(group.key)}
                 </p>
               )}
@@ -93,8 +93,8 @@ export function Sidebar({
                         cn(
                           "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
                           isActive
-                            ? "bg-slate-100 text-slate-950 font-semibold"
-                            : "text-slate-600 hover:bg-slate-50 hover:text-slate-950",
+                            ? "bg-muted-panel text-ink font-semibold"
+                            : "text-steel hover:bg-muted-panel hover:text-ink",
                         )
                       }
                       title={collapsed ? labelStr : undefined}
@@ -114,10 +114,10 @@ export function Sidebar({
         </nav>
 
         {/* Collapse toggle (desktop only) */}
-        <div className="border-t border-slate-200 px-2 py-3 hidden lg:block">
+        <div className="border-t border-line px-2 py-3 hidden lg:block">
           <button
             aria-label={collapsed ? ko.shell.expandMenu : ko.shell.collapseMenu}
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-steel hover:bg-muted-panel"
             onClick={onCollapse}
           >
             {collapsed ? <ChevronsRight size={16} aria-hidden="true" /> : <ChevronsLeft size={16} aria-hidden="true" />}

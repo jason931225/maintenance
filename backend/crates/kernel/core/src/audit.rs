@@ -5,7 +5,7 @@
 
 use crate::Timestamp;
 use crate::error::KernelError;
-use crate::ids::{AuditEventId, BranchId, UserId};
+use crate::ids::{AuditEventId, BranchId, OrgId, UserId};
 use crate::trace::TraceContext;
 
 /// Dot-namespaced action code, e.g. `work_order.approve`, `kpi.exclusion.revoke`.
@@ -74,6 +74,11 @@ pub struct AuditEvent {
     pub target_id: String,
     /// `None` = organization-global event (e.g. roster import).
     pub branch_id: Option<BranchId>,
+    /// Owning tenant. When set, `with_audit` binds it to the `app.current_org`
+    /// GUC for the audited transaction so Postgres RLS scopes the mutation.
+    /// `None` keeps the legacy behavior (no tenant GUC set) for callers that
+    /// have not yet been migrated to multi-tenancy.
+    pub org_id: Option<OrgId>,
     /// State snapshot before the mutation, if meaningful.
     pub before: Option<serde_json::Value>,
     /// State snapshot after the mutation, if meaningful.
@@ -101,6 +106,7 @@ impl AuditEvent {
             target_type: target_type.into(),
             target_id: target_id.into(),
             branch_id: None,
+            org_id: None,
             before: None,
             after: None,
             trace,
@@ -111,6 +117,15 @@ impl AuditEvent {
     #[must_use]
     pub fn with_branch(mut self, branch: BranchId) -> Self {
         self.branch_id = Some(branch);
+        self
+    }
+
+    /// Attach the owning tenant. `with_audit` binds this to the
+    /// `app.current_org` GUC for the transaction so Postgres RLS scopes the
+    /// audited mutation to that tenant.
+    #[must_use]
+    pub fn with_org(mut self, org: OrgId) -> Self {
+        self.org_id = Some(org);
         self
     }
 

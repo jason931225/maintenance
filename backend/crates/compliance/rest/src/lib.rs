@@ -11,12 +11,13 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_compliance_adapter_postgres::{PgComplianceError, PgComplianceStore};
 use mnt_compliance_application::{
-    ConsentTransitionCommand, ConsentTransitionKind, LocationConsentLedgerEntry,
-    LocationConsentLedgerPage, LocationConsentLedgerQuery,
+    ArrivalEventPage, ArrivalEventQuery, ConsentTransitionCommand, ConsentTransitionKind,
+    LocationConsentLedgerEntry, LocationConsentLedgerPage, LocationConsentLedgerQuery,
 };
 use mnt_compliance_domain::{LocationConsent, LocationConsentState, LocationPing};
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, KernelError, LocationPingId, Timestamp, TraceContext, UserId,
+    BranchId, BranchScope, ErrorKind, KernelError, LocationPingId, OrgId, Timestamp, TraceContext,
+    UserId,
 };
 use mnt_platform_auth::{AccessClaims, JwtVerifier};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
@@ -31,6 +32,7 @@ pub const COMPLIANCE_ROUTE_PATHS: &[&str] = &[
     "/api/v1/location-pings",
     "/api/v1/location-consents/ledger",
     "/api/v1/location-consents/ledger.csv",
+    "/api/v1/location/arrival-events",
 ];
 
 #[derive(Clone)]
@@ -50,7 +52,9 @@ impl ComplianceRestState {
 }
 
 pub fn router(state: ComplianceRestState) -> Router {
-    Router::new()
+    let verifier = state.jwt_verifier.clone();
+    let pool = state.store.pool().clone();
+    let router = Router::new()
         .route("/api/v1/location-consent/status", get(get_status))
         .route("/api/v1/location-consent/grant", post(grant_consent))
         .route("/api/v1/location-consent/suspend", post(suspend_consent))
@@ -62,7 +66,9 @@ pub fn router(state: ComplianceRestState) -> Router {
             "/api/v1/location-consents/ledger.csv",
             get(export_ledger_csv),
         )
-        .with_state(state)
+        .route("/api/v1/location/arrival-events", get(list_arrival_events))
+        .with_state(state);
+    mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
 
 #[derive(Debug, Deserialize)]
@@ -100,10 +106,15 @@ struct LocationConsentStatusResponse {
     branch_id: BranchId,
     state: LocationConsentState,
     may_collect: bool,
+    #[serde(with = "time::serde::rfc3339::option")]
     granted_at: Option<Timestamp>,
+    #[serde(with = "time::serde::rfc3339::option")]
     suspended_at: Option<Timestamp>,
+    #[serde(with = "time::serde::rfc3339::option")]
     resumed_at: Option<Timestamp>,
+    #[serde(with = "time::serde::rfc3339::option")]
     withdrawn_at: Option<Timestamp>,
+    #[serde(with = "time::serde::rfc3339::option")]
     updated_at: Option<Timestamp>,
 }
 
@@ -332,6 +343,76 @@ fn authorize_ledger_read(
     }
 }
 
+/// GET /api/v1/location/arrival-events — the ops-facing site arrival/departure
+/// feed (issue #13). Tenant-scoped + branch-filtered, OpsDashboardRead-gated.
+async fn list_arrival_events(
+    State(state): State<ComplianceRestState>,
+    headers: HeaderMap,
+    Query(query): Query<LedgerRequest>,
+) -> Result<Json<ArrivalEventPage>, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    authorize_arrival_read(&principal, query.branch_id)?;
+    let page = state
+        .store
+        .list_arrival_events(&principal.branch_scope, normalize_arrival_query(query)?)
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(page))
+}
+
+fn normalize_arrival_query(query: LedgerRequest) -> Result<ArrivalEventQuery, RestError> {
+    let limit = query.limit.unwrap_or(100).clamp(1, 1_000);
+    let offset = query.offset.unwrap_or(0);
+    if offset < 0 {
+        return Err(RestError::from_kernel(KernelError::validation(
+            "offset must be non-negative",
+        )));
+    }
+    Ok(ArrivalEventQuery {
+        user_id: query.user_id,
+        branch_id: query.branch_id,
+        limit,
+        offset,
+    })
+}
+
+fn authorize_arrival_read(
+    principal: &Principal,
+    branch_id: Option<BranchId>,
+) -> Result<(), RestError> {
+    match branch_id {
+        Some(branch_id) => authorize(principal, Action::new(Feature::OpsDashboardRead), branch_id)
+            .map_err(RestError::from_kernel),
+        None => match &principal.branch_scope {
+            BranchScope::All => {
+                let has_feature_permission = principal.roles.iter().any(|role| {
+                    mnt_platform_authz::permission_for(*role, Feature::OpsDashboardRead)
+                        .satisfies_for_rest()
+                });
+                if has_feature_permission {
+                    Ok(())
+                } else {
+                    Err(RestError::from_kernel(KernelError::forbidden(
+                        "role is not allowed to use feature",
+                    )))
+                }
+            }
+            BranchScope::Branches(branches) if branches.len() == 1 => {
+                let Some(branch_id) = branches.iter().copied().next() else {
+                    return Err(RestError::from_kernel(KernelError::validation(
+                        "branch_id is required",
+                    )));
+                };
+                authorize(principal, Action::new(Feature::OpsDashboardRead), branch_id)
+                    .map_err(RestError::from_kernel)
+            }
+            BranchScope::Branches(_) => Err(RestError::from_kernel(KernelError::validation(
+                "branch_id is required for multi-branch arrival reads",
+            ))),
+        },
+    }
+}
+
 fn resolve_requested_branch(
     principal: &Principal,
     requested: Option<BranchId>,
@@ -435,7 +516,9 @@ fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
         BranchScope::Branches(branches)
     };
 
-    Ok(Principal::new(user_id, roles, branch_scope))
+    let org_id = OrgId::from_str(&claims.org)
+        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
+    Ok(Principal::new(user_id, org_id, roles, branch_scope))
 }
 
 fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {

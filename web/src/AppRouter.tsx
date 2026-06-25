@@ -1,14 +1,32 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
+import { PublicLayout } from "./components/public/PublicLayout";
 import { AppShell } from "./components/shell/AppShell";
+import { PlatformShell } from "./components/shell/PlatformShell";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { RequireAdminRoute } from "./components/RequireAdminRoute";
+import { RequireEquipmentManageRoute } from "./components/RequireEquipmentManageRoute";
+import { RequireDailyPlanRoute } from "./components/RequireDailyPlanRoute";
+import { RequireIntegrityRoute } from "./components/RequireIntegrityRoute";
+import { RequireKpiRoute } from "./components/RequireKpiRoute";
+import { RequirePlatformRoute } from "./components/RequirePlatformRoute";
 import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
 import { PageSpinner } from "./components/states/PageSpinner";
 import { LoginPage } from "./pages/LoginPage";
 import { WallBoardPage } from "./pages/WallBoardPage";
 import { CustomerIntakePage } from "./pages/CustomerIntakePage";
+// KNL storefront (#6). Public marketing pages render inside <PublicLayout/> and
+// supersede the previous #10 LandingPage as the primary public surface. Default
+// exports, eager-loaded — they sit on the public, unauthenticated fast path.
+import StorefrontHomePage from "./pages/StorefrontHomePage";
+import RentalPage from "./pages/RentalPage";
+import UsedSalesPage from "./pages/UsedSalesPage";
+import MaintenancePage from "./pages/MaintenancePage";
+import AboutPage from "./pages/AboutPage";
+import ContactPage from "./pages/ContactPage";
+import PrivacyNoticePage from "./pages/PrivacyNoticePage";
+import PlatformFsmPage from "./pages/PlatformFsmPage";
 
 // Authenticated-shell pages are code-split so the login / wallboard / public
 // intake fast paths don't pay for them. Each module uses a named export, so we
@@ -16,8 +34,21 @@ import { CustomerIntakePage } from "./pages/CustomerIntakePage";
 const OnboardingPage = lazy(() =>
   import("./pages/OnboardingPage").then((m) => ({ default: m.OnboardingPage })),
 );
+const PendingPage = lazy(() =>
+  import("./pages/PendingPage").then((m) => ({ default: m.PendingPage })),
+);
 const DispatchPage = lazy(() =>
   import("./pages/DispatchPage").then((m) => ({ default: m.DispatchPage })),
+);
+const WorkOrderDetailPage = lazy(() =>
+  import("./pages/WorkOrderDetailPage").then((m) => ({
+    default: m.WorkOrderDetailPage,
+  })),
+);
+const DispatchMapPage = lazy(() =>
+  import("./pages/DispatchMapPage").then((m) => ({
+    default: m.DispatchMapPage,
+  })),
 );
 const IntakePage = lazy(() =>
   import("./pages/IntakePage").then((m) => ({ default: m.IntakePage })),
@@ -25,8 +56,22 @@ const IntakePage = lazy(() =>
 const ApprovalsPage = lazy(() =>
   import("./pages/ApprovalsPage").then((m) => ({ default: m.ApprovalsPage })),
 );
+const DailyPlanPage = lazy(() =>
+  import("./pages/DailyPlanPage").then((m) => ({ default: m.DailyPlanPage })),
+);
 const KpiPage = lazy(() =>
   import("./pages/KpiPage").then((m) => ({ default: m.KpiPage })),
+);
+const InspectionPage = lazy(() =>
+  import("./pages/InspectionPage").then((m) => ({ default: m.InspectionPage })),
+);
+const OpsDashboardPage = lazy(() =>
+  import("./pages/OpsDashboardPage").then((m) => ({
+    default: m.OpsDashboardPage,
+  })),
+);
+const ReportingPage = lazy(() =>
+  import("./pages/ReportingPage").then((m) => ({ default: m.ReportingPage })),
 );
 const MessengerPage = lazy(() =>
   import("./pages/MessengerPage").then((m) => ({ default: m.MessengerPage })),
@@ -36,6 +81,19 @@ const SupportPage = lazy(() =>
 );
 const EquipmentPage = lazy(() =>
   import("./pages/EquipmentPage").then((m) => ({ default: m.EquipmentPage })),
+);
+const EquipmentBrowsePage = lazy(() =>
+  import("./pages/EquipmentBrowsePage").then((m) => ({
+    default: m.EquipmentBrowsePage,
+  })),
+);
+const EquipmentManagePage = lazy(() =>
+  import("./pages/EquipmentManagePage").then((m) => ({
+    default: m.EquipmentManagePage,
+  })),
+);
+const FinancialPage = lazy(() =>
+  import("./pages/FinancialPage").then((m) => ({ default: m.FinancialPage })),
 );
 const LocationSettingsPage = lazy(() =>
   import("./pages/LocationSettingsPage").then((m) => ({
@@ -47,24 +105,77 @@ const AdminSettingsPage = lazy(() =>
     default: m.AdminSettingsPage,
   })),
 );
+const EmailSettingsPage = lazy(() =>
+  import("./pages/EmailSettingsPage").then((m) => ({
+    default: m.EmailSettingsPage,
+  })),
+);
 const UsersPage = lazy(() =>
   import("./pages/UsersPage").then((m) => ({ default: m.UsersPage })),
 );
 const OrgPage = lazy(() =>
   import("./pages/OrgPage").then((m) => ({ default: m.OrgPage })),
 );
+const SitesPage = lazy(() =>
+  import("./pages/SitesPage").then((m) => ({ default: m.SitesPage })),
+);
 const ProfilePage = lazy(() =>
   import("./pages/ProfilePage").then((m) => ({ default: m.ProfilePage })),
+);
+const PlatformTenantsPage = lazy(() =>
+  import("./pages/PlatformTenantsPage").then((m) => ({
+    default: m.PlatformTenantsPage,
+  })),
+);
+const PlatformOnboardPage = lazy(() =>
+  import("./pages/PlatformOnboardPage").then((m) => ({
+    default: m.PlatformOnboardPage,
+  })),
+);
+const PlatformOpsPage = lazy(() =>
+  import("./features/platform/PlatformOpsPage").then((m) => ({
+    default: m.PlatformOpsPage,
+  })),
+);
+const CatalogAdminPage = lazy(() =>
+  import("./pages/CatalogAdminPage").then((m) => ({
+    default: m.CatalogAdminPage,
+  })),
+);
+const IntegrityPage = lazy(() =>
+  import("./pages/IntegrityPage").then((m) => ({ default: m.IntegrityPage })),
 );
 
 export function AppRouter() {
   return (
     <Routes>
       {/* Shell-less full-screen routes */}
+      {/* Public KNL storefront (#6). Nested under PublicLayout (site-header +
+          footer); each page renders only its own <main>. This unifies and
+          replaces the previous #10 LandingPage — `/` and `/landing` both resolve
+          to the KNL home, the primary public surface. Placed before the
+          ProtectedRoute guard so it stays unauthenticated. */}
+      <Route element={<PublicLayout />}>
+        <Route path="/" element={<StorefrontHomePage />} />
+        <Route path="/home" element={<StorefrontHomePage />} />
+        <Route path="/landing" element={<StorefrontHomePage />} />
+        <Route path="/rental" element={<RentalPage />} />
+        <Route path="/used" element={<UsedSalesPage />} />
+        <Route path="/maintenance" element={<MaintenancePage />} />
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/contact" element={<ContactPage />} />
+        <Route path="/privacy" element={<PrivacyNoticePage />} />
+        {/* Public FSM-platform showcase. The gated console owns /platform; this
+            public marketing surface is mounted at /platform-fsm so it stays
+            unauthenticated. */}
+        <Route path="/platform-fsm" element={<PlatformFsmPage />} />
+        {/* Public, unauthenticated customer support intake — the dominant
+            storefront CTA target. Nested inside PublicLayout so it inherits the
+            KNL header/nav/footer; the page renders only its own <main>. */}
+        <Route path="/support/new" element={<CustomerIntakePage />} />
+      </Route>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/wallboard" element={<WallBoardPage />} />
-      {/* Public, unauthenticated customer support intake */}
-      <Route path="/support/new" element={<CustomerIntakePage />} />
 
       {/* Auth guard — redirects to /login when unauthenticated */}
       <Route element={<ProtectedRoute />}>
@@ -83,22 +194,83 @@ export function AppRouter() {
           }
         />
 
-        {/* App shell layout */}
+        {/* Shell-less landing for a just-signed-up user with no role grant yet
+            (empty roles or `["MEMBER"]`). ProtectedRoute redirects such a session
+            here instead of onto /dispatch (which the backend 403s). Rendered
+            outside the shell — the MEMBER has no nav surface beyond Profile, which
+            the page links to. */}
+        <Route
+          path="/pending"
+          element={
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageSpinner />}>
+                <PendingPage />
+              </Suspense>
+            </RouteErrorBoundary>
+          }
+        />
+
+        {/* Vendor platform-admin console — its own shell + nav, gated by the
+            `platform` JWT claim. A tenant session hitting /platform is bounced
+            to /dispatch by RequirePlatformRoute; a platform session hitting a
+            tenant route is bounced to /platform by ProtectedRoute. */}
+        <Route element={<RequirePlatformRoute />}>
+          <Route path="/platform" element={<PlatformShell />}>
+            <Route index element={<Navigate to="/platform/tenants" replace />} />
+            <Route path="tenants" element={<PlatformTenantsPage />} />
+            <Route path="ops" element={<PlatformOpsPage />} />
+            <Route path="onboard" element={<PlatformOnboardPage />} />
+            <Route path="*" element={<Navigate to="/platform/tenants" replace />} />
+          </Route>
+        </Route>
+
+        {/* App shell layout. No index (`/`) route: `/` is the public KNL
+            storefront home (#6); authenticated entry lands on /dispatch via the
+            login redirect, and the shell catch-all below bounces unknown
+            authenticated paths there. */}
         <Route element={<AppShell />}>
-          <Route index element={<Navigate to="/dispatch" replace />} />
           <Route path="/dispatch" element={<DispatchPage />} />
+          {/* Work-order detail (read gate is WorkOrderReadAll = every role).
+              Write controls inside are gated to the assigned mechanic. */}
+          <Route path="/work-orders/:id" element={<WorkOrderDetailPage />} />
+          <Route path="/dispatch-map" element={<DispatchMapPage />} />
           <Route path="/intake" element={<IntakePage />} />
-          <Route path="/approvals" element={<ApprovalsPage />} />
-          <Route path="/kpi" element={<KpiPage />} />
+          <Route element={<RequireDailyPlanRoute />}>
+            <Route path="/daily-plan" element={<DailyPlanPage />} />
+          </Route>
+          <Route element={<RequireKpiRoute />}>
+            <Route path="/kpi" element={<KpiPage />} />
+          </Route>
+          {/* /integrity: governance findings (#12 / #34). EXECUTIVE/SUPER_ADMIN
+              only — RequireIntegrityRoute mirrors the backend matrix and the
+              `integrity` nav gate; ADMIN is intentionally excluded. */}
+          <Route element={<RequireIntegrityRoute />}>
+            <Route path="/integrity" element={<IntegrityPage />} />
+          </Route>
+          <Route path="/reporting" element={<ReportingPage />} />
           <Route path="/messenger" element={<MessengerPage />} />
           <Route path="/support" element={<SupportPage />} />
-          <Route path="/equipment" element={<EquipmentPage />} />
+          {/* /equipment: equipment browse list (all roles) */}
+          <Route path="/equipment" element={<EquipmentBrowsePage />} />
+          {/* /equipment/manage: equipment CRUD (EquipmentManage roles only) */}
+          <Route element={<RequireEquipmentManageRoute />}>
+            <Route path="/equipment/manage" element={<EquipmentManagePage />} />
+          </Route>
+          {/* Legacy equipment page: kept at /equipment/legacy during transition */}
+          <Route path="/equipment/legacy" element={<EquipmentPage />} />
+          <Route path="/financial" element={<FinancialPage />} />
           <Route path="/settings" element={<Navigate to="/settings/profile" replace />} />
           <Route path="/settings/profile" element={<ProfilePage />} />
           <Route path="/settings/location" element={<LocationSettingsPage />} />
           <Route element={<RequireAdminRoute />}>
+            <Route path="/catalog" element={<CatalogAdminPage />} />
+            <Route path="/approvals" element={<ApprovalsPage />} />
+            <Route path="/inspection" element={<InspectionPage />} />
+            <Route path="/ops" element={<OpsDashboardPage />} />
             <Route path="/settings/users" element={<UsersPage />} />
             <Route path="/settings/org" element={<OrgPage />} />
+            <Route path="/settings/sites" element={<SitesPage />} />
+            <Route path="/settings/email" element={<EmailSettingsPage />} />
             <Route path="/settings/security" element={<AdminSettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/dispatch" replace />} />

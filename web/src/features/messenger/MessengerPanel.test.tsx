@@ -177,6 +177,126 @@ describe("MessengerPanel", () => {
       expect(readReceiptBodies.length).toBeGreaterThan(0);
     });
   });
+
+  it("creates a new conversation then sends into it", async () => {
+    const user = userEvent.setup();
+    const memberId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const newThreadId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const createdBodies: unknown[] = [];
+
+    server.use(
+      http.get("*/api/v1/users", () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: senderId,
+              display_name: "나",
+              phone: null,
+              team: "MAINTENANCE",
+              roles: ["ADMIN"],
+              branch_ids: [branchId],
+              is_active: true,
+              created_at: "2026-01-01T00:00:00Z",
+            },
+            {
+              id: memberId,
+              display_name: "김정비",
+              phone: null,
+              team: "MAINTENANCE",
+              roles: ["MECHANIC"],
+              branch_ids: [branchId],
+              is_active: true,
+              created_at: "2026-01-01T00:00:00Z",
+            },
+          ],
+          limit: 200,
+          offset: 0,
+          total: 2,
+        }),
+      ),
+      http.post("*/api/messenger/threads", async ({ request }) => {
+        createdBodies.push(await request.json());
+        return HttpResponse.json(
+          {
+            id: newThreadId,
+            kind: "dm",
+            branch_id: branchId,
+            title: "현장 협의",
+            work_order_id: null,
+            last_message_id: null,
+            last_message_at: null,
+            member_count: 2,
+            created_at: "2026-06-12T10:00:00Z",
+            updated_at: "2026-06-12T10:00:00Z",
+          },
+          { status: 201 },
+        );
+      }),
+      http.get("*/api/messenger/threads/:threadId/messages", () =>
+        HttpResponse.json({ items: [], next_cursor: null }),
+      ),
+      http.post(
+        "*/api/messenger/threads/:threadId/messages",
+        async ({ request }) => {
+          const body = (await request.json()) as { body: string };
+          return HttpResponse.json(
+            {
+              id: sentMessageId,
+              thread_id: newThreadId,
+              branch_id: branchId,
+              sender_id: senderId,
+              sender_name: "나",
+              body: body.body,
+              attachment_evidence_ids: [],
+              sent_at: "2026-06-12T10:01:00Z",
+              created_at: "2026-06-12T10:01:00Z",
+            },
+            { status: 201 },
+          );
+        },
+      ),
+    );
+
+    render(
+      <MessengerPanel
+        api={createConsoleApiClient("test-access-token")}
+        accessToken="test-access-token"
+        apiBaseUrl="http://localhost:8080"
+        branchId={branchId}
+        currentUserId={senderId}
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: ko.messenger.newThread }),
+    );
+
+    await user.type(
+      await screen.findByLabelText(ko.messenger.subject),
+      "현장 협의",
+    );
+    // The signed-in member is excluded; only 김정비 is selectable.
+    await user.click(await screen.findByLabelText("김정비"));
+    await user.click(screen.getByRole("button", { name: ko.messenger.create }));
+
+    await waitFor(() => {
+      expect(createdBodies).toContainEqual({
+        branch_id: branchId,
+        kind: "dm",
+        title: "현장 협의",
+        member_ids: [memberId],
+      });
+    });
+
+    // The new thread is selected; sending reuses the existing send path.
+    await user.type(
+      await screen.findByLabelText(ko.messenger.composer),
+      "첫 메시지",
+    );
+    await user.click(screen.getByRole("button", { name: ko.messenger.send }));
+
+    expect(await screen.findByText("첫 메시지")).toBeVisible();
+  });
 });
 
 function message(
@@ -190,6 +310,7 @@ function message(
     thread_id: threadId,
     branch_id: branchId,
     sender_id: senderId,
+    sender_name: "나",
     body,
     attachment_evidence_ids: attachmentEvidenceIds,
     sent_at: `2026-06-12T09:${String(minute).padStart(2, "0")}:00Z`,

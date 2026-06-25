@@ -17,6 +17,7 @@ beforeAll(() => {
 });
 afterEach(() => {
   server.resetHandlers();
+  window.history.replaceState(null, "", "/");
 });
 afterAll(() => {
   server.close();
@@ -37,6 +38,9 @@ function makeAuthContext(
     acceptTokens: overrides.acceptTokens ?? (() => {}),
     clearPasskeySetup: overrides.clearPasskeySetup ?? (() => {}),
     api,
+    viewAs: overrides.viewAs,
+    enterViewAs: overrides.enterViewAs ?? (() => {}),
+    exitViewAs: overrides.exitViewAs ?? (() => undefined),
   };
 }
 
@@ -47,6 +51,27 @@ function renderApp(path: string, ctx: AuthContextValue) {
         <AppRouter />
       </MemoryRouter>
     </AuthContext.Provider>,
+  );
+}
+
+function usePrivacyConsentHandlers(initialAccepted = false) {
+  let accepted = initialAccepted;
+  server.use(
+    http.post("*/api/v1/auth/privacy-consent/status", () =>
+      HttpResponse.json({
+        policy_version: "kr-pipa-v1-2026-06-25",
+        accepted,
+        accepted_at: accepted ? "2026-06-25T00:00:00Z" : null,
+      }),
+    ),
+    http.post("*/api/v1/auth/privacy-consent/accept", () => {
+      accepted = true;
+      return HttpResponse.json({
+        policy_version: "kr-pipa-v1-2026-06-25",
+        accepted: true,
+        accepted_at: "2026-06-25T00:00:00Z",
+      });
+    }),
   );
 }
 
@@ -131,6 +156,7 @@ describe("LoginPage sign-in", () => {
 
 describe("requires_passkey_setup routing", () => {
   it("forces an OTP-first session into /onboarding", async () => {
+    usePrivacyConsentHandlers();
     const session: AuthSession = {
       access_token: "a",
       requires_passkey_setup: true,
@@ -139,6 +165,12 @@ describe("requires_passkey_setup routing", () => {
 
     expect(
       await screen.findByRole("heading", { name: "패스키 등록", level: 1 }),
+    ).toBeVisible();
+    expect(
+      await screen.findByRole("heading", {
+        name: "필수 개인정보 수집·이용 및 약관 동의",
+        level: 2,
+      }),
     ).toBeVisible();
   });
 });
@@ -173,9 +205,45 @@ describe("admin security page gating", () => {
 });
 
 describe("OnboardingPage enrollment", () => {
+  it("blocks enrollment until the two required agreements are accepted separately", async () => {
+    const user = userEvent.setup();
+    usePrivacyConsentHandlers(false);
+
+    renderApp(
+      "/onboarding",
+      makeAuthContext({
+        session: {
+          access_token: "a",
+          requires_passkey_setup: true,
+        },
+      }),
+    );
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "필수 개인정보 수집·이용 및 약관 동의",
+        level: 2,
+      }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: /이 기기/ })).toBeNull();
+
+    const submit = screen.getByRole("button", { name: "필수 동의 후 계속" });
+    expect(submit).toBeDisabled();
+    await user.click(screen.getByLabelText(/\[필수\] 개인정보 수집·이용/));
+    expect(submit).toBeDisabled();
+    await user.click(screen.getByLabelText(/\[필수\] 서비스 이용약관/));
+    expect(submit).toBeEnabled();
+    await user.click(submit);
+
+    expect(
+      await screen.findByRole("button", { name: /이 기기/ }),
+    ).toBeVisible();
+  });
+
   it("enrolls a passkey then clears the flag and continues", async () => {
     const user = userEvent.setup();
     const clearPasskeySetup = vi.fn();
+    usePrivacyConsentHandlers(true);
 
     class FakeAttestationResponse {
       attestationObject = Uint8Array.from([1]).buffer;
@@ -222,13 +290,13 @@ describe("OnboardingPage enrollment", () => {
 
     renderApp("/onboarding", makeAuthContext({ session, clearPasskeySetup }));
 
-    await user.click(await screen.findByRole("button", { name: /이 데스크톱/ }));
+    await user.click(await screen.findByRole("button", { name: /이 기기/ }));
 
     await waitFor(() => {
       expect(clearPasskeySetup).toHaveBeenCalledTimes(1);
     });
-    // "이 데스크톱" must request the platform authenticator (Touch ID / Windows Hello)
-    // while keeping the credential discoverable for usernameless login.
+    // The "this device" option must request the platform authenticator (Touch ID /
+    // Windows Hello) while keeping the credential discoverable for usernameless login.
     const arg = create.mock.calls[0][0] as {
       publicKey: PublicKeyCredentialCreationOptions;
     };
@@ -237,7 +305,8 @@ describe("OnboardingPage enrollment", () => {
     expect(selection?.residentKey).toBe("required");
   });
 
-  it("offers desktop, mobile, and QR cross-device passkey methods", async () => {
+  it("offers exactly the this-device and phone-QR enrollment methods", async () => {
+    usePrivacyConsentHandlers(true);
     renderApp(
       "/onboarding",
       makeAuthContext({
@@ -247,12 +316,77 @@ describe("OnboardingPage enrollment", () => {
         },
       }),
     );
+    // Exactly two reliable methods; the flaky native cross-device hybrid is gone.
     expect(
-      await screen.findByRole("button", { name: /이 데스크톱/ }),
+      await screen.findByRole("button", { name: /이 기기/ }),
     ).toBeTruthy();
-    expect(screen.getByRole("button", { name: /휴대폰에 패스키/ })).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: /데스크톱 \+ 휴대폰/ }),
+      screen.getByRole("button", { name: /휴대폰으로 등록/ }),
+    ).toBeTruthy();
+    // The removed native hybrid / "use a phone" options must not reappear.
+    expect(
+      screen.queryByRole("button", { name: /보안 키|데스크톱 \+ 휴대폰/ }),
+    ).toBeNull();
+  });
+
+  it("renders a QR handoff when the phone-QR method is chosen", async () => {
+    const user = userEvent.setup();
+    let handoffCalls = 0;
+    usePrivacyConsentHandlers(true);
+    server.use(
+      http.post("*/api/v1/auth/passkey/enroll-handoff", () => {
+        handoffCalls += 1;
+        return HttpResponse.json({
+          otp: "Abcd1234",
+          expires_at: "2026-06-14T00:05:00Z",
+          enroll_url: "https://console.knllogistic.com/login#otp=Abcd1234",
+        });
+      }),
+    );
+
+    renderApp(
+      "/onboarding",
+      makeAuthContext({
+        session: { access_token: "a", requires_passkey_setup: true },
+      }),
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: /휴대폰으로 등록/ }),
+    );
+
+    // The handoff is minted and the fallback enrollment link is shown.
+    const link = await screen.findByRole("link");
+    await waitFor(() => {
+      expect(handoffCalls).toBe(1);
+    });
+    expect(link.getAttribute("href")).toBe(
+      "https://console.knllogistic.com/login#otp=Abcd1234",
+    );
+  });
+
+  it("prefills and clears the OTP panel from a scanned fragment link", async () => {
+    window.history.replaceState(null, "", "/login#otp=Abcd1234");
+    renderApp("/login#otp=Abcd1234", makeAuthContext({}));
+    const field = await screen.findByLabelText(/일회용 코드/);
+    expect(field).toHaveValue("Abcd1234");
+    await waitFor(() => {
+      expect(window.location.hash).toBe("");
+    });
+  });
+
+  it("ignores query-string OTP links so handoff codes are not accepted from logged URLs", async () => {
+    renderApp("/login?otp=Abcd1234", makeAuthContext({}));
+    expect(
+      await screen.findByRole("button", { name: /일회용 코드로 로그인/ }),
+    ).toBeTruthy();
+  });
+
+  it("ignores a malformed fragment OTP", async () => {
+    renderApp("/login#otp=not-valid", makeAuthContext({}));
+    // The login card renders; the OTP panel stays collapsed (reveal button shown).
+    expect(
+      await screen.findByRole("button", { name: /일회용 코드로 로그인/ }),
     ).toBeTruthy();
   });
 });
