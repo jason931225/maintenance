@@ -36,10 +36,13 @@ export function Sidebar({
   session,
 }: SidebarProps) {
   const roles = session?.roles;
+  const groupRoles = session?.group_roles;
 
   const filteredGroups = NAV_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter((item) => isNavItemVisible(item.key, roles)),
+    items: group.items.filter((item) =>
+      isNavItemVisible(item.key, roles, groupRoles),
+    ),
   })).filter((group) => group.items.length > 0);
 
   return (

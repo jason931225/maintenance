@@ -6,18 +6,16 @@ import {
   exitTenantContext as exitTenantContextApi,
   exitViewAs as exitViewAsApi,
 } from "../../api/platform";
+import { exitGroupTenantContext } from "../../api/groupAdmin";
 import { useAuth } from "../../context/auth";
 import { ko } from "../../i18n/ko";
 import { cn } from "../../lib/utils";
 
 /**
- * Persistent, unmissable banner shown on EVERY page while a platform operator is
- * viewing a tenant read-only. Renders nothing when not impersonating.
- *
- * The Exit button calls the platform EXIT endpoint with the operator's platform
- * token (for the audit trail), restores the platform session, and returns to the
- * console — even if the audit call fails, the local session is always restored so
- * the operator is never stuck in the read-only view.
+ * Persistent, unmissable banner shown on EVERY page while a platform operator
+ * or group admin is operating inside a tenant context. Renders nothing when not
+ * impersonating. Exit restores the source session first, then best-effort audits
+ * the stop event so the operator is never stuck in the tenant context.
  */
 export function ViewAsBanner() {
   const { viewAs, exitViewAs } = useAuth();
@@ -26,6 +24,7 @@ export function ViewAsBanner() {
 
   if (!viewAs) return null;
 
+  const activeViewAs = viewAs;
   const isManage = viewAs.mode === "MANAGE";
   const bannerCopy = isManage
     ? ko.platform.tenantContext.banner
@@ -36,9 +35,18 @@ export function ViewAsBanner() {
 
   async function handleExit() {
     setExiting(true);
-    // Restore the platform session locally first (the source of truth for the
-    // app), then best-effort audit the exit with the operator's platform token.
+    // Restore the source session locally first (the source of truth for the
+    // app), then best-effort audit the exit with that source token.
     const operatorToken = exitViewAs();
+    if (activeViewAs.source === "GROUP_ADMIN") {
+      await exitGroupTenantContext(
+        operatorToken,
+        activeViewAs.actingOrgId,
+      ).catch(() => {});
+      void navigate("/settings/group");
+      return;
+    }
+
     const exitApi = isManage ? exitTenantContextApi : exitViewAsApi;
     await exitApi(operatorToken).catch(() => {});
     void navigate("/platform/tenants");

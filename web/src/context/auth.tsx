@@ -36,6 +36,11 @@ export interface AuthSession {
    * backend re-verifies authorization on every call.
    */
   roles?: string[];
+  /**
+   * JWT `group_roles` claim, e.g. `["GROUP_ADMIN"]`. Client-side hint only:
+   * group-admin APIs re-resolve live grants before every cross-tenant action.
+   */
+  group_roles?: string[];
   /** JWT `branches` claim; the first entry scopes admin actions like issuing OTPs. */
   branches?: string[];
   /**
@@ -63,25 +68,27 @@ export interface AcceptableTokens {
 }
 
 /**
- * An active PLATFORM "view as" (read-only impersonation) session. Present ONLY
- * while a platform operator is viewing a tenant. While set, the app behaves as
- * the impersonated tenant/role (the active `session` is the view_as token), and
- * the banner is shown on every page. `platformSession` is the operator's real
- * platform session, restored on exit.
+ * An active tenant context session. While set, the app behaves as the selected
+ * tenant/role (the active `session` is the tenant-context token), and the banner
+ * is shown on every page. `platformSession` keeps the source session (platform
+ * operator or group admin) restored on exit.
  */
 export type TenantContextMode = "VIEW_ONLY" | "MANAGE";
+export type TenantContextSource = "PLATFORM" | "GROUP_ADMIN";
 
 export interface ViewAsState {
   /** The short-lived tenant-context access token. */
   token: string;
   /** VIEW_ONLY blocks mutations server-side; MANAGE is an audited writable tenant-admin context. */
   mode?: TenantContextMode;
+  /** Which console/session started this tenant context; controls exit audit/navigation. */
+  source?: TenantContextSource;
   /** Acting tenant id + display name, for the banner and exit audit. */
   actingOrgId: string;
   actingOrgName: string;
   /** Acting tenant role code (e.g. `ADMIN`). */
   actingRole: string;
-  /** The operator's real platform session, restored verbatim on exit. */
+  /** The source session, restored verbatim on exit (legacy field name). */
   platformSession: AuthSession;
 }
 
@@ -107,22 +114,22 @@ export interface AuthContextValue {
    */
   viewAs: ViewAsState | undefined;
   /**
-   * Enter a read-only "view as" session: switch the app to the impersonated
-   * tenant/role using the supplied view_as token, saving the current platform
-   * session so it can be restored on exit. Must be called from a platform
-   * session.
+   * Enter a read-only or writable tenant context: switch the app to the selected
+   * tenant/role using the supplied token, saving the current source session so
+   * it can be restored on exit.
    */
   enterViewAs: (params: {
     token: string;
     mode?: TenantContextMode;
+    source?: TenantContextSource;
     actingOrgId: string;
     actingOrgName: string;
     actingRole: string;
   }) => void;
   /**
-   * Exit the active "view as" session and restore the platform session. Returns
-   * the operator's platform access token so the caller can audit the exit via
-   * the platform EXIT endpoint; `undefined` when no session was active.
+   * Exit the active tenant context and restore the source session. Returns the
+   * source access token so the caller can audit the exit; `undefined` when no
+   * session was active.
    */
   exitViewAs: () => string | undefined;
 }
@@ -155,6 +162,7 @@ function decodeAccessClaims(accessToken: string): {
   display_name?: string;
   email?: string;
   roles?: string[];
+  group_roles?: string[];
   branches?: string[];
   isPlatform?: boolean;
 } {
@@ -177,6 +185,7 @@ function decodeAccessClaims(accessToken: string): {
       name?: unknown;
       email?: unknown;
       roles?: unknown;
+      group_roles?: unknown;
       branches?: unknown;
       platform?: unknown;
     };
@@ -192,6 +201,9 @@ function decodeAccessClaims(accessToken: string): {
           : undefined,
       roles: Array.isArray(claims.roles)
         ? claims.roles.filter((r): r is string => typeof r === "string")
+        : undefined,
+      group_roles: Array.isArray(claims.group_roles)
+        ? claims.group_roles.filter((r): r is string => typeof r === "string")
         : undefined,
       branches: Array.isArray(claims.branches)
         ? claims.branches.filter((b): b is string => typeof b === "string")
@@ -365,17 +377,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   function enterViewAs(params: {
     token: string;
     mode?: TenantContextMode;
+    source?: TenantContextSource;
     actingOrgId: string;
     actingOrgName: string;
     actingRole: string;
   }) {
-    // Capture the current (platform) session so exit restores it verbatim. Guard
-    // against entering with no session — view-as is only ever started from a
-    // platform session.
+    // Capture the current source session so exit restores it verbatim. Guard
+    // against entering with no session — context switching always starts from an
+    // authenticated console.
     if (!session) return;
     setViewAs({
       token: params.token,
       mode: params.mode ?? "VIEW_ONLY",
+      source: params.source ?? "PLATFORM",
       actingOrgId: params.actingOrgId,
       actingOrgName: params.actingOrgName,
       actingRole: params.actingRole,
@@ -385,7 +399,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   function exitViewAs(): string | undefined {
     if (!viewAs) return undefined;
-    // Restore the operator's platform session and drop the impersonation token.
+    // Restore the source session and drop the context token.
     setSession(viewAs.platformSession);
     setViewAs(undefined);
     return viewAs.platformSession.access_token;

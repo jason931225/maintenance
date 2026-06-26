@@ -32,6 +32,11 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    environmentOptions: {
+      jsdom: {
+        url: "http://localhost/",
+      },
+    },
     setupFiles: ["./src/test/setup.ts"],
     // Workers rendering <AppRouter /> with lazy routes can keep the jsdom event
     // loop alive after tests complete, causing the fork to hang until OOM (seen

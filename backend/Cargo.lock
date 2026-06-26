@@ -2969,6 +2969,7 @@ dependencies = [
  "mnt-platform-authz",
  "mnt-platform-db",
  "mnt-platform-email",
+ "mnt-platform-group",
  "mnt-platform-provisioning",
  "serde",
  "serde_json",

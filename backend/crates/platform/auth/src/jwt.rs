@@ -157,6 +157,20 @@ impl JwtIssuer {
         self.issue_access_token_with_ttl(input, self.settings.access_token_ttl)
     }
 
+    /// Mint a normal access token that also carries group-role claims.
+    ///
+    /// The token remains tenant-scoped by its `org` claim; group authority is
+    /// still re-resolved by backend endpoints from the live owner-only grant
+    /// resolver before any cross-tenant action. The claim exists only so clients
+    /// can reveal the group-admin console without granting access by itself.
+    pub fn issue_access_token_with_group_roles(
+        &self,
+        input: AccessTokenInput,
+        group_roles: Vec<String>,
+    ) -> Result<String, AuthError> {
+        self.issue_access_token_inner(input, self.settings.access_token_ttl, None, group_roles)
+    }
+
     pub fn issue_scoped_access_token(
         &self,
         input: AccessTokenInput,

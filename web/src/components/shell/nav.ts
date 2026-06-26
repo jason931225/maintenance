@@ -15,6 +15,7 @@ import {
   Map as MapIcon,
   MapPin,
   MessageSquare,
+  Network,
   Receipt,
   Settings2,
   Mail,
@@ -44,6 +45,14 @@ export const ROLES = {
 
 export type Role = (typeof ROLES)[keyof typeof ROLES];
 
+export const GROUP_ROLES = {
+  GROUP_ADMIN: "GROUP_ADMIN",
+  GROUP_VIEWER: "GROUP_VIEWER",
+  GROUP_FINANCE: "GROUP_FINANCE",
+} as const;
+
+export type GroupRole = (typeof GROUP_ROLES)[keyof typeof GROUP_ROLES];
+
 /** True when `roles` contains at least one of `allowed`. */
 export function hasAnyRole(
   roles: readonly string[] | undefined,
@@ -51,6 +60,12 @@ export function hasAnyRole(
 ): boolean {
   if (!roles || roles.length === 0) return false;
   return roles.some((role) => (allowed as readonly string[]).includes(role));
+}
+
+export function hasGroupAdminRole(
+  groupRoles: readonly string[] | undefined,
+): boolean {
+  return groupRoles?.includes(GROUP_ROLES.GROUP_ADMIN) ?? false;
 }
 
 /**
@@ -192,7 +207,9 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
 export function isNavItemVisible(
   itemKey: string,
   roles: readonly string[] | undefined,
+  groupRoles?: readonly string[],
 ): boolean {
+  if (itemKey === "group") return hasGroupAdminRole(groupRoles);
   const gate = ITEM_ROLE_GATES.get(itemKey);
   if (!gate) return true;
   return hasAnyRole(roles, gate);
@@ -331,6 +348,12 @@ export const NAV_GROUPS = [
     key: "organization",
     label: "nav.groups.organization",
     items: [
+      {
+        key: "group",
+        href: "/settings/group",
+        labelKey: "nav.group",
+        Icon: Network,
+      },
       {
         key: "org",
         href: "/settings/org",

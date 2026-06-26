@@ -9,6 +9,7 @@ import { RequireAdminRoute } from "./components/RequireAdminRoute";
 import { RequireEquipmentManageRoute } from "./components/RequireEquipmentManageRoute";
 import { RequireEmployeeDirectoryRoute } from "./components/RequireEmployeeDirectoryRoute";
 import { RequireDailyPlanRoute } from "./components/RequireDailyPlanRoute";
+import { RequireGroupAdminRoute } from "./components/RequireGroupAdminRoute";
 import { RequireIntegrityRoute } from "./components/RequireIntegrityRoute";
 import { RequireKpiRoute } from "./components/RequireKpiRoute";
 import { RequirePlatformRoute } from "./components/RequirePlatformRoute";
@@ -119,6 +120,11 @@ const UsersPage = lazy(() =>
 );
 const OrgPage = lazy(() =>
   import("./pages/OrgPage").then((m) => ({ default: m.OrgPage })),
+);
+const GroupAdminPage = lazy(() =>
+  import("./pages/GroupAdminPage").then((m) => ({
+    default: m.GroupAdminPage,
+  })),
 );
 const SitesPage = lazy(() =>
   import("./pages/SitesPage").then((m) => ({ default: m.SitesPage })),
@@ -289,6 +295,9 @@ export function AppRouter() {
           <Route path="/settings/location" element={<LocationSettingsPage />} />
           <Route element={<RequireEmployeeDirectoryRoute />}>
             <Route path="/settings/employees" element={<EmployeesPage />} />
+          </Route>
+          <Route element={<RequireGroupAdminRoute />}>
+            <Route path="/settings/group" element={<GroupAdminPage />} />
           </Route>
           <Route element={<RequireAdminRoute />}>
             <Route path="/catalog" element={<CatalogAdminPage />} />

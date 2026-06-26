@@ -1,7 +1,7 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 
 import { PageSpinner } from "./states/PageSpinner";
-import { isPendingMember } from "./shell/nav";
+import { hasGroupAdminRole, isPendingMember } from "./shell/nav";
 import { useAuth } from "../context/auth";
 
 /**
@@ -63,6 +63,7 @@ export function ProtectedRoute({ children }: { children?: React.ReactNode }) {
   // generic error screen; allow only /pending and their own profile.
   if (
     isPendingMember(session.roles) &&
+    !hasGroupAdminRole(session.group_roles) &&
     !MEMBER_ALLOWED_PATHS.includes(location.pathname)
   ) {
     return <Navigate to="/pending" replace />;

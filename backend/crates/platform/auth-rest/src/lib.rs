@@ -27,6 +27,7 @@ use mnt_platform_authz::{
 };
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_platform_email::{EmailSender, StubEmailSender};
+use mnt_platform_group::GroupMemberOrg;
 use mnt_platform_provisioning::{BootstrapCredentialStore, ProvisioningError};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
@@ -35,6 +36,9 @@ use url::Url;
 use uuid::Uuid;
 
 const DEFAULT_ACCESS_TOKEN_TTL: Duration = Duration::minutes(15);
+const GROUP_ADMIN_TENANT_CONTEXT_TTL: Duration = Duration::minutes(15);
+const GROUP_ADMIN_GROUP_ROLE: &str = "GROUP_ADMIN";
+const GROUP_ADMIN_TENANT_ACTING_ROLE: &str = "SUPER_ADMIN";
 
 /// Request header a WEB client sets to opt into the cookie transport for the
 /// refresh token. Mobile (iOS/Android) clients never send it and keep the
@@ -64,6 +68,9 @@ pub const PRIVACY_CONSENT_STATUS_PATH: &str = "/api/v1/auth/privacy-consent/stat
 pub const PRIVACY_CONSENT_ACCEPT_PATH: &str = "/api/v1/auth/privacy-consent/accept";
 pub const TOKEN_REFRESH_PATH: &str = "/api/v1/auth/token/refresh";
 pub const LOGOUT_PATH: &str = "/api/v1/auth/logout";
+pub const GROUP_ADMIN_GROUPS_PATH: &str = "/api/v1/group-admin/groups";
+pub const GROUP_ADMIN_TENANT_CONTEXT_PATH: &str = "/api/v1/group-admin/tenant-context";
+pub const GROUP_ADMIN_TENANT_CONTEXT_EXIT_PATH: &str = "/api/v1/group-admin/tenant-context/exit";
 pub const AUTH_ROUTE_PATHS: &[&str] = &[
     SIGNUP_PATH,
     PASSKEY_REGISTER_START_PATH,
@@ -279,6 +286,15 @@ pub fn router(state: AuthRestState) -> Router {
         .route(PRIVACY_CONSENT_ACCEPT_PATH, post(accept_privacy_consent))
         .route(TOKEN_REFRESH_PATH, post(refresh_token))
         .route(LOGOUT_PATH, post(logout))
+        .route(GROUP_ADMIN_GROUPS_PATH, get(list_group_admin_groups))
+        .route(
+            GROUP_ADMIN_TENANT_CONTEXT_PATH,
+            post(start_group_admin_tenant_context),
+        )
+        .route(
+            GROUP_ADMIN_TENANT_CONTEXT_EXIT_PATH,
+            post(exit_group_admin_tenant_context),
+        )
         .with_state(state)
 }
 
@@ -484,6 +500,54 @@ struct TokenPairResponse {
     token_type: &'static str,
     #[serde(with = "time::serde::rfc3339")]
     refresh_expires_at: OffsetDateTime,
+}
+
+#[derive(Debug, Serialize)]
+struct GroupAdminMemberOrgResponse {
+    id: Uuid,
+    slug: String,
+    name: String,
+    status: String,
+}
+
+#[derive(Debug, Serialize)]
+struct GroupAdminGroupResponse {
+    id: Uuid,
+    slug: String,
+    name: String,
+    status: String,
+    members: Vec<GroupAdminMemberOrgResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct GroupAdminGroupsResponse {
+    groups: Vec<GroupAdminGroupResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GroupAdminTenantContextStartRequest {
+    org_id: Uuid,
+}
+
+#[derive(Debug, Serialize)]
+struct GroupAdminTenantContextStartResponse {
+    access_token: String,
+    token_type: &'static str,
+    acting_org_id: Uuid,
+    acting_org_name: String,
+    acting_role: &'static str,
+    #[serde(with = "time::serde::rfc3339")]
+    expires_at: OffsetDateTime,
+}
+
+#[derive(Debug, Deserialize)]
+struct GroupAdminTenantContextExitRequest {
+    org_id: Uuid,
+}
+
+#[derive(Debug, Serialize)]
+struct GroupAdminTenantContextExitResponse {
+    ended: bool,
 }
 
 /// The refresh-token body is OPTIONAL: web (cookie transport) sends the token in
@@ -1601,6 +1665,101 @@ async fn logout(
     }
 }
 
+/// GET /api/v1/group-admin/groups — list the ACTIVE groups/subsidiaries this
+/// actor may manage. The JWT group_roles claim is NOT trusted here; the live
+/// owner-only resolver is consulted on every call and only GROUP_ADMIN grants
+/// qualify.
+async fn list_group_admin_groups(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+) -> Result<Json<GroupAdminGroupsResponse>, RestError> {
+    let services = state.services()?;
+    let actor = authenticated_group_actor(services, &headers)?;
+    let groups = load_group_admin_groups(&state.pool, actor).await?;
+    Ok(Json(GroupAdminGroupsResponse { groups }))
+}
+
+/// POST /api/v1/group-admin/tenant-context — mint a short-lived writable tenant
+/// token for one resolver-authorized subsidiary. This is the tenant-side analog
+/// of the platform tenant-context endpoint, but it is strictly GROUP_ADMIN-only
+/// and does not rely on the user's home tenant.
+async fn start_group_admin_tenant_context(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+    Json(body): Json<GroupAdminTenantContextStartRequest>,
+) -> Result<Json<GroupAdminTenantContextStartResponse>, RestError> {
+    let services = state.services()?;
+    let actor = authenticated_group_actor(services, &headers)?;
+    let (group_id, target) =
+        resolve_group_admin_target_org(&state.pool, actor, OrgId::from_uuid(body.org_id)).await?;
+
+    let now = OffsetDateTime::now_utc();
+    let expires_at = now + GROUP_ADMIN_TENANT_CONTEXT_TTL;
+    let access_token = services
+        .jwt_issuer
+        .issue_access_token_with_ttl(
+            AccessTokenInput {
+                subject: actor,
+                org_id: target.org_id,
+                roles: vec![GROUP_ADMIN_TENANT_ACTING_ROLE.to_owned()],
+                branches: Vec::new(),
+                platform: false,
+                view_as: false,
+                read_only: false,
+                display_name: None,
+                issued_at: now,
+            },
+            GROUP_ADMIN_TENANT_CONTEXT_TTL,
+        )
+        .map_err(|err| RestError::internal(err.to_string()))?;
+
+    record_group_tenant_context_audit(
+        &state.pool,
+        actor,
+        target.org_id,
+        group_id,
+        "group.tenant_context.start",
+        now,
+    )
+    .await?;
+
+    Ok(Json(GroupAdminTenantContextStartResponse {
+        access_token,
+        token_type: "Bearer",
+        acting_org_id: *target.org_id.as_uuid(),
+        acting_org_name: target.name,
+        acting_role: GROUP_ADMIN_TENANT_ACTING_ROLE,
+        expires_at,
+    }))
+}
+
+/// POST /api/v1/group-admin/tenant-context/exit — audit the end of a group
+/// admin's writable tenant context. The original group-admin session token must
+/// be used; a missing/expired source session still lets the client exit locally,
+/// but the audit endpoint fails closed.
+async fn exit_group_admin_tenant_context(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+    Json(body): Json<GroupAdminTenantContextExitRequest>,
+) -> Result<Json<GroupAdminTenantContextExitResponse>, RestError> {
+    let services = state.services()?;
+    let actor = authenticated_group_actor(services, &headers)?;
+    let (group_id, target) =
+        resolve_group_admin_target_org(&state.pool, actor, OrgId::from_uuid(body.org_id)).await?;
+
+    record_group_tenant_context_audit(
+        &state.pool,
+        actor,
+        target.org_id,
+        group_id,
+        "group.tenant_context.stop",
+        OffsetDateTime::now_utc(),
+    )
+    .await?;
+
+    Ok(Json(GroupAdminTenantContextExitResponse { ended: true }))
+}
+
 impl AuthRestState {
     fn services(&self) -> Result<&AuthServices, RestError> {
         self.services.as_ref().ok_or_else(|| {
@@ -1617,6 +1776,10 @@ struct UserAuthContext {
     username: String,
     roles: Vec<String>,
     branches: Vec<BranchId>,
+    /// Live group roles resolved from owner-only grants at login/refresh time.
+    /// Clients use these only for UI gating; group-admin endpoints re-resolve
+    /// the grant from the database before every cross-tenant action.
+    group_roles: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -1645,22 +1808,27 @@ async fn issue_token_pair(
     user: &UserAuthContext,
 ) -> Result<IssuedTokenPair, RestError> {
     let now = OffsetDateTime::now_utc();
-    let access_token = services
-        .jwt_issuer
-        .issue_access_token(AccessTokenInput {
-            subject: user.user_id,
-            org_id: user.org_id,
-            roles: user.roles.clone(),
-            branches: user.branches.clone(),
-            platform: user.org_id == OrgId::platform(),
-            // A normal login/refresh token is never an impersonation token.
-            view_as: false,
-            read_only: false,
-            // DISPLAY-ONLY identity for the topbar; never used for authz.
-            display_name: Some(user.display_name.clone()),
-            issued_at: now,
-        })
-        .map_err(|err| RestError::internal(err.to_string()))?;
+    let access_input = AccessTokenInput {
+        subject: user.user_id,
+        org_id: user.org_id,
+        roles: user.roles.clone(),
+        branches: user.branches.clone(),
+        platform: user.org_id == OrgId::platform(),
+        // A normal login/refresh token is never an impersonation token.
+        view_as: false,
+        read_only: false,
+        // DISPLAY-ONLY identity for the topbar; never used for authz.
+        display_name: Some(user.display_name.clone()),
+        issued_at: now,
+    };
+    let access_token = if user.group_roles.is_empty() {
+        services.jwt_issuer.issue_access_token(access_input)
+    } else {
+        services
+            .jwt_issuer
+            .issue_access_token_with_group_roles(access_input, user.group_roles.clone())
+    }
+    .map_err(|err| RestError::internal(err.to_string()))?;
     let refresh = services
         .refresh_tokens
         .issue_family(
@@ -1687,26 +1855,31 @@ fn issue_access_token(
     services: &AuthServices,
     user: &UserAuthContext,
 ) -> Result<String, RestError> {
-    services
-        .jwt_issuer
-        .issue_access_token(AccessTokenInput {
-            subject: user.user_id,
-            org_id: user.org_id,
-            roles: user.roles.clone(),
-            branches: user.branches.clone(),
-            // A user homed in the platform sentinel org is the PLATFORM admin:
-            // mint a platform token so it can reach `/platform/*` (and is rejected
-            // on tenant `/api/*`). Every real tenant user gets `false`.
-            platform: user.org_id == OrgId::platform(),
-            // The ordinary refresh path never mints an impersonation token.
-            view_as: false,
-            read_only: false,
-            // DISPLAY-ONLY identity for the topbar; re-loaded from the user on
-            // every refresh so a renamed user's token reflects it. Never authz.
-            display_name: Some(user.display_name.clone()),
-            issued_at: OffsetDateTime::now_utc(),
-        })
-        .map_err(|err| RestError::internal(err.to_string()))
+    let input = AccessTokenInput {
+        subject: user.user_id,
+        org_id: user.org_id,
+        roles: user.roles.clone(),
+        branches: user.branches.clone(),
+        // A user homed in the platform sentinel org is the PLATFORM admin:
+        // mint a platform token so it can reach `/platform/*` (and is rejected
+        // on tenant `/api/*`). Every real tenant user gets `false`.
+        platform: user.org_id == OrgId::platform(),
+        // The ordinary refresh path never mints an impersonation token.
+        view_as: false,
+        read_only: false,
+        // DISPLAY-ONLY identity for the topbar; re-loaded from the user on
+        // every refresh so a renamed user's token reflects it. Never authz.
+        display_name: Some(user.display_name.clone()),
+        issued_at: OffsetDateTime::now_utc(),
+    };
+    if user.group_roles.is_empty() {
+        services.jwt_issuer.issue_access_token(input)
+    } else {
+        services
+            .jwt_issuer
+            .issue_access_token_with_group_roles(input, user.group_roles.clone())
+    }
+    .map_err(|err| RestError::internal(err.to_string()))
 }
 
 /// Load a user's auth context when the caller already holds the request's tenant
@@ -1792,6 +1965,25 @@ async fn load_user_auth_context_tx(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    let group_role_rows = sqlx::query(
+        r#"
+        SELECT DISTINCT group_role
+        FROM group_role_grants_for_user($1)
+        ORDER BY group_role
+        "#,
+    )
+    .bind(user_id)
+    .fetch_all(tx.as_mut())
+    .await
+    .map_err(|err| RestError::internal(err.to_string()))?;
+    let group_roles = group_role_rows
+        .into_iter()
+        .map(|row| {
+            row.try_get::<String, _>("group_role")
+                .map_err(|err| RestError::internal(err.to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
     Ok(UserAuthContext {
         user_id: UserId::from_uuid(user_id),
         org_id,
@@ -1799,6 +1991,7 @@ async fn load_user_auth_context_tx(
         username: phone.unwrap_or_else(|| user_id.to_string()),
         roles,
         branches,
+        group_roles,
     })
 }
 
@@ -2012,6 +2205,192 @@ async fn principal_from_headers(
         .access_scope()
         .map_err(|_| RestError::unauthorized("token contains an invalid access scope"))?;
     Ok(Principal::new(user_id, org_id, roles, branch_scope).with_access_scope(access_scope))
+}
+
+fn authenticated_group_actor(
+    services: &AuthServices,
+    headers: &HeaderMap,
+) -> Result<UserId, RestError> {
+    let token = bearer_token(headers)?;
+    let claims = services
+        .jwt_verifier
+        .verify_access_token(token)
+        .map_err(|_| RestError::unauthorized("invalid bearer token"))?;
+    if claims.platform {
+        return Err(RestError::forbidden(
+            "platform tokens cannot use tenant group-admin endpoints",
+        ));
+    }
+    if claims.view_as {
+        return Err(RestError::forbidden(
+            "read-only view-as tokens cannot manage group subsidiaries",
+        ));
+    }
+    if !has_group_admin_role_hint(&claims.group_roles) {
+        return Err(RestError::forbidden("group admin role required"));
+    }
+    Ok(UserId::from_uuid(user_id_from_claims(claims)?))
+}
+
+fn has_group_admin_role_hint(group_roles: &[String]) -> bool {
+    group_roles
+        .iter()
+        .any(|role| role.as_str() == GROUP_ADMIN_GROUP_ROLE)
+}
+
+#[derive(Debug)]
+struct GroupIdentity {
+    id: Uuid,
+    slug: String,
+    name: String,
+    status: String,
+}
+
+async fn load_group_admin_groups(
+    pool: &PgPool,
+    actor: UserId,
+) -> Result<Vec<GroupAdminGroupResponse>, RestError> {
+    let group_ids = group_admin_group_ids(pool, actor).await?;
+    if group_ids.is_empty() {
+        return Err(RestError::forbidden("group admin role required"));
+    }
+
+    let group_rows = sqlx::query(
+        r#"
+        SELECT id, slug, name, status
+        FROM groups
+        WHERE id = ANY($1)
+          AND status = 'ACTIVE'
+        ORDER BY name ASC, slug ASC, id ASC
+        "#,
+    )
+    .bind(&group_ids)
+    // rls-arming: ok global identity metadata; mnt_rt has SELECT on safe columns only
+    .fetch_all(pool)
+    .await
+    .map_err(|err| RestError::internal(err.to_string()))?;
+
+    let groups = group_rows
+        .into_iter()
+        .map(|row| {
+            Ok::<_, RestError>(GroupIdentity {
+                id: row
+                    .try_get("id")
+                    .map_err(|err| RestError::internal(err.to_string()))?,
+                slug: row
+                    .try_get("slug")
+                    .map_err(|err| RestError::internal(err.to_string()))?,
+                name: row
+                    .try_get("name")
+                    .map_err(|err| RestError::internal(err.to_string()))?,
+                status: row
+                    .try_get("status")
+                    .map_err(|err| RestError::internal(err.to_string()))?,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut responses = Vec::with_capacity(groups.len());
+    for group in groups {
+        let members = mnt_platform_group::group_member_orgs(pool, group.id, actor).await?;
+        responses.push(GroupAdminGroupResponse {
+            id: group.id,
+            slug: group.slug,
+            name: group.name,
+            status: group.status,
+            members: members
+                .into_iter()
+                .map(GroupAdminMemberOrgResponse::from)
+                .collect(),
+        });
+    }
+
+    Ok(responses)
+}
+
+async fn group_admin_group_ids(pool: &PgPool, actor: UserId) -> Result<Vec<Uuid>, RestError> {
+    sqlx::query_scalar(
+        r#"
+        SELECT DISTINCT grants.group_id
+        FROM group_role_grants_for_user($1) AS grants
+            JOIN groups g ON g.id = grants.group_id
+        WHERE grants.group_role = $2
+          AND g.status = 'ACTIVE'
+        ORDER BY grants.group_id
+        "#,
+    )
+    .bind(*actor.as_uuid())
+    .bind(GROUP_ADMIN_GROUP_ROLE)
+    // rls-arming: ok identity-only SECURITY DEFINER grants resolver + safe groups metadata
+    .fetch_all(pool)
+    .await
+    .map_err(|err| RestError::internal(err.to_string()))
+}
+
+async fn resolve_group_admin_target_org(
+    pool: &PgPool,
+    actor: UserId,
+    target_org: OrgId,
+) -> Result<(Uuid, GroupMemberOrg), RestError> {
+    let group_ids = group_admin_group_ids(pool, actor).await?;
+    if group_ids.is_empty() {
+        return Err(RestError::forbidden("group admin role required"));
+    }
+
+    for group_id in group_ids {
+        let members = mnt_platform_group::group_member_orgs(pool, group_id, actor).await?;
+        if let Some(member) = members
+            .into_iter()
+            .find(|member| member.org_id == target_org)
+        {
+            return Ok((group_id, member));
+        }
+    }
+
+    Err(RestError::forbidden(
+        "target organization is not a subsidiary managed by this group admin",
+    ))
+}
+
+async fn record_group_tenant_context_audit(
+    pool: &PgPool,
+    actor: UserId,
+    target_org: OrgId,
+    group_id: Uuid,
+    action: &str,
+    occurred_at: OffsetDateTime,
+) -> Result<(), RestError> {
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new(action).map_err(|err| RestError::internal(err.to_string()))?,
+        "organization",
+        target_org.to_string(),
+        TraceContext::generate(),
+        occurred_at,
+    )
+    .with_org(target_org)
+    .with_snapshots(
+        None,
+        Some(serde_json::json!({
+            "group_id": group_id,
+            "acting_org_id": target_org.to_string(),
+            "acting_role": GROUP_ADMIN_TENANT_ACTING_ROLE,
+            "read_only": false,
+        })),
+    );
+
+    with_audit::<_, (), RestError>(pool, event, |_tx| Box::pin(async move { Ok(()) })).await
+}
+
+impl From<GroupMemberOrg> for GroupAdminMemberOrgResponse {
+    fn from(value: GroupMemberOrg) -> Self {
+        Self {
+            id: *value.org_id.as_uuid(),
+            slug: value.slug,
+            name: value.name,
+            status: value.status,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2250,9 +2629,15 @@ fn with_refresh_cookie(mut response: Response, cookie: Option<HeaderValue>) -> R
 
 #[cfg(test)]
 mod tests {
-    use super::{authorizable_target_branches, build_enroll_url, client_ip};
+    use super::{
+        authorizable_target_branches, build_enroll_url, client_ip, has_group_admin_role_hint,
+        load_group_admin_groups, resolve_group_admin_target_org,
+    };
     use axum::http::HeaderMap;
-    use mnt_kernel_core::{BranchId, BranchScope};
+    use axum::http::StatusCode;
+    use mnt_kernel_core::{BranchId, BranchScope, OrgId, UserId};
+    use sqlx::PgPool;
+    use sqlx::postgres::PgPoolOptions;
     use std::collections::BTreeSet;
     use url::{Url, form_urlencoded};
     use uuid::Uuid;
@@ -2307,6 +2692,13 @@ mod tests {
         );
     }
 
+    #[test]
+    fn group_admin_control_endpoints_require_signed_group_admin_hint() {
+        assert!(has_group_admin_role_hint(&["GROUP_ADMIN".to_owned()]));
+        assert!(!has_group_admin_role_hint(&[]));
+        assert!(!has_group_admin_role_hint(&["GROUP_VIEWER".to_owned()]));
+    }
+
     fn headers_with_xff(value: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
         headers.insert("x-forwarded-for", value.parse().unwrap());
@@ -2353,5 +2745,125 @@ mod tests {
     fn client_ip_none_without_header() {
         assert_eq!(client_ip(&HeaderMap::new(), 1), None);
         assert_eq!(client_ip(&headers_with_xff("  ,  "), 1), None);
+    }
+
+    const ORG_A: Uuid = Uuid::from_u128(0xA013_A013_A013_A013_A013_A013_A013_A013);
+    const ORG_B: Uuid = Uuid::from_u128(0xB013_B013_B013_B013_B013_B013_B013_B013);
+    const GROUP: Uuid = Uuid::from_u128(0x9013_9013_9013_9013_9013_9013_9013_9013);
+    const GROUP_ADMIN: Uuid = Uuid::from_u128(0x1013_1013_1013_1013_1013_1013_1013_1013);
+    const GROUP_VIEWER: Uuid = Uuid::from_u128(0x2013_2013_2013_2013_2013_2013_2013_2013);
+
+    async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
+        let options = owner_pool.connect_options().as_ref().clone();
+        PgPoolOptions::new()
+            .max_connections(2)
+            .after_connect(|conn, _meta| {
+                Box::pin(async move {
+                    sqlx::query("SET ROLE mnt_rt").execute(conn).await?;
+                    Ok(())
+                })
+            })
+            .connect_with(options)
+            .await
+            .unwrap()
+    }
+
+    async fn seed_group_admin_fixture(pool: &PgPool) {
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("SET LOCAL row_security = off")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES \
+                ($1, 'g013-a', 'G013 A'), ($2, 'g013-b', 'G013 B')",
+        )
+        .bind(ORG_A)
+        .bind(ORG_B)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO users (id, display_name, roles, org_id) VALUES \
+                ($1, 'Group Admin', ARRAY['MEMBER'], $3), \
+                ($2, 'Group Viewer', ARRAY['MEMBER'], $4)",
+        )
+        .bind(GROUP_ADMIN)
+        .bind(GROUP_VIEWER)
+        .bind(ORG_A)
+        .bind(ORG_B)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+        sqlx::query("INSERT INTO groups (id, slug, name) VALUES ($1, 'g013', 'G013')")
+            .bind(GROUP)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO group_memberships (group_id, org_id) VALUES ($1, $2), ($1, $3)")
+            .bind(GROUP)
+            .bind(ORG_A)
+            .bind(ORG_B)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO group_role_grants (group_id, user_id, group_role, granted_by) VALUES \
+                ($1, $2, 'GROUP_ADMIN', NULL), \
+                ($1, $3, 'GROUP_VIEWER', NULL)",
+        )
+        .bind(GROUP)
+        .bind(GROUP_ADMIN)
+        .bind(GROUP_VIEWER)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+        tx.commit().await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "../db/migrations")]
+    async fn group_admin_helpers_allow_cross_tenant_subsidiary_but_filter_viewer(
+        owner_pool: PgPool,
+    ) {
+        seed_group_admin_fixture(&owner_pool).await;
+        let rt_pool = runtime_role_pool(&owner_pool).await;
+
+        let groups = load_group_admin_groups(&rt_pool, UserId::from_uuid(GROUP_ADMIN))
+            .await
+            .unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].id, GROUP);
+        let member_ids = groups[0]
+            .members
+            .iter()
+            .map(|member| member.id)
+            .collect::<Vec<_>>();
+        assert_eq!(member_ids, vec![ORG_A, ORG_B]);
+
+        let (_group_id, target) = resolve_group_admin_target_org(
+            &rt_pool,
+            UserId::from_uuid(GROUP_ADMIN),
+            OrgId::from_uuid(ORG_B),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            target.org_id,
+            OrgId::from_uuid(ORG_B),
+            "a group admin homed in org A can manage subsidiary org B",
+        );
+
+        let viewer_error = resolve_group_admin_target_org(
+            &rt_pool,
+            UserId::from_uuid(GROUP_VIEWER),
+            OrgId::from_uuid(ORG_A),
+        )
+        .await
+        .expect_err("GROUP_VIEWER must not manage subsidiaries");
+        assert_eq!(viewer_error.status, StatusCode::FORBIDDEN);
     }
 }

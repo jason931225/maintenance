@@ -59,6 +59,16 @@ function AuthProbe() {
   );
 }
 
+function GroupRolesProbe() {
+  const { session, restoring } = useAuth();
+  if (restoring) return <div data-testid="group-roles">restoring</div>;
+  return (
+    <div data-testid="group-roles">
+      {(session?.group_roles ?? []).join(",") || "-"}
+    </div>
+  );
+}
+
 function renderProvider() {
   return render(
     <AuthProvider>
@@ -159,6 +169,40 @@ describe("AuthProvider boot silent refresh", () => {
     await waitFor(() => {
       expect(screen.getByTestId("identity")).toHaveTextContent(
         "김관리|admin@example.com",
+      );
+    });
+  });
+
+  it("decodes group roles into the session for group-admin UI gating", async () => {
+    const header = btoa(JSON.stringify({ alg: "ES256", typ: "JWT" }));
+    const payload = btoa(
+      JSON.stringify({
+        sub: "00000000-0000-4000-8000-000000000001",
+        roles: ["MEMBER"],
+        group_roles: ["GROUP_ADMIN"],
+      }),
+    );
+    const access = `${header}.${payload}.sig`;
+    server.use(
+      http.post("*/api/v1/auth/token/refresh", () =>
+        HttpResponse.json({
+          access_token: access,
+          refresh_token: null,
+          token_type: "Bearer",
+          refresh_expires_at: "2026-06-19T00:00:00Z",
+        }),
+      ),
+    );
+
+    render(
+      <AuthProvider>
+        <GroupRolesProbe />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("group-roles")).toHaveTextContent(
+        "GROUP_ADMIN",
       );
     });
   });
