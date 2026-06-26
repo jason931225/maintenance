@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.15](https://github.com/jason931225/maintenance/compare/v0.1.14...v0.1.15) (2026-06-26)
+
+
+### Bug Fixes
+
+* **gitops:** ignore rollout service selectors ([#46](https://github.com/jason931225/maintenance/issues/46)) ([38fcc0f](https://github.com/jason931225/maintenance/commit/38fcc0f3de2db9ed5f8eb7bd6a141803fd208288))
+* **gitops:** mark Argo health for hooks and Traefik ingress ([#49](https://github.com/jason931225/maintenance/issues/49)) ([8a4119e](https://github.com/jason931225/maintenance/commit/8a4119ec212c2e7d6b992b57429575eda27c5458))
+* **gitops:** persist Argo health customizations ([#48](https://github.com/jason931225/maintenance/issues/48)) ([a9ed02d](https://github.com/jason931225/maintenance/commit/a9ed02d115e4accadad46802eb9292da95c6ac83))
+
 ## [0.1.14](https://github.com/jason931225/maintenance/compare/v0.1.13...v0.1.14) (2026-06-26)
 
 
