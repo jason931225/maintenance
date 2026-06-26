@@ -36,7 +36,7 @@ spec:
         - name: mnt-web
           image: mnt-web # registry + tag set by the prod overlay
           ports:
-            - { name: http, containerPort: 8080 }
+            - { name: http, containerPort: 8080, protocol: TCP }
           lifecycle:
             # Let in-flight requests drain before nginx receives SIGTERM, so the
             # blue/green rollout terminates the pod gracefully. /bin/sh exists in

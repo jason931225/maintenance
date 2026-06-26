@@ -40,7 +40,7 @@ spec:
         - name: mnt-app
           image: mnt-app # registry + tag set by the prod overlay
           ports:
-            - { name: http, containerPort: 8080 }
+            - { name: http, containerPort: 8080, protocol: TCP }
           envFrom:
             - configMapRef: { name: mnt-config }
             - secretRef: { name: mnt-secrets }

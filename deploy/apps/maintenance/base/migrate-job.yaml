@@ -8,7 +8,9 @@
 # (NOSUPERUSER, NOBYPASSRLS, owns nothing, no DDL): migrations no longer need
 # the serving workloads. hook-delete-policy BeforeHookCreation deletes the prior
 # Job at the start of each sync, so the immutable Job is recreated cleanly every
-# time (a fresh Job per sync, cleaned up before the next).
+# time (a fresh Job per sync, cleaned up before the next). HookSucceeded also
+# removes successful hook Jobs immediately so Argo does not keep reporting a
+# completed PreSync hook as a resource that requires pruning.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -17,7 +19,7 @@ metadata:
   labels: { app: mnt-migrate }
   annotations:
     argocd.argoproj.io/hook: PreSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
 spec:
   # Bounded retries; each migration run is idempotent so a retry is safe.
   backoffLimit: 2
