@@ -1118,8 +1118,8 @@ paths:
           type: integer
           format: int64
           minimum: 1
-          maximum: 200
-          default: 50
+          maximum: 1000
+          default: 500
       - name: offset
         in: query
         required: false
@@ -1240,6 +1240,81 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '503':
           description: JWT verification is not configured.
+  /api/v1/employees:
+    get:
+      operationId: listEmployees
+      summary: Paginated tenant HR employee directory
+      description: Executive/admin/super-admin read of first-class employee rows. Employees are not auth users.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: company
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Filter by workbook sheet/company name.
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 200
+          default: 50
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Paginated employee list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeePage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/employees/import:
+    post:
+      operationId: importEmployees
+      summary: Import payroll workbook sheets into the employee directory
+      description: Admin/super-admin multipart .xlsx upload. Each worksheet is treated as a company, row 1 as headers, and rows with non-empty 성명 are upserted by deterministic source filename/sheet/row key. Raw row values and source metadata are preserved as JSONB.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+              - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Payroll employee .xlsx workbook.
+      responses:
+        '200':
+          description: Import counts by company.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeImportReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/v1/equipment/{id}:
     patch:
       operationId: updateEquipment
@@ -5833,6 +5908,125 @@ components:
         offset:
           type: integer
           format: int64
+    Employee:
+      type: object
+      required:
+      - id
+      - company
+      - name
+      - source_filename
+      - source_sheet
+      - source_row
+      - raw_row
+      - source_metadata
+      - created_at
+      - updated_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        company:
+          type: string
+        name:
+          type: string
+        worksite_name:
+          type: string
+          nullable: true
+        worksite:
+          type: string
+          nullable: true
+        job:
+          type: string
+          nullable: true
+        position:
+          type: string
+          nullable: true
+        hire_date:
+          type: string
+          nullable: true
+        exit_date:
+          type: string
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        source_filename:
+          type: string
+        source_sheet:
+          type: string
+        source_row:
+          type: integer
+          format: int32
+        raw_row:
+          type: object
+          additionalProperties: true
+        source_metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    EmployeePage:
+      type: object
+      required:
+      - items
+      - total
+      - limit
+      - offset
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Employee'
+        total:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
+    EmployeeImportCompanySummary:
+      type: object
+      required:
+      - company
+      - input_rows
+      - inserted
+      - updated
+      properties:
+        company:
+          type: string
+        input_rows:
+          type: integer
+          minimum: 0
+        inserted:
+          type: integer
+          minimum: 0
+        updated:
+          type: integer
+          minimum: 0
+    EmployeeImportReport:
+      type: object
+      required:
+      - input_rows
+      - inserted
+      - updated
+      - companies
+      properties:
+        input_rows:
+          type: integer
+          minimum: 0
+        inserted:
+          type: integer
+          minimum: 0
+        updated:
+          type: integer
+          minimum: 0
+        companies:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmployeeImportCompanySummary'
     AssignmentSummary:
       type: object
       required:

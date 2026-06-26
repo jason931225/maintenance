@@ -94,6 +94,7 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+mod hr;
 mod mail_sync;
 
 const DEFAULT_HTTP_ADDR: &str = "0.0.0.0:8080";
@@ -1326,6 +1327,10 @@ pub fn build_router(state: AppState) -> Router {
                 )))
                 .merge(mnt_registry_rest::router(RegistryRestState::new(
                     registry_store,
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(hr::router(hr::HrState::new(
+                    pool.clone(),
                     state.jwt_verifier.clone(),
                 )))
                 .merge(mnt_sales_rest::router({

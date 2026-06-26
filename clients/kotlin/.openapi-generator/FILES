@@ -91,6 +91,10 @@ src/main/kotlin/com/maintenance/api/client/model/DeviceRegistrationRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DeviceRegistrationResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/DispatchResponseKind.kt
 src/main/kotlin/com/maintenance/api/client/model/DispatchStatus.kt
+src/main/kotlin/com/maintenance/api/client/model/Employee.kt
+src/main/kotlin/com/maintenance/api/client/model/EmployeeImportCompanySummary.kt
+src/main/kotlin/com/maintenance/api/client/model/EmployeeImportReport.kt
+src/main/kotlin/com/maintenance/api/client/model/EmployeePage.kt
 src/main/kotlin/com/maintenance/api/client/model/EnrollHandoffRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/EnrollHandoffResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/EquipmentAutocompletePage.kt

@@ -7,6 +7,7 @@ import { PlatformShell } from "./components/shell/PlatformShell";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { RequireAdminRoute } from "./components/RequireAdminRoute";
 import { RequireEquipmentManageRoute } from "./components/RequireEquipmentManageRoute";
+import { RequireEmployeeDirectoryRoute } from "./components/RequireEmployeeDirectoryRoute";
 import { RequireDailyPlanRoute } from "./components/RequireDailyPlanRoute";
 import { RequireIntegrityRoute } from "./components/RequireIntegrityRoute";
 import { RequireKpiRoute } from "./components/RequireKpiRoute";
@@ -94,6 +95,9 @@ const EquipmentManagePage = lazy(() =>
 );
 const FinancialPage = lazy(() =>
   import("./pages/FinancialPage").then((m) => ({ default: m.FinancialPage })),
+);
+const EmployeesPage = lazy(() =>
+  import("./pages/EmployeesPage").then((m) => ({ default: m.EmployeesPage })),
 );
 const LocationSettingsPage = lazy(() =>
   import("./pages/LocationSettingsPage").then((m) => ({
@@ -277,6 +281,9 @@ export function AppRouter() {
           />
           <Route path="/settings/profile" element={<ProfilePage />} />
           <Route path="/settings/location" element={<LocationSettingsPage />} />
+          <Route element={<RequireEmployeeDirectoryRoute />}>
+            <Route path="/settings/employees" element={<EmployeesPage />} />
+          </Route>
           <Route element={<RequireAdminRoute />}>
             <Route path="/catalog" element={<CatalogAdminPage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />

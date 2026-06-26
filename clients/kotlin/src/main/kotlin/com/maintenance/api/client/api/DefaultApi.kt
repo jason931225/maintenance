@@ -71,6 +71,8 @@ import com.maintenance.api.client.model.DailyPlanListPage
 import com.maintenance.api.client.model.DailyPlanSummary
 import com.maintenance.api.client.model.DeviceRegistrationRequest
 import com.maintenance.api.client.model.DeviceRegistrationResponse
+import com.maintenance.api.client.model.EmployeeImportReport
+import com.maintenance.api.client.model.EmployeePage
 import com.maintenance.api.client.model.EnrollHandoffRequest
 import com.maintenance.api.client.model.EnrollHandoffResponse
 import com.maintenance.api.client.model.EquipmentAutocompletePage
@@ -6172,6 +6174,80 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * POST /api/v1/employees/import
+     * Import payroll workbook sheets into the employee directory
+     * Admin/super-admin multipart .xlsx upload. Each worksheet is treated as a company, row 1 as headers, and rows with non-empty 성명 are upserted by deterministic source filename/sheet/row key. Raw row values and source metadata are preserved as JSONB.
+     * @param file The master-list .xlsx workbook.
+     * @return EmployeeImportReport
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun importEmployees(file: java.io.File) : EmployeeImportReport = withContext(Dispatchers.IO) {
+        val localVarResponse = importEmployeesWithHttpInfo(file = file)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EmployeeImportReport
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/employees/import
+     * Import payroll workbook sheets into the employee directory
+     * Admin/super-admin multipart .xlsx upload. Each worksheet is treated as a company, row 1 as headers, and rows with non-empty 성명 are upserted by deterministic source filename/sheet/row key. Raw row values and source metadata are preserved as JSONB.
+     * @param file The master-list .xlsx workbook.
+     * @return ApiResponse<EmployeeImportReport?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun importEmployeesWithHttpInfo(file: java.io.File) : ApiResponse<EmployeeImportReport?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = importEmployeesRequestConfig(file = file)
+
+        return@withContext request<Map<String, PartConfig<*>>, EmployeeImportReport>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation importEmployees
+     *
+     * @param file The master-list .xlsx workbook.
+     * @return RequestConfig
+     */
+    fun importEmployeesRequestConfig(file: java.io.File) : RequestConfig<Map<String, PartConfig<*>>> {
+        val localVariableBody = mapOf(
+            "file" to PartConfig(body = file, headers = mutableMapOf()),)
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf("Content-Type" to "multipart/form-data")
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/employees/import",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/equipment/import
      * Import the 지게차 master-list workbook into a fresh registry
      * Admin-gated (MasterListImport) multipart upload of the K&amp;L master-list .xlsx. Upserts equipment by equipment number and returns a created/updated/error summary.
@@ -6490,6 +6566,96 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
     }
 
     /**
+     * GET /api/v1/employees
+     * Paginated tenant HR employee directory
+     * Executive/admin/super-admin read of first-class employee rows. Employees are not auth users.
+     * @param company Filter by workbook sheet/company name. (optional)
+     * @param limit  (optional, default to 50L)
+     * @param offset  (optional, default to 0L)
+     * @return EmployeePage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listEmployees(company: kotlin.String? = null, limit: kotlin.Long? = 50L, offset: kotlin.Long? = 0L) : EmployeePage = withContext(Dispatchers.IO) {
+        val localVarResponse = listEmployeesWithHttpInfo(company = company, limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EmployeePage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/employees
+     * Paginated tenant HR employee directory
+     * Executive/admin/super-admin read of first-class employee rows. Employees are not auth users.
+     * @param company Filter by workbook sheet/company name. (optional)
+     * @param limit  (optional, default to 50L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<EmployeePage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listEmployeesWithHttpInfo(company: kotlin.String?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<EmployeePage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listEmployeesRequestConfig(company = company, limit = limit, offset = offset)
+
+        return@withContext request<Unit, EmployeePage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listEmployees
+     *
+     * @param company Filter by workbook sheet/company name. (optional)
+     * @param limit  (optional, default to 50L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun listEmployeesRequestConfig(company: kotlin.String?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (company != null) {
+                    put("company", listOf(company.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/employees",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/equipment/list
      * Paginated, filterable, branch-scoped equipment list
      * Read access (WorkOrderReadAll — all authenticated roles). Non-SUPER_ADMIN principals see only rows in their own branch(es). The &#x60;q&#x60; parameter is normalized like the 호기-lookup: strips a leading &#x60;#&#x60; and a trailing &#x60;호기&#x60; suffix then matches leading-zero-insensitively across management_no, equipment_no, model, maker, customer name, site name, and VIN.
@@ -6501,7 +6667,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * @param model Filter by model name (case-insensitive exact match). (optional)
      * @param maker Filter by maker name (case-insensitive exact match). (optional)
      * @param sort  (optional)
-     * @param limit  (optional, default to 50L)
+     * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return EquipmentListPage
      * @throws IllegalStateException If the request is not correctly configured
@@ -6512,7 +6678,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listEquipment(q: kotlin.String? = null, status: EquipmentStatus? = null, branchId: java.util.UUID? = null, customerId: java.util.UUID? = null, siteId: java.util.UUID? = null, model: kotlin.String? = null, maker: kotlin.String? = null, sort: EquipmentSortBy? = null, limit: kotlin.Long? = 50L, offset: kotlin.Long? = 0L) : EquipmentListPage = withContext(Dispatchers.IO) {
+    suspend fun listEquipment(q: kotlin.String? = null, status: EquipmentStatus? = null, branchId: java.util.UUID? = null, customerId: java.util.UUID? = null, siteId: java.util.UUID? = null, model: kotlin.String? = null, maker: kotlin.String? = null, sort: EquipmentSortBy? = null, limit: kotlin.Long? = 500L, offset: kotlin.Long? = 0L) : EquipmentListPage = withContext(Dispatchers.IO) {
         val localVarResponse = listEquipmentWithHttpInfo(q = q, status = status, branchId = branchId, customerId = customerId, siteId = siteId, model = model, maker = maker, sort = sort, limit = limit, offset = offset)
 
         return@withContext when (localVarResponse.responseType) {
@@ -6542,7 +6708,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * @param model Filter by model name (case-insensitive exact match). (optional)
      * @param maker Filter by maker name (case-insensitive exact match). (optional)
      * @param sort  (optional)
-     * @param limit  (optional, default to 50L)
+     * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return ApiResponse<EquipmentListPage?>
      * @throws IllegalStateException If the request is not correctly configured
@@ -6569,7 +6735,7 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
      * @param model Filter by model name (case-insensitive exact match). (optional)
      * @param maker Filter by maker name (case-insensitive exact match). (optional)
      * @param sort  (optional)
-     * @param limit  (optional, default to 50L)
+     * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return RequestConfig
      */

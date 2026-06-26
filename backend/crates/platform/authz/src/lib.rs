@@ -161,10 +161,15 @@ pub enum Feature {
     /// batches) read inbound threads. RECEPTIONIST + ADMIN + EXECUTIVE +
     /// SUPER_ADMIN; MECHANIC is excluded (work lives in the messenger surface).
     MailUse,
+    /// Read the tenant HR employee directory. EXECUTIVE + ADMIN + SUPER_ADMIN only.
+    EmployeeDirectoryRead,
+    /// Import/manage tenant HR employee rows. ADMIN + SUPER_ADMIN only; employees
+    /// are deliberately not auth users.
+    EmployeeDirectoryManage,
 }
 
 impl Feature {
-    pub const ALL: [Self; 42] = [
+    pub const ALL: [Self; 44] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -207,6 +212,8 @@ impl Feature {
         Self::IntegrityFindingTriage,
         Self::MailAccountManage,
         Self::MailUse,
+        Self::EmployeeDirectoryRead,
+        Self::EmployeeDirectoryManage,
     ];
 
     const fn matrix_row(self) -> [PermissionLevel; 6] {
@@ -269,6 +276,8 @@ impl Feature {
             // Sending/replying/forwarding mail: front-office + leadership.
             // MECHANIC is excluded (their workflow is the messenger surface).
             Self::MailUse => [D, A, D, A, A, A],
+            Self::EmployeeDirectoryRead => [D, D, D, A, A, A],
+            Self::EmployeeDirectoryManage => [D, D, D, A, D, A],
         }
     }
 }

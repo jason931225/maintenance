@@ -42,6 +42,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "org",
     "sites",
     "location",
+    "employees",
     "users",
     "email",
     "security",
@@ -66,6 +67,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "org",
     "sites",
     "location",
+    "employees",
     "users",
     "email",
     "security",
@@ -86,6 +88,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "equipment-manage",
     "financial",
     "location",
+    "employees",
     "profile",
   ],
   // Mechanic: operational pages only; daily-plan yes (DailyPlanRequest); no
@@ -148,6 +151,15 @@ describe("nav role gating", () => {
     expect(isNavItemVisible("email", [ROLES.MECHANIC])).toBe(false);
     expect(isNavItemVisible("email", [ROLES.RECEPTIONIST])).toBe(false);
     expect(isNavItemVisible("email", [ROLES.MEMBER])).toBe(false);
+  });
+
+
+  it("shows the employee directory to ADMIN, EXECUTIVE, and SUPER_ADMIN", () => {
+    expect(isNavItemVisible("employees", [ROLES.ADMIN])).toBe(true);
+    expect(isNavItemVisible("employees", [ROLES.EXECUTIVE])).toBe(true);
+    expect(isNavItemVisible("employees", [ROLES.SUPER_ADMIN])).toBe(true);
+    expect(isNavItemVisible("employees", [ROLES.MECHANIC])).toBe(false);
+    expect(isNavItemVisible("employees", [ROLES.RECEPTIONIST])).toBe(false);
   });
 
   it("shows user and org management only to ADMIN and SUPER_ADMIN", () => {
@@ -222,6 +234,7 @@ describe("nav role gating", () => {
         "equipment",
         "financial",
         "location",
+        "employees",
         "approvals",
         "kpi",
         "users",
