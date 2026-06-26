@@ -306,6 +306,7 @@ struct StepUpAssertion {
 struct RegisterStartResponse {
     ceremony_id: Uuid,
     challenge: serde_json::Value,
+    #[serde(with = "time::serde::rfc3339")]
     expires_at: OffsetDateTime,
 }
 
@@ -326,6 +327,7 @@ struct RegisterFinishResponse {
 struct LoginStartResponse {
     ceremony_id: Uuid,
     challenge: serde_json::Value,
+    #[serde(with = "time::serde::rfc3339")]
     expires_at: OffsetDateTime,
 }
 
@@ -373,6 +375,7 @@ struct OtpRedeemResponse {
     access_token: String,
     refresh_token: Option<String>,
     token_type: &'static str,
+    #[serde(with = "time::serde::rfc3339")]
     refresh_expires_at: OffsetDateTime,
     requires_passkey_setup: bool,
 }
@@ -392,6 +395,7 @@ struct AdminIssueOtpRequest {
 struct AdminIssueOtpResponse {
     user_id: Uuid,
     otp: String,
+    #[serde(with = "time::serde::rfc3339")]
     expires_at: OffsetDateTime,
 }
 
@@ -410,6 +414,7 @@ struct AdminCredentialResetRequest {
 struct AdminCredentialResetResponse {
     user_id: Uuid,
     otp: String,
+    #[serde(with = "time::serde::rfc3339")]
     expires_at: OffsetDateTime,
 }
 
@@ -432,6 +437,7 @@ struct EnrollHandoffRequest {
 #[derive(Debug, Serialize)]
 struct EnrollHandoffResponse {
     otp: String,
+    #[serde(with = "time::serde::rfc3339")]
     expires_at: OffsetDateTime,
     enroll_url: String,
 }
@@ -442,7 +448,9 @@ struct EnrollHandoffResponse {
 #[derive(Debug, Serialize)]
 struct PasskeySummary {
     id: Uuid,
+    #[serde(with = "time::serde::rfc3339")]
     created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339::option")]
     last_used_at: Option<OffsetDateTime>,
 }
 
@@ -460,6 +468,7 @@ struct PrivacyConsentAcceptRequest {
 struct PrivacyConsentStatusResponse {
     policy_version: &'static str,
     accepted: bool,
+    #[serde(with = "time::serde::rfc3339::option")]
     accepted_at: Option<OffsetDateTime>,
 }
 
@@ -473,6 +482,7 @@ struct TokenPairResponse {
     access_token: String,
     refresh_token: Option<String>,
     token_type: &'static str,
+    #[serde(with = "time::serde::rfc3339")]
     refresh_expires_at: OffsetDateTime,
 }
 
