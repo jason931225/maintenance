@@ -28,6 +28,7 @@ export const ko = {
     security: "보안 설정",
     users: "사용자 관리",
     employees: "직원 명부",
+    group: "그룹 관리",
     org: "지역·지점 관리",
     sites: "고객·현장 관리",
     profile: "내 프로필",
@@ -90,6 +91,8 @@ export const ko = {
     mainNav: "메인 내비게이션",
     /** Role chip shown for a user with no role grant yet (MEMBER / empty roles). */
     pendingApproval: "승인 대기",
+    /** Role chip shown when tenant roles are minimal but a group-admin grant exists. */
+    groupAdmin: "그룹 관리자",
   },
   page: {
     refresh: "새로고침",
@@ -205,6 +208,27 @@ export const ko = {
       "관리자가 권한을 부여할 때까지 기다려 주세요. 권한이 부여되면 콘솔의 기능을 사용할 수 있습니다.",
     contactGuidance: "권한 부여가 지연되면 담당 관리자에게 문의하세요.",
     profileLink: "내 프로필 보기",
+  },
+  groupAdmin: {
+    title: "그룹 관리",
+    description:
+      "그룹 관리자 권한으로 소속 법인을 확인하고 선택한 법인의 관리 콘솔로 전환합니다.",
+    loadFailed: "관리 가능한 그룹과 법인을 불러오지 못했습니다.",
+    empty: "관리 가능한 그룹 또는 법인이 없습니다.",
+    summary: "그룹 {groups}개 · 법인 {members}개",
+    memberCountSuffix: "개 법인",
+    manage: "관리",
+    managing: "전환 중",
+    manageFailed: "선택한 법인 관리 콘솔로 전환하지 못했습니다.",
+    columns: {
+      name: "법인명",
+      slug: "슬러그",
+      status: "상태",
+      actions: "작업",
+    },
+    tenantContext: {
+      exitFailed: "그룹 관리 종료 감사 기록을 남기지 못했습니다.",
+    },
   },
   enrollHandoff: {
     instruction: "휴대폰 카메라로 스캔하여 등록",

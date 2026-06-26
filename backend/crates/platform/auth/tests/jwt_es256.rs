@@ -96,6 +96,37 @@ fn es256_access_token_carries_optional_display_name_claim() {
 }
 
 #[test]
+fn es256_access_token_can_carry_group_roles_without_widening_scope() {
+    let issuer = es256_issuer();
+    let org_id = OrgId::knl();
+
+    let token = issuer
+        .issue_access_token_with_group_roles(
+            AccessTokenInput {
+                subject: UserId::new(),
+                org_id,
+                roles: vec!["MEMBER".to_owned()],
+                branches: vec![],
+                platform: false,
+                view_as: false,
+                read_only: false,
+                display_name: None,
+                issued_at: OffsetDateTime::now_utc(),
+            },
+            vec!["GROUP_ADMIN".to_owned()],
+        )
+        .unwrap();
+
+    let claims = issuer.verify_access_token(&token).unwrap();
+    assert_eq!(claims.group_roles, vec!["GROUP_ADMIN"]);
+    assert_eq!(
+        claims.access_scope().unwrap(),
+        AccessScope::legacy_org(org_id),
+        "group-role claims are UI hints; backend endpoints re-resolve live grants",
+    );
+}
+
+#[test]
 fn es256_access_token_round_trips_explicit_access_scope_claims() {
     let issuer = es256_issuer();
 

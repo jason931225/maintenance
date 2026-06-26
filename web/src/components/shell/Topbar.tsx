@@ -8,7 +8,7 @@ import { roleLabel } from "../../features/org/org-format";
 import { ko } from "../../i18n/ko";
 import { useActiveBranchName } from "../../lib/useActiveBranchName";
 import { cn, identityLabel, safeLabel } from "../../lib/utils";
-import { isPendingMember } from "./nav";
+import { hasGroupAdminRole, isPendingMember } from "./nav";
 
 interface TopbarProps {
   onOpenMobileSidebar: () => void;
@@ -69,13 +69,16 @@ function UserMenu() {
   // enforces this). The role chip shows the granted role, or a pending-approval
   // badge for a just-signed-up user with no role yet.
   const name = identityLabel(session, ko.shell.user);
-  const pending = isPendingMember(session?.roles);
+  const isGroupAdmin = hasGroupAdminRole(session?.group_roles);
+  const pending = isPendingMember(session?.roles) && !isGroupAdmin;
   const primaryRole = session?.roles?.find((role) => role !== "MEMBER");
   const roleChip = pending
     ? ko.shell.pendingApproval
     : primaryRole
       ? roleLabel(primaryRole)
-      : undefined;
+      : isGroupAdmin
+        ? ko.shell.groupAdmin
+        : undefined;
 
   // Close on outside click and on Escape — the interactions users expect from a
   // menu (the previous <details> element offered neither).

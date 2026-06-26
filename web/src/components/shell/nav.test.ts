@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  GROUP_ROLES,
   NAV_GROUPS,
   ROLES,
   hasAnyRole,
+  hasGroupAdminRole,
   isNavItemVisible,
   isPendingMember,
 } from "./nav";
@@ -14,8 +16,13 @@ const ALL_ITEM_KEYS = NAV_GROUPS.flatMap((group) =>
 );
 
 /** Visible nav item keys for a session carrying `roles`, in declaration order. */
-function visibleItems(roles: readonly string[]): string[] {
-  return ALL_ITEM_KEYS.filter((key) => isNavItemVisible(key, roles));
+function visibleItems(
+  roles: readonly string[],
+  groupRoles?: readonly string[],
+): string[] {
+  return ALL_ITEM_KEYS.filter((key) =>
+    isNavItemVisible(key, roles, groupRoles),
+  );
 }
 
 // Expected visible nav per role, derived from the backend permission matrix in
@@ -172,6 +179,19 @@ describe("nav role gating", () => {
     }
   });
 
+  it("shows group management only to GROUP_ADMIN grants, not tenant admins alone", () => {
+    expect(isNavItemVisible("group", [ROLES.SUPER_ADMIN])).toBe(false);
+    expect(isNavItemVisible("group", [ROLES.ADMIN])).toBe(false);
+    expect(isNavItemVisible("group", [ROLES.MEMBER], [GROUP_ROLES.GROUP_ADMIN])).toBe(true);
+    expect(isNavItemVisible("group", [ROLES.MEMBER], [GROUP_ROLES.GROUP_VIEWER])).toBe(false);
+    expect(hasGroupAdminRole([GROUP_ROLES.GROUP_ADMIN])).toBe(true);
+    expect(hasGroupAdminRole([GROUP_ROLES.GROUP_VIEWER])).toBe(false);
+    expect(visibleItems([ROLES.MEMBER], [GROUP_ROLES.GROUP_ADMIN])).toEqual([
+      "group",
+      "profile",
+    ]);
+  });
+
   it("shows KPI only to ADMIN, EXECUTIVE, and SUPER_ADMIN", () => {
     expect(isNavItemVisible("kpi", [ROLES.ADMIN])).toBe(true);
     expect(isNavItemVisible("kpi", [ROLES.EXECUTIVE])).toBe(true);
@@ -235,6 +255,7 @@ describe("nav role gating", () => {
         "financial",
         "location",
         "employees",
+        "group",
         "approvals",
         "kpi",
         "users",
@@ -267,6 +288,8 @@ describe("nav role gating", () => {
     expect(isNavItemVisible("dispatch", undefined)).toBe(false);
     expect(isNavItemVisible("dispatch", [])).toBe(false);
     expect(isNavItemVisible("approvals", undefined)).toBe(false);
+    expect(isNavItemVisible("group", [ROLES.ADMIN])).toBe(false);
+    expect(isNavItemVisible("group", undefined)).toBe(false);
     expect(isNavItemVisible("kpi", [])).toBe(false);
     expect(isNavItemVisible("security", undefined)).toBe(false);
     // Profile stays visible — it is the one surface a no-grant session can use.

@@ -112,6 +112,37 @@ describe("MEMBER landing → /pending", () => {
     ).toBeVisible();
   });
 
+  it("lets a MEMBER tenant role with GROUP_ADMIN grant reach group management", async () => {
+    server.use(
+      http.get("*/api/v1/group-admin/groups", () =>
+        HttpResponse.json({
+          groups: [
+            {
+              id: "90000000-0000-4000-8000-000000000001",
+              slug: "group",
+              name: "그룹",
+              status: "ACTIVE",
+              members: [],
+            },
+          ],
+        }),
+      ),
+    );
+
+    renderApp("/settings/group", {
+      access_token: "a",
+      roles: ["MEMBER"],
+      group_roles: ["GROUP_ADMIN"],
+    });
+
+    expect(
+      await screen.findByRole("heading", { name: "그룹 관리", level: 1 }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "계정이 생성되었습니다" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("does NOT redirect a granted role off /dispatch", async () => {
     server.use(
       http.get("*/api/v1/work-orders", () =>
