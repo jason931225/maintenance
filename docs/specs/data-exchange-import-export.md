@@ -51,18 +51,18 @@ Each sheet is 1000 rows × 52 columns, with the first row acting as the header r
 
 `NO.`, `소속`, `사번`, `성명`, `근무지(주소)`, `업무`, `장애유무`, `산재관리번호`, `직책`, `기본시급`, `통상시급`, `수당(통상포함)`, `수당(통상 미포함)`, `국민연금`, `건강보험`, `소득세`, `발생연차`, `사용연차`, `잔여연차`, `주민번호`, `입사일`, `보험가입일`, `퇴사일`, `보험상실일`, `근무지`, `거주주소`, `휴대폰`, `퇴직금 중간정산`, `지급일`, `급여산정일`, `은행`, `계좌/계좌번호`.
 
-Approximate detected data rows by sheet:
+Detected browser employee rows by sheet use nonblank `성명`/name cells. The workbook also contains blank-name template/staging rows with company/source metadata; those rows must be preserved in raw import evidence but must not appear as people in the browser employee directory.
 
-| Sheet | Approx. data rows | Domain classification |
-| --- | ---: | --- |
-| `(주)디에스엘` | 95 | HR + payroll + organization/site references |
-| `(주)코스` | 96 | HR + payroll + organization/site references |
-| `(주)엘소` | 139 | HR + payroll + organization/site references |
-| `(주)케이앤엘` | 68 | HR + payroll + organization/site references |
-| `(주)청운로지스` | 68 | HR + payroll + organization/site references |
-| `(주)씨앤엘` | 68 | HR + payroll + organization/site references |
-| `(주)청운HR` | 62 | HR + payroll + organization/site references |
-| `제이와이테크` | 11 | HR + payroll + organization/site references |
+| Sheet | Browser employee rows | Source template/staging rows | Domain classification |
+| --- | ---: | ---: | --- |
+| `(주)디에스엘` | 13 | 95 | HR + payroll + organization/site references |
+| `(주)코스` | 96 | 96 | HR + payroll + organization/site references |
+| `(주)엘소` | 139 | 139 | HR + payroll + organization/site references |
+| `(주)케이앤엘` | 4 | 68 | HR + payroll + organization/site references |
+| `(주)청운로지스` | 1 | 68 | HR + payroll + organization/site references |
+| `(주)씨앤엘` | 43 | 68 | HR + payroll + organization/site references |
+| `(주)청운HR` | 22 | 62 | HR + payroll + organization/site references |
+| `제이와이테크` | 11 | 11 | HR + payroll + organization/site references |
 
 Sensitive/high-risk fields are present or reserved: name, resident registration number, phone, address, disability status, wage/payroll, insurance/tax, bank/account. Empty columns are meaningful: they may mean “fill later”, “not applicable”, “sensitive omitted”, or “clear existing value” depending on source/mapping policy. The import UI must make this explicit.
 
@@ -479,15 +479,15 @@ The requested production sequence is:
 
 Initial organization seed set:
 
-| Organization name | Proposed slug | Parent group | Approx. employee rows |
+| Organization name | Proposed slug | Parent group | Browser employee rows |
 | --- | --- | --- | ---: |
-| `(주)디에스엘` | `dsl` | `그룹사` | 95 |
+| `(주)디에스엘` | `dsl` | `그룹사` | 13 |
 | `(주)코스` | `kos` | `그룹사` | 96 |
 | `(주)엘소` | `elso` | `그룹사` | 139 |
-| `(주)케이앤엘` | `knl` | `그룹사` | 68 |
-| `(주)청운로지스` | `cheongun-logis` | `그룹사` | 68 |
-| `(주)씨앤엘` | `cnl` | `그룹사` | 68 |
-| `(주)청운HR` | `cheongun-hr` | `그룹사` | 62 |
+| `(주)케이앤엘` | `knl` | `그룹사` | 4 |
+| `(주)청운로지스` | `cheongun-logis` | `그룹사` | 1 |
+| `(주)씨앤엘` | `cnl` | `그룹사` | 43 |
+| `(주)청운HR` | `cheongun-hr` | `그룹사` | 22 |
 | `제이와이테크` | `jy-tech` | `그룹사` | 11 |
 
 The first post-wipe seed should create default `본사` region/branch records per organization only as an access anchor. Detailed worksites/geodata are not trusted until re-imported or manually reconciled through the mapping workspace; however, a pre-wipe read-only geodata export should be kept as a reference candidate set.

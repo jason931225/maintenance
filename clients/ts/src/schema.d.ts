@@ -670,6 +670,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/employees": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Paginated tenant HR employee directory
+         * @description Executive/admin/super-admin read of first-class employee rows. Employees are not auth users.
+         */
+        get: operations["listEmployees"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employees/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import payroll workbook sheets into the employee directory
+         * @description Admin/super-admin multipart .xlsx upload. Each worksheet is treated as a company, row 1 as headers, and rows with non-empty 성명 are upserted by deterministic source filename/sheet/row key. Raw row values and source metadata are preserved as JSONB.
+         */
+        post: operations["importEmployees"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/equipment/{id}": {
         parameters: {
             query?: never;
@@ -3174,6 +3214,51 @@ export interface components {
             limit: number;
             /** Format: int64 */
             offset: number;
+        };
+        Employee: {
+            id: components["schemas"]["Uuid"];
+            company: string;
+            name: string;
+            worksite_name?: string | null;
+            worksite?: string | null;
+            job?: string | null;
+            position?: string | null;
+            hire_date?: string | null;
+            exit_date?: string | null;
+            status?: string | null;
+            source_filename: string;
+            source_sheet: string;
+            /** Format: int32 */
+            source_row: number;
+            raw_row: {
+                [key: string]: unknown;
+            };
+            source_metadata: {
+                [key: string]: unknown;
+            };
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        EmployeePage: {
+            items: components["schemas"]["Employee"][];
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+        };
+        EmployeeImportCompanySummary: {
+            company: string;
+            input_rows: number;
+            inserted: number;
+            updated: number;
+        };
+        EmployeeImportReport: {
+            input_rows: number;
+            inserted: number;
+            updated: number;
+            companies: components["schemas"]["EmployeeImportCompanySummary"][];
         };
         AssignmentSummary: {
             id: components["schemas"]["Uuid"];
@@ -6013,6 +6098,66 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    listEmployees: {
+        parameters: {
+            query?: {
+                /** @description Filter by workbook sheet/company name. */
+                company?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated employee list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeePage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    importEmployees: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description Payroll employee .xlsx workbook.
+                     */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Import counts by company. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeImportReport"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
     deleteEquipment: {

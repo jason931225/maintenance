@@ -233,3 +233,9 @@ export type EquipmentLookupState =
   | { status: "ready"; equipment: EquipmentLookupResult }
   | { status: "notFound" }
   | { status: "error" };
+
+// HR employee directory (not auth users).
+export type EmployeeDirectoryItem = components["schemas"]["Employee"];
+export type EmployeeDirectoryPage = components["schemas"]["EmployeePage"];
+export type EmployeeImportSummary =
+  components["schemas"]["EmployeeImportReport"];

@@ -104,6 +104,12 @@ const EQUIPMENT_MANAGE_ROLES: readonly Role[] = [
   ROLES.EXECUTIVE,
   ROLES.SUPER_ADMIN,
 ];
+/** HR employee directory read roles: ADMIN/EXECUTIVE/SUPER_ADMIN. */
+const EMPLOYEE_DIRECTORY_ROLES: readonly Role[] = [
+  ROLES.ADMIN,
+  ROLES.EXECUTIVE,
+  ROLES.SUPER_ADMIN,
+];
 /**
  * Roles that may read/triage integrity findings (backend `IntegrityFindingsRead`
  * / `IntegrityFindingTriage`, matrix row [D, D, D, D, A, A]). EXECUTIVE +
@@ -158,6 +164,7 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["users", ADMIN_ROLES],
   ["org", ADMIN_ROLES],
   ["sites", ADMIN_ROLES],
+  ["employees", EMPLOYEE_DIRECTORY_ROLES],
   ["security", ADMIN_ROLES],
   // email (MailAccountManage): the tenant corporate mail-account config. The
   // backend matrix grants MailAccountManage to ADMIN/SUPER_ADMIN only, matching
@@ -341,6 +348,12 @@ export const NAV_GROUPS = [
         href: "/settings/location",
         labelKey: "nav.location",
         Icon: MapPin,
+      },
+      {
+        key: "employees",
+        href: "/settings/employees",
+        labelKey: "nav.employees",
+        Icon: Users,
       },
     ],
   },

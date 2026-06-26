@@ -241,6 +241,20 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/equipment/import`.
     /// - Remark: Generated from `#/paths//api/v1/equipment/import/post(importEquipmentMasterList)`.
     func importEquipmentMasterList(_ input: Operations.ImportEquipmentMasterList.Input) async throws -> Operations.ImportEquipmentMasterList.Output
+    /// Paginated tenant HR employee directory
+    ///
+    /// Executive/admin/super-admin read of first-class employee rows. Employees are not auth users.
+    ///
+    /// - Remark: HTTP `GET /api/v1/employees`.
+    /// - Remark: Generated from `#/paths//api/v1/employees/get(listEmployees)`.
+    func listEmployees(_ input: Operations.ListEmployees.Input) async throws -> Operations.ListEmployees.Output
+    /// Import payroll workbook sheets into the employee directory
+    ///
+    /// Admin/super-admin multipart .xlsx upload. Each worksheet is treated as a company, row 1 as headers, and rows with non-empty 성명 are upserted by deterministic source filename/sheet/row key. Raw row values and source metadata are preserved as JSONB.
+    ///
+    /// - Remark: HTTP `POST /api/v1/employees/import`.
+    /// - Remark: Generated from `#/paths//api/v1/employees/import/post(importEmployees)`.
+    func importEmployees(_ input: Operations.ImportEmployees.Input) async throws -> Operations.ImportEmployees.Output
     /// Update fields on one equipment master row
     ///
     /// Admin-gated (EquipmentManage). Only supplied fields are written; nullable fields explicitly set to null are cleared.
@@ -1449,6 +1463,36 @@ extension APIProtocol {
         body: Operations.ImportEquipmentMasterList.Input.Body
     ) async throws -> Operations.ImportEquipmentMasterList.Output {
         try await importEquipmentMasterList(Operations.ImportEquipmentMasterList.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Paginated tenant HR employee directory
+    ///
+    /// Executive/admin/super-admin read of first-class employee rows. Employees are not auth users.
+    ///
+    /// - Remark: HTTP `GET /api/v1/employees`.
+    /// - Remark: Generated from `#/paths//api/v1/employees/get(listEmployees)`.
+    public func listEmployees(
+        query: Operations.ListEmployees.Input.Query = .init(),
+        headers: Operations.ListEmployees.Input.Headers = .init()
+    ) async throws -> Operations.ListEmployees.Output {
+        try await listEmployees(Operations.ListEmployees.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Import payroll workbook sheets into the employee directory
+    ///
+    /// Admin/super-admin multipart .xlsx upload. Each worksheet is treated as a company, row 1 as headers, and rows with non-empty 성명 are upserted by deterministic source filename/sheet/row key. Raw row values and source metadata are preserved as JSONB.
+    ///
+    /// - Remark: HTTP `POST /api/v1/employees/import`.
+    /// - Remark: Generated from `#/paths//api/v1/employees/import/post(importEmployees)`.
+    public func importEmployees(
+        headers: Operations.ImportEmployees.Input.Headers = .init(),
+        body: Operations.ImportEmployees.Input.Body
+    ) async throws -> Operations.ImportEmployees.Output {
+        try await importEmployees(Operations.ImportEmployees.Input(
             headers: headers,
             body: body
         ))
@@ -4902,6 +4946,260 @@ public enum Components {
                 case total
                 case limit
                 case offset
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/Employee`.
+        public struct Employee: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/Employee/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/Employee/company`.
+            public var company: Swift.String
+            /// - Remark: Generated from `#/components/schemas/Employee/name`.
+            public var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/Employee/worksite_name`.
+            public var worksiteName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/Employee/worksite`.
+            public var worksite: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/Employee/job`.
+            public var job: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/Employee/position`.
+            public var position: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/Employee/hire_date`.
+            public var hireDate: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/Employee/exit_date`.
+            public var exitDate: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/Employee/status`.
+            public var status: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/Employee/source_filename`.
+            public var sourceFilename: Swift.String
+            /// - Remark: Generated from `#/components/schemas/Employee/source_sheet`.
+            public var sourceSheet: Swift.String
+            /// - Remark: Generated from `#/components/schemas/Employee/source_row`.
+            public var sourceRow: Swift.Int32
+            /// - Remark: Generated from `#/components/schemas/Employee/raw_row`.
+            public struct RawRowPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `RawRowPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/Employee/raw_row`.
+            public var rawRow: Components.Schemas.Employee.RawRowPayload
+            /// - Remark: Generated from `#/components/schemas/Employee/source_metadata`.
+            public struct SourceMetadataPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `SourceMetadataPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/Employee/source_metadata`.
+            public var sourceMetadata: Components.Schemas.Employee.SourceMetadataPayload
+            /// - Remark: Generated from `#/components/schemas/Employee/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/Employee/updated_at`.
+            public var updatedAt: Components.Schemas.Timestamp
+            /// Creates a new `Employee`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - company:
+            ///   - name:
+            ///   - worksiteName:
+            ///   - worksite:
+            ///   - job:
+            ///   - position:
+            ///   - hireDate:
+            ///   - exitDate:
+            ///   - status:
+            ///   - sourceFilename:
+            ///   - sourceSheet:
+            ///   - sourceRow:
+            ///   - rawRow:
+            ///   - sourceMetadata:
+            ///   - createdAt:
+            ///   - updatedAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                company: Swift.String,
+                name: Swift.String,
+                worksiteName: Swift.String? = nil,
+                worksite: Swift.String? = nil,
+                job: Swift.String? = nil,
+                position: Swift.String? = nil,
+                hireDate: Swift.String? = nil,
+                exitDate: Swift.String? = nil,
+                status: Swift.String? = nil,
+                sourceFilename: Swift.String,
+                sourceSheet: Swift.String,
+                sourceRow: Swift.Int32,
+                rawRow: Components.Schemas.Employee.RawRowPayload,
+                sourceMetadata: Components.Schemas.Employee.SourceMetadataPayload,
+                createdAt: Components.Schemas.Timestamp,
+                updatedAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.company = company
+                self.name = name
+                self.worksiteName = worksiteName
+                self.worksite = worksite
+                self.job = job
+                self.position = position
+                self.hireDate = hireDate
+                self.exitDate = exitDate
+                self.status = status
+                self.sourceFilename = sourceFilename
+                self.sourceSheet = sourceSheet
+                self.sourceRow = sourceRow
+                self.rawRow = rawRow
+                self.sourceMetadata = sourceMetadata
+                self.createdAt = createdAt
+                self.updatedAt = updatedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case company
+                case name
+                case worksiteName = "worksite_name"
+                case worksite
+                case job
+                case position
+                case hireDate = "hire_date"
+                case exitDate = "exit_date"
+                case status
+                case sourceFilename = "source_filename"
+                case sourceSheet = "source_sheet"
+                case sourceRow = "source_row"
+                case rawRow = "raw_row"
+                case sourceMetadata = "source_metadata"
+                case createdAt = "created_at"
+                case updatedAt = "updated_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EmployeePage`.
+        public struct EmployeePage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EmployeePage/items`.
+            public var items: [Components.Schemas.Employee]
+            /// - Remark: Generated from `#/components/schemas/EmployeePage/total`.
+            public var total: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/EmployeePage/limit`.
+            public var limit: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/EmployeePage/offset`.
+            public var offset: Swift.Int64
+            /// Creates a new `EmployeePage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - total:
+            ///   - limit:
+            ///   - offset:
+            public init(
+                items: [Components.Schemas.Employee],
+                total: Swift.Int64,
+                limit: Swift.Int64,
+                offset: Swift.Int64
+            ) {
+                self.items = items
+                self.total = total
+                self.limit = limit
+                self.offset = offset
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case total
+                case limit
+                case offset
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EmployeeImportCompanySummary`.
+        public struct EmployeeImportCompanySummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EmployeeImportCompanySummary/company`.
+            public var company: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EmployeeImportCompanySummary/input_rows`.
+            public var inputRows: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/EmployeeImportCompanySummary/inserted`.
+            public var inserted: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/EmployeeImportCompanySummary/updated`.
+            public var updated: Swift.Int
+            /// Creates a new `EmployeeImportCompanySummary`.
+            ///
+            /// - Parameters:
+            ///   - company:
+            ///   - inputRows:
+            ///   - inserted:
+            ///   - updated:
+            public init(
+                company: Swift.String,
+                inputRows: Swift.Int,
+                inserted: Swift.Int,
+                updated: Swift.Int
+            ) {
+                self.company = company
+                self.inputRows = inputRows
+                self.inserted = inserted
+                self.updated = updated
+            }
+            public enum CodingKeys: String, CodingKey {
+                case company
+                case inputRows = "input_rows"
+                case inserted
+                case updated
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EmployeeImportReport`.
+        public struct EmployeeImportReport: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EmployeeImportReport/input_rows`.
+            public var inputRows: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/EmployeeImportReport/inserted`.
+            public var inserted: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/EmployeeImportReport/updated`.
+            public var updated: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/EmployeeImportReport/companies`.
+            public var companies: [Components.Schemas.EmployeeImportCompanySummary]
+            /// Creates a new `EmployeeImportReport`.
+            ///
+            /// - Parameters:
+            ///   - inputRows:
+            ///   - inserted:
+            ///   - updated:
+            ///   - companies:
+            public init(
+                inputRows: Swift.Int,
+                inserted: Swift.Int,
+                updated: Swift.Int,
+                companies: [Components.Schemas.EmployeeImportCompanySummary]
+            ) {
+                self.inputRows = inputRows
+                self.inserted = inserted
+                self.updated = updated
+                self.companies = companies
+            }
+            public enum CodingKeys: String, CodingKey {
+                case inputRows = "input_rows"
+                case inserted
+                case updated
+                case companies
             }
         }
         /// - Remark: Generated from `#/components/schemas/AssignmentSummary`.
@@ -20062,6 +20360,404 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Paginated tenant HR employee directory
+    ///
+    /// Executive/admin/super-admin read of first-class employee rows. Employees are not auth users.
+    ///
+    /// - Remark: HTTP `GET /api/v1/employees`.
+    /// - Remark: Generated from `#/paths//api/v1/employees/get(listEmployees)`.
+    public enum ListEmployees {
+        public static let id: Swift.String = "listEmployees"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/employees/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// Filter by workbook sheet/company name.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/employees/GET/query/company`.
+                public var company: Swift.String?
+                /// - Remark: Generated from `#/paths/api/v1/employees/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// - Remark: Generated from `#/paths/api/v1/employees/GET/query/offset`.
+                public var offset: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - company: Filter by workbook sheet/company name.
+                ///   - limit:
+                ///   - offset:
+                public init(
+                    company: Swift.String? = nil,
+                    limit: Swift.Int64? = nil,
+                    offset: Swift.Int64? = nil
+                ) {
+                    self.company = company
+                    self.limit = limit
+                    self.offset = offset
+                }
+            }
+            public var query: Operations.ListEmployees.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/employees/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListEmployees.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListEmployees.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListEmployees.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListEmployees.Input.Query = .init(),
+                headers: Operations.ListEmployees.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/employees/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/employees/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.EmployeePage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.EmployeePage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListEmployees.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListEmployees.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Paginated employee list.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/employees/get(listEmployees)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListEmployees.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListEmployees.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/employees/get(listEmployees)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/employees/get(listEmployees)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Import payroll workbook sheets into the employee directory
+    ///
+    /// Admin/super-admin multipart .xlsx upload. Each worksheet is treated as a company, row 1 as headers, and rows with non-empty 성명 are upserted by deterministic source filename/sheet/row key. Raw row values and source metadata are preserved as JSONB.
+    ///
+    /// - Remark: HTTP `POST /api/v1/employees/import`.
+    /// - Remark: Generated from `#/paths//api/v1/employees/import/post(importEmployees)`.
+    public enum ImportEmployees {
+        public static let id: Swift.String = "importEmployees"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/employees/import/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ImportEmployees.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ImportEmployees.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ImportEmployees.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/employees/import/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/employees/import/POST/requestBody/multipartForm`.
+                @frozen public enum MultipartFormPayload: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/employees/import/POST/requestBody/multipartForm/file`.
+                    public struct FilePayload: Sendable, Hashable {
+                        public var body: OpenAPIRuntime.HTTPBody
+                        /// Creates a new `FilePayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - body:
+                        public init(body: OpenAPIRuntime.HTTPBody) {
+                            self.body = body
+                        }
+                    }
+                    case file(OpenAPIRuntime.MultipartPart<Operations.ImportEmployees.Input.Body.MultipartFormPayload.FilePayload>)
+                    case undocumented(OpenAPIRuntime.MultipartRawPart)
+                }
+                /// - Remark: Generated from `#/paths/api/v1/employees/import/POST/requestBody/content/multipart\/form-data`.
+                case multipartForm(OpenAPIRuntime.MultipartBody<Operations.ImportEmployees.Input.Body.MultipartFormPayload>)
+            }
+            public var body: Operations.ImportEmployees.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.ImportEmployees.Input.Headers = .init(),
+                body: Operations.ImportEmployees.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/employees/import/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/employees/import/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.EmployeeImportReport)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.EmployeeImportReport {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ImportEmployees.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ImportEmployees.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Import counts by company.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/employees/import/post(importEmployees)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ImportEmployees.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ImportEmployees.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/employees/import/post(importEmployees)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/employees/import/post(importEmployees)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/employees/import/post(importEmployees)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
                             response: self
                         )
                     }

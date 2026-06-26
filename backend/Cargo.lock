@@ -2313,6 +2313,7 @@ name = "mnt-app"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "calamine",
  "http",
  "metrics",
  "metrics-exporter-prometheus",
