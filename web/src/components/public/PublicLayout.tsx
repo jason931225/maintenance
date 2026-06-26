@@ -7,7 +7,7 @@ import { consoleHref } from "../../lib/consoleUrl";
 import { ko } from "../../i18n/ko";
 import { cn } from "../../lib/utils";
 
-const COOKIE_NOTICE_KEY = "knl_cookie_notice_v1";
+const COOKIE_NOTICE_KEY = "knl_cookie_notice_v2";
 const COPYRIGHT_YEAR = new Date().getFullYear();
 const WEB_VERSION = webPackage.version;
 
@@ -71,7 +71,7 @@ export function PublicLayout() {
     void Promise.resolve().then(() => {
       try {
         setCookieNoticeVisible(
-          window.localStorage.getItem(COOKIE_NOTICE_KEY) !== "accepted",
+          window.localStorage.getItem(COOKIE_NOTICE_KEY) !== "acknowledged",
         );
       } catch {
         setCookieNoticeVisible(true);
@@ -79,9 +79,9 @@ export function PublicLayout() {
     });
   }, []);
 
-  function acceptCookieNotice() {
+  function acknowledgeCookieNotice() {
     try {
-      window.localStorage.setItem(COOKIE_NOTICE_KEY, "accepted");
+      window.localStorage.setItem(COOKIE_NOTICE_KEY, "acknowledged");
     } finally {
       setCookieNoticeVisible(false);
     }
@@ -400,7 +400,7 @@ export function PublicLayout() {
             </Link>
             <button
               type="button"
-              onClick={acceptCookieNotice}
+              onClick={acknowledgeCookieNotice}
               className="inline-flex min-h-[40px] items-center rounded bg-signal px-4 text-sm font-extrabold text-[#14120c] transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white motion-safe:hover:-translate-y-0.5"
             >
               {ko.storefront.cookie.accept}

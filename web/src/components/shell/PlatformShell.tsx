@@ -1,4 +1,11 @@
-import { Building2, Gauge, LogOut, ServerCog, UserPlus } from "lucide-react";
+import {
+  Building2,
+  Gauge,
+  LogOut,
+  Network,
+  ServerCog,
+  UserPlus,
+} from "lucide-react";
 import { Suspense, useEffect, useRef } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
@@ -11,6 +18,7 @@ import { PageSpinner } from "../states/PageSpinner";
 
 const NAV_ITEMS = [
   { href: "/platform/tenants", labelKey: "tenants" as const, Icon: Building2 },
+  { href: "/platform/groups", labelKey: "groups" as const, Icon: Network },
   { href: "/platform/ops", labelKey: "ops" as const, Icon: Gauge },
   { href: "/platform/onboard", labelKey: "onboard" as const, Icon: UserPlus },
 ];

@@ -6,6 +6,7 @@ import { PageEmpty } from "../../components/states/PageEmpty";
 import { SkeletonTable } from "../../components/states/Skeleton";
 import { ko } from "../../i18n/ko";
 import { orgStatusBadgeClass, orgStatusLabel } from "./org-status";
+import { platformGroupLabel } from "./scope";
 
 /** Status transitions offered per current status (consequential — confirmed). */
 const ACTIONS_BY_STATUS: Record<OrgStatus, OrgStatus[]> = {
@@ -20,17 +21,19 @@ export function TenantTable({
   onChangeStatus,
   onRemove,
   onViewAs,
+  onManage,
 }: {
   orgs: PlatformOrg[];
   isLoading: boolean;
   onChangeStatus: (org: PlatformOrg, next: OrgStatus) => void;
   onRemove: (org: PlatformOrg) => void;
   onViewAs: (org: PlatformOrg) => void;
+  onManage: (org: PlatformOrg) => void;
 }) {
   // Keep existing rows visible on a refetch (stale-while-revalidate); only the
   // first load (no rows yet) shows the skeleton.
   if (isLoading && orgs.length === 0) {
-    return <SkeletonTable rows={4} cols={5} />;
+    return <SkeletonTable rows={4} cols={6} />;
   }
 
   if (orgs.length === 0) {
@@ -44,6 +47,7 @@ export function TenantTable({
           <tr className="border-b border-line text-xs font-semibold uppercase tracking-wider text-steel">
             <th className="px-4 py-3">{ko.platform.tenants.columns.slug}</th>
             <th className="px-4 py-3">{ko.platform.tenants.columns.name}</th>
+            <th className="px-4 py-3">{ko.platform.tenants.columns.group}</th>
             <th className="px-4 py-3">{ko.platform.tenants.columns.status}</th>
             <th className="px-4 py-3">{ko.platform.tenants.columns.created}</th>
             <th className="px-4 py-3" />
@@ -56,8 +60,9 @@ export function TenantTable({
               className="border-b border-line align-top last:border-0"
             >
               <td className="px-4 py-3 font-mono text-steel">{org.slug}</td>
-              <td className="px-4 py-3 font-medium text-ink">
-                {org.name}
+              <td className="px-4 py-3 font-medium text-ink">{org.name}</td>
+              <td className="px-4 py-3 text-steel">
+                {platformGroupLabel(org)}
               </td>
               <td className="px-4 py-3">
                 <Badge className={orgStatusBadgeClass(org.status)}>
@@ -74,22 +79,36 @@ export function TenantTable({
                   {/* Read-only "view as" — only for ACTIVE tenants (the backend
                       refuses impersonating a suspended/archived tenant). */}
                   {org.status === "ACTIVE" ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        onViewAs(org);
-                      }}
-                    >
-                      {ko.platform.viewAs.action}
-                    </Button>
+                    <>
+                      <Button
+                        type="button"
+                        variant="default"
+                        size="sm"
+                        onClick={() => {
+                          onManage(org);
+                        }}
+                      >
+                        {ko.platform.tenantContext.action}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          onViewAs(org);
+                        }}
+                      >
+                        {ko.platform.viewAs.action}
+                      </Button>
+                    </>
                   ) : null}
                   {ACTIONS_BY_STATUS[org.status].map((next) => (
                     <Button
                       key={next}
                       type="button"
-                      variant={next === "ARCHIVED" ? "destructive" : "secondary"}
+                      variant={
+                        next === "ARCHIVED" ? "destructive" : "secondary"
+                      }
                       size="sm"
                       onClick={() => {
                         onChangeStatus(org, next);

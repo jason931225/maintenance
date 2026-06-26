@@ -40,7 +40,7 @@ test("PLAT-02 platform admin onboards a tenant and sees the one-time OTP", async
 
   await page.goto("/platform/onboard");
   await expect(
-    page.getByRole("heading", { name: /테넌트 등록/, level: 1 }),
+    page.getByRole("heading", { name: /테넌시 등록/, level: 1 }),
   ).toBeVisible({ timeout: 8_000 });
 
   // Audit the empty form before filling it.
@@ -49,11 +49,11 @@ test("PLAT-02 platform admin onboards a tenant and sees the one-time OTP", async
   const slug = uniqueSlug();
   await page.locator("#org-name").fill("E2E 새 테넌트");
   await page.locator("#org-slug").fill(slug);
-  await page.getByRole("button", { name: /^테넌트 등록$/ }).click();
+  await page.getByRole("button", { name: /^테넌시 등록$/ }).click();
 
   // Success screen renders.
   await expect(
-    page.getByRole("heading", { name: /테넌트가 등록되었습니다\./ }),
+    page.getByRole("heading", { name: /테넌시가 등록되었습니다\./ }),
   ).toBeVisible({ timeout: 10_000 });
 
   // The one-time OTP heading + a non-empty code render. The code lives in a

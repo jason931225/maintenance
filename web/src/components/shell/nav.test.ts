@@ -34,18 +34,18 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "kpi",
     "ops",
     "reporting",
+    "integrity",
     "equipment",
     "equipment-manage",
     "catalog",
     "financial",
-    "integrity",
-    "users",
     "org",
     "sites",
-    "profile",
     "location",
+    "users",
     "email",
     "security",
+    "profile",
   ],
   [ROLES.ADMIN]: [
     "dispatch",
@@ -63,13 +63,13 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "equipment-manage",
     "catalog",
     "financial",
-    "users",
     "org",
     "sites",
-    "profile",
     "location",
+    "users",
     "email",
     "security",
+    "profile",
   ],
   // Executive: KPI yes; approvals/daily-plan/users/org/security no. Profile is
   // shared; reporting (ExcelDownload) is allowed for every role.
@@ -81,12 +81,12 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "support",
     "kpi",
     "reporting",
+    "integrity",
     "equipment",
     "equipment-manage",
     "financial",
-    "integrity",
-    "profile",
     "location",
+    "profile",
   ],
   // Mechanic: operational pages only; daily-plan yes (DailyPlanRequest); no
   // approvals/kpi/users/org/security. reporting is shared (ExcelDownload [A...]).
@@ -100,8 +100,8 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "reporting",
     "equipment",
     "financial",
-    "profile",
     "location",
+    "profile",
   ],
   // Receptionist: same surface as mechanic minus daily-plan (no DailyPlanRequest).
   [ROLES.RECEPTIONIST]: [
@@ -113,8 +113,8 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "reporting",
     "equipment",
     "financial",
-    "profile",
     "location",
+    "profile",
   ],
   // Member (just signed up, no role grant): default-deny. The backend denies
   // every Feature but Login, so the nav shows ONLY Profile — never a destination

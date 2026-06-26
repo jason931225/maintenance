@@ -73,6 +73,50 @@ failing and every number traceable to its source.
 Domains 2–8 are the **shared back office** (every entity uses them; books/payroll per-법인, consolidated
 at the group).
 
+### Domain separation rails
+
+Use four explicit management surfaces instead of one overloaded "admin" area:
+
+- **Platform console** — vendor/SaaS operator controls tenancy lifecycle, support access, release/ops,
+  and group identity/membership. It is not where day-to-day HR/payroll/maintenance work happens.
+- **Group management** — conglomerate operators manage group membership, consolidated dashboards, and
+  cross-subsidiary policies. Group views can combine subsidiaries or isolate one organization, but every
+  write names the target organization and is audited against that organization.
+- **Organization management** — each legal entity manages org units, positions, worksites, users,
+  custom roles, and local settings inside its RLS boundary.
+- **Business-domain consoles** — HR, payroll, executive management, and logistics/maintenance are
+  separate capability groups. HR owns employment facts; payroll owns compensation/tax/bank data;
+  executive management owns KPI/governance/operations rollups; logistics/maintenance owns dispatch,
+  work orders, equipment, and field evidence. A company or position may have none of the
+  logistics/maintenance capabilities.
+
+Positions, business titles, and departments are **not** login roles by default. They can suggest role
+assignments during onboarding/import, but security grants remain a separate RBAC action with preview,
+least-privilege checks, and audit.
+
+### Near-term setup priority
+
+Do not start with advanced analytics. The current setup sequence is:
+
+1. **Organization foundation:** group, tenant/legal entity, organization structure, departments/units,
+   positions, people, account seeds, roles, and scoped permissions.
+2. **Operating master data:** clients/customers, locations/worksites, addresses/geodata, assets,
+   equipment, models/specs/manufacturers, reserve/spare-parts catalogs, and assignment relationships.
+3. **Import readiness:** safe Excel/CSV ingestion, preview, column mapping, dry-run validation, audit
+   ledger, and standardized export templates for the above entities.
+
+Only after those foundations are reliable should the backlog move into cross-business analytics and
+optimization.
+
+### Analytics/optimization backlog (not current setup slice)
+
+The platform should eventually support business-wide optimization across every domain: rental pricing,
+cost/profitability analytics, asset lifecycle sell/keep recommendations based on operating cost and
+expected market value, reserve equipment/spare-parts sizing from SLA/probabilistic demand models,
+workforce utilization and scheduling optimization, and executive scenario planning. These capabilities
+must be built as governed analytics over trusted master data with explainable assumptions and audited
+write-back recommendations, not as ad-hoc dashboards inside the maintenance vertical.
+
 **CORE PRINCIPLE — capability-driven & industry-agnostic. Do NOT hardcode industries.** The platform is
 generic operational primitives + a configurable ontology; an industry is a *configuration*, not code
 (the Palantir Foundry model — one platform, many operations). Build the CAPABILITY to encompass anything

@@ -34,7 +34,7 @@ test("PLAT-01 platform admin lists tenants with a valid created date", async ({
   await loginPlatform(page);
   await page.goto("/platform/tenants");
   await expect(
-    page.getByRole("heading", { name: /테넌트 관리/, level: 1 }),
+    page.getByRole("heading", { name: /테넌시 관리/, level: 1 }),
   ).toBeVisible({ timeout: 8_000 });
 
   // The migration-seeded KNL tenant renders in the list.
@@ -68,9 +68,13 @@ test("PLAT-01 platform admin reads the cross-tenant ops health rollup", async ({
     page.getByRole("heading", { name: /플랫폼 운영 현황/, level: 1 }),
   ).toBeVisible({ timeout: 8_000 });
 
-  // KNL's health row renders with its slug + numeric counts.
-  await expect(page.getByText("KNL Logistics")).toBeVisible({ timeout: 8_000 });
-  await expect(page.getByText("knl").first()).toBeVisible();
+  // KNL's health row renders with its slug + numeric counts. Scope to the row
+  // so the hidden scope-selector <option> cannot satisfy text locators first.
+  const knlOpsRow = page.getByRole("row").filter({
+    has: page.getByText("KNL Logistics", { exact: true }),
+  });
+  await expect(knlOpsRow).toBeVisible({ timeout: 8_000 });
+  await expect(knlOpsRow.getByText("knl", { exact: true })).toBeVisible();
 
   await auditPage(page, { context: "/platform/ops", consoleGuard });
 });

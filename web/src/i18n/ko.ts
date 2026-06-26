@@ -31,9 +31,12 @@ export const ko = {
     sites: "고객·현장 관리",
     profile: "내 프로필",
     groups: {
-      operations: "운영",
-      data: "데이터",
-      org: "조직 관리",
+      operations: "물류·정비 운영",
+      executive: "경영·거버넌스",
+      assets: "장비·영업",
+      finance: "재무·구매",
+      organization: "조직 구조",
+      identity: "계정·권한",
       settings: "설정",
     },
   },
@@ -70,7 +73,7 @@ export const ko = {
     },
   },
   shell: {
-    title: "정비 콘솔",
+    title: "콘솔",
     skipToContent: "본문으로 이동",
     openMenu: "메뉴 열기",
     collapseMenu: "메뉴 접기",
@@ -100,7 +103,7 @@ export const ko = {
     permissionDeniedHint: "필요한 경우 관리자에게 문의하세요.",
   },
   app: {
-    title: "정비 콘솔",
+    title: "콘솔",
     readSurfaceReady:
       "작업지시 목록, 승인 대기, 장비 조회는 OpenAPI 생성 클라이언트로 조회합니다.",
     crashTitle: "예기치 못한 오류가 발생했습니다.",
@@ -114,7 +117,8 @@ export const ko = {
   },
   auth: {
     title: "로그인",
-    subtitle: "등록된 패스키로 로그인하거나, 처음이라면 일회용 코드로 시작하세요.",
+    subtitle:
+      "등록된 패스키로 로그인하거나, 처음이라면 일회용 코드로 시작하세요.",
     login: "패스키로 로그인",
     loggingIn: "로그인 중",
     refresh: "토큰 갱신",
@@ -161,8 +165,7 @@ export const ko = {
       refusalTitle: "동의 거부권 및 불이익",
       refusal:
         "필수 동의를 거부할 수 있으나, 거부하면 계정 활성화, 패스키 등록, 콘솔 서비스 이용을 진행할 수 없습니다.",
-      privacyCheckbox:
-        "[필수] 개인정보 수집·이용 안내를 확인했고 동의합니다.",
+      privacyCheckbox: "[필수] 개인정보 수집·이용 안내를 확인했고 동의합니다.",
       termsCheckbox:
         "[필수] 서비스 이용약관과 보안·감사 로그 처리를 확인했습니다.",
       optionalNote:
@@ -182,7 +185,8 @@ export const ko = {
     methods: {
       desktop: {
         title: "이 기기",
-        description: "Touch ID·Windows Hello 등 이 기기의 생체 인증으로 등록합니다.",
+        description:
+          "Touch ID·Windows Hello 등 이 기기의 생체 인증으로 등록합니다.",
       },
       phoneQr: {
         title: "휴대폰으로 등록 (QR)",
@@ -198,8 +202,7 @@ export const ko = {
     title: "계정이 생성되었습니다",
     message:
       "관리자가 권한을 부여할 때까지 기다려 주세요. 권한이 부여되면 콘솔의 기능을 사용할 수 있습니다.",
-    contactGuidance:
-      "권한 부여가 지연되면 담당 관리자에게 문의하세요.",
+    contactGuidance: "권한 부여가 지연되면 담당 관리자에게 문의하세요.",
     profileLink: "내 프로필 보기",
   },
   enrollHandoff: {
@@ -216,7 +219,8 @@ export const ko = {
   admin: {
     title: "관리자 설정",
     issueOtpTitle: "일회용 로그인 코드 발급",
-    issueOtpDescription: "신규 사용자가 첫 로그인을 할 수 있도록 일회용 코드를 발급합니다.",
+    issueOtpDescription:
+      "신규 사용자가 첫 로그인을 할 수 있도록 일회용 코드를 발급합니다.",
     userLabel: "사용자",
     userPlaceholder: "사용자를 검색하세요.",
     branchLabel: "지점",
@@ -264,7 +268,8 @@ export const ko = {
     deactivate: "비활성화",
     deactivating: "처리 중",
     deactivateTitle: "사용자 비활성화",
-    deactivateConfirm: "‘{name}’ 사용자를 비활성화할까요? 로그인할 수 없게 됩니다.",
+    deactivateConfirm:
+      "‘{name}’ 사용자를 비활성화할까요? 로그인할 수 없게 됩니다.",
     deactivated: "사용자를 비활성화했습니다.",
     deactivateFailed: "사용자를 비활성화하지 못했습니다.",
     form: {
@@ -314,7 +319,8 @@ export const ko = {
         "기기(패스키)를 분실해 로그인할 수 없는 사용자를 복구합니다.",
       warning:
         "이 사용자의 기존 패스키가 모두 삭제되고, 새 일회용 로그인 코드가 발급됩니다. 기존 기기로는 더 이상 로그인할 수 없습니다.",
-      confirm: "이 사용자의 패스키를 모두 삭제하고 새 로그인 코드를 발급할까요?",
+      confirm:
+        "이 사용자의 패스키를 모두 삭제하고 새 로그인 코드를 발급할까요?",
       submit: "패스키 재설정 및 코드 발급",
       submitting: "처리 중",
       issued: "발급된 코드",
@@ -413,22 +419,31 @@ export const ko = {
       operator: "플랫폼 운영자",
     },
     nav: {
-      tenants: "테넌트",
+      tenants: "테넌시",
+      groups: "그룹 관리",
       ops: "운영 현황",
-      onboard: "테넌트 등록",
+      onboard: "테넌시 등록",
     },
     status: {
       ACTIVE: "활성",
       SUSPENDED: "정지",
       ARCHIVED: "보관",
     },
+    scope: {
+      label: "보기 범위",
+      all: "전체 그룹/조직",
+      groupPrefix: "그룹",
+      orgPrefix: "조직",
+      ungrouped: "그룹 미지정",
+    },
     ops: {
       title: "플랫폼 운영 현황",
-      description: "전체 테넌트의 상태와 사용량을 한눈에 확인합니다.",
+      description: "전체 조직의 상태와 사용량을 한눈에 확인합니다.",
       empty: "운영 데이터를 불러오면 표시됩니다.",
       loadFailed: "운영 현황을 불러오지 못했습니다.",
       columns: {
-        tenant: "테넌트",
+        tenant: "조직",
+        group: "그룹",
         status: "상태",
         users: "사용자",
         activeUsers: "활성 사용자",
@@ -439,14 +454,16 @@ export const ko = {
       noActivity: "활동 없음",
     },
     tenants: {
-      title: "테넌트 관리",
-      description: "플랫폼에 등록된 조직(테넌트)을 조회하고 상태를 관리합니다.",
-      onboardCta: "테넌트 등록",
-      empty: "등록된 테넌트가 없습니다.",
-      loadFailed: "테넌트 목록을 불러오지 못했습니다.",
+      title: "테넌시 관리",
+      description:
+        "구독·격리 단위인 테넌시와 그 안의 조직 상태를 분리해 관리합니다.",
+      onboardCta: "테넌시 등록",
+      empty: "등록된 테넌시가 없습니다.",
+      loadFailed: "테넌시 목록을 불러오지 못했습니다.",
       columns: {
         slug: "슬러그",
         name: "이름",
+        group: "그룹",
         status: "상태",
         created: "생성일",
       },
@@ -455,99 +472,138 @@ export const ko = {
         SUSPENDED: "정지",
         ARCHIVED: "보관",
       },
-      removeLabel: "테넌트 삭제",
+      removeLabel: "테넌시 삭제",
       statusChange: {
-        title: "테넌트 상태 변경",
-        confirm: "‘{name}’ 테넌트를 ‘{status}’ 상태로 변경하시겠습니까?",
-        warning: "이 변경은 테넌트 접근에 영향을 줍니다. 신중히 진행하세요.",
+        title: "테넌시 상태 변경",
+        confirm: "‘{name}’ 테넌시를 ‘{status}’ 상태로 변경하시겠습니까?",
+        warning:
+          "이 변경은 해당 조직의 접근에 영향을 줍니다. 신중히 진행하세요.",
         cancel: "취소",
         apply: "변경",
         applying: "변경 중",
         failed: "상태를 변경하지 못했습니다. 다시 시도하세요.",
       },
       remove: {
-        title: "테넌트 삭제",
+        title: "테넌시 삭제",
         confirm:
-          "‘{name}’ 테넌트를 영구적으로 삭제하시겠습니까? 조직과 초기 설정 데이터가 모두 제거되며 되돌릴 수 없습니다.",
+          "‘{name}’ 테넌시를 영구적으로 삭제하시겠습니까? 조직과 초기 설정 데이터가 모두 제거되며 되돌릴 수 없습니다.",
         warning: "이 작업은 되돌릴 수 없습니다. 신중히 진행하세요.",
         cancel: "취소",
         apply: "삭제",
         applying: "삭제 중",
-        failed: "테넌트를 삭제하지 못했습니다. 다시 시도하세요.",
+        failed: "테넌시를 삭제하지 못했습니다. 다시 시도하세요.",
         blocked:
-          "이 테넌트에는 실제 운영 데이터가 있어 삭제할 수 없습니다. 대신 보관 처리하세요.",
-        notFound: "테넌트를 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.",
+          "이 테넌시에는 실제 운영 데이터가 있어 삭제할 수 없습니다. 대신 보관 처리하세요.",
+        notFound: "테넌시를 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.",
         // FORCE removal (데이터까지 영구 삭제): the DESTRUCTIVE path revealed only
         // after the guarded remove is blocked by real data. Requires the tenant
         // to be ARCHIVED first and a double confirmation (typing the exact name).
         force: {
           reveal: "데이터까지 영구 삭제",
-          title: "테넌트와 모든 데이터 영구 삭제",
+          title: "테넌시와 모든 데이터 영구 삭제",
           description:
-            "‘{name}’ 테넌트와 이 조직의 모든 운영 데이터(작업지시, 장비, 고객, 재무, 메신저, 감사 기록 등)를 영구적으로 삭제합니다. 이 작업은 절대 되돌릴 수 없습니다.",
+            "‘{name}’ 테넌시와 이 조직의 모든 운영 데이터(작업지시, 장비, 고객, 재무, 메신저, 감사 기록 등)를 영구적으로 삭제합니다. 이 작업은 절대 되돌릴 수 없습니다.",
           warning:
             "이것은 시스템에서 가장 파괴적인 작업입니다. 삭제된 데이터는 복구할 수 없습니다.",
           confirmLabel:
-            "확인을 위해 테넌트 이름 ‘{name}’ 을(를) 정확히 입력하세요.",
-          confirmPlaceholder: "테넌트 이름 입력",
-          mismatch: "입력한 이름이 테넌트 이름과 일치하지 않습니다.",
+            "확인을 위해 테넌시 이름 ‘{name}’ 을(를) 정확히 입력하세요.",
+          confirmPlaceholder: "테넌시 이름 입력",
+          mismatch: "입력한 이름이 테넌시 이름과 일치하지 않습니다.",
           cancel: "취소",
           apply: "영구 삭제",
           applying: "삭제 중",
-          failed: "테넌트를 삭제하지 못했습니다. 다시 시도하세요.",
+          failed: "테넌시를 삭제하지 못했습니다. 다시 시도하세요.",
           // The force path's status rail: refused unless the tenant is ARCHIVED.
           notArchived:
-            "활성 테넌트는 영구 삭제할 수 없습니다. 먼저 이 테넌트를 보관(ARCHIVED) 처리한 뒤 다시 시도하세요.",
-          notFound: "테넌트를 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.",
+            "활성 테넌시는 영구 삭제할 수 없습니다. 먼저 이 테넌시를 보관(ARCHIVED) 처리한 뒤 다시 시도하세요.",
+          notFound: "테넌시를 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.",
         },
       },
     },
+    groups: {
+      title: "그룹 관리",
+      description:
+        "그룹과 자회사 조직을 관리하고, 그룹 전체 보기와 개별 조직 관리로 전환합니다.",
+      empty: "등록된 그룹이 없습니다.",
+      loadFailed: "그룹 목록을 불러오지 못했습니다.",
+      memberCount: "소속 조직 {count}개",
+      viewModes: "보기 범위",
+      assignLabel: "자회사/조직 배정",
+      assignPlaceholder: "배정할 조직 선택",
+      assignAction: "그룹에 배정",
+      assignFailed: "조직을 그룹에 배정하지 못했습니다.",
+      removeAction: "그룹에서 제외",
+      removeFailed: "조직을 그룹에서 제외하지 못했습니다.",
+      noMembers: "아직 이 그룹에 소속된 조직이 없습니다.",
+      columns: {
+        org: "조직",
+        status: "상태",
+        actions: "작업",
+      },
+      form: {
+        title: "새 그룹 생성",
+        description:
+          "그룹은 테넌시가 아니라 여러 자회사 조직을 묶는 관리 단위입니다.",
+        name: "그룹명",
+        namePlaceholder: "예: 그룹사",
+        slug: "슬러그",
+        slugPlaceholder: "예: geurupsa",
+        slugHint: "영문 소문자, 숫자, 하이픈만 사용할 수 있습니다.",
+        submit: "그룹 생성",
+        submitting: "생성 중",
+        requiredName: "그룹명을 입력하세요.",
+        invalidSlug:
+          "슬러그 형식이 올바르지 않습니다. 영문 소문자·숫자·하이픈만 사용하세요.",
+        createFailed: "그룹을 생성하지 못했습니다. 다시 시도하세요.",
+      },
+    },
     onboard: {
-      title: "테넌트 등록",
-      description: "새 조직을 온보딩하고 최초 로그인용 일회용 코드를 발급합니다.",
+      title: "테넌시 등록",
+      description:
+        "새 조직을 온보딩하고 최초 로그인용 일회용 코드를 발급합니다.",
       form: {
         name: "이름",
         namePlaceholder: "예: Acme Corporation",
         slug: "슬러그",
         slugPlaceholder: "예: acme-corporation",
         slugHint: "영문 소문자, 숫자, 하이픈만 사용할 수 있습니다.",
-        submit: "테넌트 등록",
+        submit: "테넌시 등록",
         submitting: "등록 중",
         requiredName: "이름을 입력하세요.",
         invalidSlug:
           "슬러그 형식이 올바르지 않습니다. 영문 소문자·숫자·하이픈만 사용하세요.",
         duplicateSlug: "이미 사용 중인 슬러그입니다. 다른 값을 입력하세요.",
-        failed: "테넌트를 등록하지 못했습니다. 다시 시도하세요.",
+        failed: "테넌시를 등록하지 못했습니다. 다시 시도하세요.",
       },
       success: {
-        title: "테넌트가 등록되었습니다.",
+        title: "테넌시가 등록되었습니다.",
         subtitle: "‘{name}’ (슬러그: {slug}) 조직이 생성되었습니다.",
         otpHeading: "일회용 코드 (한 번만 표시됩니다)",
         otpWarning:
           "이 코드는 다시 표시되지 않습니다. 안전한 별도 경로로 전달하세요.",
         copy: "복사",
         copied: "복사됨",
-        done: "테넌트 목록으로",
+        done: "테넌시 목록으로",
       },
     },
     viewAs: {
       // Read-only tenant impersonation for troubleshooting. The action label sits
       // on each tenant row; the dialog picks the role; the banner is shown on every
       // page while impersonating.
-      action: "이 테넌트로 보기",
+      action: "이 조직으로 보기",
       dialog: {
-        title: "테넌트로 보기 (읽기 전용)",
+        title: "조직으로 보기 (읽기 전용)",
         description:
-          "‘{name}’ 테넌트를 선택한 역할의 시점에서 읽기 전용으로 조회합니다. 어떤 데이터도 변경할 수 없습니다.",
+          "‘{name}’ 조직을 선택한 역할의 시점에서 읽기 전용으로 조회합니다. 어떤 데이터도 변경할 수 없습니다.",
         roleLabel: "역할",
         warning:
           "읽기 전용 세션입니다. 모든 변경 작업은 차단되며, 시작과 종료가 감사 기록에 남습니다.",
         cancel: "취소",
         start: "보기 시작",
         starting: "여는 중",
-        failed: "테넌트 보기를 시작하지 못했습니다. 다시 시도하세요.",
+        failed: "조직 보기를 시작하지 못했습니다. 다시 시도하세요.",
         notActive:
-          "활성 상태가 아닌 테넌트는 조회할 수 없습니다. 먼저 활성화하세요.",
+          "활성 상태가 아닌 조직은 조회할 수 없습니다. 먼저 활성화하세요.",
       },
       roles: {
         SUPER_ADMIN: "최고 관리자",
@@ -563,6 +619,15 @@ export const ko = {
         label: "⚠ ‘{tenant}’ / {role} (으)로 보는 중 · 읽기 전용",
         readOnly: "읽기 전용",
         exit: "나가기",
+        exiting: "종료 중",
+      },
+    },
+    tenantContext: {
+      action: "조직 관리",
+      failed: "조직 관리 모드로 전환하지 못했습니다. 다시 시도하세요.",
+      banner: {
+        label: "‘{tenant}’ / {role} 관리 중 · 변경 가능",
+        exit: "관리 종료",
         exiting: "종료 중",
       },
     },
@@ -669,7 +734,8 @@ export const ko = {
     testing: "테스트 중",
     testOk: "SMTP 서버에 정상적으로 연결되었습니다.",
     testFailed: "SMTP 서버에 연결하지 못했습니다.",
-    testRateLimited: "연결 테스트 시도가 너무 많습니다. 잠시 후 다시 시도하세요.",
+    testRateLimited:
+      "연결 테스트 시도가 너무 많습니다. 잠시 후 다시 시도하세요.",
     testRequiresSave:
       "연결을 테스트하려면 먼저 비밀번호를 포함해 설정을 저장하세요.",
     // Friendly, non-secret mappings for the structured error_code returned by
@@ -731,7 +797,8 @@ export const ko = {
     // Distinct from saveFailed: the backend resolved the form but found no
     // equipment for the typed 호기 (after stripping #/호기, leading-zero
     // insensitive). Tells the receptionist to recheck the number, not retry.
-    equipmentNotFound: "해당 호기 장비를 찾을 수 없습니다. 호기 번호를 확인하세요.",
+    equipmentNotFound:
+      "해당 호기 장비를 찾을 수 없습니다. 호기 번호를 확인하세요.",
     lookupPrompt: "호기를 입력하면 장비와 고객 정보를 조회합니다.",
     lookupLoading: "장비 조회 중",
     lookupNotFound: "일치하는 장비가 없습니다.",
@@ -822,10 +889,12 @@ export const ko = {
       forceAssignTitle: "강제 배정 확인",
       forceAssignConfirm:
         "{mechanic} 정비사에게 {requestNo} 작업을 강제 배정합니다. 수락 대기 절차를 건너뜁니다.",
-      forceAssignWarning: "강제 배정은 수락 절차를 무시하므로 신중히 진행하세요.",
+      forceAssignWarning:
+        "강제 배정은 수락 절차를 무시하므로 신중히 진행하세요.",
       forceAssignApply: "강제 배정",
       forceAssigning: "배정 중",
-      forceAssignNeedsDispatch: "진행 중인 P1 배차가 있어야 강제 배정할 수 있습니다.",
+      forceAssignNeedsDispatch:
+        "진행 중인 P1 배차가 있어야 강제 배정할 수 있습니다.",
       forceAssigned: "강제 배정을 완료했습니다.",
       startP1Label: "P1 긴급 배차",
       startP1Hint: "정비사에게 P1 긴급 배차를 송출하고 수락 대기를 시작합니다.",
@@ -914,7 +983,8 @@ export const ko = {
       statusReady: "완료",
       statusFailed: "실패",
       previewAlt: "증거 미리보기",
-      rejectedType: "허용되지 않는 형식입니다. 사진(JPEG·PNG·WebP·HEIC) 또는 영상(MP4·MOV·WebM)만 업로드하세요.",
+      rejectedType:
+        "허용되지 않는 형식입니다. 사진(JPEG·PNG·WebP·HEIC) 또는 영상(MP4·MOV·WebM)만 업로드하세요.",
       rejectedSizeImage: "이미지는 25MB 이하만 업로드할 수 있습니다.",
       rejectedSizeVideo: "영상은 200MB 이하만 업로드할 수 있습니다.",
       uploadFailed: "업로드하지 못했습니다. 다시 시도하세요.",
@@ -926,7 +996,8 @@ export const ko = {
     // mechanic, exactly as on the dispatch board.
     detail: {
       title: "작업지시 상세",
-      description: "접수된 고장내용과 진행 이력을 확인하고, 진단·보고를 작성합니다.",
+      description:
+        "접수된 고장내용과 진행 이력을 확인하고, 진단·보고를 작성합니다.",
       back: "목록으로",
       notFound: "작업지시를 찾을 수 없습니다.",
       loadFailed: "작업지시를 불러오지 못했습니다.",
@@ -983,7 +1054,8 @@ export const ko = {
     // Per-order reject dialog (destructive). Scoped to a single order with its
     // own required memo, so a memo can never be applied to the wrong order.
     rejectTitle: "작업지시 반려",
-    rejectMessage: "이 작업지시를 반려합니다. 반려 사유는 정비사에게 전달됩니다.",
+    rejectMessage:
+      "이 작업지시를 반려합니다. 반려 사유는 정비사에게 전달됩니다.",
     rejectMemoLabel: "반려 메모",
     rejectMemoPlaceholder: "반려 사유를 입력하세요.",
     rejectConfirm: "반려",
@@ -1065,7 +1137,8 @@ export const ko = {
   },
   location: {
     title: "GPS 위치 동의",
-    subtitle: "위치 수집은 동의, 근무 중 상태, GPS 스위치가 모두 켜진 경우에만 가능합니다.",
+    subtitle:
+      "위치 수집은 동의, 근무 중 상태, GPS 스위치가 모두 켜진 경우에만 가능합니다.",
     collection: "수집 가능",
     updatedAt: "변경 시각",
     refresh: "새로고침",
@@ -1194,7 +1267,8 @@ export const ko = {
     },
     manage: {
       title: "장비 관리",
-      description: "장비를 등록·수정·폐기합니다. 마스터 일괄 등록은 이 페이지 하단에 있습니다.",
+      description:
+        "장비를 등록·수정·폐기합니다. 마스터 일괄 등록은 이 페이지 하단에 있습니다.",
     },
     create: "장비 등록",
     edit: "수정",
@@ -1261,7 +1335,8 @@ export const ko = {
     },
     substitution: {
       title: "대차 관리",
-      description: "고장·수리 중인 장비에 대차(예비) 장비를 배정하고 반납합니다.",
+      description:
+        "고장·수리 중인 장비에 대차(예비) 장비를 배정하고 반납합니다.",
       selectSource: "대차가 필요한 장비를 호기 번호로 검색해 선택하세요.",
       sourceLabel: "대상 장비",
       findCandidates: "대차 후보 조회",
@@ -1525,7 +1600,8 @@ export const ko = {
       workDiary: "업무일지",
       dailyStatus: "일일업무진행현황",
     },
-    downloadFailed: "보고서를 생성하지 못했습니다. 날짜를 확인하고 다시 시도하세요.",
+    downloadFailed:
+      "보고서를 생성하지 못했습니다. 날짜를 확인하고 다시 시도하세요.",
     downloadDone: "{report} 보고서를 내려받았습니다.",
     historyNote:
       "출력 이력 보기는 백엔드에서 아직 제공되지 않습니다(excel_export_logs 미노출).",
@@ -1665,8 +1741,7 @@ export const ko = {
       submitting: "저장 중",
       cancel: "취소",
       memoRequired: "처리 메모를 입력하세요.",
-      conflict:
-        "이미 처리된 항목입니다. 새로고침 후 다시 확인하세요.",
+      conflict: "이미 처리된 항목입니다. 새로고침 후 다시 확인하세요.",
       submitFailed: "검토 처리를 저장하지 못했습니다. 다시 시도하세요.",
       saved: "검토 결과를 저장했습니다.",
     },
@@ -1723,7 +1798,8 @@ export const ko = {
       categoryHelp: "문의 성격에 가장 가까운 항목을 골라주세요.",
       priorityHelp: "현장 운행에 미치는 영향을 기준으로 골라주세요.",
       titleHelp: "예: 290호기 시동 불량, 리치트럭 렌탈 견적 요청",
-      bodyHelp: "장비 모델, 현장 위치, 증상, 운행 가능 여부를 적어주시면 상담이 빨라집니다.",
+      bodyHelp:
+        "장비 모델, 현장 위치, 증상, 운행 가능 여부를 적어주시면 상담이 빨라집니다.",
       contactHelp: "회신받을 전화번호 또는 이메일을 남겨주세요.",
       categoryOptions: {
         EQUIPMENT_INQUIRY: "렌탈·중고 장비 문의",
@@ -1770,7 +1846,8 @@ export const ko = {
         "현장 정보만 남겨 주시면 KNL 담당자가 확인 후 연락드립니다. 전화 없이 온라인으로 바로 접수하세요.",
       formAria: "온라인 접수 양식",
       submitted: "접수가 완료되었습니다.",
-      submittedDetail: "담당자가 확인 후 빠르게 연락드리겠습니다. 접수 내용은 등록하신 연락처로 안내됩니다.",
+      submittedDetail:
+        "담당자가 확인 후 빠르게 연락드리겠습니다. 접수 내용은 등록하신 연락처로 안내됩니다.",
       another: "새 접수 작성",
       phoneFallbackLabel: "전화 상담",
       phoneFallback: SALES_PHONE_DISPLAY,
@@ -1829,7 +1906,8 @@ export const ko = {
   },
   financial: {
     title: "구매·정산",
-    description: "구매요청서·지출결의서·집행, 임대 견적과 장비 원가 원장을 관리합니다.",
+    description:
+      "구매요청서·지출결의서·집행, 임대 견적과 장비 원가 원장을 관리합니다.",
     noBranch: "계정에 배정된 지점이 없습니다. 관리자에게 문의하세요.",
     tabs: {
       purchase: "구매요청",
@@ -2022,7 +2100,7 @@ export const ko = {
   landing: {
     brand: "KnL",
     brandFull: "Korea Next Logistics",
-    product: "정비 콘솔",
+    product: "콘솔",
     productGloss: "지게차 임대·정비 현장 서비스 관리(FSM)",
     skipToContent: "본문으로 건너뛰기",
     nav: {
@@ -2042,73 +2120,150 @@ export const ko = {
       primaryLogin: "로그인",
       primaryConsole: "콘솔로 이동",
       secondary: "기능 살펴보기",
-      authNote: "일회용 코드로 첫 로그인 후 패스키(Touch ID·Windows Hello·휴대폰)로 비밀번호 없이 인증합니다.",
+      authNote:
+        "일회용 코드로 첫 로그인 후 패스키(Touch ID·Windows Hello·휴대폰)로 비밀번호 없이 인증합니다.",
     },
     features: {
       title: "이 프로그램이 제공하는 기능",
-      subtitle: "접수 → 배차 → 현장 → 정산 → 데이터, 전 업무 흐름을 하나로 묶었습니다.",
+      subtitle:
+        "접수 → 배차 → 현장 → 정산 → 데이터, 전 업무 흐름을 하나로 묶었습니다.",
       groups: [
         {
           title: "접수 · 배차",
           items: [
-            { name: "작업지시 접수·관리", desc: "호기 번호로 장비·고객을 자동 조회해 고장 증상과 목표 완료일을 담은 작업지시를 즉시 접수합니다." },
-            { name: "배차 보드", desc: "접수·배정·진행·검토·완료 단계를 한 화면에서 보고 SLA 상태(정상/임박/위반)와 함께 정비사를 배정합니다." },
-            { name: "정비사 배정·강제 배정", desc: "주·보조 정비사를 함께 지정하고, P1 긴급 건은 수락 절차를 건너뛰는 관리자 강제 배정까지 지원합니다." },
-            { name: "P1 긴급 배차 수락", desc: "긴급 작업을 푸시로 브로드캐스트하고 정비사가 수락·거절하며 미수락 시 자동 배정으로 이어집니다." },
-            { name: "배차 지도", desc: "사업장 좌표를 입력해 임대·예비·대차 진행 장비 현황을 지도 핀으로 확인합니다." },
-            { name: "대차(代車) 배정·반납", desc: "수리 중인 장비에 톤수가 호환되는 예비 장비를 대차로 배정하고 위치·반납 메모와 함께 관리합니다." },
+            {
+              name: "작업지시 접수·관리",
+              desc: "호기 번호로 장비·고객을 자동 조회해 고장 증상과 목표 완료일을 담은 작업지시를 즉시 접수합니다.",
+            },
+            {
+              name: "배차 보드",
+              desc: "접수·배정·진행·검토·완료 단계를 한 화면에서 보고 SLA 상태(정상/임박/위반)와 함께 정비사를 배정합니다.",
+            },
+            {
+              name: "정비사 배정·강제 배정",
+              desc: "주·보조 정비사를 함께 지정하고, P1 긴급 건은 수락 절차를 건너뛰는 관리자 강제 배정까지 지원합니다.",
+            },
+            {
+              name: "P1 긴급 배차 수락",
+              desc: "긴급 작업을 푸시로 브로드캐스트하고 정비사가 수락·거절하며 미수락 시 자동 배정으로 이어집니다.",
+            },
+            {
+              name: "배차 지도",
+              desc: "사업장 좌표를 입력해 임대·예비·대차 진행 장비 현황을 지도 핀으로 확인합니다.",
+            },
+            {
+              name: "대차(代車) 배정·반납",
+              desc: "수리 중인 장비에 톤수가 호환되는 예비 장비를 대차로 배정하고 위치·반납 메모와 함께 관리합니다.",
+            },
           ],
         },
         {
           title: "현장 정비 · 모바일",
           items: [
-            { name: "모바일 현장 앱(iOS·Android)", desc: "정비사용 네이티브 앱으로 오프라인에서도 작업 보고·증빙 촬영을 큐에 저장했다가 연결 시 자동 동기화합니다." },
-            { name: "현장 증빙 촬영·업로드", desc: "카메라로 정비 증빙 사진을 촬영해 첨부하고 오프라인 큐로 안전하게 업로드합니다." },
-            { name: "작업 보고·승인", desc: "정비사가 진단·조치 내용과 결과 유형을 보고하면 관리자가 메모와 함께 승인 또는 반려합니다." },
-            { name: "GPS 위치 동의", desc: "동의·근무 중·GPS 켜짐이 모두 충족될 때만 위치를 수집하며 동의·철회·일시중지와 내보내기를 제공합니다." },
-            { name: "패스키(WebAuthn) 로그인", desc: "일회용 코드로 첫 로그인 후 생체 인증 패스키를 등록해 비밀번호 없이 인증하며, 분실 시 관리자 재설정을 지원합니다." },
+            {
+              name: "모바일 현장 앱(iOS·Android)",
+              desc: "정비사용 네이티브 앱으로 오프라인에서도 작업 보고·증빙 촬영을 큐에 저장했다가 연결 시 자동 동기화합니다.",
+            },
+            {
+              name: "현장 증빙 촬영·업로드",
+              desc: "카메라로 정비 증빙 사진을 촬영해 첨부하고 오프라인 큐로 안전하게 업로드합니다.",
+            },
+            {
+              name: "작업 보고·승인",
+              desc: "정비사가 진단·조치 내용과 결과 유형을 보고하면 관리자가 메모와 함께 승인 또는 반려합니다.",
+            },
+            {
+              name: "GPS 위치 동의",
+              desc: "동의·근무 중·GPS 켜짐이 모두 충족될 때만 위치를 수집하며 동의·철회·일시중지와 내보내기를 제공합니다.",
+            },
+            {
+              name: "패스키(WebAuthn) 로그인",
+              desc: "일회용 코드로 첫 로그인 후 생체 인증 패스키를 등록해 비밀번호 없이 인증하며, 분실 시 관리자 재설정을 지원합니다.",
+            },
           ],
         },
         {
           title: "예방정비 · 결재",
           items: [
-            { name: "정기 예방정비", desc: "일·주·월·분기·연 주기의 예방정비 일정을 등록하고 임박·지연 일정을 점검합니다." },
-            { name: "계획업무 결재", desc: "정비사별 일일 작업 계획을 작성→검토 요청→승인·반려→최종 결재까지 전자결재로 처리합니다." },
+            {
+              name: "정기 예방정비",
+              desc: "일·주·월·분기·연 주기의 예방정비 일정을 등록하고 임박·지연 일정을 점검합니다.",
+            },
+            {
+              name: "계획업무 결재",
+              desc: "정비사별 일일 작업 계획을 작성→검토 요청→승인·반려→최종 결재까지 전자결재로 처리합니다.",
+            },
           ],
         },
         {
           title: "정산 · 자산",
           items: [
-            { name: "구매·정산", desc: "구매요청서를 상신→관리자 승인→지출결의→임원 승인→집행까지 결재하고 집행액을 장비 원가 원장에 반영합니다." },
-            { name: "임대 견적·원가 원장", desc: "취득가·잔존가·누적 수리비로 월 임대료를 산출하고 장비별 원가·비용 원장을 조회합니다." },
-            { name: "장비 관리", desc: "호기 번호로 장비·고객·규격·톤수를 조회하고 등록·수정·폐기하며 임대·예비·대체·매각 상태를 관리합니다." },
-            { name: "엑셀 보고서 출력", desc: "선택 날짜의 업무일지·일일업무진행현황 보고서를 엑셀로 내려받습니다." },
+            {
+              name: "구매·정산",
+              desc: "구매요청서를 상신→관리자 승인→지출결의→임원 승인→집행까지 결재하고 집행액을 장비 원가 원장에 반영합니다.",
+            },
+            {
+              name: "임대 견적·원가 원장",
+              desc: "취득가·잔존가·누적 수리비로 월 임대료를 산출하고 장비별 원가·비용 원장을 조회합니다.",
+            },
+            {
+              name: "장비 관리",
+              desc: "호기 번호로 장비·고객·규격·톤수를 조회하고 등록·수정·폐기하며 임대·예비·대체·매각 상태를 관리합니다.",
+            },
+            {
+              name: "엑셀 보고서 출력",
+              desc: "선택 날짜의 업무일지·일일업무진행현황 보고서를 엑셀로 내려받습니다.",
+            },
           ],
         },
         {
           title: "데이터 · 운영",
           items: [
-            { name: "임원 KPI 대시보드", desc: "완료 건수·평균 응답속도·목표 준수율·재방문율·P1 수락률을 회사·권역·지점·정비사 범위로 집계합니다." },
-            { name: "운영 대시보드", desc: "작업 흐름 퍼널과 지연·SLA·승인 대기·대차 진행·미해결 문의 등 주의 지표를 실시간으로 보여줍니다." },
-            { name: "일일현황 월보드", desc: "미배정 긴급·승인 대기·목표 초과·금일 완료를 자동 갱신으로 띄우는 대형 화면용 현황판입니다." },
+            {
+              name: "임원 KPI 대시보드",
+              desc: "완료 건수·평균 응답속도·목표 준수율·재방문율·P1 수락률을 회사·권역·지점·정비사 범위로 집계합니다.",
+            },
+            {
+              name: "운영 대시보드",
+              desc: "작업 흐름 퍼널과 지연·SLA·승인 대기·대차 진행·미해결 문의 등 주의 지표를 실시간으로 보여줍니다.",
+            },
+            {
+              name: "일일현황 월보드",
+              desc: "미배정 긴급·승인 대기·목표 초과·금일 완료를 자동 갱신으로 띄우는 대형 화면용 현황판입니다.",
+            },
           ],
         },
         {
           title: "협업 · 플랫폼",
           items: [
-            { name: "사내 메신저", desc: "작업·팀·1:1·그룹 대화를 실시간으로 주고받고 첨부와 본문 검색을 지원하며 감사 가능하도록 기록됩니다." },
-            { name: "고객지원 티켓", desc: "사내 문의와 공개 고객 접수를 한곳에서 분류·우선순위·담당 배정·상태 전이로 처리합니다." },
-            { name: "사용자·역할·조직 관리", desc: "직원 계정과 역할(최고관리자·관리자·임원·정비사·접수담당), 팀, 권역·지점을 등록·관리합니다." },
-            { name: "멀티테넌트 플랫폼 콘솔", desc: "벤더 관리자가 조직(테넌트)을 온보딩하고 최초 로그인 코드를 발급하며 상태·사용량을 운영합니다." },
-            { name: "푸시·알림톡 알림", desc: "긴급 배차·상태 변경 등 현장 알림을 푸시와 알림톡으로 즉시 전달합니다." },
+            {
+              name: "사내 메신저",
+              desc: "작업·팀·1:1·그룹 대화를 실시간으로 주고받고 첨부와 본문 검색을 지원하며 감사 가능하도록 기록됩니다.",
+            },
+            {
+              name: "고객지원 티켓",
+              desc: "사내 문의와 공개 고객 접수를 한곳에서 분류·우선순위·담당 배정·상태 전이로 처리합니다.",
+            },
+            {
+              name: "사용자·역할·조직 관리",
+              desc: "직원 계정과 역할(최고관리자·관리자·임원·정비사·접수담당), 팀, 권역·지점을 등록·관리합니다.",
+            },
+            {
+              name: "멀티테넌트 플랫폼 콘솔",
+              desc: "벤더 관리자가 조직(테넌트)을 온보딩하고 최초 로그인 코드를 발급하며 상태·사용량을 운영합니다.",
+            },
+            {
+              name: "푸시·알림톡 알림",
+              desc: "긴급 배차·상태 변경 등 현장 알림을 푸시와 알림톡으로 즉시 전달합니다.",
+            },
           ],
         },
       ],
     },
     pricing: {
       title: "구독 안내",
-      subtitle: "정비 콘솔은 조직(테넌트) 단위로 도입하는 구독형 서비스입니다.",
-      planName: "정비 콘솔 구독",
+      subtitle: "콘솔은 조직 단위로 도입하는 구독형 서비스입니다.",
+      planName: "콘솔 구독",
       planDesc:
         "웹 관리 콘솔, 정비사 모바일 앱(iOS·Android), 멀티테넌트 운영, 패스키 인증, KPI·운영 대시보드를 모두 포함합니다.",
       cta: "구독 문의하기",
@@ -2116,16 +2271,18 @@ export const ko = {
     },
     contact: {
       title: "문의 · 고객 창구",
-      subtitle: "도입 상담, 구독, 시스템 문의를 남겨 주시면 담당자가 연락드립니다.",
+      subtitle:
+        "도입 상담, 구독, 시스템 문의를 남겨 주시면 담당자가 연락드립니다.",
       inquiryCta: "문의 양식 작성",
-      inquiryDesc: "공개 문의 양식으로 연락처와 문의 내용을 남기면 담당자가 회신합니다.",
+      inquiryDesc:
+        "공개 문의 양식으로 연락처와 문의 내용을 남기면 담당자가 회신합니다.",
       domainLabel: "웹사이트",
     },
     faq: {
       title: "자주 묻는 질문",
       items: [
         {
-          q: "정비 콘솔은 어떤 사업에 적합한가요?",
+          q: "콘솔은 어떤 사업에 적합한가요?",
           a: "지게차를 임대·정비·관리하는 사업에 맞춰 설계되었습니다. 접수·배차·현장 정비·대차 운용·예방정비·결재·정산·KPI까지 전 업무를 한 시스템으로 운영합니다.",
         },
         {
@@ -2159,7 +2316,7 @@ export const ko = {
       maintenance: "정비",
       about: "회사소개",
       contact: "고객센터",
-      privacy: "개인정보·쿠키 안내",
+      privacy: "개인정보 처리방침",
       phoneLabel: "사업 문의",
       phoneHref: SALES_PHONE_HREF,
       openMenu: "메뉴 열기",
@@ -2194,47 +2351,163 @@ export const ko = {
     },
     cookie: {
       aria: "쿠키 안내",
-      title: "쿠키 및 저장소 안내",
-      body: "이 웹사이트는 문의 접수와 보안에 필요한 필수 쿠키·브라우저 저장소만 사용합니다. 광고·마케팅 쿠키나 분석 도구는 별도 동의 없이 사용하지 않습니다.",
-      details: "자세히 보기",
-      accept: "확인",
+      title: "필수 쿠키 안내",
+      body: "이 웹사이트는 로그인 보안, 문의 접수, 쿠키 안내 확인 등 서비스 제공에 필요한 필수 쿠키와 브라우저 저장소만 사용합니다. 광고·분석 쿠키는 현재 사용하지 않으며, 도입 시 별도 사전 동의를 받습니다.",
+      details: "개인정보 처리방침 보기",
+      accept: "확인했습니다",
     },
     privacyNotice: {
       hero: {
-        eyebrow: "Privacy & Cookies",
-        title: "개인정보·쿠키 안내",
-        copy: "KNL 공개 웹사이트와 운영 콘솔의 필수 개인정보 처리, 보안 기록, 쿠키 사용 방침을 한곳에서 확인합니다.",
+        eyebrow: "Privacy Policy",
+        title: "개인정보 처리방침 및 쿠키 정책",
+        copy: "KNL 공개 웹사이트와 운영 콘솔에서 처리하는 개인정보, 보안 기록, 위치정보 선택 동의, 쿠키·브라우저 저장소 사용 기준을 한곳에 공개합니다.",
       },
-      required: {
-        eyebrow: "Initial Login",
-        title: "초기 로그인 필수 동의",
-        copy: "콘솔 최초 로그인 시 계정 인증, 조직·지점·역할 권한 확인, 서비스 보안, 장애 대응 및 감사 기록 관리를 위해 필요한 개인정보 수집·이용 안내와 서비스 약관을 각각 확인하고 동의해야 합니다.",
-        itemsTitle: "필수 처리 항목",
-        items:
-          "이름, 이메일 또는 연락처, 소속 조직·지점·역할, 로그인·패스키·기기 식별 정보, 접속 및 감사 기록",
-        retentionTitle: "보유 및 거부 안내",
-        retention:
-          "계정 이용 기간 동안 보관하며, 계정 삭제 후에는 법령 준수·분쟁 대응·감사 보존에 필요한 범위에서만 분리 보관 후 파기합니다. 필수 동의를 거부할 수 있으나 콘솔 계정 활성화와 패스키 등록은 진행할 수 없습니다.",
+      meta: {
+        title: "정책 시행 정보",
+        effectiveDateLabel: "시행일",
+        effectiveDate: "2026년 6월 26일",
+        versionLabel: "버전",
+        version: "v2026.06.26",
+        operatorLabel: "개인정보처리자",
+        operator: "KNL",
+        contactLabel: "개인정보 문의",
+        contact: "KNL@cossok.com",
+      },
+      summaryCards: [
+        {
+          title: "필수 처리와 선택 처리를 구분합니다.",
+          copy: "계정 생성·로그인·업무 처리에 필요한 항목과 위치정보 등 선택 기능 항목을 분리해 안내합니다.",
+        },
+        {
+          title: "광고·분석 쿠키를 사용하지 않습니다.",
+          copy: "현재 공개 웹사이트는 필수 쿠키와 브라우저 저장소만 사용하며, 맞춤형 광고·분석 도구 도입 시 별도 동의를 받습니다.",
+        },
+        {
+          title: "권리 행사와 문의 창구를 공개합니다.",
+          copy: "열람·정정·삭제·처리정지 요청과 개인정보 문의는 공개된 연락처로 접수할 수 있습니다.",
+        },
+      ],
+      collection: {
+        eyebrow: "Collection & Use",
+        title: "수집·이용 항목과 목적",
+        copy: "서비스 제공에 필요한 최소 항목을 목적별로 처리하며, 법령상 보존 의무가 있는 경우를 제외하고 목적 달성 후 지체 없이 파기합니다.",
+        headers: {
+          category: "구분",
+          purpose: "목적",
+          items: "항목",
+          retention: "보유 기간",
+          required: "동의 구분",
+        },
+        rows: [
+          {
+            category: "공개 웹사이트 문의",
+            purpose: "렌탈·판매·정비 상담 접수와 회신",
+            items: "이름, 연락처, 회사·현장명, 문의 유형, 문의 내용",
+            retention:
+              "상담 완료 후 1년 또는 관련 법령·분쟁 대응에 필요한 기간",
+            required: "필수",
+          },
+          {
+            category: "콘솔 계정 및 초기 로그인",
+            purpose:
+              "계정 인증, 조직·지점·역할 권한 확인, 패스키 등록, 서비스 제공",
+            items:
+              "이름, 이메일 또는 연락처, 소속 조직·지점·역할, 로그인·패스키·기기 식별 정보",
+            retention:
+              "계정 이용 기간 및 계정 삭제 후 법령 준수·분쟁 대응에 필요한 기간",
+            required: "필수",
+          },
+          {
+            category: "보안·감사 기록",
+            purpose: "부정 이용 방지, 보안 사고 예방, 장애 대응, 감사 추적",
+            items:
+              "접속 일시, IP, 사용자 에이전트, 인증 실패·권한 변경·주요 업무 처리 기록",
+            retention: "보안·감사 목적 달성 및 관련 법령상 필요한 기간",
+            required: "필수",
+          },
+          {
+            category: "위치 기반 기능",
+            purpose:
+              "현장 도착 확인, 배차·정비 이력 관리, 안전한 작업 수행 지원",
+            items:
+              "동의한 사용자의 위치 좌표, 수집 일시, 관련 작업·현장 식별자",
+            retention:
+              "별도 위치정보 동의 화면에 고지한 기간 또는 동의 철회 시까지",
+            required: "선택",
+          },
+        ],
       },
       cookies: {
-        eyebrow: "Cookies",
-        title: "필수 쿠키와 브라우저 저장소만 사용",
-        copy: "공개 웹사이트는 쿠키 안내 확인 상태처럼 서비스 제공에 필요한 브라우저 저장소만 사용합니다. 운영 콘솔의 로그인 유지 쿠키는 HttpOnly 보안 쿠키로 처리되며, 광고·마케팅 쿠키 또는 분석 도구는 별도 동의 없이 사용하지 않습니다.",
+        eyebrow: "Cookies & Storage",
+        title: "쿠키 및 브라우저 저장소 사용",
+        copy: "필수 쿠키·저장소는 로그인 보안과 사이트 이용에 필요한 범위에서만 사용합니다. 광고·분석·맞춤형 광고 목적의 제3자 쿠키는 현재 사용하지 않습니다.",
+        headers: {
+          name: "항목",
+          purpose: "사용 목적",
+          type: "유형",
+          retention: "보유 기간",
+          control: "통제 방법",
+        },
+        rows: [
+          {
+            name: "세션·로그인 보안 쿠키",
+            purpose: "콘솔 로그인 유지, 인증 상태 확인, CSRF 등 보안 보호",
+            type: "필수 쿠키(HttpOnly·Secure·SameSite 적용)",
+            retention: "세션 또는 보안 정책상 정한 기간",
+            control:
+              "브라우저에서 쿠키를 차단할 수 있으나 로그인 기능이 제한될 수 있습니다.",
+          },
+          {
+            name: "쿠키 안내 확인 저장소",
+            purpose:
+              "공개 웹사이트의 필수 쿠키 안내를 다시 표시하지 않기 위한 확인 상태 저장",
+            type: "필수 브라우저 로컬 저장소",
+            retention: "브라우저 저장소 삭제 시까지",
+            control:
+              "브라우저 설정에서 사이트 데이터 또는 로컬 저장소를 삭제할 수 있습니다.",
+          },
+          {
+            name: "광고·분석·맞춤형 광고 쿠키",
+            purpose:
+              "사용하지 않습니다. 향후 도입 시 목적, 항목, 보유 기간을 고지하고 필요한 동의를 별도로 받습니다.",
+            type: "현재 미사용",
+            retention: "해당 없음",
+            control: "해당 없음",
+          },
+        ],
+        browserControlTitle: "브라우저에서 쿠키를 관리하는 방법",
+        browserControl:
+          "Chrome, Edge, Whale 등 브라우저의 개인정보·보안 또는 쿠키 및 사이트 데이터 설정에서 쿠키 허용, 차단, 삭제를 관리할 수 있습니다.",
       },
-      location: {
-        eyebrow: "Location",
-        title: "위치정보는 별도 선택 동의",
-        copy: "현장 도착 확인 등 위치 기반 기능은 콘솔의 별도 위치정보 동의 화면에서 수집 목적, 항목, 보유 기간, 철회 방법을 안내한 뒤 선택적으로 동의받습니다.",
+      rights: {
+        eyebrow: "Your Rights",
+        title: "정보주체 권리와 행사 방법",
+        copy: "이용자는 개인정보 열람, 정정·삭제, 처리정지, 동의 철회를 요청할 수 있습니다. KNL은 본인 확인 후 관련 법령에 따라 지체 없이 처리하고 결과를 안내합니다.",
+        items: [
+          "계정·조직 관리자는 콘솔에서 본인 또는 소속 사용자 정보를 확인하고 필요한 정정을 요청할 수 있습니다.",
+          "위치정보 등 선택 동의 항목은 제공된 화면이나 개인정보 문의 창구를 통해 철회할 수 있습니다.",
+          "법령상 보존 의무, 다른 사람의 권리 침해 우려 등 제한 사유가 있는 경우에는 사유를 안내합니다.",
+        ],
+      },
+      processors: {
+        eyebrow: "Sharing & Processing",
+        title: "제3자 제공 및 처리위탁",
+        copy: "현재 공개 웹사이트는 맞춤형 광고 목적의 제3자 제공을 하지 않습니다. 클라우드 인프라, 알림, 보안, 장애 대응 등 서비스 운영에 필요한 처리위탁 또는 국외 이전이 발생하면 업체명, 목적, 항목, 보유 기간을 별도 고지하고 정책에 반영합니다.",
       },
       security: {
         eyebrow: "Security",
-        title: "보안 및 접속 기록",
-        copy: "인증 실패, 패스키 등록, 권한 변경, 주요 업무 처리 기록은 보안 사고 예방, 부정 이용 탐지, 장애 대응, 감사 추적을 위해 최소 범위로 기록합니다.",
+        title: "안전성 확보 조치",
+        copy: "접근권한 관리, 인증·권한 변경 감사 기록, 전송 구간 암호화, 비밀번호 대신 패스키 기반 인증, 로그 접근 통제 등 관리적·기술적 보호조치를 적용합니다.",
       },
-      formalPolicy: {
-        eyebrow: "Release Gate",
-        title: "정식 정책 게시 전 확인 사항",
-        copy: "운영 배포 전 개인정보 처리방침, 서비스 이용약관, 위치정보 약관, 쿠키 고지 문구는 법무·보안 검토 후 최신 게시본으로 확정해야 합니다.",
+      destruction: {
+        eyebrow: "Retention & Destruction",
+        title: "보유 기간과 파기",
+        copy: "처리 목적 달성, 보유 기간 경과, 동의 철회 등 파기 사유가 발생하면 재생할 수 없는 방법으로 파기합니다. 전자 파일은 복구가 어렵도록 삭제하고, 출력물은 분쇄 또는 이에 준하는 방법으로 파기합니다.",
+      },
+      changes: {
+        eyebrow: "Changes",
+        title: "정책 변경 고지",
+        copy: "처리 항목, 목적, 보유 기간, 쿠키 또는 위탁·제공 내용이 변경되면 시행일과 변경 내용을 이 페이지에 공개합니다. 중요한 변경은 서비스 내 공지 또는 별도 안내로 알립니다.",
       },
     },
     home: {
@@ -2649,8 +2922,7 @@ export const ko = {
     platformFsm: {
       meta: {
         title: "운영 콘솔",
-        intro:
-          "KNL이 현장에서 직접 검증한 지게차 임대·정비 운영 콘솔입니다.",
+        intro: "KNL이 현장에서 직접 검증한 지게차 임대·정비 운영 콘솔입니다.",
       },
       dashboards: {
         eyebrow: "Dashboards & Observability",

@@ -196,70 +196,193 @@ export const NAV_GROUPS = [
     key: "operations",
     label: "nav.groups.operations",
     items: [
-      { key: "dispatch",  href: "/dispatch",  labelKey: "nav.dispatch",  Icon: ClipboardList },
+      {
+        key: "dispatch",
+        href: "/dispatch",
+        labelKey: "nav.dispatch",
+        Icon: ClipboardList,
+      },
       // dispatch-map (geographic dispatch view): its data read is
       // WorkOrderReadAll, so it is gated to the five operational roles (not a
       // bare MEMBER), like dispatch/intake/messenger/support.
-      { key: "dispatch-map", href: "/dispatch-map", labelKey: "nav.dispatch-map", Icon: MapIcon },
-      { key: "intake",    href: "/intake",    labelKey: "nav.intake",    Icon: FilePlus },
-      { key: "approvals", href: "/approvals", labelKey: "nav.approvals", Icon: CheckSquare },
-      { key: "daily-plan", href: "/daily-plan", labelKey: "nav.daily-plan", Icon: CalendarCheck },
-      { key: "inspection", href: "/inspection", labelKey: "nav.inspection", Icon: CalendarClock },
-      { key: "messenger", href: "/messenger", labelKey: "nav.messenger", Icon: MessageSquare },
-      { key: "support",   href: "/support",   labelKey: "nav.support",   Icon: LifeBuoy },
+      {
+        key: "dispatch-map",
+        href: "/dispatch-map",
+        labelKey: "nav.dispatch-map",
+        Icon: MapIcon,
+      },
+      {
+        key: "intake",
+        href: "/intake",
+        labelKey: "nav.intake",
+        Icon: FilePlus,
+      },
+      {
+        key: "approvals",
+        href: "/approvals",
+        labelKey: "nav.approvals",
+        Icon: CheckSquare,
+      },
+      {
+        key: "daily-plan",
+        href: "/daily-plan",
+        labelKey: "nav.daily-plan",
+        Icon: CalendarCheck,
+      },
+      {
+        key: "inspection",
+        href: "/inspection",
+        labelKey: "nav.inspection",
+        Icon: CalendarClock,
+      },
+      {
+        key: "messenger",
+        href: "/messenger",
+        labelKey: "nav.messenger",
+        Icon: MessageSquare,
+      },
+      {
+        key: "support",
+        href: "/support",
+        labelKey: "nav.support",
+        Icon: LifeBuoy,
+      },
     ],
   },
   {
-    key: "data",
-    label: "nav.groups.data",
+    key: "executive",
+    label: "nav.groups.executive",
     items: [
-      { key: "kpi",       href: "/kpi",       labelKey: "nav.kpi",       Icon: BarChart2 },
-      { key: "ops",       href: "/ops",       labelKey: "nav.ops",       Icon: Gauge },
+      { key: "kpi", href: "/kpi", labelKey: "nav.kpi", Icon: BarChart2 },
+      { key: "ops", href: "/ops", labelKey: "nav.ops", Icon: Gauge },
       // reporting (ExcelDownload): [A,A,A,A,A] for the five granted roles in the
       // backend matrix — they may download the work-diary / daily-status
       // workbooks, so the item is gated to the operational roles (not MEMBER).
-      { key: "reporting", href: "/reporting", labelKey: "nav.reporting", Icon: FileSpreadsheet },
-      // equipment (browse list): the five operational roles may browse the fleet.
-      // The read gate is WorkOrderReadAll; a bare MEMBER is default-denied.
-      { key: "equipment", href: "/equipment", labelKey: "nav.equipment", Icon: List },
-      // equipment-manage (CRUD): gated to EquipmentManage holders
-      // (ADMIN/EXECUTIVE/SUPER_ADMIN), matching the backend matrix and the
-      // route guard on /equipment/manage.
-      { key: "equipment-manage", href: "/equipment/manage", labelKey: "nav.equipment-manage", Icon: Settings2 },
-      // catalog (sales-listing & inquiry admin, #6): ADMIN/SUPER_ADMIN only.
-      { key: "catalog", href: "/catalog", labelKey: "nav.catalog", Icon: Store },
-      // financial: the page surfaces purchase requests, whose read gate
-      // (PurchaseRequestRead) is at least Limited for every granted role
-      // ([A, L, A, A, A] in the backend matrix), so the item is gated to the
-      // operational roles (not a bare MEMBER). Per-action controls inside the
-      // page are role-gated to their specific backend Feature.
-      { key: "financial", href: "/financial", labelKey: "nav.financial", Icon: Receipt },
+      {
+        key: "reporting",
+        href: "/reporting",
+        labelKey: "nav.reporting",
+        Icon: FileSpreadsheet,
+      },
       // integrity (#12 / #34): governance findings (review-needed anomalies).
       // EXECUTIVE/SUPER_ADMIN only — gated by ITEM_ROLE_GATES("integrity") and
       // the RequireIntegrityRoute guard on /integrity.
-      { key: "integrity", href: "/integrity", labelKey: "nav.integrity", Icon: ShieldAlert },
+      {
+        key: "integrity",
+        href: "/integrity",
+        labelKey: "nav.integrity",
+        Icon: ShieldAlert,
+      },
     ],
   },
   {
-    key: "org",
-    label: "nav.groups.org",
+    key: "assets",
+    label: "nav.groups.assets",
     items: [
-      { key: "users", href: "/settings/users", labelKey: "nav.users", Icon: Users },
-      { key: "org",   href: "/settings/org",   labelKey: "nav.org",   Icon: Building2 },
-      { key: "sites", href: "/settings/sites", labelKey: "nav.sites", Icon: Contact },
+      // equipment (browse list): the five operational roles may browse the fleet.
+      // The read gate is WorkOrderReadAll; a bare MEMBER is default-denied.
+      {
+        key: "equipment",
+        href: "/equipment",
+        labelKey: "nav.equipment",
+        Icon: List,
+      },
+      // equipment-manage (CRUD): gated to EquipmentManage holders
+      // (ADMIN/EXECUTIVE/SUPER_ADMIN), matching the backend matrix and the
+      // route guard on /equipment/manage.
+      {
+        key: "equipment-manage",
+        href: "/equipment/manage",
+        labelKey: "nav.equipment-manage",
+        Icon: Settings2,
+      },
+      // catalog (sales-listing & inquiry admin, #6): ADMIN/SUPER_ADMIN only.
+      {
+        key: "catalog",
+        href: "/catalog",
+        labelKey: "nav.catalog",
+        Icon: Store,
+      },
+    ],
+  },
+  {
+    key: "finance",
+    label: "nav.groups.finance",
+    items: [
+      // Finance/procurement now. Payroll remains a separate high-sensitivity
+      // domain in the product architecture and must not be mislabeled here until
+      // the payroll module exists.
+      {
+        key: "financial",
+        href: "/financial",
+        labelKey: "nav.financial",
+        Icon: Receipt,
+      },
+    ],
+  },
+  {
+    key: "organization",
+    label: "nav.groups.organization",
+    items: [
+      {
+        key: "org",
+        href: "/settings/org",
+        labelKey: "nav.org",
+        Icon: Building2,
+      },
+      {
+        key: "sites",
+        href: "/settings/sites",
+        labelKey: "nav.sites",
+        Icon: Contact,
+      },
+      {
+        key: "location",
+        href: "/settings/location",
+        labelKey: "nav.location",
+        Icon: MapPin,
+      },
+    ],
+  },
+  {
+    key: "identity",
+    label: "nav.groups.identity",
+    items: [
+      // IAM/user administration, not HR. HR will own employee/attendance/leave
+      // once those modules exist; this page issues OTPs, roles, and branch scope.
+      {
+        key: "users",
+        href: "/settings/users",
+        labelKey: "nav.users",
+        Icon: Users,
+      },
+      // email (MailAccountManage): tenant corporate mail-account config. ADMIN/
+      // SUPER_ADMIN only — gated by ITEM_ROLE_GATES("email") and the
+      // RequireAdminRoute guard on /settings/email.
+      {
+        key: "email",
+        href: "/settings/email",
+        labelKey: "nav.email",
+        Icon: Mail,
+      },
+      {
+        key: "security",
+        href: "/settings/security",
+        labelKey: "nav.security",
+        Icon: ShieldCheck,
+      },
     ],
   },
   {
     key: "settings",
     label: "nav.groups.settings",
     items: [
-      { key: "profile",   href: "/settings/profile",  labelKey: "nav.profile",  Icon: UserCircle },
-      { key: "location",  href: "/settings/location", labelKey: "nav.location", Icon: MapPin },
-      // email (MailAccountManage): tenant corporate mail-account config. ADMIN/
-      // SUPER_ADMIN only — gated by ITEM_ROLE_GATES("email") and the
-      // RequireAdminRoute guard on /settings/email.
-      { key: "email",     href: "/settings/email",    labelKey: "nav.email",    Icon: Mail },
-      { key: "security",  href: "/settings/security", labelKey: "nav.security", Icon: ShieldCheck },
+      {
+        key: "profile",
+        href: "/settings/profile",
+        labelKey: "nav.profile",
+        Icon: UserCircle,
+      },
     ],
   },
 ] as const;

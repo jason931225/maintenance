@@ -408,17 +408,24 @@ pub enum PlatformFeature {
     TenantRemove,
     /// Read a tenant's health/status.
     TenantHealthRead,
+    /// Mint an audited tenant-admin context so a platform operator can manage a
+    /// specific tenant through the ordinary tenant-scoped UI/API.
+    TenantManage,
+    /// Manage platform group identities and subsidiary membership.
+    GroupManage,
     /// Read the platform-tier audit trail.
     PlatformAuditRead,
 }
 
 impl PlatformFeature {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 8] = [
         Self::TenantCreate,
         Self::TenantList,
         Self::TenantSuspend,
         Self::TenantRemove,
         Self::TenantHealthRead,
+        Self::TenantManage,
+        Self::GroupManage,
         Self::PlatformAuditRead,
     ];
 }

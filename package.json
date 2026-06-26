@@ -4,7 +4,8 @@
   "type": "module",
   "workspaces": [
     "clients/ts",
-    "web"
+    "web",
+    "coss-rn"
   ],
   "engines": {
     "node": ">=22.0.0"

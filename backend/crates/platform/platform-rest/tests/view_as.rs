@@ -29,6 +29,7 @@ use mnt_platform_db::with_org_conn;
 use mnt_platform_provisioning::PlatformProvisioner;
 use mnt_platform_request_context::{current_org, with_request_context};
 use mnt_platform_rest::{
+    PLATFORM_TENANT_CONTEXT_EXIT_PATH, PLATFORM_TENANT_CONTEXT_START_PATH,
     PLATFORM_VIEW_AS_EXIT_PATH, PLATFORM_VIEW_AS_START_PATH, PlatformRestState,
     VIEW_AS_READ_ONLY_CODE, router, with_view_as_read_only_gate,
 };
@@ -237,6 +238,19 @@ async fn start_view_as(
         platform,
         "POST",
         PLATFORM_VIEW_AS_START_PATH,
+        token,
+        Some(body),
+    )
+    .await
+}
+
+/// Call writable TENANT CONTEXT START on the platform service.
+async fn start_tenant_context(platform: &Router, token: &str, org_id: Uuid) -> (StatusCode, Value) {
+    let body = format!(r#"{{"org_id":"{org_id}"}}"#);
+    request(
+        platform,
+        "POST",
+        PLATFORM_TENANT_CONTEXT_START_PATH,
         token,
         Some(body),
     )
@@ -628,5 +642,116 @@ async fn exit_audits_stop_with_operator_and_rejects_tenant_token(owner_pool: PgP
         status,
         StatusCode::FORBIDDEN,
         "a tenant token cannot EXIT view-as"
+    );
+}
+
+// ===========================================================================
+// A platform operator can enter a short-lived WRITABLE tenant context pinned to
+// exactly one org. The token is not view_as/read_only, so ordinary tenant
+// mutations remain reachable while RLS is armed to the selected tenant.
+// ===========================================================================
+#[sqlx::test(migrations = "../db/migrations")]
+async fn tenant_context_mints_writable_super_admin_token_and_audits(owner_pool: PgPool) {
+    let harness = Harness::new(&owner_pool).await;
+    let operator = seed_platform_admin(&owner_pool).await;
+    let target = seed_tenant(&owner_pool, "acme", 2).await;
+    let platform = harness.platform_service();
+    let tenant = harness.tenant_service();
+    let platform_token = harness.token(operator, OrgId::platform(), true, "SUPER_ADMIN");
+
+    let (status, body) = start_tenant_context(&platform, &platform_token, target).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+
+    let access_token = body["access_token"].as_str().unwrap();
+    assert_eq!(body["acting_org_id"].as_str().unwrap(), target.to_string());
+    assert_eq!(body["acting_role"].as_str().unwrap(), "SUPER_ADMIN");
+
+    let claims = harness
+        .verifier()
+        .verify_access_token(access_token)
+        .unwrap();
+    assert!(
+        !claims.platform,
+        "tenant management context must be a tenant token"
+    );
+    assert!(
+        !claims.view_as,
+        "tenant management context is not read-only view-as"
+    );
+    assert!(
+        !claims.read_only,
+        "tenant management context must allow mutations"
+    );
+    assert_eq!(claims.org, target.to_string());
+    assert_eq!(claims.roles, vec!["SUPER_ADMIN".to_owned()]);
+    assert_eq!(claims.sub, operator.as_uuid().to_string());
+    assert!(
+        claims.exp - claims.iat <= 30 * 60 && claims.exp - claims.iat > 0,
+        "tenant context token TTL must be a short positive window (≤30m), got {}s",
+        claims.exp - claims.iat,
+    );
+
+    // Because view_as=false, the blanket read-only gate must not block ordinary
+    // tenant mutations. The per-request tenant middleware still arms RLS to the
+    // token's selected org.
+    let (status, mutation) = request(
+        &tenant,
+        "POST",
+        PROBE_USERS_PATH,
+        access_token,
+        Some("{}".to_owned()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{mutation:?}");
+    assert_eq!(mutation["mutated"], Value::Bool(true));
+
+    assert_eq!(
+        audit_count(&owner_pool, "platform.tenant_context.start", operator).await,
+        1,
+        "tenant context START must write exactly one audit row with the operator actor",
+    );
+}
+
+// ===========================================================================
+// Tenant context EXIT is platform-gated and audited; tenant tokens cannot call
+// the platform EXIT endpoint.
+// ===========================================================================
+#[sqlx::test(migrations = "../db/migrations")]
+async fn tenant_context_exit_audits_and_rejects_tenant_token(owner_pool: PgPool) {
+    let harness = Harness::new(&owner_pool).await;
+    let operator = seed_platform_admin(&owner_pool).await;
+    let target = seed_tenant(&owner_pool, "acme", 1).await;
+    let platform = harness.platform_service();
+    let platform_token = harness.token(operator, OrgId::platform(), true, "SUPER_ADMIN");
+
+    let (status, _body) = request(
+        &platform,
+        "POST",
+        PLATFORM_TENANT_CONTEXT_EXIT_PATH,
+        &platform_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        audit_count(&owner_pool, "platform.tenant_context.stop", operator).await,
+        1,
+        "tenant context EXIT must write exactly one stop audit row",
+    );
+
+    let tenant_user = UserId::new();
+    let tenant_token = harness.token(tenant_user, OrgId::from_uuid(target), false, "SUPER_ADMIN");
+    let (status, _body) = request(
+        &platform,
+        "POST",
+        PLATFORM_TENANT_CONTEXT_EXIT_PATH,
+        &tenant_token,
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "a tenant token cannot EXIT tenant context"
     );
 }

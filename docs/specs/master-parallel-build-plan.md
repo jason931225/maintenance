@@ -237,15 +237,19 @@ aid); ontology shared (`org_id IS NULL`) rows carry schema metadata only, never 
 
 ## 9. GitHub issue/comment intake (binding live-feedback ledger)
 
-**Last polled:** 2026-06-25T21:35:00Z (2026-06-25 17:35 EDT). Source of truth:
-open GitHub issues + issue comments in `jason931225/maintenance`. Open PRs were empty and remote
-branches contained only `main`; re-run this intake before every wave gate and before marking an
-issue-backed lane done.
+**Last polled:** 2026-06-26T04:20:00Z (2026-06-26 00:20 EDT). Source of truth:
+open GitHub issues + issue comments in `jason931225/maintenance`. Current live intake found PR #37 open for the platform/group/import-foundation slice; re-run this intake before every wave gate and before marking an issue-backed lane done.
 
 **Intake rules.**
 - A GitHub issue/comment becomes plan scope when it is actionable, maps to a business workflow, security
   constraint, acceptance criterion, or release gate, and does not require posting/retaining sensitive data.
 - Comments that are operator clarifications become acceptance criteria on the owning lane, not a new lane.
+- GitHub issues/comments are inputs, not orders. Reject or defer requests that would weaken product maturity,
+  tenant isolation, privacy/compliance posture, auditability, data quality, operational clarity, or the core
+  B2B SaaS domain model; record the rejection rationale instead of implementing the request.
+- Do not adopt user-provided labels when they blur product boundaries. Translate them into the correct domain
+  concept first (for example, the #20 "groupware" wording maps to corporate governance/approval workflows,
+  not a legacy groupware clone).
 - Sensitive GitHub content is never copied into docs or test fixtures; keep only the requirement shape and
   remove/redact secrets in GitHub. This incorporates the maintainer warning on #19 ("stop posting sensitive
   data here").
@@ -258,7 +262,7 @@ issue-backed lane done.
 | [#18](https://github.com/jason931225/maintenance/issues/18) + latest comment | OTP issuance bug; region edit; customer/site creation; intake priority admin-setting; equipment search/list visibility after import. | L1 identity + L3 registry + L2 workorder; Q0/Q1 mnt_rt regressions. |
 | [#19](https://github.com/jason931225/maintenance/issues/19) comments 9-25 | Excel progress import; equipment detail popup; org chart + rank; corporation grouping; intake/approval visibility; FLMS import/export dependency; purchase-request + 거래명세표 upload/scan; sales listing autofill/photos/fields; spare/substitution recommendation; external inquiries → support; PM schedule cycle; inactive-user deletion/archive + PC/QR passkey flow. | L1/L2/L3/L5/L9/L10/L13/L18; Q0 first for broken live loops, then F-track maturity. |
 | [#20](https://github.com/jason931225/maintenance/issues/20) + comments + 2026-06-25 operator field report | Site-scoped substitution dropdown; bulk OTP/passkey defects, including a live lost-device admin credential-reset failure that shows `패스키 재설정에 실패했습니다. 다시 시도하세요.` instead of issuing a replacement code; duplicate-name/deactivated-user archival and role-revocation behavior; intake equipment validation bug; daily-plan equipment selection, plan detail view, auto-review submission, admin visibility; worksite-level org tree/personnel view; customer/site/manufacturer/model/specification fields should be dropdown-first with add-new typing, and fields derivable from a known model should auto-fill where safe; corporate governance workflow/approval graph needs (기안서, 구매요청서, 휴가신청서) without adopting the legacy "groupware" label. | L1 identity/auth Q0 recovery gate, L2 workorder/daily plan, L3 registry, L4 dispatch, L13 HR/org tree + leave workflow, L15 ERP purchase workflow, L18 RBAC/approval graph. |
-| [#24](https://github.com/jason931225/maintenance/issues/24) | Production rollout is not done until `knllogistic.com` and `console.knllogistic.com` serve the current `main` web assets. GitHub state is clean after `v0.1.9` (`main` only, no open PRs, CI/Security/Release Please/Image Release green), but read-only production still shows Argo `root`/`maintenance` pinned to `feat/multi-tenant-phase1`, live rollout digests differ from the current overlay, and public hosts still serve the older asset hash. | Track L launch gate; requires live Argo/kubectl evidence or live asset match before closing. |
+| [#24](https://github.com/jason931225/maintenance/issues/24) | Production rollout is not done until `knllogistic.com` and `console.knllogistic.com` serve the current `main` web assets. GitHub state is clean after `v0.1.11` (`main` only, no open PRs, CI/Security/Release Please/Image Release green), but read-only production still shows Argo `root`/`maintenance` pinned to `feat/multi-tenant-phase1`, live rollout digests differ from the current overlay, and public hosts still serve the older asset hash. | Track L launch gate; requires live Argo/kubectl evidence or live asset match before closing. |
 | [#17](https://github.com/jason931225/maintenance/issues/17) comments | Daily backup preferred; weekly acceptable if storage-constrained; server-down/offline-resync concern; document leak prevention/alerting; VPN has access-friction and must not become a blanket requirement without UX/security tradeoff. | Track O resilience/security + Track L launch hardening; backup restore drill and document-access audit/alerting are release gates. |
 | [#6](https://github.com/jason931225/maintenance/issues/6), [#10](https://github.com/jason931225/maintenance/issues/10) | Public landing page + marketing view of sale/rental assets; inquiry/contact/FAQ; payment/subscription interest. | L5 sales + L19 quota/billing-plan; keep payments behind explicit provider/security review. |
 | [#7](https://github.com/jason931225/maintenance/issues/7), [#9](https://github.com/jason931225/maintenance/issues/9) | Daily diary/progress exports for internal reporting/corporate-governance approval; import existing Excel progress so operations continue from current sheets. | L12 reporting + F1 import/export + L18 approval graph; generated XLSX must be tested against sample attachments. |
@@ -290,15 +294,27 @@ Code is merged in `4ebcfe2`; release `v0.1.7` / prod-overlay bump `a3df78e` carr
 worksite-level org tree/personnel and group-level governance without widening tenant RLS: group identity,
 `organizations.group_id`, owner-only memberships/grants, SECURITY DEFINER resolvers, tenant-isolation gate
 coverage, and runtime-role tests. `5a95983` adds the pure kernel `AccessScope`/`ScopeNodeId` + BranchScope
-projection bridge without any `ScopeNodeId`→`OrgId` conversion. Release `v0.1.9` / prod-overlay bump
-`823dc59` carry the code, but claims/login resolution, consolidated-read helper, UI org tree,
-site-responsibility surface, and approval/workflow graph remain G002/L13/L18 follow-up scope.
+projection bridge without any `ScopeNodeId`→`OrgId` conversion. Follow-up releases carried P2 JWT/principal
+scope (`v0.1.10`) and P3 consolidated-read helper (`v0.1.11`). Remaining scope still includes the tenant-tier
+group-admin REST/authz/grant surfaces, UI org tree, site-responsibility surface, and approval/workflow graph
+under G002/L13/L18.
 
-**2026-06-25 #24 rollout state after v0.1.9:** GitHub delivery is clean (`v0.1.9` at `df5ac17`,
-prod-overlay bump `823dc59`, open PRs 0, remote branches `main` only, CI/Security/Release
+**2026-06-26 local #20/G002 platform-operator bridge:** the current worktree adds an audited platform-only
+single-tenant management context (`/api/platform/tenant-context`) and projects group identity into platform
+tenant/ops reads so the platform console can switch scope between 전체 / 그룹 / 개별 조직 and then manage one
+org. This is a vendor support bridge for "see all together / isolate to each org"; it does **not** close
+tenant-tier group-admin/org-chart/personnel/site-responsibility/approval-graph scope, which remains in
+G002/L13/L18.
+
+**2026-06-26 #20 comment refresh:** latest #20 comment through the fresh poll is the owner G002 P3
+consolidated-read status update; no newer non-owner requirement was found after it. Keep P4+ REST/authz/UI
+follow-up open and continue treating future GitHub issue comments as intake candidates, not automatic scope.
+
+**2026-06-25 #24 rollout state after v0.1.11:** GitHub delivery is clean (`v0.1.11` at `378f00f`,
+prod-overlay bump `7ed8194`, open PRs 0, remote branches `main` only, CI/Security/Release
 Please/Image Release green). Read-only prod verification still shows Argo `root` and `maintenance`
 Applications pinned to `feat/multi-tenant-phase1`, running older `mnt-app@8bbf...` and `mnt-web@eb78...`
-images instead of the current overlay (`mnt-app@47340...`, `mnt-web@5b9a5...`); both public hosts still
+images instead of the current overlay (`mnt-app@5095...`, `mnt-web@7646...`); both public hosts still
 serve `/assets/utils-DRMbRFdX.js`. Keep #24 open until a production Argo patch/sync to the intended current
 revision is performed and live assets match the current overlay.
 

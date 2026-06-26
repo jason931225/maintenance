@@ -37,15 +37,15 @@ test("PLAT-03 platform admin suspends and reactivates a tenant", async ({
   const slug = uniqueSlug();
   await page.locator("#org-name").fill("E2E 정지대상 테넌트");
   await page.locator("#org-slug").fill(slug);
-  await page.getByRole("button", { name: /^테넌트 등록$/ }).click();
+  await page.getByRole("button", { name: /^테넌시 등록$/ }).click();
   await expect(
-    page.getByRole("heading", { name: /테넌트가 등록되었습니다\./ }),
+    page.getByRole("heading", { name: /테넌시가 등록되었습니다\./ }),
   ).toBeVisible({ timeout: 10_000 });
 
   // Back to the tenant list.
-  await page.getByRole("button", { name: /테넌트 목록으로/ }).click();
+  await page.getByRole("button", { name: /테넌시 목록으로/ }).click();
   await expect(
-    page.getByRole("heading", { name: /테넌트 관리/, level: 1 }),
+    page.getByRole("heading", { name: /테넌시 관리/, level: 1 }),
   ).toBeVisible({ timeout: 8_000 });
 
   // Scope to the new tenant's row.
@@ -56,7 +56,7 @@ test("PLAT-03 platform admin suspends and reactivates a tenant", async ({
   // ── Suspend ────────────────────────────────────────────────────────────────
   await row.getByRole("button", { name: /^정지$/ }).click();
   // The consequential change is confirmed in a dialog.
-  const dialog = page.getByRole("dialog", { name: /테넌트 상태 변경/ });
+  const dialog = page.getByRole("dialog", { name: /테넌시 상태 변경/ });
   await expect(dialog).toBeVisible({ timeout: 5_000 });
   await auditPage(page, { context: "/platform status-change dialog", consoleGuard });
   await dialog.getByRole("button", { name: /^변경$/ }).click();
@@ -69,7 +69,7 @@ test("PLAT-03 platform admin suspends and reactivates a tenant", async ({
 
   // ── Reactivate ───────────────────────────────────────────────────────────────
   await row.getByRole("button", { name: /^활성화$/ }).click();
-  const dialog2 = page.getByRole("dialog", { name: /테넌트 상태 변경/ });
+  const dialog2 = page.getByRole("dialog", { name: /테넌시 상태 변경/ });
   await expect(dialog2).toBeVisible({ timeout: 5_000 });
   await dialog2.getByRole("button", { name: /^변경$/ }).click();
 

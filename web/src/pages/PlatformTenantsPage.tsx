@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -6,10 +6,12 @@ import {
   listPlatformOrgs,
   removePlatformOrg,
   setPlatformOrgStatus,
+  startTenantContext,
   startViewAs,
 } from "../api/platform";
 import type { OrgStatus, PlatformOrg, ViewAsRole } from "../api/platform";
 import { Button } from "../components/ui/button";
+import { Select } from "../components/ui/select";
 import { PageError } from "../components/states/PageError";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
@@ -19,6 +21,11 @@ import { RemoveTenantDialog } from "../features/platform/RemoveTenantDialog";
 import { StatusChangeDialog } from "../features/platform/StatusChangeDialog";
 import { TenantTable } from "../features/platform/TenantTable";
 import { ViewAsDialog } from "../features/platform/ViewAsDialog";
+import {
+  buildPlatformScopeOptions,
+  filterByPlatformScope,
+  type PlatformScopeValue,
+} from "../features/platform/scope";
 import { ko } from "../i18n/ko";
 
 type ReadState = "idle" | "loading" | "error";
@@ -48,6 +55,19 @@ export function PlatformTenantsPage() {
   >(undefined);
   const [pendingViewAs, setPendingViewAs] = useState<PlatformOrg | undefined>(
     undefined,
+  );
+  const [manageError, setManageError] = useState<string | undefined>(undefined);
+  const [scope, setScope] = useState<PlatformScopeValue>("all");
+
+  const scopeOptions = useMemo(() => buildPlatformScopeOptions(orgs), [orgs]);
+  const selectedScope = useMemo(
+    () =>
+      scopeOptions.some((option) => option.value === scope) ? scope : "all",
+    [scope, scopeOptions],
+  );
+  const visibleOrgs = useMemo(
+    () => filterByPlatformScope(orgs, selectedScope),
+    [orgs, selectedScope],
   );
 
   const loadOrgs = useCallback(async () => {
@@ -123,6 +143,21 @@ export function PlatformTenantsPage() {
     void navigate("/dispatch");
   }
 
+  async function startManageTenantSession(org: PlatformOrg): Promise<void> {
+    setManageError(undefined);
+    const result = await startTenantContext(token, {
+      org_id: org.id,
+    });
+    enterViewAs({
+      token: result.access_token,
+      mode: "MANAGE",
+      actingOrgId: result.acting_org_id,
+      actingOrgName: result.acting_org_name,
+      actingRole: result.acting_role,
+    });
+    void navigate("/settings/org");
+  }
+
   return (
     <>
       <PageHeader
@@ -157,19 +192,50 @@ export function PlatformTenantsPage() {
           }}
         />
       ) : (
-        <TenantTable
-          orgs={orgs}
-          isLoading={listState === "loading"}
-          onChangeStatus={(org, next) => {
-            setPendingChange({ org, next });
-          }}
-          onRemove={(org) => {
-            setPendingRemoval(org);
-          }}
-          onViewAs={(org) => {
-            setPendingViewAs(org);
-          }}
-        />
+        <>
+          {manageError ? <PageError message={manageError} /> : null}
+          {orgs.length > 0 ? (
+            <div className="mb-4 max-w-md">
+              <label
+                className="mb-2 block text-sm font-medium text-steel"
+                htmlFor="platform-tenant-scope"
+              >
+                {ko.platform.scope.label}
+              </label>
+              <Select
+                id="platform-tenant-scope"
+                value={selectedScope}
+                onChange={(event) => {
+                  setScope(event.currentTarget.value as PlatformScopeValue);
+                }}
+              >
+                {scopeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          ) : null}
+          <TenantTable
+            orgs={visibleOrgs}
+            isLoading={listState === "loading"}
+            onChangeStatus={(org, next) => {
+              setPendingChange({ org, next });
+            }}
+            onRemove={(org) => {
+              setPendingRemoval(org);
+            }}
+            onViewAs={(org) => {
+              setPendingViewAs(org);
+            }}
+            onManage={(org) => {
+              void startManageTenantSession(org).catch(() => {
+                setManageError(ko.platform.tenantContext.failed);
+              });
+            }}
+          />
+        </>
       )}
 
       {pendingChange ? (

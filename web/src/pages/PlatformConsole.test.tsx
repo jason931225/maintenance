@@ -10,7 +10,15 @@ import {
   Route,
   Routes,
 } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { ProtectedRoute } from "../components/ProtectedRoute";
 import { RequirePlatformRoute } from "../components/RequirePlatformRoute";
@@ -18,6 +26,7 @@ import { AuthContext } from "../context/auth";
 import type { AuthContextValue, AuthSession } from "../context/auth";
 import { createConsoleApiClient } from "../api/client";
 import { PlatformOpsPage } from "../features/platform/PlatformOpsPage";
+import { PlatformGroupsPage } from "./PlatformGroupsPage";
 import { PlatformOnboardPage } from "./PlatformOnboardPage";
 import { PlatformTenantsPage } from "./PlatformTenantsPage";
 
@@ -39,6 +48,9 @@ const orgs = [
     slug: "acme-corporation",
     name: "Acme Corporation",
     status: "ACTIVE",
+    group_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    group_slug: "geurupsa",
+    group_name: "그룹사",
     created_at: "2026-01-01T00:00:00Z",
   },
   {
@@ -46,11 +58,47 @@ const orgs = [
     slug: "globex-corporation",
     name: "Globex Corporation",
     status: "SUSPENDED",
+    group_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    group_slug: "external",
+    group_name: "외부그룹",
     created_at: "2026-02-01T00:00:00Z",
   },
 ];
 
-function makeAuthContext(session: AuthSession): AuthContextValue {
+const platformGroups = [
+  {
+    id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    slug: "geurupsa",
+    name: "그룹사",
+    status: "ACTIVE",
+    member_count: 1,
+    members: [
+      {
+        id: orgs[0].id,
+        slug: orgs[0].slug,
+        name: orgs[0].name,
+        status: orgs[0].status,
+      },
+    ],
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  },
+  {
+    id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    slug: "external",
+    name: "외부그룹",
+    status: "ACTIVE",
+    member_count: 0,
+    members: [],
+    created_at: "2026-01-02T00:00:00Z",
+    updated_at: "2026-01-02T00:00:00Z",
+  },
+];
+
+function makeAuthContext(
+  session: AuthSession,
+  overrides: Partial<AuthContextValue> = {},
+): AuthContextValue {
   const api = createConsoleApiClient(session.access_token);
   return {
     session,
@@ -64,6 +112,7 @@ function makeAuthContext(session: AuthSession): AuthContextValue {
     enterViewAs: () => {},
     exitViewAs: () => undefined,
     api,
+    ...overrides,
   };
 }
 
@@ -77,8 +126,12 @@ function renderApp(path: string, ctx: AuthContextValue) {
           </Route>
           <Route element={<RequirePlatformRoute />}>
             <Route path="/platform" element={<Outlet />}>
-              <Route index element={<Navigate to="/platform/tenants" replace />} />
+              <Route
+                index
+                element={<Navigate to="/platform/tenants" replace />}
+              />
               <Route path="tenants" element={<PlatformTenantsPage />} />
+              <Route path="groups" element={<PlatformGroupsPage />} />
               <Route path="ops" element={<PlatformOpsPage />} />
             </Route>
           </Route>
@@ -113,14 +166,12 @@ const tenantSession: AuthSession = {
 
 describe("Platform console routing", () => {
   it("routes a platform session to the tenant console list", async () => {
-    server.use(
-      http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
-    );
+    server.use(http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)));
 
     renderApp("/platform", makeAuthContext(platformSession));
 
     expect(
-      await screen.findByRole("heading", { name: "테넌트 관리" }),
+      await screen.findByRole("heading", { name: "테넌시 관리" }),
     ).toBeVisible();
     expect(await screen.findByText("Acme Corporation")).toBeVisible();
     expect(screen.getByText("Globex Corporation")).toBeVisible();
@@ -131,30 +182,43 @@ describe("Platform console routing", () => {
 
     await waitFor(() => {
       expect(
-        screen.queryByRole("heading", { name: "테넌트 관리" }),
+        screen.queryByRole("heading", { name: "테넌시 관리" }),
       ).not.toBeInTheDocument();
     });
   });
 
   it("redirects a platform session away from a tenant route to /platform", async () => {
-    server.use(
-      http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
-    );
+    server.use(http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)));
 
     renderApp("/dispatch", makeAuthContext(platformSession));
 
     // It lands on the platform console rather than the tenant dispatch board.
     expect(
-      await screen.findByRole("heading", { name: "테넌트 관리" }),
+      await screen.findByRole("heading", { name: "테넌시 관리" }),
     ).toBeVisible();
+  });
+
+  it("routes platform admins to the group management surface", async () => {
+    server.use(
+      http.get("*/api/platform/groups", () =>
+        HttpResponse.json(platformGroups),
+      ),
+      http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
+    );
+
+    renderApp("/platform/groups", makeAuthContext(platformSession));
+
+    expect(
+      await screen.findByRole("heading", { name: "그룹 관리" }),
+    ).toBeVisible();
+    expect(await screen.findByText("그룹사")).toBeVisible();
+    expect(screen.getByText("Acme Corporation")).toBeVisible();
   });
 });
 
 describe("Platform tenant list", () => {
   it("renders rows with status badges", async () => {
-    server.use(
-      http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
-    );
+    server.use(http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)));
 
     renderPlatformPage(<PlatformTenantsPage />, "/platform/tenants");
 
@@ -163,18 +227,37 @@ describe("Platform tenant list", () => {
     const cells = within(row as HTMLElement);
     expect(cells.getByText("acme-corporation")).toBeVisible();
     expect(cells.getByText("활성")).toBeVisible();
+    expect(cells.getByText("그룹사")).toBeVisible();
   });
 
-  it("shows the empty state when there are no tenants", async () => {
-    server.use(
-      http.get("*/api/platform/orgs", () => HttpResponse.json([])),
-    );
+  it("filters tenant management by group and individual organization", async () => {
+    const user = userEvent.setup();
+    server.use(http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)));
 
     renderPlatformPage(<PlatformTenantsPage />, "/platform/tenants");
 
-    expect(
-      await screen.findByText("등록된 테넌트가 없습니다."),
-    ).toBeVisible();
+    expect(await screen.findByText("Acme Corporation")).toBeVisible();
+    expect(screen.getByText("Globex Corporation")).toBeVisible();
+
+    await user.selectOptions(screen.getByLabelText("보기 범위"), [
+      `group:${orgs[0].group_id}`,
+    ]);
+    expect(screen.getByText("Acme Corporation")).toBeVisible();
+    expect(screen.queryByText("Globex Corporation")).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("보기 범위"), [
+      `org:${orgs[1].id}`,
+    ]);
+    expect(await screen.findByText("Globex Corporation")).toBeVisible();
+    expect(screen.queryByText("Acme Corporation")).not.toBeInTheDocument();
+  });
+
+  it("shows the empty state when there are no tenants", async () => {
+    server.use(http.get("*/api/platform/orgs", () => HttpResponse.json([])));
+
+    renderPlatformPage(<PlatformTenantsPage />, "/platform/tenants");
+
+    expect(await screen.findByText("등록된 테넌시가 없습니다.")).toBeVisible();
   });
 
   it("shows the error state when the list request fails", async () => {
@@ -187,8 +270,184 @@ describe("Platform tenant list", () => {
     renderPlatformPage(<PlatformTenantsPage />, "/platform/tenants");
 
     expect(
-      await screen.findByText("테넌트 목록을 불러오지 못했습니다."),
+      await screen.findByText("테넌시 목록을 불러오지 못했습니다."),
     ).toBeVisible();
+  });
+
+  it("starts a writable tenant management context for an active org", async () => {
+    const user = userEvent.setup();
+    const started = vi.fn();
+    const enterViewAs = vi.fn();
+    server.use(
+      http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
+      http.post("*/api/platform/tenant-context", async ({ request }) => {
+        started(await request.json());
+        return HttpResponse.json({
+          access_token: "tenant-management-token",
+          token_type: "Bearer",
+          acting_org_id: orgs[0].id,
+          acting_org_name: orgs[0].name,
+          acting_role: "SUPER_ADMIN",
+          expires_at: "2026-06-19T00:00:00Z",
+        });
+      }),
+    );
+
+    renderPlatformPage(
+      <PlatformTenantsPage />,
+      "/platform/tenants",
+      makeAuthContext(platformSession, { enterViewAs }),
+    );
+
+    const row = (await screen.findByText("Acme Corporation")).closest("tr");
+    await user.click(
+      within(row as HTMLElement).getByRole("button", { name: "조직 관리" }),
+    );
+
+    await waitFor(() => {
+      expect(started).toHaveBeenCalledWith({ org_id: orgs[0].id });
+    });
+    await waitFor(() => {
+      expect(enterViewAs).toHaveBeenCalledWith({
+        token: "tenant-management-token",
+        mode: "MANAGE",
+        actingOrgId: orgs[0].id,
+        actingOrgName: orgs[0].name,
+        actingRole: "SUPER_ADMIN",
+      });
+    });
+  });
+});
+
+describe("Platform group management", () => {
+  it("renders groups separately from tenancy and member organizations", async () => {
+    server.use(
+      http.get("*/api/platform/groups", () =>
+        HttpResponse.json(platformGroups),
+      ),
+      http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
+    );
+
+    renderPlatformPage(<PlatformGroupsPage />, "/platform/groups");
+
+    expect(
+      await screen.findByRole("heading", { name: "그룹 관리" }),
+    ).toBeVisible();
+    expect(screen.getByRole("heading", { name: "그룹사" })).toBeVisible();
+    expect(screen.getByText(/소속 조직 1개/)).toBeVisible();
+    expect(screen.getByText("Acme Corporation")).toBeVisible();
+    expect(screen.getAllByText("보기 범위")[0]).toBeVisible();
+    expect(screen.getAllByText(/전체 그룹\/조직.*그룹.*조직/)[0]).toBeVisible();
+  });
+
+  it("assigns an organization to a group and refreshes membership", async () => {
+    const user = userEvent.setup();
+    const assigned = vi.fn();
+    let assignedGlobex = false;
+    server.use(
+      http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
+      http.get("*/api/platform/groups", () =>
+        HttpResponse.json(
+          assignedGlobex
+            ? [
+                {
+                  ...platformGroups[0],
+                  member_count: 2,
+                  members: [
+                    ...platformGroups[0].members,
+                    {
+                      id: orgs[1].id,
+                      slug: orgs[1].slug,
+                      name: orgs[1].name,
+                      status: orgs[1].status,
+                    },
+                  ],
+                },
+                platformGroups[1],
+              ]
+            : platformGroups,
+        ),
+      ),
+      http.put(
+        "*/api/platform/groups/:groupId/organizations/:orgId",
+        ({ params }) => {
+          assigned(params);
+          assignedGlobex = true;
+          return HttpResponse.json({
+            ...orgs[1],
+            group_id: platformGroups[0].id,
+            group_slug: platformGroups[0].slug,
+            group_name: platformGroups[0].name,
+          });
+        },
+      ),
+    );
+
+    renderPlatformPage(<PlatformGroupsPage />, "/platform/groups");
+
+    await screen.findByRole("heading", { name: "그룹사" });
+    await user.selectOptions(screen.getAllByLabelText("자회사/조직 배정")[0], [
+      orgs[1].id,
+    ]);
+    await user.click(screen.getAllByRole("button", { name: "그룹에 배정" })[0]);
+
+    await waitFor(() => {
+      expect(assigned).toHaveBeenCalledWith(
+        expect.objectContaining({
+          groupId: platformGroups[0].id,
+          orgId: orgs[1].id,
+        }),
+      );
+    });
+    expect(await screen.findByText(/소속 조직 2개/)).toBeVisible();
+    expect(screen.getByText("Globex Corporation")).toBeVisible();
+  });
+
+  it("starts a writable organization-management context from a group member", async () => {
+    const user = userEvent.setup();
+    const started = vi.fn();
+    const enterViewAs = vi.fn();
+    server.use(
+      http.get("*/api/platform/groups", () =>
+        HttpResponse.json(platformGroups),
+      ),
+      http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
+      http.post("*/api/platform/tenant-context", async ({ request }) => {
+        started(await request.json());
+        return HttpResponse.json({
+          access_token: "tenant-management-token",
+          token_type: "Bearer",
+          acting_org_id: orgs[0].id,
+          acting_org_name: orgs[0].name,
+          acting_role: "SUPER_ADMIN",
+          expires_at: "2026-06-19T00:00:00Z",
+        });
+      }),
+    );
+
+    renderPlatformPage(
+      <PlatformGroupsPage />,
+      "/platform/groups",
+      makeAuthContext(platformSession, { enterViewAs }),
+    );
+
+    const row = (await screen.findByText("Acme Corporation")).closest("tr");
+    await user.click(
+      within(row as HTMLElement).getByRole("button", { name: "조직 관리" }),
+    );
+
+    await waitFor(() => {
+      expect(started).toHaveBeenCalledWith({ org_id: orgs[0].id });
+    });
+    await waitFor(() => {
+      expect(enterViewAs).toHaveBeenCalledWith({
+        token: "tenant-management-token",
+        mode: "MANAGE",
+        actingOrgId: orgs[0].id,
+        actingOrgName: orgs[0].name,
+        actingRole: "SUPER_ADMIN",
+      });
+    });
   });
 });
 
@@ -199,6 +458,9 @@ const opsTenants = {
       slug: "acme-corporation",
       name: "Acme Corporation",
       status: "ACTIVE",
+      group_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      group_slug: "geurupsa",
+      group_name: "그룹사",
       user_count: 12,
       active_user_count: 9,
       active_work_orders: 4,
@@ -210,6 +472,9 @@ const opsTenants = {
       slug: "globex-corporation",
       name: "Globex Corporation",
       status: "SUSPENDED",
+      group_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      group_slug: "external",
+      group_name: "외부그룹",
       user_count: 3,
       active_user_count: 0,
       active_work_orders: 0,
@@ -221,7 +486,9 @@ const opsTenants = {
 
 describe("Platform ops dashboard", () => {
   it("renders the cross-tenant health table for a platform session", async () => {
-    server.use(http.get("*/api/platform/ops", () => HttpResponse.json(opsTenants)));
+    server.use(
+      http.get("*/api/platform/ops", () => HttpResponse.json(opsTenants)),
+    );
 
     renderPlatformPage(<PlatformOpsPage />, "/platform/ops");
 
@@ -232,14 +499,35 @@ describe("Platform ops dashboard", () => {
     expect(row).not.toBeNull();
     const cells = within(row as HTMLElement);
     expect(cells.getByText("acme-corporation")).toBeVisible();
+    expect(cells.getByText("그룹사")).toBeVisible();
     expect(cells.getByText("활성")).toBeVisible();
     expect(cells.getByText("12")).toBeVisible();
     expect(cells.getByText("4")).toBeVisible();
     // The no-activity placeholder renders for the suspended tenant.
-    const suspendedRow = (await screen.findByText("Globex Corporation")).closest("tr");
+    const suspendedRow = (
+      await screen.findByText("Globex Corporation")
+    ).closest("tr");
     expect(
       within(suspendedRow as HTMLElement).getByText("활동 없음"),
     ).toBeVisible();
+  });
+
+  it("filters platform ops by group", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/platform/ops", () => HttpResponse.json(opsTenants)),
+    );
+
+    renderPlatformPage(<PlatformOpsPage />, "/platform/ops");
+
+    expect(await screen.findByText("Acme Corporation")).toBeVisible();
+    expect(screen.getByText("Globex Corporation")).toBeVisible();
+
+    await user.selectOptions(screen.getByLabelText("보기 범위"), [
+      `group:${opsTenants.tenants[0].group_id}`,
+    ]);
+    expect(screen.getByText("Acme Corporation")).toBeVisible();
+    expect(screen.queryByText("Globex Corporation")).not.toBeInTheDocument();
   });
 
   it("shows the empty state when no tenants are returned", async () => {
@@ -300,16 +588,18 @@ describe("Platform tenant removal", () => {
 
     const row = (await screen.findByText("Acme Corporation")).closest("tr");
     await user.click(
-      within(row as HTMLElement).getByRole("button", { name: "테넌트 삭제" }),
+      within(row as HTMLElement).getByRole("button", { name: "테넌시 삭제" }),
     );
 
     // The confirm dialog names the tenant and warns it is irreversible.
-    const dialog = await screen.findByRole("dialog", { name: "테넌트 삭제" });
+    const dialog = await screen.findByRole("dialog", { name: "테넌시 삭제" });
     expect(
-      within(dialog).getByText(/‘Acme Corporation’ 테넌트를 영구적으로 삭제/),
+      within(dialog).getByText(/‘Acme Corporation’ 테넌시를 영구적으로 삭제/),
     ).toBeVisible();
     expect(
-      within(dialog).getByText("이 작업은 되돌릴 수 없습니다. 신중히 진행하세요."),
+      within(dialog).getByText(
+        "이 작업은 되돌릴 수 없습니다. 신중히 진행하세요.",
+      ),
     ).toBeVisible();
 
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
@@ -322,7 +612,7 @@ describe("Platform tenant removal", () => {
     // The dialog closes and the removed tenant is gone from the refreshed list.
     await waitFor(() => {
       expect(
-        screen.queryByRole("dialog", { name: "테넌트 삭제" }),
+        screen.queryByRole("dialog", { name: "테넌시 삭제" }),
       ).not.toBeInTheDocument();
     });
     await waitFor(() => {
@@ -335,7 +625,10 @@ describe("Platform tenant removal", () => {
     server.use(
       http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
       http.delete("*/api/platform/orgs/:id", () =>
-        HttpResponse.json({ error: { code: "tenant_has_data" } }, { status: 409 }),
+        HttpResponse.json(
+          { error: { code: "tenant_has_data" } },
+          { status: 409 },
+        ),
       ),
     );
 
@@ -343,16 +636,16 @@ describe("Platform tenant removal", () => {
 
     const row = (await screen.findByText("Acme Corporation")).closest("tr");
     await user.click(
-      within(row as HTMLElement).getByRole("button", { name: "테넌트 삭제" }),
+      within(row as HTMLElement).getByRole("button", { name: "테넌시 삭제" }),
     );
 
-    const dialog = await screen.findByRole("dialog", { name: "테넌트 삭제" });
+    const dialog = await screen.findByRole("dialog", { name: "테넌시 삭제" });
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
 
     // The guard message is surfaced and the dialog stays open (tenant not removed).
     expect(
       await within(dialog).findByText(
-        "이 테넌트에는 실제 운영 데이터가 있어 삭제할 수 없습니다. 대신 보관 처리하세요.",
+        "이 테넌시에는 실제 운영 데이터가 있어 삭제할 수 없습니다. 대신 보관 처리하세요.",
       ),
     ).toBeVisible();
     expect(screen.getByText("Acme Corporation")).toBeVisible();
@@ -384,13 +677,11 @@ describe("Platform onboard", () => {
 
     renderPlatformPage(<PlatformOnboardPage />, "/platform/onboard");
 
-    await screen.findByRole("heading", { name: "테넌트 등록" });
+    await screen.findByRole("heading", { name: "테넌시 등록" });
 
     await user.type(screen.getByLabelText("이름"), "새롬테크");
     await user.type(screen.getByLabelText("슬러그"), "saerom-tech");
-    await user.click(
-      screen.getByRole("button", { name: "테넌트 등록" }),
-    );
+    await user.click(screen.getByRole("button", { name: "테넌시 등록" }));
 
     await waitFor(() => {
       expect(posted).toHaveBeenCalledWith({
@@ -419,9 +710,7 @@ describe("Platform onboard", () => {
 
     await user.type(screen.getByLabelText("이름"), "중복");
     await user.type(screen.getByLabelText("슬러그"), "taken-slug");
-    await user.click(
-      screen.getByRole("button", { name: "테넌트 등록" }),
-    );
+    await user.click(screen.getByRole("button", { name: "테넌시 등록" }));
 
     expect(
       await screen.findByText(

@@ -20,7 +20,38 @@ export interface PlatformOrg {
   slug: string;
   name: string;
   status: OrgStatus;
+  group_id?: string | null;
+  group_slug?: string | null;
+  group_name?: string | null;
   created_at: string;
+}
+
+export interface PlatformGroupMember {
+  id: string;
+  slug: string;
+  name: string;
+  status: OrgStatus;
+}
+
+export interface PlatformGroup {
+  id: string;
+  slug: string;
+  name: string;
+  status: OrgStatus;
+  member_count: number;
+  members: PlatformGroupMember[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreatePlatformGroupRequest {
+  name: string;
+  slug: string;
+}
+
+export interface UpdatePlatformGroupRequest {
+  name?: string;
+  status?: OrgStatus;
 }
 
 /** Onboarding response: the new org plus a one-time OTP shown exactly once. */
@@ -110,9 +141,19 @@ async function parseError(response: Response): Promise<PlatformApiError> {
   // missing/non-JSON body.
   let code: string | undefined;
   try {
-    const body = (await response.json()) as { error?: unknown; code?: unknown };
+    const body = (await response.json()) as {
+      error?: unknown;
+      code?: unknown;
+    };
     if (typeof body.error === "string") code = body.error;
-    else if (typeof body.code === "string") code = body.code;
+    else if (
+      body.error &&
+      typeof body.error === "object" &&
+      "code" in body.error &&
+      typeof body.error.code === "string"
+    ) {
+      code = body.error.code;
+    } else if (typeof body.code === "string") code = body.code;
   } catch {
     code = undefined;
   }
@@ -145,6 +186,21 @@ export interface ViewAsStartResponse {
   acting_org_id: string;
   acting_org_name: string;
   acting_role: string;
+  expires_at: string;
+}
+
+/** Request body for POST /api/platform/tenant-context. */
+export interface TenantContextStartRequest {
+  org_id: string;
+}
+
+/** Response of POST /api/platform/tenant-context: short-lived writable tenant token. */
+export interface TenantContextStartResponse {
+  access_token: string;
+  token_type: string;
+  acting_org_id: string;
+  acting_org_name: string;
+  acting_role: "SUPER_ADMIN";
   expires_at: string;
 }
 
@@ -182,12 +238,48 @@ export async function exitViewAs(
   if (!response.ok) throw await parseError(response);
 }
 
+/**
+ * POST /api/platform/tenant-context — mint a SHORT-LIVED, WRITABLE tenant admin
+ * token for one tenant. Platform-tier only; the token is still pinned to one org
+ * and audited, but it can mutate through ordinary tenant routes.
+ */
+export async function startTenantContext(
+  bearerToken: string | undefined,
+  body: TenantContextStartRequest,
+): Promise<TenantContextStartResponse> {
+  const response = await platformFetch(
+    bearerToken,
+    "/api/platform/tenant-context",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok) throw await parseError(response);
+  return (await response.json()) as TenantContextStartResponse;
+}
+
+/** POST /api/platform/tenant-context/exit — end a writable tenant context (audited). */
+export async function exitTenantContext(
+  bearerToken: string | undefined,
+): Promise<void> {
+  const response = await platformFetch(
+    bearerToken,
+    "/api/platform/tenant-context/exit",
+    { method: "POST" },
+  );
+  if (!response.ok) throw await parseError(response);
+}
+
 /** One tenant's health/usage numbers from the platform ops dashboard. */
 export interface PlatformTenantHealth {
   id: string;
   slug: string;
   name: string;
   status: OrgStatus;
+  group_id?: string | null;
+  group_slug?: string | null;
+  group_name?: string | null;
   user_count: number;
   active_user_count: number;
   active_work_orders: number;
@@ -296,4 +388,76 @@ export async function forceRemovePlatformOrg(
     },
   );
   if (!response.ok) throw await parseError(response);
+}
+
+/** GET /platform/groups — list every group and its member org identities. */
+export async function listPlatformGroups(
+  bearerToken: string | undefined,
+): Promise<PlatformGroup[]> {
+  const response = await platformFetch(bearerToken, "/api/platform/groups", {
+    method: "GET",
+  });
+  if (!response.ok) throw await parseError(response);
+  return (await response.json()) as PlatformGroup[];
+}
+
+/** POST /platform/groups — create a group identity, not a tenant. */
+export async function createPlatformGroup(
+  bearerToken: string | undefined,
+  body: CreatePlatformGroupRequest,
+): Promise<PlatformGroup> {
+  const response = await platformFetch(bearerToken, "/api/platform/groups", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw await parseError(response);
+  return (await response.json()) as PlatformGroup;
+}
+
+/** PATCH /platform/groups/{id} — update group name/status. */
+export async function updatePlatformGroup(
+  bearerToken: string | undefined,
+  id: string,
+  body: UpdatePlatformGroupRequest,
+): Promise<PlatformGroup> {
+  const response = await platformFetch(
+    bearerToken,
+    `/api/platform/groups/${encodeURIComponent(id)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok) throw await parseError(response);
+  return (await response.json()) as PlatformGroup;
+}
+
+/** PUT /platform/groups/{id}/organizations/{orgId} — assign or move org into a group. */
+export async function assignPlatformOrgToGroup(
+  bearerToken: string | undefined,
+  groupId: string,
+  orgId: string,
+): Promise<PlatformOrg> {
+  const response = await platformFetch(
+    bearerToken,
+    `/api/platform/groups/${encodeURIComponent(groupId)}/organizations/${encodeURIComponent(orgId)}`,
+    { method: "PUT" },
+  );
+  if (!response.ok) throw await parseError(response);
+  return (await response.json()) as PlatformOrg;
+}
+
+/** DELETE /platform/groups/{id}/organizations/{orgId} — remove an org from a group. */
+export async function removePlatformOrgFromGroup(
+  bearerToken: string | undefined,
+  groupId: string,
+  orgId: string,
+): Promise<PlatformOrg> {
+  const response = await platformFetch(
+    bearerToken,
+    `/api/platform/groups/${encodeURIComponent(groupId)}/organizations/${encodeURIComponent(orgId)}`,
+    { method: "DELETE" },
+  );
+  if (!response.ok) throw await parseError(response);
+  return (await response.json()) as PlatformOrg;
 }

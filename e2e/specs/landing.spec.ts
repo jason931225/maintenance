@@ -54,7 +54,7 @@ test("STOREFRONT home renders the current hero, console nav, login, intake CTA, 
     "href",
     "https://www.cossok.com/",
   );
-  await expect(page.getByLabel("쿠키 안내")).toContainText("쿠키 및 저장소 안내");
+  await expect(page.getByLabel("쿠키 안내")).toContainText("필수 쿠키 안내");
   await expect(page.getByText(/© \d{4} KNL\. 모든 권리 보유\./)).toBeVisible();
 
   await page.screenshot({

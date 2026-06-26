@@ -1,5 +1,5 @@
-//! PLATFORM "view as" (read-only impersonation) — START + EXIT + the blanket
-//! read-only method gate.
+//! PLATFORM tenant-context helpers — read-only "view as", writable tenant
+//! management context, and the blanket read-only method gate.
 //!
 //! # What this is
 //! A platform super-admin (vendor tier; the `platform` JWT claim) can mint a
@@ -38,6 +38,12 @@
 //! it). It audits `platform.view_as.stop`. The token is stateless and also simply
 //! expires on its own short TTL; EXIT exists for the audit trail and the explicit
 //! UX of leaving.
+//!
+//! Writable tenant management uses the same issuer and platform-only envelope,
+//! but mints a short-lived tenant token with `SUPER_ADMIN`, `view_as=false`, and
+//! `read_only=false`. That path is intentionally pinned to exactly one active org
+//! and audited separately (`platform.tenant_context.*`) so platform operators can
+//! fix tenant org/user setup without introducing unscoped cross-tenant writes.
 
 use std::str::FromStr;
 
@@ -60,11 +66,16 @@ use crate::{PlatformError, PlatformRestState};
 
 pub const PLATFORM_VIEW_AS_START_PATH: &str = "/api/platform/view-as";
 pub const PLATFORM_VIEW_AS_EXIT_PATH: &str = "/api/platform/view-as/exit";
+pub const PLATFORM_TENANT_CONTEXT_START_PATH: &str = "/api/platform/tenant-context";
+pub const PLATFORM_TENANT_CONTEXT_EXIT_PATH: &str = "/api/platform/tenant-context/exit";
 
 /// Hard cap on an impersonation token's lifetime. The START handler clamps any
 /// requested TTL to this ceiling; the spec requires ≤30 min so a leaked
 /// impersonation token's blast radius stays small.
 pub const VIEW_AS_TOKEN_TTL: Duration = Duration::minutes(30);
+/// Hard cap on a platform-managed tenant context. Keep it short like view-as so
+/// a leaked context token cannot stay writable for a normal session lifetime.
+pub const TENANT_CONTEXT_TOKEN_TTL: Duration = Duration::minutes(30);
 
 /// Error code returned by the read-only gate for a blocked mutation. A stable
 /// string so the web client can detect it and surface "read-only" UX.
@@ -104,6 +115,33 @@ struct ViewAsStartResponse {
     expires_at: OffsetDateTime,
 }
 
+/// START request for a writable platform-managed tenant context. The platform
+/// operator supplies only the target tenant; the role is fixed to SUPER_ADMIN so
+/// the UI can manage that tenant's org/users through ordinary tenant routes
+/// without adding a second cross-tenant write API surface.
+#[derive(Debug, Deserialize)]
+struct TenantContextStartRequest {
+    /// The tenant to manage. Must be a real, ACTIVE organization.
+    org_id: Uuid,
+}
+
+/// The short-lived tenant-admin token plus banner context.
+#[derive(Debug, Serialize)]
+struct TenantContextStartResponse {
+    /// The short-lived tenant access token (view_as = read_only = false).
+    access_token: String,
+    token_type: &'static str,
+    /// Acting tenant id (echoed for the client banner).
+    acting_org_id: Uuid,
+    /// Acting tenant name (for the banner label).
+    acting_org_name: String,
+    /// Fixed acting role (`SUPER_ADMIN`) used by the tenant app.
+    acting_role: String,
+    /// Absolute expiry of the tenant context token.
+    #[serde(with = "time::serde::rfc3339")]
+    expires_at: OffsetDateTime,
+}
+
 /// EXIT acknowledgement.
 #[derive(Debug, Serialize)]
 struct ViewAsExitResponse {
@@ -122,6 +160,11 @@ pub(crate) fn routes(router: Router<PlatformRestState>) -> Router<PlatformRestSt
     router
         .route(PLATFORM_VIEW_AS_START_PATH, post(start_view_as))
         .route(PLATFORM_VIEW_AS_EXIT_PATH, post(exit_view_as))
+        .route(
+            PLATFORM_TENANT_CONTEXT_START_PATH,
+            post(start_tenant_context),
+        )
+        .route(PLATFORM_TENANT_CONTEXT_EXIT_PATH, post(exit_tenant_context))
 }
 
 // ---------------------------------------------------------------------------
@@ -269,6 +312,120 @@ async fn exit_view_as(
         &state.pool,
         principal.user_id,
         "platform.view_as.stop",
+        "exit".to_owned(),
+        serde_json::json!({ "ended": true }),
+        now,
+    )
+    .await?;
+
+    Ok(Json(ViewAsExitResponse { ended: true }).into_response())
+}
+
+// ---------------------------------------------------------------------------
+// WRITABLE TENANT MANAGEMENT CONTEXT
+// ---------------------------------------------------------------------------
+
+/// POST /api/platform/tenant-context — mint a short-lived WRITABLE tenant token.
+///
+/// AUTHZ: platform tier only. Unlike read-only view-as, this token intentionally
+/// sets `view_as=false` + `read_only=false` and carries `SUPER_ADMIN` so the
+/// platform operator can manage one selected tenant through the existing
+/// tenant-scoped routes and RLS boundary. It is still pinned to exactly one org,
+/// short-lived, and audited with the real platform operator.
+async fn start_tenant_context(
+    State(state): State<PlatformRestState>,
+    Extension(principal): Extension<PlatformPrincipal>,
+    Json(body): Json<TenantContextStartRequest>,
+) -> Result<Response, PlatformError> {
+    principal
+        .authorize(mnt_platform_authz::PlatformFeature::TenantManage)
+        .map_err(|_| PlatformError::forbidden("platform principal cannot manage a tenant"))?;
+
+    let issuer = state.view_as_issuer.as_ref().ok_or_else(|| {
+        PlatformError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "service_unavailable",
+            "token issuance is not configured",
+        )
+    })?;
+
+    let acting_org = OrgId::from_uuid(body.org_id);
+    if acting_org == OrgId::platform() {
+        return Err(PlatformError::validation(
+            "cannot manage the platform tier as a tenant",
+        ));
+    }
+
+    let org = lookup_active_org(&state.pool, body.org_id).await?;
+    let now = OffsetDateTime::now_utc();
+    let expires_at = now + TENANT_CONTEXT_TOKEN_TTL;
+    let acting_role = Role::SuperAdmin;
+
+    let access_token = issuer
+        .issue_access_token_with_ttl(
+            AccessTokenInput {
+                subject: principal.user_id,
+                org_id: acting_org,
+                roles: vec![acting_role.as_str().to_owned()],
+                branches: Vec::new(),
+                platform: false,
+                view_as: false,
+                read_only: false,
+                display_name: None,
+                issued_at: now,
+            },
+            TENANT_CONTEXT_TOKEN_TTL,
+        )
+        .map_err(|err| {
+            tracing::error!(error = %err, "failed to mint tenant management token");
+            PlatformError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal",
+                "internal server error",
+            )
+        })?;
+
+    write_platform_audit(
+        &state.pool,
+        principal.user_id,
+        "platform.tenant_context.start",
+        body.org_id.to_string(),
+        serde_json::json!({
+            "acting_org_id": body.org_id,
+            "acting_role": acting_role.as_str(),
+            "read_only": false,
+        }),
+        now,
+    )
+    .await?;
+
+    Ok(Json(TenantContextStartResponse {
+        access_token,
+        token_type: "Bearer",
+        acting_org_id: body.org_id,
+        acting_org_name: org.name,
+        acting_role: acting_role.as_str().to_owned(),
+        expires_at,
+    })
+    .into_response())
+}
+
+/// POST /api/platform/tenant-context/exit — end a writable tenant context
+/// (audit only). Like view-as exit, the SPA calls this with the operator's real
+/// platform token after restoring the local platform session.
+async fn exit_tenant_context(
+    State(state): State<PlatformRestState>,
+    Extension(principal): Extension<PlatformPrincipal>,
+) -> Result<Response, PlatformError> {
+    principal
+        .authorize(mnt_platform_authz::PlatformFeature::TenantManage)
+        .map_err(|_| PlatformError::forbidden("platform principal cannot exit tenant context"))?;
+
+    let now = OffsetDateTime::now_utc();
+    write_platform_audit(
+        &state.pool,
+        principal.user_id,
+        "platform.tenant_context.stop",
         "exit".to_owned(),
         serde_json::json!({ "ended": true }),
         now,

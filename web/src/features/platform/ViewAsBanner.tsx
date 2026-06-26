@@ -2,9 +2,13 @@ import { LogOut, ShieldAlert } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { exitViewAs as exitViewAsApi } from "../../api/platform";
+import {
+  exitTenantContext as exitTenantContextApi,
+  exitViewAs as exitViewAsApi,
+} from "../../api/platform";
 import { useAuth } from "../../context/auth";
 import { ko } from "../../i18n/ko";
+import { cn } from "../../lib/utils";
 
 /**
  * Persistent, unmissable banner shown on EVERY page while a platform operator is
@@ -22,7 +26,11 @@ export function ViewAsBanner() {
 
   if (!viewAs) return null;
 
-  const label = ko.platform.viewAs.banner.label
+  const isManage = viewAs.mode === "MANAGE";
+  const bannerCopy = isManage
+    ? ko.platform.tenantContext.banner
+    : ko.platform.viewAs.banner;
+  const label = bannerCopy.label
     .replace("{tenant}", viewAs.actingOrgName)
     .replace("{role}", roleLabel(viewAs.actingRole));
 
@@ -31,7 +39,8 @@ export function ViewAsBanner() {
     // Restore the platform session locally first (the source of truth for the
     // app), then best-effort audit the exit with the operator's platform token.
     const operatorToken = exitViewAs();
-    await exitViewAsApi(operatorToken).catch(() => {});
+    const exitApi = isManage ? exitTenantContextApi : exitViewAsApi;
+    await exitApi(operatorToken).catch(() => {});
     void navigate("/platform/tenants");
   }
 
@@ -39,22 +48,30 @@ export function ViewAsBanner() {
     <div
       role="alert"
       aria-live="assertive"
-      className="flex items-center gap-3 border-b border-amber-300 bg-amber-100 px-4 py-2 text-sm font-semibold text-amber-900"
+      className={cn(
+        "flex items-center gap-3 border-b px-4 py-2 text-sm font-semibold",
+        isManage
+          ? "border-brand-teal/40 bg-brand-teal/10 text-brand-teal"
+          : "border-amber-300 bg-amber-100 text-amber-900",
+      )}
     >
       <ShieldAlert size={18} aria-hidden="true" className="shrink-0" />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       <button
         type="button"
         disabled={exiting}
-        className="inline-flex shrink-0 items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-1.5 text-sm font-semibold text-amber-900 hover:bg-amber-50 focus-visible:outline-2 focus-visible:outline-amber-700 disabled:opacity-60"
+        className={cn(
+          "inline-flex shrink-0 items-center gap-2 rounded-md border bg-white px-3 py-1.5 text-sm font-semibold focus-visible:outline-2 disabled:opacity-60",
+          isManage
+            ? "border-brand-teal/40 text-brand-teal hover:bg-brand-teal/5 focus-visible:outline-brand-teal"
+            : "border-amber-400 text-amber-900 hover:bg-amber-50 focus-visible:outline-amber-700",
+        )}
         onClick={() => {
           void handleExit();
         }}
       >
         <LogOut size={15} aria-hidden="true" />
-        {exiting
-          ? ko.platform.viewAs.banner.exiting
-          : ko.platform.viewAs.banner.exit}
+        {exiting ? bannerCopy.exiting : bannerCopy.exit}
       </button>
     </div>
   );

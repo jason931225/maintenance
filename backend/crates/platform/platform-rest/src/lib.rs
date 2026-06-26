@@ -17,20 +17,21 @@
 mod view_as;
 
 pub use view_as::{
-    PLATFORM_VIEW_AS_EXIT_PATH, PLATFORM_VIEW_AS_START_PATH, VIEW_AS_READ_ONLY_CODE,
-    VIEW_AS_TOKEN_TTL, with_view_as_read_only_gate,
+    PLATFORM_TENANT_CONTEXT_EXIT_PATH, PLATFORM_TENANT_CONTEXT_START_PATH,
+    PLATFORM_VIEW_AS_EXIT_PATH, PLATFORM_VIEW_AS_START_PATH, TENANT_CONTEXT_TOKEN_TTL,
+    VIEW_AS_READ_ONLY_CODE, VIEW_AS_TOKEN_TTL, with_view_as_read_only_gate,
 };
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, patch};
+use axum::routing::{get, patch, put};
 use axum::{Extension, Json, Router};
 use mnt_platform_auth::{JwtIssuer, JwtVerifier};
 use mnt_platform_authz::{PlatformFeature, PlatformPrincipal};
 use mnt_platform_provisioning::{
-    OrganizationSummary, PlatformProvisioner, ProvisioningError, TenantHealth, TenantOnboarding,
-    TenantRemovalOutcome,
+    GroupMemberSummary, GroupSummary, OrganizationSummary, PlatformProvisioner, ProvisioningError,
+    TenantHealth, TenantOnboarding, TenantRemovalOutcome,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -39,15 +40,19 @@ use uuid::Uuid;
 
 pub const PLATFORM_ORGS_PATH: &str = "/api/platform/orgs";
 pub const PLATFORM_ORG_PATH_TEMPLATE: &str = "/api/platform/orgs/{id}";
+pub const PLATFORM_GROUPS_PATH: &str = "/api/platform/groups";
+pub const PLATFORM_GROUP_PATH_TEMPLATE: &str = "/api/platform/groups/{id}";
+pub const PLATFORM_GROUP_ORG_PATH_TEMPLATE: &str =
+    "/api/platform/groups/{id}/organizations/{org_id}";
 pub const PLATFORM_OPS_PATH: &str = "/api/platform/ops";
 
 #[derive(Clone)]
 pub struct PlatformRestState {
     pool: PgPool,
     jwt_verifier: Option<JwtVerifier>,
-    /// Issuer used ONLY by the view-as START path to mint short-lived read-only
-    /// impersonation tokens. `None` disables the START endpoint (503): no other
-    /// platform route mints tokens, so token issuance is opt-in here.
+    /// Issuer used only by platform START paths that mint short-lived tenant
+    /// context tokens (read-only view-as and writable tenant management).
+    /// `None` disables those START endpoints (503), so token issuance is opt-in.
     view_as_issuer: Option<JwtIssuer>,
     provisioner: PlatformProvisioner,
 }
@@ -67,9 +72,9 @@ impl PlatformRestState {
         }
     }
 
-    /// Install the JWT issuer the view-as START path uses to mint impersonation
-    /// tokens. Without it the START endpoint returns 503; EXIT and the read-only
-    /// gate do not need an issuer.
+    /// Install the JWT issuer used by platform START paths that mint tenant
+    /// context tokens. Without it START endpoints return 503; EXIT and the
+    /// read-only gate do not need an issuer.
     #[must_use]
     pub fn with_view_as_issuer(mut self, issuer: Option<JwtIssuer>) -> Self {
         self.view_as_issuer = issuer;
@@ -85,6 +90,12 @@ pub fn router(state: PlatformRestState) -> Router {
         .route(
             PLATFORM_ORG_PATH_TEMPLATE,
             patch(update_org).delete(delete_org),
+        )
+        .route(PLATFORM_GROUPS_PATH, get(list_groups).post(create_group))
+        .route(PLATFORM_GROUP_PATH_TEMPLATE, patch(update_group))
+        .route(
+            PLATFORM_GROUP_ORG_PATH_TEMPLATE,
+            put(assign_org_to_group).delete(remove_org_from_group),
         )
         .route(PLATFORM_OPS_PATH, get(ops_dashboard));
     // View-as START + EXIT (read-only impersonation). Both are PLATFORM-tier
@@ -113,6 +124,9 @@ struct OrgResponse {
     slug: String,
     name: String,
     status: String,
+    group_id: Option<Uuid>,
+    group_slug: Option<String>,
+    group_name: Option<String>,
     // `time::OffsetDateTime` derives a numeric-array Serialize by default; the
     // console reads these as rfc3339 strings (`new Date(created_at)`), so emit
     // rfc3339 like every other tenant DTO (e.g. financial `created_at`).
@@ -129,8 +143,78 @@ impl From<OrganizationSummary> for OrgResponse {
             slug: o.slug,
             name: o.name,
             status: o.status,
+            group_id: o.group_id,
+            group_slug: o.group_slug,
+            group_name: o.group_name,
             created_at: o.created_at,
             updated_at: o.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateGroupRequest {
+    slug: String,
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateGroupRequest {
+    #[serde(default)]
+    name: Option<String>,
+    /// New group lifecycle status: ACTIVE | SUSPENDED | ARCHIVED.
+    #[serde(default)]
+    status: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct GroupMemberResponse {
+    id: Uuid,
+    slug: String,
+    name: String,
+    status: String,
+}
+
+impl From<GroupMemberSummary> for GroupMemberResponse {
+    fn from(member: GroupMemberSummary) -> Self {
+        Self {
+            id: member.id,
+            slug: member.slug,
+            name: member.name,
+            status: member.status,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct GroupResponse {
+    id: Uuid,
+    slug: String,
+    name: String,
+    status: String,
+    member_count: i64,
+    members: Vec<GroupMemberResponse>,
+    #[serde(with = "time::serde::rfc3339")]
+    created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    updated_at: OffsetDateTime,
+}
+
+impl From<GroupSummary> for GroupResponse {
+    fn from(group: GroupSummary) -> Self {
+        Self {
+            id: group.id,
+            slug: group.slug,
+            name: group.name,
+            status: group.status,
+            member_count: group.member_count,
+            members: group
+                .members
+                .into_iter()
+                .map(GroupMemberResponse::from)
+                .collect(),
+            created_at: group.created_at,
+            updated_at: group.updated_at,
         }
     }
 }
@@ -181,6 +265,9 @@ struct TenantHealthResponse {
     slug: String,
     name: String,
     status: String,
+    group_id: Option<Uuid>,
+    group_slug: Option<String>,
+    group_name: Option<String>,
     user_count: i64,
     active_user_count: i64,
     active_work_orders: i64,
@@ -196,6 +283,9 @@ impl From<TenantHealth> for TenantHealthResponse {
             slug: h.slug,
             name: h.name,
             status: h.status,
+            group_id: h.group_id,
+            group_slug: h.group_slug,
+            group_name: h.group_name,
             user_count: h.user_count,
             active_user_count: h.active_user_count,
             active_work_orders: h.active_work_orders,
@@ -267,6 +357,131 @@ async fn list_orgs(
     // directly rather than wrapping them in an envelope.
     let items: Vec<OrgResponse> = orgs.into_iter().map(OrgResponse::from).collect();
     Ok(Json(items).into_response())
+}
+
+/// GET /platform/groups — list all top-level groups and their member org identities.
+async fn list_groups(
+    State(state): State<PlatformRestState>,
+    Extension(principal): Extension<PlatformPrincipal>,
+) -> Result<Response, PlatformError> {
+    principal
+        .authorize(PlatformFeature::GroupManage)
+        .map_err(|_| PlatformError::forbidden("platform principal cannot list groups"))?;
+
+    let groups = state
+        .provisioner
+        .list_groups(
+            &state.pool,
+            Some(principal.user_id),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(PlatformError::from_provisioning)?;
+
+    let items: Vec<GroupResponse> = groups.into_iter().map(GroupResponse::from).collect();
+    Ok(Json(items).into_response())
+}
+
+/// POST /platform/groups — create a group identity (not a tenant).
+async fn create_group(
+    State(state): State<PlatformRestState>,
+    Extension(principal): Extension<PlatformPrincipal>,
+    Json(body): Json<CreateGroupRequest>,
+) -> Result<Response, PlatformError> {
+    principal
+        .authorize(PlatformFeature::GroupManage)
+        .map_err(|_| PlatformError::forbidden("platform principal cannot create groups"))?;
+
+    let group = state
+        .provisioner
+        .create_group(
+            &state.pool,
+            Some(principal.user_id),
+            &body.slug,
+            &body.name,
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(PlatformError::from_provisioning)?;
+
+    Ok((StatusCode::CREATED, Json(GroupResponse::from(group))).into_response())
+}
+
+/// PATCH /platform/groups/{id} — update group identity/status.
+async fn update_group(
+    State(state): State<PlatformRestState>,
+    Extension(principal): Extension<PlatformPrincipal>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateGroupRequest>,
+) -> Result<Response, PlatformError> {
+    principal
+        .authorize(PlatformFeature::GroupManage)
+        .map_err(|_| PlatformError::forbidden("platform principal cannot update groups"))?;
+
+    let group = state
+        .provisioner
+        .update_group(
+            &state.pool,
+            Some(principal.user_id),
+            id,
+            body.name.as_deref(),
+            body.status.as_deref(),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(PlatformError::from_provisioning)?;
+
+    Ok(Json(GroupResponse::from(group)).into_response())
+}
+
+/// PUT /platform/groups/{id}/organizations/{org_id} — assign/move org into group.
+async fn assign_org_to_group(
+    State(state): State<PlatformRestState>,
+    Extension(principal): Extension<PlatformPrincipal>,
+    Path((id, org_id)): Path<(Uuid, Uuid)>,
+) -> Result<Response, PlatformError> {
+    principal
+        .authorize(PlatformFeature::GroupManage)
+        .map_err(|_| PlatformError::forbidden("platform principal cannot assign group members"))?;
+
+    let org = state
+        .provisioner
+        .assign_org_to_group(
+            &state.pool,
+            Some(principal.user_id),
+            id,
+            org_id,
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(PlatformError::from_provisioning)?;
+
+    Ok(Json(OrgResponse::from(org)).into_response())
+}
+
+/// DELETE /platform/groups/{id}/organizations/{org_id} — remove org from group.
+async fn remove_org_from_group(
+    State(state): State<PlatformRestState>,
+    Extension(principal): Extension<PlatformPrincipal>,
+    Path((id, org_id)): Path<(Uuid, Uuid)>,
+) -> Result<Response, PlatformError> {
+    principal
+        .authorize(PlatformFeature::GroupManage)
+        .map_err(|_| PlatformError::forbidden("platform principal cannot remove group members"))?;
+
+    let org = state
+        .provisioner
+        .remove_org_from_group(
+            &state.pool,
+            Some(principal.user_id),
+            id,
+            org_id,
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(PlatformError::from_provisioning)?;
+
+    Ok(Json(OrgResponse::from(org)).into_response())
 }
 
 /// GET /platform/ops â cross-tenant ops health rollup (audited platform read).
@@ -428,6 +643,12 @@ impl PlatformError {
                 "conflict",
                 "tenant admin already has an active bootstrap credential",
             ),
+            ProvisioningError::NotFound(message) => {
+                Self::new(StatusCode::NOT_FOUND, "not_found", message)
+            }
+            ProvisioningError::Conflict(message) => {
+                Self::new(StatusCode::CONFLICT, "conflict", message)
+            }
             other => {
                 tracing::error!(error = %other, "platform provisioning error");
                 Self::new(
