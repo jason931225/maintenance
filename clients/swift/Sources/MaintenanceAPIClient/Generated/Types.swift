@@ -411,6 +411,20 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/auth/passkey/enroll-handoff`.
     /// - Remark: Generated from `#/paths//api/v1/auth/passkey/enroll-handoff/post`.
     func postApiV1AuthPasskeyEnrollHandoff(_ input: Operations.PostApiV1AuthPasskeyEnrollHandoff.Input) async throws -> Operations.PostApiV1AuthPasskeyEnrollHandoff.Output
+    /// List the authenticated user's own passkey credentials
+    ///
+    /// Returns the caller's own WebAuthn credentials (id and registration / last-use timestamps) through the auth namespace. This self-only route is not behind tenant middleware, so it works for both tenant sessions and platform-admin sessions. No secret material is ever returned.
+    ///
+    /// - Remark: HTTP `GET /api/v1/auth/passkeys`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/passkeys/get(listAuthPasskeys)`.
+    func listAuthPasskeys(_ input: Operations.ListAuthPasskeys.Input) async throws -> Operations.ListAuthPasskeys.Output
+    /// Revoke one of the authenticated user's own passkey credentials
+    ///
+    /// Deletes a credential owned by the caller through the auth namespace. A credential that is not the caller's own returns 404. The caller's last remaining passkey cannot be deleted (409) so they do not lock themselves out. This route works for both platform-admin and tenant sessions.
+    ///
+    /// - Remark: HTTP `DELETE /api/v1/auth/passkeys/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/passkeys/{id}/delete(deleteAuthPasskey)`.
+    func deleteAuthPasskey(_ input: Operations.DeleteAuthPasskey.Input) async throws -> Operations.DeleteAuthPasskey.Output
     /// Read required first-login privacy consent status
     ///
     /// Returns whether the authenticated user has accepted the current required Korean privacy collection/use notice and service terms version. This status is checked before initial passkey enrollment. Optional marketing consent and GPS/location consent are not bundled here and remain separate flows.
@@ -1855,6 +1869,30 @@ extension APIProtocol {
         try await postApiV1AuthPasskeyEnrollHandoff(Operations.PostApiV1AuthPasskeyEnrollHandoff.Input(
             headers: headers,
             body: body
+        ))
+    }
+    /// List the authenticated user's own passkey credentials
+    ///
+    /// Returns the caller's own WebAuthn credentials (id and registration / last-use timestamps) through the auth namespace. This self-only route is not behind tenant middleware, so it works for both tenant sessions and platform-admin sessions. No secret material is ever returned.
+    ///
+    /// - Remark: HTTP `GET /api/v1/auth/passkeys`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/passkeys/get(listAuthPasskeys)`.
+    public func listAuthPasskeys(headers: Operations.ListAuthPasskeys.Input.Headers = .init()) async throws -> Operations.ListAuthPasskeys.Output {
+        try await listAuthPasskeys(Operations.ListAuthPasskeys.Input(headers: headers))
+    }
+    /// Revoke one of the authenticated user's own passkey credentials
+    ///
+    /// Deletes a credential owned by the caller through the auth namespace. A credential that is not the caller's own returns 404. The caller's last remaining passkey cannot be deleted (409) so they do not lock themselves out. This route works for both platform-admin and tenant sessions.
+    ///
+    /// - Remark: HTTP `DELETE /api/v1/auth/passkeys/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/passkeys/{id}/delete(deleteAuthPasskey)`.
+    public func deleteAuthPasskey(
+        path: Operations.DeleteAuthPasskey.Input.Path,
+        headers: Operations.DeleteAuthPasskey.Input.Headers = .init()
+    ) async throws -> Operations.DeleteAuthPasskey.Output {
+        try await deleteAuthPasskey(Operations.DeleteAuthPasskey.Input(
+            path: path,
+            headers: headers
         ))
     }
     /// Read required first-login privacy consent status
@@ -26153,6 +26191,426 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List the authenticated user's own passkey credentials
+    ///
+    /// Returns the caller's own WebAuthn credentials (id and registration / last-use timestamps) through the auth namespace. This self-only route is not behind tenant middleware, so it works for both tenant sessions and platform-admin sessions. No secret material is ever returned.
+    ///
+    /// - Remark: HTTP `GET /api/v1/auth/passkeys`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/passkeys/get(listAuthPasskeys)`.
+    public enum ListAuthPasskeys {
+        public static let id: Swift.String = "listAuthPasskeys"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/auth/passkeys/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListAuthPasskeys.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListAuthPasskeys.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListAuthPasskeys.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.ListAuthPasskeys.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/passkeys/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/auth/passkeys/GET/responses/200/content/application\/json`.
+                    case json([Components.Schemas.PasskeySummary])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.PasskeySummary] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListAuthPasskeys.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListAuthPasskeys.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// The authenticated user's passkey credentials.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/passkeys/get(listAuthPasskeys)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListAuthPasskeys.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListAuthPasskeys.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/passkeys/get(listAuthPasskeys)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/passkeys/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/auth/passkeys/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListAuthPasskeys.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListAuthPasskeys.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/passkeys/get(listAuthPasskeys)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ListAuthPasskeys.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ListAuthPasskeys.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Revoke one of the authenticated user's own passkey credentials
+    ///
+    /// Deletes a credential owned by the caller through the auth namespace. A credential that is not the caller's own returns 404. The caller's last remaining passkey cannot be deleted (409) so they do not lock themselves out. This route works for both platform-admin and tenant sessions.
+    ///
+    /// - Remark: HTTP `DELETE /api/v1/auth/passkeys/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/auth/passkeys/{id}/delete(deleteAuthPasskey)`.
+    public enum DeleteAuthPasskey {
+        public static let id: Swift.String = "deleteAuthPasskey"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/auth/passkeys/{id}/DELETE/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/passkeys/{id}/DELETE/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.DeleteAuthPasskey.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/auth/passkeys/{id}/DELETE/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DeleteAuthPasskey.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.DeleteAuthPasskey.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.DeleteAuthPasskey.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.DeleteAuthPasskey.Input.Path,
+                headers: Operations.DeleteAuthPasskey.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                public init() {}
+            }
+            /// The passkey was revoked.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/passkeys/{id}/delete(deleteAuthPasskey)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.DeleteAuthPasskey.Output.NoContent)
+            /// The passkey was revoked.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/passkeys/{id}/delete(deleteAuthPasskey)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            public static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            public var noContent: Operations.DeleteAuthPasskey.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/passkeys/{id}/delete(deleteAuthPasskey)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/passkeys/{id}/delete(deleteAuthPasskey)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/passkeys/{id}/delete(deleteAuthPasskey)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/auth/passkeys/{id}/DELETE/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/auth/passkeys/{id}/DELETE/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.DeleteAuthPasskey.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.DeleteAuthPasskey.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/auth/passkeys/{id}/delete(deleteAuthPasskey)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.DeleteAuthPasskey.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.DeleteAuthPasskey.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
                             response: self
                         )
                     }

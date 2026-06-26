@@ -213,6 +213,8 @@ export const ko = {
     generating: "QR 코드를 생성하는 중",
     failed: "QR 코드를 생성하지 못했습니다. 다시 시도하세요.",
     linkLabel: "스캔이 어려우면 이 링크를 휴대폰에서 여세요",
+    otpLabel: "일회용 로그인 코드",
+    otpHelp: "이 코드는 한 번만 표시됩니다. 본인 기기 등록에만 사용하세요.",
     expiresHint: "이 QR 코드는 5분 후 만료됩니다.",
     regenerate: "QR 코드 다시 생성",
     qrAlt: "휴대폰 패스키 등록용 QR 코드",
@@ -459,6 +461,7 @@ export const ko = {
       groups: "그룹 관리",
       ops: "운영 현황",
       onboard: "테넌시 등록",
+      account: "계정 설정",
     },
     status: {
       ACTIVE: "활성",
@@ -570,20 +573,55 @@ export const ko = {
       assignFailed: "조직을 그룹에 배정하지 못했습니다.",
       removeAction: "그룹에서 제외",
       removeFailed: "조직을 그룹에서 제외하지 못했습니다.",
+      editTitle: "그룹 정보 수정",
+      editAction: "그룹 저장",
+      editSaving: "저장 중",
+      editFailed: "그룹 정보를 저장하지 못했습니다.",
       noMembers: "아직 이 그룹에 소속된 조직이 없습니다.",
+      accountsTitle: "그룹 계정",
+      accountsDescription:
+        "그룹 권한은 별도 부여하고, 계정은 반드시 한 조직/테넌시에 소속시킵니다.",
+      accountsEmpty: "아직 이 그룹에 권한을 가진 계정이 없습니다.",
+      accountsLoadFailed: "그룹 계정 목록을 불러오지 못했습니다.",
+      accountCreated:
+        "그룹 계정이 생성되었습니다. 일회용 코드를 안전한 별도 경로로 전달하세요.",
+      accountCreateFailed: "그룹 계정을 생성하지 못했습니다.",
+      accountRevoke: "권한 해제",
+      accountRevokeFailed: "그룹 권한을 해제하지 못했습니다.",
+      otpLabel: "일회용 로그인 코드",
+      otpExpiresAt: "만료",
+      accountStatus: {
+        ACTIVE: "활성",
+        PENDING_SETUP: "가입 대기",
+        DEACTIVATED: "비활성",
+      },
+      groupRoles: {
+        GROUP_ADMIN: "그룹 관리자",
+        GROUP_VIEWER: "그룹 조회자",
+        GROUP_FINANCE: "그룹 재무",
+      },
+      tenantRoles: {
+        MEMBER: "멤버",
+        ADMIN: "조직 관리자",
+        EXECUTIVE: "임원",
+        SUPER_ADMIN: "조직 최고관리자",
+      },
       columns: {
         org: "조직",
         status: "상태",
         actions: "작업",
+        account: "계정",
+        tenantRole: "조직 역할",
+        groupRole: "그룹 역할",
       },
       form: {
         title: "새 그룹 생성",
         description:
           "그룹은 테넌시가 아니라 여러 자회사 조직을 묶는 관리 단위입니다.",
         name: "그룹명",
-        namePlaceholder: "예: 그룹사",
+        namePlaceholder: "예: 그룹",
         slug: "슬러그",
-        slugPlaceholder: "예: geurupsa",
+        slugPlaceholder: "예: group",
         slugHint: "영문 소문자, 숫자, 하이픈만 사용할 수 있습니다.",
         submit: "그룹 생성",
         submitting: "생성 중",
@@ -591,6 +629,20 @@ export const ko = {
         invalidSlug:
           "슬러그 형식이 올바르지 않습니다. 영문 소문자·숫자·하이픈만 사용하세요.",
         createFailed: "그룹을 생성하지 못했습니다. 다시 시도하세요.",
+      },
+      accountForm: {
+        org: "소속 조직/테넌시",
+        orgPlaceholder: "계정이 소속될 조직 선택",
+        name: "이름",
+        namePlaceholder: "예: 개발자",
+        contact: "연락처 또는 이메일",
+        contactPlaceholder: "선택 입력",
+        tenantRole: "조직 역할",
+        groupRole: "그룹 역할",
+        submit: "그룹 계정 추가",
+        submitting: "추가 중",
+        requiredOrg: "계정이 소속될 조직을 선택하세요.",
+        requiredName: "계정 이름을 입력하세요.",
       },
     },
     onboard: {
@@ -621,6 +673,11 @@ export const ko = {
         copied: "복사됨",
         done: "테넌시 목록으로",
       },
+    },
+    account: {
+      title: "플랫폼 계정 설정",
+      description:
+        "플랫폼 관리자 본인의 패스키를 추가·삭제하고 휴대폰 등록용 일회용 코드를 발급합니다.",
     },
     viewAs: {
       // Read-only tenant impersonation for troubleshooting. The action label sits

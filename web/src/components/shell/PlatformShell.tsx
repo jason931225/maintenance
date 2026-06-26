@@ -4,6 +4,7 @@ import {
   LogOut,
   Network,
   ServerCog,
+  ShieldCheck,
   UserPlus,
 } from "lucide-react";
 import { Suspense, useEffect, useRef } from "react";
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { href: "/platform/groups", labelKey: "groups" as const, Icon: Network },
   { href: "/platform/ops", labelKey: "ops" as const, Icon: Gauge },
   { href: "/platform/onboard", labelKey: "onboard" as const, Icon: UserPlus },
+  { href: "/platform/account", labelKey: "account" as const, Icon: ShieldCheck },
 ];
 
 /**

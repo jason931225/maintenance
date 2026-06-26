@@ -50,8 +50,45 @@ export interface CreatePlatformGroupRequest {
 }
 
 export interface UpdatePlatformGroupRequest {
+  slug?: string;
   name?: string;
   status?: OrgStatus;
+}
+
+export type PlatformGroupRole =
+  | "GROUP_ADMIN"
+  | "GROUP_VIEWER"
+  | "GROUP_FINANCE";
+
+export type PlatformAccountStatus = "ACTIVE" | "PENDING_SETUP" | "DEACTIVATED";
+
+export interface PlatformGroupAccount {
+  user_id: string;
+  display_name: string;
+  phone?: string | null;
+  tenant_roles: string[];
+  is_active: boolean;
+  has_passkey: boolean;
+  account_status: PlatformAccountStatus;
+  org_id: string;
+  org_slug: string;
+  org_name: string;
+  group_roles: PlatformGroupRole[];
+  created_at: string;
+}
+
+export interface CreatePlatformGroupAccountRequest {
+  org_id: string;
+  display_name: string;
+  phone?: string;
+  tenant_roles?: string[];
+  group_role?: PlatformGroupRole;
+}
+
+export interface CreatePlatformGroupAccountResponse {
+  account: PlatformGroupAccount;
+  otp: string;
+  otp_expires_at: string;
 }
 
 /** Onboarding response: the new org plus a one-time OTP shown exactly once. */
@@ -414,7 +451,7 @@ export async function createPlatformGroup(
   return (await response.json()) as PlatformGroup;
 }
 
-/** PATCH /platform/groups/{id} — update group name/status. */
+/** PATCH /platform/groups/{id} — update group slug/name/status. */
 export async function updatePlatformGroup(
   bearerToken: string | undefined,
   id: string,
@@ -430,6 +467,53 @@ export async function updatePlatformGroup(
   );
   if (!response.ok) throw await parseError(response);
   return (await response.json()) as PlatformGroup;
+}
+
+/** GET /platform/groups/{id}/accounts — list tenant-anchored group accounts. */
+export async function listPlatformGroupAccounts(
+  bearerToken: string | undefined,
+  groupId: string,
+): Promise<PlatformGroupAccount[]> {
+  const response = await platformFetch(
+    bearerToken,
+    `/api/platform/groups/${encodeURIComponent(groupId)}/accounts`,
+    { method: "GET" },
+  );
+  if (!response.ok) throw await parseError(response);
+  return (await response.json()) as PlatformGroupAccount[];
+}
+
+/** POST /platform/groups/{id}/accounts — create a tenant-anchored group account. */
+export async function createPlatformGroupAccount(
+  bearerToken: string | undefined,
+  groupId: string,
+  body: CreatePlatformGroupAccountRequest,
+): Promise<CreatePlatformGroupAccountResponse> {
+  const response = await platformFetch(
+    bearerToken,
+    `/api/platform/groups/${encodeURIComponent(groupId)}/accounts`,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok) throw await parseError(response);
+  return (await response.json()) as CreatePlatformGroupAccountResponse;
+}
+
+/** DELETE /platform/groups/{id}/accounts/{userId}/roles/{role} — revoke one group role. */
+export async function revokePlatformGroupRole(
+  bearerToken: string | undefined,
+  groupId: string,
+  userId: string,
+  role: PlatformGroupRole,
+): Promise<void> {
+  const response = await platformFetch(
+    bearerToken,
+    `/api/platform/groups/${encodeURIComponent(groupId)}/accounts/${encodeURIComponent(userId)}/roles/${encodeURIComponent(role)}`,
+    { method: "DELETE" },
+  );
+  if (!response.ok) throw await parseError(response);
 }
 
 /** PUT /platform/groups/{id}/organizations/{orgId} — assign or move org into a group. */

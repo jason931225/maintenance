@@ -39,7 +39,9 @@ export function SecurityPanel() {
 
   const load = useCallback(async () => {
     setState("loading");
-    const response = await api.GET("/api/v1/passkeys").catch(() => undefined);
+    const response = await api
+      .GET("/api/v1/auth/passkeys")
+      .catch(() => undefined);
     if (!response?.data) {
       setState("error");
       return;
@@ -82,7 +84,7 @@ export function SecurityPanel() {
     setFeedback(undefined);
     setRevokingId(id);
     try {
-      const response = await api.DELETE("/api/v1/passkeys/{id}", {
+      const response = await api.DELETE("/api/v1/auth/passkeys/{id}", {
         params: { path: { id } },
       });
       if (response.response.status === 409) {

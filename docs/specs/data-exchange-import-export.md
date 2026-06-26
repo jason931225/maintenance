@@ -472,8 +472,8 @@ The requested production sequence is:
 
 1. Take final read-only safety exports for any reusable geodata/location evidence.
 2. Wipe/reset the production Postgres database and OCI object-storage objects so the system starts from a fresh slate.
-3. Create one conglomerate/family group named `그룹사`.
-4. Create the 8 worksheet organizations and make each a member of `그룹사`.
+3. Create one conglomerate/family group named `그룹`.
+4. Create the 8 worksheet organizations and make each a member of `그룹`.
 5. Import every employee row from the matching worksheet into the appropriate organization.
 6. Preserve every workbook value in the import ledger/staging layer, then write only currently supported canonical records into live first-class tables.
 
@@ -481,20 +481,20 @@ Initial organization seed set:
 
 | Organization name | Proposed slug | Parent group | Browser employee rows |
 | --- | --- | --- | ---: |
-| `(주)디에스엘` | `dsl` | `그룹사` | 13 |
-| `(주)코스` | `kos` | `그룹사` | 96 |
-| `(주)엘소` | `elso` | `그룹사` | 139 |
-| `(주)케이앤엘` | `knl` | `그룹사` | 4 |
-| `(주)청운로지스` | `cheongun-logis` | `그룹사` | 1 |
-| `(주)씨앤엘` | `cnl` | `그룹사` | 43 |
-| `(주)청운HR` | `cheongun-hr` | `그룹사` | 22 |
-| `제이와이테크` | `jy-tech` | `그룹사` | 11 |
+| `(주)디에스엘` | `dsl` | `그룹` | 13 |
+| `(주)코스` | `kos` | `그룹` | 96 |
+| `(주)엘소` | `elso` | `그룹` | 139 |
+| `(주)케이앤엘` | `knl` | `그룹` | 4 |
+| `(주)청운로지스` | `cheongun-logis` | `그룹` | 1 |
+| `(주)씨앤엘` | `cnl` | `그룹` | 43 |
+| `(주)청운HR` | `cheongun-hr` | `그룹` | 22 |
+| `제이와이테크` | `jy-tech` | `그룹` | 11 |
 
 The first post-wipe seed should create default `본사` region/branch records per organization only as an access anchor. Detailed worksites/geodata are not trusted until re-imported or manually reconciled through the mapping workspace; however, a pre-wipe read-only geodata export should be kept as a reference candidate set.
 
 Current-schema seed behavior:
 
-- Create `groups`, `organizations`, and `group_memberships` for the `그룹사` family structure.
+- Create `groups`, `organizations`, and `group_memberships` for the `그룹` family structure.
 - Create per-organization default access scope records (`regions`, `branches`) needed by existing RBAC/user membership tables.
 - Create tenant organization/account records from the org chart when approved; create employee login users only when a canonical email/identity mapping is approved.
 - Preserve `사번`, `성명`, phone, assignment, hire/termination dates, leave, payroll, insurance, bank/account, disability/protected-status, `퇴직금 중간정산`, `지급일`, `급여산정일`, and all other workbook fields in import staging/ledger data.
@@ -505,7 +505,7 @@ Fresh-slate safety gates:
 
 - Wipe/reset is destructive and must happen only after a final operator confirmation naming the target environment and accepting that all existing production database/object data will be deleted.
 - Before the wipe, collect a read-only geodata/location candidate export and a schema/object inventory.
-- After the wipe, run migrations on an empty database, verify app health, seed `그룹사` + the 8 organizations + employee roster, then run a dry-run import report showing preserved-row/column counts and rejected/unmapped fields.
+- After the wipe, run migrations on an empty database, verify app health, seed `그룹` + the 8 organizations + employee roster, then run a dry-run import report showing preserved-row/column counts and rejected/unmapped fields.
 
 ## 11. Implementation plan
 
