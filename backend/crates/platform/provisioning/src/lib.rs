@@ -6,9 +6,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use mnt_kernel_core::{AuditAction, AuditEvent, KernelError, OrgId, TraceContext, UserId};
 use mnt_platform_db::{insert_audit_event, with_audit, with_audits};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{PgPool, Postgres, Row, Transaction, types::Json};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
@@ -60,6 +60,12 @@ pub enum ProvisioningError {
 
     #[error("user already has an active bootstrap credential")]
     ActiveBootstrapCredentialExists,
+
+    #[error("not found: {0}")]
+    NotFound(String),
+
+    #[error("conflict: {0}")]
+    Conflict(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -693,6 +699,28 @@ pub struct OrganizationSummary {
     pub group_name: Option<String>,
 }
 
+/// Organization member identity inside a platform group response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupMemberSummary {
+    pub id: Uuid,
+    pub slug: String,
+    pub name: String,
+    pub status: String,
+}
+
+/// Platform group identity + its subsidiary organization memberships.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GroupSummary {
+    pub id: Uuid,
+    pub slug: String,
+    pub name: String,
+    pub status: String,
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+    pub member_count: i64,
+    pub members: Vec<GroupMemberSummary>,
+}
+
 /// Per-tenant health/usage rollup for the platform ops dashboard.
 ///
 /// Produced by the SECURITY DEFINER `platform_org_health()` function (the only
@@ -977,6 +1005,262 @@ impl PlatformProvisioner {
 
         tx.commit().await?;
         Ok(health)
+    }
+
+    /// List platform groups with subsidiary organization identities.
+    ///
+    /// This is an audited PLATFORM-tier read. It returns group topology only
+    /// (group identity + member org identity) and never tenant row-level data.
+    pub async fn list_groups(
+        &self,
+        pool: &PgPool,
+        actor: Option<UserId>,
+        now: OffsetDateTime,
+    ) -> Result<Vec<GroupSummary>, ProvisioningError> {
+        let mut tx = pool.begin().await?;
+        let rows = sqlx::query(
+            r#"
+            SELECT id, slug, name, status, created_at, updated_at, member_count, members
+            FROM platform_list_groups()
+            "#,
+        )
+        .fetch_all(tx.as_mut())
+        .await?;
+
+        let groups = rows
+            .into_iter()
+            .map(group_from_row)
+            .collect::<Result<Vec<_>, ProvisioningError>>()?;
+
+        let event = AuditEvent::new(
+            actor,
+            AuditAction::new("platform.group.list")?,
+            "groups",
+            "list",
+            TraceContext::generate(),
+            now,
+        )
+        .with_snapshots(None, Some(serde_json::json!({ "count": groups.len() })));
+        insert_audit_event(&mut tx, &event).await?;
+
+        tx.commit().await?;
+        Ok(groups)
+    }
+
+    /// Create a top-level group identity (not a tenant) for subsidiary management.
+    pub async fn create_group(
+        &self,
+        pool: &PgPool,
+        actor: Option<UserId>,
+        slug: &str,
+        name: &str,
+        now: OffsetDateTime,
+    ) -> Result<GroupSummary, ProvisioningError> {
+        let slug = slug.trim();
+        let name = name.trim();
+        if slug.is_empty() || name.is_empty() {
+            return Err(ProvisioningError::InvalidRoster(
+                "slug and name are required to create a group".to_owned(),
+            ));
+        }
+
+        let mut tx = pool.begin().await?;
+        let group_id: Uuid = sqlx::query_scalar("SELECT platform_create_group($1, $2)")
+            .bind(slug)
+            .bind(name)
+            .fetch_one(tx.as_mut())
+            .await
+            .map_err(map_group_write_error)?;
+        let group = fetch_group_tx(&mut tx, group_id).await?;
+
+        let event = AuditEvent::new(
+            actor,
+            AuditAction::new("platform.group.create")?,
+            "groups",
+            group_id.to_string(),
+            TraceContext::generate(),
+            now,
+        )
+        .with_snapshots(
+            None,
+            Some(serde_json::json!({
+                "group_id": group_id,
+                "slug": slug,
+                "name": name,
+            })),
+        );
+        insert_audit_event(&mut tx, &event).await?;
+
+        tx.commit().await?;
+        Ok(group)
+    }
+
+    /// Update group identity/status. Membership is managed by the explicit
+    /// assign/remove endpoints so lifecycle and topology changes stay auditable.
+    pub async fn update_group(
+        &self,
+        pool: &PgPool,
+        actor: Option<UserId>,
+        group_id: Uuid,
+        name: Option<&str>,
+        status: Option<&str>,
+        now: OffsetDateTime,
+    ) -> Result<GroupSummary, ProvisioningError> {
+        let name = name.map(str::trim).filter(|value| !value.is_empty());
+        if let Some(status) = status
+            && !matches!(status, "ACTIVE" | "SUSPENDED" | "ARCHIVED")
+        {
+            return Err(ProvisioningError::InvalidRoster(format!(
+                "invalid group status {status:?}"
+            )));
+        }
+        if name.is_none() && status.is_none() {
+            return Err(ProvisioningError::InvalidRoster(
+                "at least one group field is required".to_owned(),
+            ));
+        }
+
+        let mut tx = pool.begin().await?;
+        let updated_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT platform_update_group($1, $2, $3)")
+                .bind(group_id)
+                .bind(name)
+                .bind(status)
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(map_group_write_error)?;
+        let Some(updated_id) = updated_id else {
+            tx.rollback().await?;
+            return Err(ProvisioningError::NotFound("group not found".to_owned()));
+        };
+        let group = fetch_group_tx(&mut tx, updated_id).await?;
+
+        let event = AuditEvent::new(
+            actor,
+            AuditAction::new("platform.group.update")?,
+            "groups",
+            group_id.to_string(),
+            TraceContext::generate(),
+            now,
+        )
+        .with_snapshots(
+            None,
+            Some(serde_json::json!({
+                "group_id": group_id,
+                "name": name,
+                "status": status,
+            })),
+        );
+        insert_audit_event(&mut tx, &event).await?;
+
+        tx.commit().await?;
+        Ok(group)
+    }
+
+    /// Assign or move an organization into a group. This updates both the
+    /// user-facing `organizations.group_id` identity and the owner-only
+    /// `group_memberships` authorization table in one transaction.
+    pub async fn assign_org_to_group(
+        &self,
+        pool: &PgPool,
+        actor: Option<UserId>,
+        group_id: Uuid,
+        org_id: Uuid,
+        now: OffsetDateTime,
+    ) -> Result<OrganizationSummary, ProvisioningError> {
+        let mut tx = pool.begin().await?;
+        let assigned_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT platform_assign_org_to_group($1, $2)")
+                .bind(group_id)
+                .bind(org_id)
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(map_group_write_error)?;
+        let Some(assigned_id) = assigned_id else {
+            tx.rollback().await?;
+            return Err(ProvisioningError::NotFound(
+                "group or organization not found".to_owned(),
+            ));
+        };
+        let organization = fetch_org_tx(&mut tx, assigned_id).await?;
+
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(org_id.to_string())
+            .execute(tx.as_mut())
+            .await?;
+
+        let event = AuditEvent::new(
+            actor,
+            AuditAction::new("platform.group.assign_org")?,
+            "group_memberships",
+            format!("{group_id}:{org_id}"),
+            TraceContext::generate(),
+            now,
+        )
+        .with_org(OrgId::from_uuid(org_id))
+        .with_snapshots(
+            None,
+            Some(serde_json::json!({
+                "group_id": group_id,
+                "org_id": org_id,
+            })),
+        );
+        insert_audit_event(&mut tx, &event).await?;
+
+        tx.commit().await?;
+        Ok(organization)
+    }
+
+    /// Remove an organization from one group without deleting the organization.
+    pub async fn remove_org_from_group(
+        &self,
+        pool: &PgPool,
+        actor: Option<UserId>,
+        group_id: Uuid,
+        org_id: Uuid,
+        now: OffsetDateTime,
+    ) -> Result<OrganizationSummary, ProvisioningError> {
+        let mut tx = pool.begin().await?;
+        let removed_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT platform_remove_org_from_group($1, $2)")
+                .bind(group_id)
+                .bind(org_id)
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(map_group_write_error)?;
+        let Some(removed_id) = removed_id else {
+            tx.rollback().await?;
+            return Err(ProvisioningError::NotFound(
+                "group or organization not found".to_owned(),
+            ));
+        };
+        let organization = fetch_org_tx(&mut tx, removed_id).await?;
+
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(org_id.to_string())
+            .execute(tx.as_mut())
+            .await?;
+
+        let event = AuditEvent::new(
+            actor,
+            AuditAction::new("platform.group.remove_org")?,
+            "group_memberships",
+            format!("{group_id}:{org_id}"),
+            TraceContext::generate(),
+            now,
+        )
+        .with_org(OrgId::from_uuid(org_id))
+        .with_snapshots(
+            Some(serde_json::json!({
+                "group_id": group_id,
+                "org_id": org_id,
+            })),
+            None,
+        );
+        insert_audit_event(&mut tx, &event).await?;
+
+        tx.commit().await?;
+        Ok(organization)
     }
 
     /// GUARDED hard-removal of a tenant: delete the org AND its empty onboarding
@@ -1536,6 +1820,58 @@ async fn force_remove_summary_tx(
         summary.insert((*table).to_owned(), serde_json::json!(count));
     }
     Ok(serde_json::Value::Object(summary))
+}
+
+fn group_from_row(row: sqlx::postgres::PgRow) -> Result<GroupSummary, ProvisioningError> {
+    let Json(members): Json<Vec<GroupMemberSummary>> = row.try_get("members")?;
+    Ok(GroupSummary {
+        id: row.try_get("id")?,
+        slug: row.try_get("slug")?,
+        name: row.try_get("name")?,
+        status: row.try_get("status")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+        member_count: row.try_get("member_count")?,
+        members,
+    })
+}
+
+/// Read one platform group by id via the SECURITY DEFINER `platform_get_group`.
+async fn fetch_group_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    group_id: Uuid,
+) -> Result<GroupSummary, ProvisioningError> {
+    let row = sqlx::query(
+        r#"
+        SELECT id, slug, name, status, created_at, updated_at, member_count, members
+        FROM platform_get_group($1)
+        "#,
+    )
+    .bind(group_id)
+    .fetch_optional(tx.as_mut())
+    .await?
+    .ok_or_else(|| ProvisioningError::NotFound("group not found".to_owned()))?;
+
+    group_from_row(row)
+}
+
+fn map_group_write_error(err: sqlx::Error) -> ProvisioningError {
+    if let sqlx::Error::Database(db) = &err {
+        match db.code().as_deref() {
+            Some("23505") => {
+                return ProvisioningError::Conflict(
+                    "group slug or organization membership already exists".to_owned(),
+                );
+            }
+            Some("23514") => {
+                return ProvisioningError::InvalidRoster(
+                    "group input violates status or slug constraints".to_owned(),
+                );
+            }
+            _ => {}
+        }
+    }
+    ProvisioningError::Sqlx(err)
 }
 
 /// Read one organization by id via the SECURITY DEFINER `platform_get_organization`

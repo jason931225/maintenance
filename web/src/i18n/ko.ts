@@ -31,9 +31,12 @@ export const ko = {
     sites: "고객·현장 관리",
     profile: "내 프로필",
     groups: {
-      operations: "운영",
-      data: "데이터",
-      org: "조직 관리",
+      operations: "물류·정비 운영",
+      executive: "경영·거버넌스",
+      assets: "장비·영업",
+      finance: "재무·구매",
+      organization: "조직 구조",
+      identity: "계정·권한",
       settings: "설정",
     },
   },
@@ -70,7 +73,7 @@ export const ko = {
     },
   },
   shell: {
-    title: "정비 콘솔",
+    title: "콘솔",
     skipToContent: "본문으로 이동",
     openMenu: "메뉴 열기",
     collapseMenu: "메뉴 접기",
@@ -100,7 +103,7 @@ export const ko = {
     permissionDeniedHint: "필요한 경우 관리자에게 문의하세요.",
   },
   app: {
-    title: "정비 콘솔",
+    title: "콘솔",
     readSurfaceReady:
       "작업지시 목록, 승인 대기, 장비 조회는 OpenAPI 생성 클라이언트로 조회합니다.",
     crashTitle: "예기치 못한 오류가 발생했습니다.",
@@ -416,9 +419,10 @@ export const ko = {
       operator: "플랫폼 운영자",
     },
     nav: {
-      tenants: "테넌트",
+      tenants: "테넌시",
+      groups: "그룹 관리",
       ops: "운영 현황",
-      onboard: "테넌트 등록",
+      onboard: "테넌시 등록",
     },
     status: {
       ACTIVE: "활성",
@@ -434,11 +438,11 @@ export const ko = {
     },
     ops: {
       title: "플랫폼 운영 현황",
-      description: "전체 테넌트의 상태와 사용량을 한눈에 확인합니다.",
+      description: "전체 조직의 상태와 사용량을 한눈에 확인합니다.",
       empty: "운영 데이터를 불러오면 표시됩니다.",
       loadFailed: "운영 현황을 불러오지 못했습니다.",
       columns: {
-        tenant: "테넌트",
+        tenant: "조직",
         group: "그룹",
         status: "상태",
         users: "사용자",
@@ -450,11 +454,12 @@ export const ko = {
       noActivity: "활동 없음",
     },
     tenants: {
-      title: "테넌트 관리",
-      description: "플랫폼에 등록된 조직(테넌트)을 조회하고 상태를 관리합니다.",
-      onboardCta: "테넌트 등록",
-      empty: "등록된 테넌트가 없습니다.",
-      loadFailed: "테넌트 목록을 불러오지 못했습니다.",
+      title: "테넌시 관리",
+      description:
+        "구독·격리 단위인 테넌시와 그 안의 조직 상태를 분리해 관리합니다.",
+      onboardCta: "테넌시 등록",
+      empty: "등록된 테넌시가 없습니다.",
+      loadFailed: "테넌시 목록을 불러오지 못했습니다.",
       columns: {
         slug: "슬러그",
         name: "이름",
@@ -467,55 +472,93 @@ export const ko = {
         SUSPENDED: "정지",
         ARCHIVED: "보관",
       },
-      removeLabel: "테넌트 삭제",
+      removeLabel: "테넌시 삭제",
       statusChange: {
-        title: "테넌트 상태 변경",
-        confirm: "‘{name}’ 테넌트를 ‘{status}’ 상태로 변경하시겠습니까?",
-        warning: "이 변경은 테넌트 접근에 영향을 줍니다. 신중히 진행하세요.",
+        title: "테넌시 상태 변경",
+        confirm: "‘{name}’ 테넌시를 ‘{status}’ 상태로 변경하시겠습니까?",
+        warning:
+          "이 변경은 해당 조직의 접근에 영향을 줍니다. 신중히 진행하세요.",
         cancel: "취소",
         apply: "변경",
         applying: "변경 중",
         failed: "상태를 변경하지 못했습니다. 다시 시도하세요.",
       },
       remove: {
-        title: "테넌트 삭제",
+        title: "테넌시 삭제",
         confirm:
-          "‘{name}’ 테넌트를 영구적으로 삭제하시겠습니까? 조직과 초기 설정 데이터가 모두 제거되며 되돌릴 수 없습니다.",
+          "‘{name}’ 테넌시를 영구적으로 삭제하시겠습니까? 조직과 초기 설정 데이터가 모두 제거되며 되돌릴 수 없습니다.",
         warning: "이 작업은 되돌릴 수 없습니다. 신중히 진행하세요.",
         cancel: "취소",
         apply: "삭제",
         applying: "삭제 중",
-        failed: "테넌트를 삭제하지 못했습니다. 다시 시도하세요.",
+        failed: "테넌시를 삭제하지 못했습니다. 다시 시도하세요.",
         blocked:
-          "이 테넌트에는 실제 운영 데이터가 있어 삭제할 수 없습니다. 대신 보관 처리하세요.",
-        notFound: "테넌트를 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.",
+          "이 테넌시에는 실제 운영 데이터가 있어 삭제할 수 없습니다. 대신 보관 처리하세요.",
+        notFound: "테넌시를 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.",
         // FORCE removal (데이터까지 영구 삭제): the DESTRUCTIVE path revealed only
         // after the guarded remove is blocked by real data. Requires the tenant
         // to be ARCHIVED first and a double confirmation (typing the exact name).
         force: {
           reveal: "데이터까지 영구 삭제",
-          title: "테넌트와 모든 데이터 영구 삭제",
+          title: "테넌시와 모든 데이터 영구 삭제",
           description:
-            "‘{name}’ 테넌트와 이 조직의 모든 운영 데이터(작업지시, 장비, 고객, 재무, 메신저, 감사 기록 등)를 영구적으로 삭제합니다. 이 작업은 절대 되돌릴 수 없습니다.",
+            "‘{name}’ 테넌시와 이 조직의 모든 운영 데이터(작업지시, 장비, 고객, 재무, 메신저, 감사 기록 등)를 영구적으로 삭제합니다. 이 작업은 절대 되돌릴 수 없습니다.",
           warning:
             "이것은 시스템에서 가장 파괴적인 작업입니다. 삭제된 데이터는 복구할 수 없습니다.",
           confirmLabel:
-            "확인을 위해 테넌트 이름 ‘{name}’ 을(를) 정확히 입력하세요.",
-          confirmPlaceholder: "테넌트 이름 입력",
-          mismatch: "입력한 이름이 테넌트 이름과 일치하지 않습니다.",
+            "확인을 위해 테넌시 이름 ‘{name}’ 을(를) 정확히 입력하세요.",
+          confirmPlaceholder: "테넌시 이름 입력",
+          mismatch: "입력한 이름이 테넌시 이름과 일치하지 않습니다.",
           cancel: "취소",
           apply: "영구 삭제",
           applying: "삭제 중",
-          failed: "테넌트를 삭제하지 못했습니다. 다시 시도하세요.",
+          failed: "테넌시를 삭제하지 못했습니다. 다시 시도하세요.",
           // The force path's status rail: refused unless the tenant is ARCHIVED.
           notArchived:
-            "활성 테넌트는 영구 삭제할 수 없습니다. 먼저 이 테넌트를 보관(ARCHIVED) 처리한 뒤 다시 시도하세요.",
-          notFound: "테넌트를 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.",
+            "활성 테넌시는 영구 삭제할 수 없습니다. 먼저 이 테넌시를 보관(ARCHIVED) 처리한 뒤 다시 시도하세요.",
+          notFound: "테넌시를 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.",
         },
       },
     },
+    groups: {
+      title: "그룹 관리",
+      description:
+        "그룹과 자회사 조직을 관리하고, 그룹 전체 보기와 개별 조직 관리로 전환합니다.",
+      empty: "등록된 그룹이 없습니다.",
+      loadFailed: "그룹 목록을 불러오지 못했습니다.",
+      memberCount: "소속 조직 {count}개",
+      viewModes: "보기 범위",
+      assignLabel: "자회사/조직 배정",
+      assignPlaceholder: "배정할 조직 선택",
+      assignAction: "그룹에 배정",
+      assignFailed: "조직을 그룹에 배정하지 못했습니다.",
+      removeAction: "그룹에서 제외",
+      removeFailed: "조직을 그룹에서 제외하지 못했습니다.",
+      noMembers: "아직 이 그룹에 소속된 조직이 없습니다.",
+      columns: {
+        org: "조직",
+        status: "상태",
+        actions: "작업",
+      },
+      form: {
+        title: "새 그룹 생성",
+        description:
+          "그룹은 테넌시가 아니라 여러 자회사 조직을 묶는 관리 단위입니다.",
+        name: "그룹명",
+        namePlaceholder: "예: 그룹사",
+        slug: "슬러그",
+        slugPlaceholder: "예: geurupsa",
+        slugHint: "영문 소문자, 숫자, 하이픈만 사용할 수 있습니다.",
+        submit: "그룹 생성",
+        submitting: "생성 중",
+        requiredName: "그룹명을 입력하세요.",
+        invalidSlug:
+          "슬러그 형식이 올바르지 않습니다. 영문 소문자·숫자·하이픈만 사용하세요.",
+        createFailed: "그룹을 생성하지 못했습니다. 다시 시도하세요.",
+      },
+    },
     onboard: {
-      title: "테넌트 등록",
+      title: "테넌시 등록",
       description:
         "새 조직을 온보딩하고 최초 로그인용 일회용 코드를 발급합니다.",
       form: {
@@ -524,43 +567,43 @@ export const ko = {
         slug: "슬러그",
         slugPlaceholder: "예: acme-corporation",
         slugHint: "영문 소문자, 숫자, 하이픈만 사용할 수 있습니다.",
-        submit: "테넌트 등록",
+        submit: "테넌시 등록",
         submitting: "등록 중",
         requiredName: "이름을 입력하세요.",
         invalidSlug:
           "슬러그 형식이 올바르지 않습니다. 영문 소문자·숫자·하이픈만 사용하세요.",
         duplicateSlug: "이미 사용 중인 슬러그입니다. 다른 값을 입력하세요.",
-        failed: "테넌트를 등록하지 못했습니다. 다시 시도하세요.",
+        failed: "테넌시를 등록하지 못했습니다. 다시 시도하세요.",
       },
       success: {
-        title: "테넌트가 등록되었습니다.",
+        title: "테넌시가 등록되었습니다.",
         subtitle: "‘{name}’ (슬러그: {slug}) 조직이 생성되었습니다.",
         otpHeading: "일회용 코드 (한 번만 표시됩니다)",
         otpWarning:
           "이 코드는 다시 표시되지 않습니다. 안전한 별도 경로로 전달하세요.",
         copy: "복사",
         copied: "복사됨",
-        done: "테넌트 목록으로",
+        done: "테넌시 목록으로",
       },
     },
     viewAs: {
       // Read-only tenant impersonation for troubleshooting. The action label sits
       // on each tenant row; the dialog picks the role; the banner is shown on every
       // page while impersonating.
-      action: "이 테넌트로 보기",
+      action: "이 조직으로 보기",
       dialog: {
-        title: "테넌트로 보기 (읽기 전용)",
+        title: "조직으로 보기 (읽기 전용)",
         description:
-          "‘{name}’ 테넌트를 선택한 역할의 시점에서 읽기 전용으로 조회합니다. 어떤 데이터도 변경할 수 없습니다.",
+          "‘{name}’ 조직을 선택한 역할의 시점에서 읽기 전용으로 조회합니다. 어떤 데이터도 변경할 수 없습니다.",
         roleLabel: "역할",
         warning:
           "읽기 전용 세션입니다. 모든 변경 작업은 차단되며, 시작과 종료가 감사 기록에 남습니다.",
         cancel: "취소",
         start: "보기 시작",
         starting: "여는 중",
-        failed: "테넌트 보기를 시작하지 못했습니다. 다시 시도하세요.",
+        failed: "조직 보기를 시작하지 못했습니다. 다시 시도하세요.",
         notActive:
-          "활성 상태가 아닌 테넌트는 조회할 수 없습니다. 먼저 활성화하세요.",
+          "활성 상태가 아닌 조직은 조회할 수 없습니다. 먼저 활성화하세요.",
       },
       roles: {
         SUPER_ADMIN: "최고 관리자",
@@ -581,7 +624,7 @@ export const ko = {
     },
     tenantContext: {
       action: "조직 관리",
-      failed: "테넌트 관리 모드로 전환하지 못했습니다. 다시 시도하세요.",
+      failed: "조직 관리 모드로 전환하지 못했습니다. 다시 시도하세요.",
       banner: {
         label: "‘{tenant}’ / {role} 관리 중 · 변경 가능",
         exit: "관리 종료",
@@ -2057,7 +2100,7 @@ export const ko = {
   landing: {
     brand: "KnL",
     brandFull: "Korea Next Logistics",
-    product: "정비 콘솔",
+    product: "콘솔",
     productGloss: "지게차 임대·정비 현장 서비스 관리(FSM)",
     skipToContent: "본문으로 건너뛰기",
     nav: {
@@ -2219,8 +2262,8 @@ export const ko = {
     },
     pricing: {
       title: "구독 안내",
-      subtitle: "정비 콘솔은 조직(테넌트) 단위로 도입하는 구독형 서비스입니다.",
-      planName: "정비 콘솔 구독",
+      subtitle: "콘솔은 조직 단위로 도입하는 구독형 서비스입니다.",
+      planName: "콘솔 구독",
       planDesc:
         "웹 관리 콘솔, 정비사 모바일 앱(iOS·Android), 멀티테넌트 운영, 패스키 인증, KPI·운영 대시보드를 모두 포함합니다.",
       cta: "구독 문의하기",
@@ -2239,7 +2282,7 @@ export const ko = {
       title: "자주 묻는 질문",
       items: [
         {
-          q: "정비 콘솔은 어떤 사업에 적합한가요?",
+          q: "콘솔은 어떤 사업에 적합한가요?",
           a: "지게차를 임대·정비·관리하는 사업에 맞춰 설계되었습니다. 접수·배차·현장 정비·대차 운용·예방정비·결재·정산·KPI까지 전 업무를 한 시스템으로 운영합니다.",
         },
         {
@@ -2273,7 +2316,7 @@ export const ko = {
       maintenance: "정비",
       about: "회사소개",
       contact: "고객센터",
-      privacy: "개인정보·쿠키 안내",
+      privacy: "개인정보 처리방침",
       phoneLabel: "사업 문의",
       phoneHref: SALES_PHONE_HREF,
       openMenu: "메뉴 열기",
@@ -2308,47 +2351,163 @@ export const ko = {
     },
     cookie: {
       aria: "쿠키 안내",
-      title: "쿠키 및 저장소 안내",
-      body: "이 웹사이트는 문의 접수와 보안에 필요한 필수 쿠키·브라우저 저장소만 사용합니다. 광고·마케팅 쿠키나 분석 도구는 별도 동의 없이 사용하지 않습니다.",
-      details: "자세히 보기",
-      accept: "확인",
+      title: "필수 쿠키 안내",
+      body: "이 웹사이트는 로그인 보안, 문의 접수, 쿠키 안내 확인 등 서비스 제공에 필요한 필수 쿠키와 브라우저 저장소만 사용합니다. 광고·분석 쿠키는 현재 사용하지 않으며, 도입 시 별도 사전 동의를 받습니다.",
+      details: "개인정보 처리방침 보기",
+      accept: "확인했습니다",
     },
     privacyNotice: {
       hero: {
-        eyebrow: "Privacy & Cookies",
-        title: "개인정보·쿠키 안내",
-        copy: "KNL 공개 웹사이트와 운영 콘솔의 필수 개인정보 처리, 보안 기록, 쿠키 사용 방침을 한곳에서 확인합니다.",
+        eyebrow: "Privacy Policy",
+        title: "개인정보 처리방침 및 쿠키 정책",
+        copy: "KNL 공개 웹사이트와 운영 콘솔에서 처리하는 개인정보, 보안 기록, 위치정보 선택 동의, 쿠키·브라우저 저장소 사용 기준을 한곳에 공개합니다.",
       },
-      required: {
-        eyebrow: "Initial Login",
-        title: "초기 로그인 필수 동의",
-        copy: "콘솔 최초 로그인 시 계정 인증, 조직·지점·역할 권한 확인, 서비스 보안, 장애 대응 및 감사 기록 관리를 위해 필요한 개인정보 수집·이용 안내와 서비스 약관을 각각 확인하고 동의해야 합니다.",
-        itemsTitle: "필수 처리 항목",
-        items:
-          "이름, 이메일 또는 연락처, 소속 조직·지점·역할, 로그인·패스키·기기 식별 정보, 접속 및 감사 기록",
-        retentionTitle: "보유 및 거부 안내",
-        retention:
-          "계정 이용 기간 동안 보관하며, 계정 삭제 후에는 법령 준수·분쟁 대응·감사 보존에 필요한 범위에서만 분리 보관 후 파기합니다. 필수 동의를 거부할 수 있으나 콘솔 계정 활성화와 패스키 등록은 진행할 수 없습니다.",
+      meta: {
+        title: "정책 시행 정보",
+        effectiveDateLabel: "시행일",
+        effectiveDate: "2026년 6월 26일",
+        versionLabel: "버전",
+        version: "v2026.06.26",
+        operatorLabel: "개인정보처리자",
+        operator: "KNL",
+        contactLabel: "개인정보 문의",
+        contact: "KNL@cossok.com",
+      },
+      summaryCards: [
+        {
+          title: "필수 처리와 선택 처리를 구분합니다.",
+          copy: "계정 생성·로그인·업무 처리에 필요한 항목과 위치정보 등 선택 기능 항목을 분리해 안내합니다.",
+        },
+        {
+          title: "광고·분석 쿠키를 사용하지 않습니다.",
+          copy: "현재 공개 웹사이트는 필수 쿠키와 브라우저 저장소만 사용하며, 맞춤형 광고·분석 도구 도입 시 별도 동의를 받습니다.",
+        },
+        {
+          title: "권리 행사와 문의 창구를 공개합니다.",
+          copy: "열람·정정·삭제·처리정지 요청과 개인정보 문의는 공개된 연락처로 접수할 수 있습니다.",
+        },
+      ],
+      collection: {
+        eyebrow: "Collection & Use",
+        title: "수집·이용 항목과 목적",
+        copy: "서비스 제공에 필요한 최소 항목을 목적별로 처리하며, 법령상 보존 의무가 있는 경우를 제외하고 목적 달성 후 지체 없이 파기합니다.",
+        headers: {
+          category: "구분",
+          purpose: "목적",
+          items: "항목",
+          retention: "보유 기간",
+          required: "동의 구분",
+        },
+        rows: [
+          {
+            category: "공개 웹사이트 문의",
+            purpose: "렌탈·판매·정비 상담 접수와 회신",
+            items: "이름, 연락처, 회사·현장명, 문의 유형, 문의 내용",
+            retention:
+              "상담 완료 후 1년 또는 관련 법령·분쟁 대응에 필요한 기간",
+            required: "필수",
+          },
+          {
+            category: "콘솔 계정 및 초기 로그인",
+            purpose:
+              "계정 인증, 조직·지점·역할 권한 확인, 패스키 등록, 서비스 제공",
+            items:
+              "이름, 이메일 또는 연락처, 소속 조직·지점·역할, 로그인·패스키·기기 식별 정보",
+            retention:
+              "계정 이용 기간 및 계정 삭제 후 법령 준수·분쟁 대응에 필요한 기간",
+            required: "필수",
+          },
+          {
+            category: "보안·감사 기록",
+            purpose: "부정 이용 방지, 보안 사고 예방, 장애 대응, 감사 추적",
+            items:
+              "접속 일시, IP, 사용자 에이전트, 인증 실패·권한 변경·주요 업무 처리 기록",
+            retention: "보안·감사 목적 달성 및 관련 법령상 필요한 기간",
+            required: "필수",
+          },
+          {
+            category: "위치 기반 기능",
+            purpose:
+              "현장 도착 확인, 배차·정비 이력 관리, 안전한 작업 수행 지원",
+            items:
+              "동의한 사용자의 위치 좌표, 수집 일시, 관련 작업·현장 식별자",
+            retention:
+              "별도 위치정보 동의 화면에 고지한 기간 또는 동의 철회 시까지",
+            required: "선택",
+          },
+        ],
       },
       cookies: {
-        eyebrow: "Cookies",
-        title: "필수 쿠키와 브라우저 저장소만 사용",
-        copy: "공개 웹사이트는 쿠키 안내 확인 상태처럼 서비스 제공에 필요한 브라우저 저장소만 사용합니다. 운영 콘솔의 로그인 유지 쿠키는 HttpOnly 보안 쿠키로 처리되며, 광고·마케팅 쿠키 또는 분석 도구는 별도 동의 없이 사용하지 않습니다.",
+        eyebrow: "Cookies & Storage",
+        title: "쿠키 및 브라우저 저장소 사용",
+        copy: "필수 쿠키·저장소는 로그인 보안과 사이트 이용에 필요한 범위에서만 사용합니다. 광고·분석·맞춤형 광고 목적의 제3자 쿠키는 현재 사용하지 않습니다.",
+        headers: {
+          name: "항목",
+          purpose: "사용 목적",
+          type: "유형",
+          retention: "보유 기간",
+          control: "통제 방법",
+        },
+        rows: [
+          {
+            name: "세션·로그인 보안 쿠키",
+            purpose: "콘솔 로그인 유지, 인증 상태 확인, CSRF 등 보안 보호",
+            type: "필수 쿠키(HttpOnly·Secure·SameSite 적용)",
+            retention: "세션 또는 보안 정책상 정한 기간",
+            control:
+              "브라우저에서 쿠키를 차단할 수 있으나 로그인 기능이 제한될 수 있습니다.",
+          },
+          {
+            name: "쿠키 안내 확인 저장소",
+            purpose:
+              "공개 웹사이트의 필수 쿠키 안내를 다시 표시하지 않기 위한 확인 상태 저장",
+            type: "필수 브라우저 로컬 저장소",
+            retention: "브라우저 저장소 삭제 시까지",
+            control:
+              "브라우저 설정에서 사이트 데이터 또는 로컬 저장소를 삭제할 수 있습니다.",
+          },
+          {
+            name: "광고·분석·맞춤형 광고 쿠키",
+            purpose:
+              "사용하지 않습니다. 향후 도입 시 목적, 항목, 보유 기간을 고지하고 필요한 동의를 별도로 받습니다.",
+            type: "현재 미사용",
+            retention: "해당 없음",
+            control: "해당 없음",
+          },
+        ],
+        browserControlTitle: "브라우저에서 쿠키를 관리하는 방법",
+        browserControl:
+          "Chrome, Edge, Whale 등 브라우저의 개인정보·보안 또는 쿠키 및 사이트 데이터 설정에서 쿠키 허용, 차단, 삭제를 관리할 수 있습니다.",
       },
-      location: {
-        eyebrow: "Location",
-        title: "위치정보는 별도 선택 동의",
-        copy: "현장 도착 확인 등 위치 기반 기능은 콘솔의 별도 위치정보 동의 화면에서 수집 목적, 항목, 보유 기간, 철회 방법을 안내한 뒤 선택적으로 동의받습니다.",
+      rights: {
+        eyebrow: "Your Rights",
+        title: "정보주체 권리와 행사 방법",
+        copy: "이용자는 개인정보 열람, 정정·삭제, 처리정지, 동의 철회를 요청할 수 있습니다. KNL은 본인 확인 후 관련 법령에 따라 지체 없이 처리하고 결과를 안내합니다.",
+        items: [
+          "계정·조직 관리자는 콘솔에서 본인 또는 소속 사용자 정보를 확인하고 필요한 정정을 요청할 수 있습니다.",
+          "위치정보 등 선택 동의 항목은 제공된 화면이나 개인정보 문의 창구를 통해 철회할 수 있습니다.",
+          "법령상 보존 의무, 다른 사람의 권리 침해 우려 등 제한 사유가 있는 경우에는 사유를 안내합니다.",
+        ],
+      },
+      processors: {
+        eyebrow: "Sharing & Processing",
+        title: "제3자 제공 및 처리위탁",
+        copy: "현재 공개 웹사이트는 맞춤형 광고 목적의 제3자 제공을 하지 않습니다. 클라우드 인프라, 알림, 보안, 장애 대응 등 서비스 운영에 필요한 처리위탁 또는 국외 이전이 발생하면 업체명, 목적, 항목, 보유 기간을 별도 고지하고 정책에 반영합니다.",
       },
       security: {
         eyebrow: "Security",
-        title: "보안 및 접속 기록",
-        copy: "인증 실패, 패스키 등록, 권한 변경, 주요 업무 처리 기록은 보안 사고 예방, 부정 이용 탐지, 장애 대응, 감사 추적을 위해 최소 범위로 기록합니다.",
+        title: "안전성 확보 조치",
+        copy: "접근권한 관리, 인증·권한 변경 감사 기록, 전송 구간 암호화, 비밀번호 대신 패스키 기반 인증, 로그 접근 통제 등 관리적·기술적 보호조치를 적용합니다.",
       },
-      formalPolicy: {
-        eyebrow: "Release Gate",
-        title: "정식 정책 게시 전 확인 사항",
-        copy: "운영 배포 전 개인정보 처리방침, 서비스 이용약관, 위치정보 약관, 쿠키 고지 문구는 법무·보안 검토 후 최신 게시본으로 확정해야 합니다.",
+      destruction: {
+        eyebrow: "Retention & Destruction",
+        title: "보유 기간과 파기",
+        copy: "처리 목적 달성, 보유 기간 경과, 동의 철회 등 파기 사유가 발생하면 재생할 수 없는 방법으로 파기합니다. 전자 파일은 복구가 어렵도록 삭제하고, 출력물은 분쇄 또는 이에 준하는 방법으로 파기합니다.",
+      },
+      changes: {
+        eyebrow: "Changes",
+        title: "정책 변경 고지",
+        copy: "처리 항목, 목적, 보유 기간, 쿠키 또는 위탁·제공 내용이 변경되면 시행일과 변경 내용을 이 페이지에 공개합니다. 중요한 변경은 서비스 내 공지 또는 별도 안내로 알립니다.",
       },
     },
     home: {

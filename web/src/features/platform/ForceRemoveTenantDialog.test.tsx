@@ -36,7 +36,7 @@ describe("ForceRemoveTenantDialog", () => {
     );
 
     const dialog = screen.getByRole("dialog", {
-      name: "테넌트와 모든 데이터 영구 삭제",
+      name: "테넌시와 모든 데이터 영구 삭제",
     });
     const applyButton = within(dialog).getByRole("button", {
       name: "영구 삭제",
@@ -65,14 +65,14 @@ describe("ForceRemoveTenantDialog", () => {
     );
 
     const dialog = screen.getByRole("dialog", {
-      name: "테넌트와 모든 데이터 영구 삭제",
+      name: "테넌시와 모든 데이터 영구 삭제",
     });
     expect(
       within(dialog).queryByRole("button", { name: "영구 삭제" }),
     ).toBeNull();
     expect(
       within(dialog).getByText(
-        "활성 테넌트는 영구 삭제할 수 없습니다. 먼저 이 테넌트를 보관(ARCHIVED) 처리한 뒤 다시 시도하세요.",
+        "활성 테넌시는 영구 삭제할 수 없습니다. 먼저 이 테넌시를 보관(ARCHIVED) 처리한 뒤 다시 시도하세요.",
       ),
     ).toBeVisible();
   });
@@ -92,7 +92,7 @@ describe("ForceRemoveTenantDialog", () => {
       />,
     );
 
-    const guardedDialog = screen.getByRole("dialog", { name: "테넌트 삭제" });
+    const guardedDialog = screen.getByRole("dialog", { name: "테넌시 삭제" });
     expect(
       within(guardedDialog).queryByRole("button", {
         name: "데이터까지 영구 삭제",

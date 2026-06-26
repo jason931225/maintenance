@@ -1,4 +1,4 @@
-import { ChevronsLeft, ChevronsRight, Wrench } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, PanelsTopLeft } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
 import { cn } from "../../lib/utils";
@@ -16,8 +16,11 @@ interface SidebarProps {
 
 const groupLabels: Record<string, string> = {
   operations: ko.nav.groups.operations,
-  data: ko.nav.groups.data,
-  org: ko.nav.groups.org,
+  executive: ko.nav.groups.executive,
+  assets: ko.nav.groups.assets,
+  finance: ko.nav.groups.finance,
+  organization: ko.nav.groups.organization,
+  identity: ko.nav.groups.identity,
   settings: ko.nav.groups.settings,
 };
 
@@ -60,9 +63,15 @@ export function Sidebar({
       >
         {/* Brand */}
         <div className="flex h-14 items-center gap-3 px-4 border-b border-line shrink-0">
-          <Wrench size={20} className="text-ink shrink-0" aria-hidden="true" />
+          <PanelsTopLeft
+            size={20}
+            className="text-ink shrink-0"
+            aria-hidden="true"
+          />
           {!collapsed && (
-            <span className="font-bold text-ink truncate">{ko.shell.title}</span>
+            <span className="font-bold text-ink truncate">
+              {ko.shell.title}
+            </span>
           )}
         </div>
 
@@ -104,7 +113,9 @@ export function Sidebar({
                         aria-hidden="true"
                         className="shrink-0"
                       />
-                      {!collapsed && <span className="truncate">{labelStr}</span>}
+                      {!collapsed && (
+                        <span className="truncate">{labelStr}</span>
+                      )}
                     </NavLink>
                   );
                 })}
@@ -120,7 +131,11 @@ export function Sidebar({
             className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-steel hover:bg-muted-panel"
             onClick={onCollapse}
           >
-            {collapsed ? <ChevronsRight size={16} aria-hidden="true" /> : <ChevronsLeft size={16} aria-hidden="true" />}
+            {collapsed ? (
+              <ChevronsRight size={16} aria-hidden="true" />
+            ) : (
+              <ChevronsLeft size={16} aria-hidden="true" />
+            )}
             {!collapsed && <span>{ko.shell.collapseMenu}</span>}
           </button>
         </div>

@@ -22,6 +22,10 @@ This is **not** a simple upload button. Required flow:
 
 Success means a messy source workbook can be turned into standard Oyatie/KNL SaaS data, and the system can export a clean standard template for future repeat imports.
 
+**Current apply priority:** import readiness first supports organization setup, people, positions/roles,
+clients, locations, and assets. Payroll, optimization analytics, and other advanced domains remain
+staged/backlog until the foundation data model and permissions are reliable.
+
 ## 2. Evidence from provided workbook
 
 The provided workbook has 8 company-like sheets:
@@ -64,6 +68,7 @@ The design follows these public enterprise patterns:
 - **Source keys for multi-source HR data.** Oracle HCM Data Loader recommends source keys because user/business keys can change and multiple source systems need stable identity. Source: <https://docs.oracle.com/en/cloud/saas/tutorial-hdl-load-files/>.
 - **Metadata-driven employee imports.** SAP SuccessFactors uses distinct tools/templates for person/employment, foundation, and generic objects; metadata and field mappings drive CSV/file-based transfer, and test runs are part of safe migration. Source: <https://help.sap.com/doc/8ed3dfb2677a48c5b6ab758a737e8719/2605/en-US/SF_S4_EC_EE_Data_HCI_en-US.pdf>.
 - **CSV interoperability.** RFC 4180 defines the common CSV format and `text/csv` MIME type; exports must follow consistent headers, quoting, CRLF, charset/header metadata, and same-field-count rows. Source: <https://www.rfc-editor.org/rfc/rfc4180>.
+- **Korean CSV encoding.** Import preview must detect UTF-8/UTF-8-BOM/UTF-16 and CP949/Windows-949-style Korean CSV exports (decoded through the standard `euc-kr` label) before parsing rows. Hangul headers such as `이름`, `회사명`, `부서명` must render correctly in the mapping table; rows containing replacement characters (`�`) are validation errors, not importable records.
 - **Secure file handling.** OWASP recommends allowlisted extensions, server-side file type/signature checks, generated filenames, size limits, authorized uploads, out-of-webroot storage, and defense-in-depth. Source: <https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html>.
 - **Spreadsheet export safety.** OWASP/CWE document CSV/formula injection risks when exported fields start with formula metacharacters; exports must neutralize cells intended for spreadsheet viewing. Sources: <https://owasp.org/www-community/attacks/CSV_Injection>, <https://cwe.mitre.org/data/definitions/1236.html>.
 - **Korean personal-data posture.** PIPC guidance emphasizes PIPA applicability to businesses processing Korean data subjects, privacy policy disclosure, breach notification/reporting, data subject rights, and cross-border-transfer clarity. Source: <https://www.pipc.go.kr/eng/user/ltn/new/noticeDetail.do?bbsId=BBSMSTR_000000000001&nttId=2488>.
@@ -71,6 +76,17 @@ The design follows these public enterprise patterns:
 ## 4. Canonical data domains
 
 Mapping is driven by a target **entity registry**, not by arbitrary table/column names. Each target field belongs to exactly one domain, with optional relationship edges to other domains.
+
+### 4.0 Administrative boundary model
+
+The import/export workspace must keep the administrative graph separate from operational verticals:
+
+- **Tenant/Tenancy** = the subscription, isolation, billing, and lifecycle boundary. A tenant is what the platform can create, suspend, archive, or wipe. It is not automatically a conglomerate group.
+- **Group** = a conglomerate/family holding view that links multiple subsidiary organizations for consolidated administration and reporting. A group may view member organizations together or drill into exactly one organization, but writes still target an explicit organization unless a later group-scoped workflow declares otherwise.
+- **Organization** = a legal entity or operating company inside a tenant/group. It owns users, org units, worksites, roles, payroll context, and operating data.
+- **OrgUnit/Position/Assignment** = the internal hierarchy and job graph. These are HR/org-management records, not authentication roles by default.
+
+Imports must classify source data against this graph before allowing a write. A sheet named after a company can seed an `Organization`; a department column can seed an `OrgUnit`; a job-title column can seed a `Position`; but none of those values should silently become login roles, tenant slugs, or equipment/site records. Group-level imports are allowed only through an explicit group/organization mapping profile.
 
 ### 4.1 Employee/HR domain
 
@@ -81,6 +97,8 @@ Canonical entities:
 - `EmploymentAssignment`: company/legal entity, department/team, job/role, position, worksite, manager, effective dates.
 - `LeaveBalance`: annual leave accrued/used/remaining, effective period.
 - `DisabilityOrProtectedStatus`: separate sensitive field group; import only with explicit permission and legal basis.
+
+HR owns person/employment facts. It does **not** own payroll amounts, authentication accounts, or logistics/maintenance job permissions. Those related records are created through explicit relationship mappings.
 
 Workbook examples:
 
@@ -99,6 +117,8 @@ Canonical entities:
 - `BankPaymentMethod`: bank/account holder/account number; encrypted/tokenized and separately permissioned.
 - `PayrollRunInput`: effective-dated values feeding payroll calculations; no calculation shipped without golden-case validation.
 
+Payroll is a separate high-sensitivity domain from HR. HR may show employment status and assignment; payroll imports and exports require payroll-specific permission, masking, audit, and dry-run review. A general employee import cannot write bank/account/tax/wage fields unless the mapping profile declares a payroll section.
+
 Workbook examples:
 
 - `기본시급`, `통상시급`, `수당`, `지급일`, `급여산정일` → compensation/payroll setup.
@@ -115,6 +135,8 @@ Canonical entities:
 - `TenantAccountSeed`: optional account bootstrap record for org-chart imports that create missing tenant organizations/users from approved org data.
 - `Position`: position node tied to org unit, job classification, manager chain.
 - `CostCenter`: optional accounting/payroll allocation unit.
+
+Organization management owns the group/org/org-unit/position hierarchy. It can reference employees and account seeds, but it is not the tenant lifecycle console and is not a logistics/maintenance workflow.
 
 Workbook examples:
 
@@ -155,6 +177,8 @@ Canonical entities:
 - `RoleAssignment`: system/custom role assignment.
 - `BranchMembership` / `AccessScope`: scope assignment.
 - `GroupRoleGrant`: cross-entity group grants.
+
+Positions and business roles are not automatically security roles. A `Position` such as `관리소장`, `정비사`, `노무담당`, or `구매과장` can be mapped to a recommended role assignment, but the actual `RoleAssignment` write is a separate elevated security action with preview and audit.
 
 Bulk RBAC import is elevated and hazardous:
 

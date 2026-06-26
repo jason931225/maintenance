@@ -127,6 +127,11 @@ const PlatformTenantsPage = lazy(() =>
     default: m.PlatformTenantsPage,
   })),
 );
+const PlatformGroupsPage = lazy(() =>
+  import("./pages/PlatformGroupsPage").then((m) => ({
+    default: m.PlatformGroupsPage,
+  })),
+);
 const PlatformOnboardPage = lazy(() =>
   import("./pages/PlatformOnboardPage").then((m) => ({
     default: m.PlatformOnboardPage,
@@ -216,11 +221,18 @@ export function AppRouter() {
             tenant route is bounced to /platform by ProtectedRoute. */}
         <Route element={<RequirePlatformRoute />}>
           <Route path="/platform" element={<PlatformShell />}>
-            <Route index element={<Navigate to="/platform/tenants" replace />} />
+            <Route
+              index
+              element={<Navigate to="/platform/tenants" replace />}
+            />
             <Route path="tenants" element={<PlatformTenantsPage />} />
+            <Route path="groups" element={<PlatformGroupsPage />} />
             <Route path="ops" element={<PlatformOpsPage />} />
             <Route path="onboard" element={<PlatformOnboardPage />} />
-            <Route path="*" element={<Navigate to="/platform/tenants" replace />} />
+            <Route
+              path="*"
+              element={<Navigate to="/platform/tenants" replace />}
+            />
           </Route>
         </Route>
 
@@ -259,7 +271,10 @@ export function AppRouter() {
           {/* Legacy equipment page: kept at /equipment/legacy during transition */}
           <Route path="/equipment/legacy" element={<EquipmentPage />} />
           <Route path="/financial" element={<FinancialPage />} />
-          <Route path="/settings" element={<Navigate to="/settings/profile" replace />} />
+          <Route
+            path="/settings"
+            element={<Navigate to="/settings/profile" replace />}
+          />
           <Route path="/settings/profile" element={<ProfilePage />} />
           <Route path="/settings/location" element={<LocationSettingsPage />} />
           <Route element={<RequireAdminRoute />}>

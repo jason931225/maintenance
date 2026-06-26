@@ -115,6 +115,7 @@ beforeAll(() => { server.listen({ onUnhandledRequest: "error" }); });
 afterEach(() => {
   server.resetHandlers();
   window.localStorage.removeItem("knl_cookie_notice_v1");
+  window.localStorage.removeItem("knl_cookie_notice_v2");
   listRequests.length = 0;
   kpiRequests.length = 0;
   autocompleteRequests.length = 0;
@@ -270,10 +271,10 @@ describe("routing", () => {
     const notice = await screen.findByRole("region", { name: "쿠키 안내" });
     expect(notice).toBeVisible();
     expect(
-      within(notice).getByRole("link", { name: "자세히 보기" }),
+      within(notice).getByRole("link", { name: "개인정보 처리방침 보기" }),
     ).toHaveAttribute("href", "/privacy");
 
-    await user.click(within(notice).getByRole("button", { name: "확인" }));
+    await user.click(within(notice).getByRole("button", { name: "확인했습니다" }));
 
     await waitFor(() => {
       expect(
@@ -286,13 +287,15 @@ describe("routing", () => {
     renderAt("/privacy");
     expect(
       await screen.findByRole("heading", {
-        name: "개인정보·쿠키 안내",
+        name: "개인정보 처리방침 및 쿠키 정책",
         level: 1,
       }),
     ).toBeVisible();
     expect(
-      screen.getByRole("heading", { name: "초기 로그인 필수 동의", level: 2 }),
+      screen.getByRole("heading", { name: "수집·이용 항목과 목적", level: 2 }),
     ).toBeVisible();
+    expect(screen.getByText("광고·분석·맞춤형 광고 쿠키")).toBeVisible();
+    expect(screen.queryByText(/정식 정책 게시 전/)).not.toBeInTheDocument();
   });
 
   it("renders footer legal/version text and family-site links", async () => {

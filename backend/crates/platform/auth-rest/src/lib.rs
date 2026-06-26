@@ -517,6 +517,14 @@ impl RestError {
         }
     }
 
+    fn not_found(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code: "not_found",
+            message: message.into(),
+        }
+    }
+
     fn unavailable(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::SERVICE_UNAVAILABLE,
@@ -578,6 +586,8 @@ impl RestError {
             | ProvisioningError::ActiveBootstrapCredentialExists => {
                 Self::conflict(error.to_string())
             }
+            ProvisioningError::NotFound(_) => Self::not_found(error.to_string()),
+            ProvisioningError::Conflict(_) => Self::conflict(error.to_string()),
             ProvisioningError::Sqlx(_)
             | ProvisioningError::Db(_)
             | ProvisioningError::Json(_)
