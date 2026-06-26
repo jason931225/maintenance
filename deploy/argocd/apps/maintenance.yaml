@@ -94,7 +94,7 @@ spec:
         - .spec.switchoverDelay
   syncPolicy:
     automated: { prune: true, selfHeal: true }
-    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+    syncOptions: [CreateNamespace=true, ServerSideApply=true, RespectIgnoreDifferences=true]
     # The CNPG Cluster spins up Postgres asynchronously; give dependent objects
     # room before Argo reports degraded.
     retry:
