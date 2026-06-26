@@ -9,7 +9,7 @@ name: iOS UI tests
 on:
   push:
     branches:
-      - "**"
+      - main
     paths:
       - "ios/**"
       - ".github/workflows/ios-ui-tests.yml"
@@ -17,6 +17,9 @@ on:
     paths:
       - "ios/**"
       - ".github/workflows/ios-ui-tests.yml"
+
+permissions:
+  contents: read
 
 # A UI run is expensive; cancel superseded runs on the same ref.
 concurrency:

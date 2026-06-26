@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches:
-      - "**"
+      - main
     tags:
       - "v*"
     paths:
@@ -42,6 +42,9 @@ on:
       - "tsconfig.json"
       - ".github/workflows/ci.yml"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
