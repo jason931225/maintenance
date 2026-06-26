@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.12](https://github.com/jason931225/maintenance/compare/v0.1.11...v0.1.12) (2026-06-26)
+
+
+### Features
+
+* **platform:** add tenant management context ([#37](https://github.com/jason931225/maintenance/issues/37)) ([eb03791](https://github.com/jason931225/maintenance/commit/eb03791eca880066c2f8c22fd0fad077902520e9))
+
 ## [0.1.11](https://github.com/jason931225/maintenance/compare/v0.1.10...v0.1.11) (2026-06-25)
 
 
