@@ -15,6 +15,7 @@ on:
       - "playwright.config.ts"
       - "android/**"
       - "ios/**"
+      - "deploy/**"
       - "docs/i18n.md"
       - "docs/parity-checklist.md"
       - "scripts/**"
@@ -33,6 +34,7 @@ on:
       - "playwright.config.ts"
       - "android/**"
       - "ios/**"
+      - "deploy/**"
       - "docs/i18n.md"
       - "docs/parity-checklist.md"
       - "scripts/**"
@@ -246,6 +248,27 @@ jobs:
 
       - name: Generated TypeScript client round-trip
         run: npm run test:contract
+
+  kubernetes-manifests:
+    name: Kubernetes manifests — render / Argo target guard
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Install kubectl (for kustomize renderer)
+        env:
+          KUBECTL_VERSION: "v1.36.2"
+        run: |
+          curl -fsSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          curl -fsSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256"
+          echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
+          sudo install -m 0755 kubectl /usr/local/bin/kubectl
+          kubectl version --client=true
+
+      - name: Render production manifests and guard Argo targets
+        run: scripts/render-k8s-manifests.sh "${RUNNER_TEMP}/rendered-k8s"
 
   swift-client:
     name: API client — Swift generation and build
