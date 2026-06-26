@@ -81,6 +81,42 @@ data:
     hs.status = "Healthy"
     hs.message = "AnalysisTemplate is ready for rollouts"
     return hs
+  resource.customizations.health.batch_Job: |
+    hs = {}
+    if obj.status ~= nil and obj.status.conditions ~= nil then
+      for _, condition in ipairs(obj.status.conditions) do
+        if condition.type == "Failed" and condition.status == "True" then
+          hs.status = "Degraded"
+          hs.message = condition.message or "Job failed"
+          return hs
+        end
+        if condition.type == "Complete" and condition.status == "True" then
+          hs.status = "Healthy"
+          hs.message = condition.message or "Job completed"
+          return hs
+        end
+      end
+    end
+    hs.status = "Progressing"
+    hs.message = "Waiting for job completion"
+    return hs
+  resource.customizations.health.networking.k8s.io_Ingress: |
+    hs = {}
+    if obj.status ~= nil and obj.status.loadBalancer ~= nil and
+       obj.status.loadBalancer.ingress ~= nil and #obj.status.loadBalancer.ingress > 0 then
+      hs.status = "Healthy"
+      hs.message = "Ingress has load-balancer status"
+      return hs
+    end
+    if obj.spec ~= nil and obj.spec.ingressClassName == "traefik" and
+       obj.spec.rules ~= nil and #obj.spec.rules > 0 then
+      hs.status = "Healthy"
+      hs.message = "Traefik ingress is configured; external reachability is verified separately"
+      return hs
+    end
+    hs.status = "Progressing"
+    hs.message = "Waiting for ingress load-balancer status"
+    return hs
   resource.customizations.health.postgresql.cnpg.io_Cluster: |
     hs = {}
     if obj.status ~= nil then
