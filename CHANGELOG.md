@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.13](https://github.com/jason931225/maintenance/compare/v0.1.12...v0.1.13) (2026-06-26)
+
+
+### Features
+
+* **hr:** add employee workbook import directory ([#39](https://github.com/jason931225/maintenance/issues/39)) ([b51ddfa](https://github.com/jason931225/maintenance/commit/b51ddfab6c8ea735398ab976367231bfb7fadef9))
+
 ## [0.1.12](https://github.com/jason931225/maintenance/compare/v0.1.11...v0.1.12) (2026-06-26)
 
 
