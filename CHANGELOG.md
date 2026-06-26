@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.14](https://github.com/jason931225/maintenance/compare/v0.1.13...v0.1.14) (2026-06-26)
+
+
+### Features
+
+* **auth:** allow group admins to manage subsidiaries ([#45](https://github.com/jason931225/maintenance/issues/45)) ([667fe9a](https://github.com/jason931225/maintenance/commit/667fe9a663d943adae71d03790e8e0c2c4d733c8))
+* **platform:** manage group accounts and self passkeys ([#44](https://github.com/jason931225/maintenance/issues/44)) ([d2820ef](https://github.com/jason931225/maintenance/commit/d2820ef90b334addf8e7e171836896021e5b1807))
+
+
+### Bug Fixes
+
+* **gitops:** clean production drift ([#41](https://github.com/jason931225/maintenance/issues/41)) ([872e3bf](https://github.com/jason931225/maintenance/commit/872e3bf58d5afc0d928f696a2b543ec4a3bc6a2a))
+* **gitops:** publish ingress endpoint ([#43](https://github.com/jason931225/maintenance/issues/43)) ([63c6771](https://github.com/jason931225/maintenance/commit/63c6771ec60d0f7176be1ce88fe98b3163eaa883))
+
 ## [0.1.13](https://github.com/jason931225/maintenance/compare/v0.1.12...v0.1.13) (2026-06-26)
 
 
