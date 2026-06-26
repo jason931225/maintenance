@@ -27,7 +27,7 @@ spec:
         - name: mnt-worker
           image: mnt-app # same binary as the api, MNT_APP_ROLE switches the role
           ports:
-            - { name: health, containerPort: 8080 }
+            - { name: health, containerPort: 8080, protocol: TCP }
           envFrom:
             - configMapRef: { name: mnt-config }
             - secretRef: { name: mnt-secrets }
