@@ -15,6 +15,27 @@ spec:
     server: https://kubernetes.default.svc
     namespace: maintenance
   ignoreDifferences:
+    # Argo Rollouts blue/green owns the active/preview Service selectors and
+    # swaps in the current `rollouts-pod-template-hash`. Git keeps the stable
+    # app selector only; if Argo server-side-applies that selector back, it
+    # conflicts with rollouts-controller and the app flaps OutOfSync while
+    # traffic is otherwise healthy.
+    - kind: Service
+      name: mnt-app
+      namespace: maintenance
+      jqPathExpressions: [.spec.selector]
+    - kind: Service
+      name: mnt-app-preview
+      namespace: maintenance
+      jqPathExpressions: [.spec.selector]
+    - kind: Service
+      name: mnt-web
+      namespace: maintenance
+      jqPathExpressions: [.spec.selector]
+    - kind: Service
+      name: mnt-web-preview
+      namespace: maintenance
+      jqPathExpressions: [.spec.selector]
     # CNPG's admission/controller layer materializes CRD defaults into the
     # Cluster spec. Keep Git focused on intentional app/DB settings and ignore
     # only those defaulted fields so Argo can stay clean without copying the
