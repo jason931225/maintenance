@@ -26,6 +26,14 @@ Success means a messy source workbook can be turned into standard Oyatie/KNL Saa
 clients, locations, and assets. Payroll, optimization analytics, and other advanced domains remain
 staged/backlog until the foundation data model and permissions are reliable.
 
+**Implemented readiness guardrail:** `web/src/features/data-exchange/domainMapping.ts` now provides the
+front-end entity registry/classifier that previews source columns against canonical domains before an apply
+API exists. It classifies Korean HR/payroll/org/site/equipment headers, requires dry-run review for restricted
+columns, and blocks unsafe mappings such as employee identifiers into machinery fields or worksite addresses
+into personal home-address fields. `web/src/features/data-exchange/sourceText.ts` also standardizes CSV export
+with CRLF rows, quoting, and spreadsheet-formula neutralization. These are client-side readiness helpers only;
+the future backend apply endpoint must enforce the same registry server-side before writing records.
+
 ## 2. Evidence from provided workbook
 
 The provided workbook has 8 company-like sheets:

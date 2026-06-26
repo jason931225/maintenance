@@ -145,3 +145,28 @@ export function parseCsvRows(text: string): string[][] {
 
   return rows;
 }
+
+const FORMULA_PREFIX = /^[=+\-@\t\r]/;
+
+function neutralizeSpreadsheetFormula(cell: string): string {
+  return FORMULA_PREFIX.test(cell) ? `'${cell}` : cell;
+}
+
+function formatCsvCell(value: string | number | boolean | null | undefined): string {
+  const raw = value == null ? "" : String(value);
+  const safe = neutralizeSpreadsheetFormula(raw);
+  const escaped = safe.replaceAll('"', '""');
+  return /[",\r\n]/.test(escaped) ? `"${escaped}"` : escaped;
+}
+
+/**
+ * Formats canonical export rows as RFC-4180-style CSV: stable CRLF row breaks,
+ * consistent cell counts as provided by the caller, quoted cells when needed,
+ * and spreadsheet-formula neutralization for values that would otherwise be
+ * executed by Excel/Sheets after download.
+ */
+export function formatCsvRows(
+  rows: readonly (readonly (string | number | boolean | null | undefined)[])[],
+): string {
+  return rows.map((row) => row.map(formatCsvCell).join(",")).join("\r\n");
+}
