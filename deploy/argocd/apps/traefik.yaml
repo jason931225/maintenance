@@ -19,6 +19,16 @@ spec:
         # point; no LB cost, fits Always Free.
         service:
           enabled: false
+        providers:
+          kubernetesIngress:
+            publishedService:
+              enabled: false
+            # Service/LoadBalancer is disabled for Always Free hostPort ingress,
+            # so Traefik cannot infer the public endpoint. Publish the reserved
+            # OCI node IP explicitly so Ingress status is populated and Argo CD
+            # can report the app healthy instead of permanently Progressing.
+            ingressEndpoint:
+              ip: 140.245.68.253
         deployment:
           kind: DaemonSet
         ports:
