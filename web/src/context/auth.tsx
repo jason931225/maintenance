@@ -69,9 +69,13 @@ export interface AcceptableTokens {
  * the banner is shown on every page. `platformSession` is the operator's real
  * platform session, restored on exit.
  */
+export type TenantContextMode = "VIEW_ONLY" | "MANAGE";
+
 export interface ViewAsState {
-  /** The short-lived read-only impersonation access token. */
+  /** The short-lived tenant-context access token. */
   token: string;
+  /** VIEW_ONLY blocks mutations server-side; MANAGE is an audited writable tenant-admin context. */
+  mode?: TenantContextMode;
   /** Acting tenant id + display name, for the banner and exit audit. */
   actingOrgId: string;
   actingOrgName: string;
@@ -110,6 +114,7 @@ export interface AuthContextValue {
    */
   enterViewAs: (params: {
     token: string;
+    mode?: TenantContextMode;
     actingOrgId: string;
     actingOrgName: string;
     actingRole: string;
@@ -344,7 +349,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     setSession(
-      sessionFromAccessToken(tokens.access_token, tokens.requires_passkey_setup),
+      sessionFromAccessToken(
+        tokens.access_token,
+        tokens.requires_passkey_setup,
+      ),
     );
   }
 
@@ -356,6 +364,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   function enterViewAs(params: {
     token: string;
+    mode?: TenantContextMode;
     actingOrgId: string;
     actingOrgName: string;
     actingRole: string;
@@ -366,6 +375,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!session) return;
     setViewAs({
       token: params.token,
+      mode: params.mode ?? "VIEW_ONLY",
       actingOrgId: params.actingOrgId,
       actingOrgName: params.actingOrgName,
       actingRole: params.actingRole,

@@ -114,7 +114,8 @@ export const ko = {
   },
   auth: {
     title: "로그인",
-    subtitle: "등록된 패스키로 로그인하거나, 처음이라면 일회용 코드로 시작하세요.",
+    subtitle:
+      "등록된 패스키로 로그인하거나, 처음이라면 일회용 코드로 시작하세요.",
     login: "패스키로 로그인",
     loggingIn: "로그인 중",
     refresh: "토큰 갱신",
@@ -161,8 +162,7 @@ export const ko = {
       refusalTitle: "동의 거부권 및 불이익",
       refusal:
         "필수 동의를 거부할 수 있으나, 거부하면 계정 활성화, 패스키 등록, 콘솔 서비스 이용을 진행할 수 없습니다.",
-      privacyCheckbox:
-        "[필수] 개인정보 수집·이용 안내를 확인했고 동의합니다.",
+      privacyCheckbox: "[필수] 개인정보 수집·이용 안내를 확인했고 동의합니다.",
       termsCheckbox:
         "[필수] 서비스 이용약관과 보안·감사 로그 처리를 확인했습니다.",
       optionalNote:
@@ -182,7 +182,8 @@ export const ko = {
     methods: {
       desktop: {
         title: "이 기기",
-        description: "Touch ID·Windows Hello 등 이 기기의 생체 인증으로 등록합니다.",
+        description:
+          "Touch ID·Windows Hello 등 이 기기의 생체 인증으로 등록합니다.",
       },
       phoneQr: {
         title: "휴대폰으로 등록 (QR)",
@@ -198,8 +199,7 @@ export const ko = {
     title: "계정이 생성되었습니다",
     message:
       "관리자가 권한을 부여할 때까지 기다려 주세요. 권한이 부여되면 콘솔의 기능을 사용할 수 있습니다.",
-    contactGuidance:
-      "권한 부여가 지연되면 담당 관리자에게 문의하세요.",
+    contactGuidance: "권한 부여가 지연되면 담당 관리자에게 문의하세요.",
     profileLink: "내 프로필 보기",
   },
   enrollHandoff: {
@@ -216,7 +216,8 @@ export const ko = {
   admin: {
     title: "관리자 설정",
     issueOtpTitle: "일회용 로그인 코드 발급",
-    issueOtpDescription: "신규 사용자가 첫 로그인을 할 수 있도록 일회용 코드를 발급합니다.",
+    issueOtpDescription:
+      "신규 사용자가 첫 로그인을 할 수 있도록 일회용 코드를 발급합니다.",
     userLabel: "사용자",
     userPlaceholder: "사용자를 검색하세요.",
     branchLabel: "지점",
@@ -264,7 +265,8 @@ export const ko = {
     deactivate: "비활성화",
     deactivating: "처리 중",
     deactivateTitle: "사용자 비활성화",
-    deactivateConfirm: "‘{name}’ 사용자를 비활성화할까요? 로그인할 수 없게 됩니다.",
+    deactivateConfirm:
+      "‘{name}’ 사용자를 비활성화할까요? 로그인할 수 없게 됩니다.",
     deactivated: "사용자를 비활성화했습니다.",
     deactivateFailed: "사용자를 비활성화하지 못했습니다.",
     form: {
@@ -314,7 +316,8 @@ export const ko = {
         "기기(패스키)를 분실해 로그인할 수 없는 사용자를 복구합니다.",
       warning:
         "이 사용자의 기존 패스키가 모두 삭제되고, 새 일회용 로그인 코드가 발급됩니다. 기존 기기로는 더 이상 로그인할 수 없습니다.",
-      confirm: "이 사용자의 패스키를 모두 삭제하고 새 로그인 코드를 발급할까요?",
+      confirm:
+        "이 사용자의 패스키를 모두 삭제하고 새 로그인 코드를 발급할까요?",
       submit: "패스키 재설정 및 코드 발급",
       submitting: "처리 중",
       issued: "발급된 코드",
@@ -422,6 +425,13 @@ export const ko = {
       SUSPENDED: "정지",
       ARCHIVED: "보관",
     },
+    scope: {
+      label: "보기 범위",
+      all: "전체 그룹/조직",
+      groupPrefix: "그룹",
+      orgPrefix: "조직",
+      ungrouped: "그룹 미지정",
+    },
     ops: {
       title: "플랫폼 운영 현황",
       description: "전체 테넌트의 상태와 사용량을 한눈에 확인합니다.",
@@ -429,6 +439,7 @@ export const ko = {
       loadFailed: "운영 현황을 불러오지 못했습니다.",
       columns: {
         tenant: "테넌트",
+        group: "그룹",
         status: "상태",
         users: "사용자",
         activeUsers: "활성 사용자",
@@ -447,6 +458,7 @@ export const ko = {
       columns: {
         slug: "슬러그",
         name: "이름",
+        group: "그룹",
         status: "상태",
         created: "생성일",
       },
@@ -504,7 +516,8 @@ export const ko = {
     },
     onboard: {
       title: "테넌트 등록",
-      description: "새 조직을 온보딩하고 최초 로그인용 일회용 코드를 발급합니다.",
+      description:
+        "새 조직을 온보딩하고 최초 로그인용 일회용 코드를 발급합니다.",
       form: {
         name: "이름",
         namePlaceholder: "예: Acme Corporation",
@@ -563,6 +576,15 @@ export const ko = {
         label: "⚠ ‘{tenant}’ / {role} (으)로 보는 중 · 읽기 전용",
         readOnly: "읽기 전용",
         exit: "나가기",
+        exiting: "종료 중",
+      },
+    },
+    tenantContext: {
+      action: "조직 관리",
+      failed: "테넌트 관리 모드로 전환하지 못했습니다. 다시 시도하세요.",
+      banner: {
+        label: "‘{tenant}’ / {role} 관리 중 · 변경 가능",
+        exit: "관리 종료",
         exiting: "종료 중",
       },
     },
@@ -669,7 +691,8 @@ export const ko = {
     testing: "테스트 중",
     testOk: "SMTP 서버에 정상적으로 연결되었습니다.",
     testFailed: "SMTP 서버에 연결하지 못했습니다.",
-    testRateLimited: "연결 테스트 시도가 너무 많습니다. 잠시 후 다시 시도하세요.",
+    testRateLimited:
+      "연결 테스트 시도가 너무 많습니다. 잠시 후 다시 시도하세요.",
     testRequiresSave:
       "연결을 테스트하려면 먼저 비밀번호를 포함해 설정을 저장하세요.",
     // Friendly, non-secret mappings for the structured error_code returned by
@@ -731,7 +754,8 @@ export const ko = {
     // Distinct from saveFailed: the backend resolved the form but found no
     // equipment for the typed 호기 (after stripping #/호기, leading-zero
     // insensitive). Tells the receptionist to recheck the number, not retry.
-    equipmentNotFound: "해당 호기 장비를 찾을 수 없습니다. 호기 번호를 확인하세요.",
+    equipmentNotFound:
+      "해당 호기 장비를 찾을 수 없습니다. 호기 번호를 확인하세요.",
     lookupPrompt: "호기를 입력하면 장비와 고객 정보를 조회합니다.",
     lookupLoading: "장비 조회 중",
     lookupNotFound: "일치하는 장비가 없습니다.",
@@ -822,10 +846,12 @@ export const ko = {
       forceAssignTitle: "강제 배정 확인",
       forceAssignConfirm:
         "{mechanic} 정비사에게 {requestNo} 작업을 강제 배정합니다. 수락 대기 절차를 건너뜁니다.",
-      forceAssignWarning: "강제 배정은 수락 절차를 무시하므로 신중히 진행하세요.",
+      forceAssignWarning:
+        "강제 배정은 수락 절차를 무시하므로 신중히 진행하세요.",
       forceAssignApply: "강제 배정",
       forceAssigning: "배정 중",
-      forceAssignNeedsDispatch: "진행 중인 P1 배차가 있어야 강제 배정할 수 있습니다.",
+      forceAssignNeedsDispatch:
+        "진행 중인 P1 배차가 있어야 강제 배정할 수 있습니다.",
       forceAssigned: "강제 배정을 완료했습니다.",
       startP1Label: "P1 긴급 배차",
       startP1Hint: "정비사에게 P1 긴급 배차를 송출하고 수락 대기를 시작합니다.",
@@ -914,7 +940,8 @@ export const ko = {
       statusReady: "완료",
       statusFailed: "실패",
       previewAlt: "증거 미리보기",
-      rejectedType: "허용되지 않는 형식입니다. 사진(JPEG·PNG·WebP·HEIC) 또는 영상(MP4·MOV·WebM)만 업로드하세요.",
+      rejectedType:
+        "허용되지 않는 형식입니다. 사진(JPEG·PNG·WebP·HEIC) 또는 영상(MP4·MOV·WebM)만 업로드하세요.",
       rejectedSizeImage: "이미지는 25MB 이하만 업로드할 수 있습니다.",
       rejectedSizeVideo: "영상은 200MB 이하만 업로드할 수 있습니다.",
       uploadFailed: "업로드하지 못했습니다. 다시 시도하세요.",
@@ -926,7 +953,8 @@ export const ko = {
     // mechanic, exactly as on the dispatch board.
     detail: {
       title: "작업지시 상세",
-      description: "접수된 고장내용과 진행 이력을 확인하고, 진단·보고를 작성합니다.",
+      description:
+        "접수된 고장내용과 진행 이력을 확인하고, 진단·보고를 작성합니다.",
       back: "목록으로",
       notFound: "작업지시를 찾을 수 없습니다.",
       loadFailed: "작업지시를 불러오지 못했습니다.",
@@ -983,7 +1011,8 @@ export const ko = {
     // Per-order reject dialog (destructive). Scoped to a single order with its
     // own required memo, so a memo can never be applied to the wrong order.
     rejectTitle: "작업지시 반려",
-    rejectMessage: "이 작업지시를 반려합니다. 반려 사유는 정비사에게 전달됩니다.",
+    rejectMessage:
+      "이 작업지시를 반려합니다. 반려 사유는 정비사에게 전달됩니다.",
     rejectMemoLabel: "반려 메모",
     rejectMemoPlaceholder: "반려 사유를 입력하세요.",
     rejectConfirm: "반려",
@@ -1065,7 +1094,8 @@ export const ko = {
   },
   location: {
     title: "GPS 위치 동의",
-    subtitle: "위치 수집은 동의, 근무 중 상태, GPS 스위치가 모두 켜진 경우에만 가능합니다.",
+    subtitle:
+      "위치 수집은 동의, 근무 중 상태, GPS 스위치가 모두 켜진 경우에만 가능합니다.",
     collection: "수집 가능",
     updatedAt: "변경 시각",
     refresh: "새로고침",
@@ -1194,7 +1224,8 @@ export const ko = {
     },
     manage: {
       title: "장비 관리",
-      description: "장비를 등록·수정·폐기합니다. 마스터 일괄 등록은 이 페이지 하단에 있습니다.",
+      description:
+        "장비를 등록·수정·폐기합니다. 마스터 일괄 등록은 이 페이지 하단에 있습니다.",
     },
     create: "장비 등록",
     edit: "수정",
@@ -1261,7 +1292,8 @@ export const ko = {
     },
     substitution: {
       title: "대차 관리",
-      description: "고장·수리 중인 장비에 대차(예비) 장비를 배정하고 반납합니다.",
+      description:
+        "고장·수리 중인 장비에 대차(예비) 장비를 배정하고 반납합니다.",
       selectSource: "대차가 필요한 장비를 호기 번호로 검색해 선택하세요.",
       sourceLabel: "대상 장비",
       findCandidates: "대차 후보 조회",
@@ -1525,7 +1557,8 @@ export const ko = {
       workDiary: "업무일지",
       dailyStatus: "일일업무진행현황",
     },
-    downloadFailed: "보고서를 생성하지 못했습니다. 날짜를 확인하고 다시 시도하세요.",
+    downloadFailed:
+      "보고서를 생성하지 못했습니다. 날짜를 확인하고 다시 시도하세요.",
     downloadDone: "{report} 보고서를 내려받았습니다.",
     historyNote:
       "출력 이력 보기는 백엔드에서 아직 제공되지 않습니다(excel_export_logs 미노출).",
@@ -1665,8 +1698,7 @@ export const ko = {
       submitting: "저장 중",
       cancel: "취소",
       memoRequired: "처리 메모를 입력하세요.",
-      conflict:
-        "이미 처리된 항목입니다. 새로고침 후 다시 확인하세요.",
+      conflict: "이미 처리된 항목입니다. 새로고침 후 다시 확인하세요.",
       submitFailed: "검토 처리를 저장하지 못했습니다. 다시 시도하세요.",
       saved: "검토 결과를 저장했습니다.",
     },
@@ -1723,7 +1755,8 @@ export const ko = {
       categoryHelp: "문의 성격에 가장 가까운 항목을 골라주세요.",
       priorityHelp: "현장 운행에 미치는 영향을 기준으로 골라주세요.",
       titleHelp: "예: 290호기 시동 불량, 리치트럭 렌탈 견적 요청",
-      bodyHelp: "장비 모델, 현장 위치, 증상, 운행 가능 여부를 적어주시면 상담이 빨라집니다.",
+      bodyHelp:
+        "장비 모델, 현장 위치, 증상, 운행 가능 여부를 적어주시면 상담이 빨라집니다.",
       contactHelp: "회신받을 전화번호 또는 이메일을 남겨주세요.",
       categoryOptions: {
         EQUIPMENT_INQUIRY: "렌탈·중고 장비 문의",
@@ -1770,7 +1803,8 @@ export const ko = {
         "현장 정보만 남겨 주시면 KNL 담당자가 확인 후 연락드립니다. 전화 없이 온라인으로 바로 접수하세요.",
       formAria: "온라인 접수 양식",
       submitted: "접수가 완료되었습니다.",
-      submittedDetail: "담당자가 확인 후 빠르게 연락드리겠습니다. 접수 내용은 등록하신 연락처로 안내됩니다.",
+      submittedDetail:
+        "담당자가 확인 후 빠르게 연락드리겠습니다. 접수 내용은 등록하신 연락처로 안내됩니다.",
       another: "새 접수 작성",
       phoneFallbackLabel: "전화 상담",
       phoneFallback: SALES_PHONE_DISPLAY,
@@ -1829,7 +1863,8 @@ export const ko = {
   },
   financial: {
     title: "구매·정산",
-    description: "구매요청서·지출결의서·집행, 임대 견적과 장비 원가 원장을 관리합니다.",
+    description:
+      "구매요청서·지출결의서·집행, 임대 견적과 장비 원가 원장을 관리합니다.",
     noBranch: "계정에 배정된 지점이 없습니다. 관리자에게 문의하세요.",
     tabs: {
       purchase: "구매요청",
@@ -2042,65 +2077,142 @@ export const ko = {
       primaryLogin: "로그인",
       primaryConsole: "콘솔로 이동",
       secondary: "기능 살펴보기",
-      authNote: "일회용 코드로 첫 로그인 후 패스키(Touch ID·Windows Hello·휴대폰)로 비밀번호 없이 인증합니다.",
+      authNote:
+        "일회용 코드로 첫 로그인 후 패스키(Touch ID·Windows Hello·휴대폰)로 비밀번호 없이 인증합니다.",
     },
     features: {
       title: "이 프로그램이 제공하는 기능",
-      subtitle: "접수 → 배차 → 현장 → 정산 → 데이터, 전 업무 흐름을 하나로 묶었습니다.",
+      subtitle:
+        "접수 → 배차 → 현장 → 정산 → 데이터, 전 업무 흐름을 하나로 묶었습니다.",
       groups: [
         {
           title: "접수 · 배차",
           items: [
-            { name: "작업지시 접수·관리", desc: "호기 번호로 장비·고객을 자동 조회해 고장 증상과 목표 완료일을 담은 작업지시를 즉시 접수합니다." },
-            { name: "배차 보드", desc: "접수·배정·진행·검토·완료 단계를 한 화면에서 보고 SLA 상태(정상/임박/위반)와 함께 정비사를 배정합니다." },
-            { name: "정비사 배정·강제 배정", desc: "주·보조 정비사를 함께 지정하고, P1 긴급 건은 수락 절차를 건너뛰는 관리자 강제 배정까지 지원합니다." },
-            { name: "P1 긴급 배차 수락", desc: "긴급 작업을 푸시로 브로드캐스트하고 정비사가 수락·거절하며 미수락 시 자동 배정으로 이어집니다." },
-            { name: "배차 지도", desc: "사업장 좌표를 입력해 임대·예비·대차 진행 장비 현황을 지도 핀으로 확인합니다." },
-            { name: "대차(代車) 배정·반납", desc: "수리 중인 장비에 톤수가 호환되는 예비 장비를 대차로 배정하고 위치·반납 메모와 함께 관리합니다." },
+            {
+              name: "작업지시 접수·관리",
+              desc: "호기 번호로 장비·고객을 자동 조회해 고장 증상과 목표 완료일을 담은 작업지시를 즉시 접수합니다.",
+            },
+            {
+              name: "배차 보드",
+              desc: "접수·배정·진행·검토·완료 단계를 한 화면에서 보고 SLA 상태(정상/임박/위반)와 함께 정비사를 배정합니다.",
+            },
+            {
+              name: "정비사 배정·강제 배정",
+              desc: "주·보조 정비사를 함께 지정하고, P1 긴급 건은 수락 절차를 건너뛰는 관리자 강제 배정까지 지원합니다.",
+            },
+            {
+              name: "P1 긴급 배차 수락",
+              desc: "긴급 작업을 푸시로 브로드캐스트하고 정비사가 수락·거절하며 미수락 시 자동 배정으로 이어집니다.",
+            },
+            {
+              name: "배차 지도",
+              desc: "사업장 좌표를 입력해 임대·예비·대차 진행 장비 현황을 지도 핀으로 확인합니다.",
+            },
+            {
+              name: "대차(代車) 배정·반납",
+              desc: "수리 중인 장비에 톤수가 호환되는 예비 장비를 대차로 배정하고 위치·반납 메모와 함께 관리합니다.",
+            },
           ],
         },
         {
           title: "현장 정비 · 모바일",
           items: [
-            { name: "모바일 현장 앱(iOS·Android)", desc: "정비사용 네이티브 앱으로 오프라인에서도 작업 보고·증빙 촬영을 큐에 저장했다가 연결 시 자동 동기화합니다." },
-            { name: "현장 증빙 촬영·업로드", desc: "카메라로 정비 증빙 사진을 촬영해 첨부하고 오프라인 큐로 안전하게 업로드합니다." },
-            { name: "작업 보고·승인", desc: "정비사가 진단·조치 내용과 결과 유형을 보고하면 관리자가 메모와 함께 승인 또는 반려합니다." },
-            { name: "GPS 위치 동의", desc: "동의·근무 중·GPS 켜짐이 모두 충족될 때만 위치를 수집하며 동의·철회·일시중지와 내보내기를 제공합니다." },
-            { name: "패스키(WebAuthn) 로그인", desc: "일회용 코드로 첫 로그인 후 생체 인증 패스키를 등록해 비밀번호 없이 인증하며, 분실 시 관리자 재설정을 지원합니다." },
+            {
+              name: "모바일 현장 앱(iOS·Android)",
+              desc: "정비사용 네이티브 앱으로 오프라인에서도 작업 보고·증빙 촬영을 큐에 저장했다가 연결 시 자동 동기화합니다.",
+            },
+            {
+              name: "현장 증빙 촬영·업로드",
+              desc: "카메라로 정비 증빙 사진을 촬영해 첨부하고 오프라인 큐로 안전하게 업로드합니다.",
+            },
+            {
+              name: "작업 보고·승인",
+              desc: "정비사가 진단·조치 내용과 결과 유형을 보고하면 관리자가 메모와 함께 승인 또는 반려합니다.",
+            },
+            {
+              name: "GPS 위치 동의",
+              desc: "동의·근무 중·GPS 켜짐이 모두 충족될 때만 위치를 수집하며 동의·철회·일시중지와 내보내기를 제공합니다.",
+            },
+            {
+              name: "패스키(WebAuthn) 로그인",
+              desc: "일회용 코드로 첫 로그인 후 생체 인증 패스키를 등록해 비밀번호 없이 인증하며, 분실 시 관리자 재설정을 지원합니다.",
+            },
           ],
         },
         {
           title: "예방정비 · 결재",
           items: [
-            { name: "정기 예방정비", desc: "일·주·월·분기·연 주기의 예방정비 일정을 등록하고 임박·지연 일정을 점검합니다." },
-            { name: "계획업무 결재", desc: "정비사별 일일 작업 계획을 작성→검토 요청→승인·반려→최종 결재까지 전자결재로 처리합니다." },
+            {
+              name: "정기 예방정비",
+              desc: "일·주·월·분기·연 주기의 예방정비 일정을 등록하고 임박·지연 일정을 점검합니다.",
+            },
+            {
+              name: "계획업무 결재",
+              desc: "정비사별 일일 작업 계획을 작성→검토 요청→승인·반려→최종 결재까지 전자결재로 처리합니다.",
+            },
           ],
         },
         {
           title: "정산 · 자산",
           items: [
-            { name: "구매·정산", desc: "구매요청서를 상신→관리자 승인→지출결의→임원 승인→집행까지 결재하고 집행액을 장비 원가 원장에 반영합니다." },
-            { name: "임대 견적·원가 원장", desc: "취득가·잔존가·누적 수리비로 월 임대료를 산출하고 장비별 원가·비용 원장을 조회합니다." },
-            { name: "장비 관리", desc: "호기 번호로 장비·고객·규격·톤수를 조회하고 등록·수정·폐기하며 임대·예비·대체·매각 상태를 관리합니다." },
-            { name: "엑셀 보고서 출력", desc: "선택 날짜의 업무일지·일일업무진행현황 보고서를 엑셀로 내려받습니다." },
+            {
+              name: "구매·정산",
+              desc: "구매요청서를 상신→관리자 승인→지출결의→임원 승인→집행까지 결재하고 집행액을 장비 원가 원장에 반영합니다.",
+            },
+            {
+              name: "임대 견적·원가 원장",
+              desc: "취득가·잔존가·누적 수리비로 월 임대료를 산출하고 장비별 원가·비용 원장을 조회합니다.",
+            },
+            {
+              name: "장비 관리",
+              desc: "호기 번호로 장비·고객·규격·톤수를 조회하고 등록·수정·폐기하며 임대·예비·대체·매각 상태를 관리합니다.",
+            },
+            {
+              name: "엑셀 보고서 출력",
+              desc: "선택 날짜의 업무일지·일일업무진행현황 보고서를 엑셀로 내려받습니다.",
+            },
           ],
         },
         {
           title: "데이터 · 운영",
           items: [
-            { name: "임원 KPI 대시보드", desc: "완료 건수·평균 응답속도·목표 준수율·재방문율·P1 수락률을 회사·권역·지점·정비사 범위로 집계합니다." },
-            { name: "운영 대시보드", desc: "작업 흐름 퍼널과 지연·SLA·승인 대기·대차 진행·미해결 문의 등 주의 지표를 실시간으로 보여줍니다." },
-            { name: "일일현황 월보드", desc: "미배정 긴급·승인 대기·목표 초과·금일 완료를 자동 갱신으로 띄우는 대형 화면용 현황판입니다." },
+            {
+              name: "임원 KPI 대시보드",
+              desc: "완료 건수·평균 응답속도·목표 준수율·재방문율·P1 수락률을 회사·권역·지점·정비사 범위로 집계합니다.",
+            },
+            {
+              name: "운영 대시보드",
+              desc: "작업 흐름 퍼널과 지연·SLA·승인 대기·대차 진행·미해결 문의 등 주의 지표를 실시간으로 보여줍니다.",
+            },
+            {
+              name: "일일현황 월보드",
+              desc: "미배정 긴급·승인 대기·목표 초과·금일 완료를 자동 갱신으로 띄우는 대형 화면용 현황판입니다.",
+            },
           ],
         },
         {
           title: "협업 · 플랫폼",
           items: [
-            { name: "사내 메신저", desc: "작업·팀·1:1·그룹 대화를 실시간으로 주고받고 첨부와 본문 검색을 지원하며 감사 가능하도록 기록됩니다." },
-            { name: "고객지원 티켓", desc: "사내 문의와 공개 고객 접수를 한곳에서 분류·우선순위·담당 배정·상태 전이로 처리합니다." },
-            { name: "사용자·역할·조직 관리", desc: "직원 계정과 역할(최고관리자·관리자·임원·정비사·접수담당), 팀, 권역·지점을 등록·관리합니다." },
-            { name: "멀티테넌트 플랫폼 콘솔", desc: "벤더 관리자가 조직(테넌트)을 온보딩하고 최초 로그인 코드를 발급하며 상태·사용량을 운영합니다." },
-            { name: "푸시·알림톡 알림", desc: "긴급 배차·상태 변경 등 현장 알림을 푸시와 알림톡으로 즉시 전달합니다." },
+            {
+              name: "사내 메신저",
+              desc: "작업·팀·1:1·그룹 대화를 실시간으로 주고받고 첨부와 본문 검색을 지원하며 감사 가능하도록 기록됩니다.",
+            },
+            {
+              name: "고객지원 티켓",
+              desc: "사내 문의와 공개 고객 접수를 한곳에서 분류·우선순위·담당 배정·상태 전이로 처리합니다.",
+            },
+            {
+              name: "사용자·역할·조직 관리",
+              desc: "직원 계정과 역할(최고관리자·관리자·임원·정비사·접수담당), 팀, 권역·지점을 등록·관리합니다.",
+            },
+            {
+              name: "멀티테넌트 플랫폼 콘솔",
+              desc: "벤더 관리자가 조직(테넌트)을 온보딩하고 최초 로그인 코드를 발급하며 상태·사용량을 운영합니다.",
+            },
+            {
+              name: "푸시·알림톡 알림",
+              desc: "긴급 배차·상태 변경 등 현장 알림을 푸시와 알림톡으로 즉시 전달합니다.",
+            },
           ],
         },
       ],
@@ -2116,9 +2228,11 @@ export const ko = {
     },
     contact: {
       title: "문의 · 고객 창구",
-      subtitle: "도입 상담, 구독, 시스템 문의를 남겨 주시면 담당자가 연락드립니다.",
+      subtitle:
+        "도입 상담, 구독, 시스템 문의를 남겨 주시면 담당자가 연락드립니다.",
       inquiryCta: "문의 양식 작성",
-      inquiryDesc: "공개 문의 양식으로 연락처와 문의 내용을 남기면 담당자가 회신합니다.",
+      inquiryDesc:
+        "공개 문의 양식으로 연락처와 문의 내용을 남기면 담당자가 회신합니다.",
       domainLabel: "웹사이트",
     },
     faq: {
@@ -2649,8 +2763,7 @@ export const ko = {
     platformFsm: {
       meta: {
         title: "운영 콘솔",
-        intro:
-          "KNL이 현장에서 직접 검증한 지게차 임대·정비 운영 콘솔입니다.",
+        intro: "KNL이 현장에서 직접 검증한 지게차 임대·정비 운영 콘솔입니다.",
       },
       dashboards: {
         eyebrow: "Dashboards & Observability",

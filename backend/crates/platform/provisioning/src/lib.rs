@@ -688,6 +688,9 @@ pub struct OrganizationSummary {
     pub status: String,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
+    pub group_id: Option<Uuid>,
+    pub group_slug: Option<String>,
+    pub group_name: Option<String>,
 }
 
 /// Per-tenant health/usage rollup for the platform ops dashboard.
@@ -702,6 +705,9 @@ pub struct TenantHealth {
     pub slug: String,
     pub name: String,
     pub status: String,
+    pub group_id: Option<Uuid>,
+    pub group_slug: Option<String>,
+    pub group_name: Option<String>,
     pub user_count: i64,
     pub active_user_count: i64,
     pub active_work_orders: i64,
@@ -866,7 +872,9 @@ impl PlatformProvisioner {
         let mut tx = pool.begin().await?;
         let rows = sqlx::query(
             r#"
-            SELECT id, slug, name, status, created_at, updated_at
+            SELECT
+                id, slug, name, status, created_at, updated_at,
+                group_id, group_slug, group_name
             FROM platform_list_organizations()
             ORDER BY created_at ASC, id ASC
             "#,
@@ -884,6 +892,9 @@ impl PlatformProvisioner {
                     status: row.try_get("status")?,
                     created_at: row.try_get("created_at")?,
                     updated_at: row.try_get("updated_at")?,
+                    group_id: row.try_get("group_id")?,
+                    group_slug: row.try_get("group_slug")?,
+                    group_name: row.try_get("group_name")?,
                 })
             })
             .collect::<Result<Vec<_>, ProvisioningError>>()?;
@@ -923,7 +934,7 @@ impl PlatformProvisioner {
         let rows = sqlx::query(
             r#"
             SELECT
-                id, slug, name, status,
+                id, slug, name, status, group_id, group_slug, group_name,
                 user_count, active_user_count,
                 active_work_orders, open_work_orders, last_activity_at
             FROM platform_org_health()
@@ -940,6 +951,9 @@ impl PlatformProvisioner {
                     slug: row.try_get("slug")?,
                     name: row.try_get("name")?,
                     status: row.try_get("status")?,
+                    group_id: row.try_get("group_id")?,
+                    group_slug: row.try_get("group_slug")?,
+                    group_name: row.try_get("group_name")?,
                     user_count: row.try_get("user_count")?,
                     active_user_count: row.try_get("active_user_count")?,
                     active_work_orders: row.try_get("active_work_orders")?,
@@ -1532,7 +1546,9 @@ async fn fetch_org_tx(
 ) -> Result<OrganizationSummary, ProvisioningError> {
     let row = sqlx::query(
         r#"
-        SELECT id, slug, name, status, created_at, updated_at
+        SELECT
+            id, slug, name, status, created_at, updated_at,
+            group_id, group_slug, group_name
         FROM platform_get_organization($1)
         "#,
     )
@@ -1548,6 +1564,9 @@ async fn fetch_org_tx(
         status: row.try_get("status")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
+        group_id: row.try_get("group_id")?,
+        group_slug: row.try_get("group_slug")?,
+        group_name: row.try_get("group_name")?,
     })
 }
 

@@ -3,7 +3,15 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { AppRouter } from "../AppRouter";
 import { AuthContext } from "../context/auth";
@@ -27,8 +35,18 @@ const BRANCH_A = "11111111-1111-4111-8111-111111111111";
 const BRANCH_B = "22222222-2222-4222-8222-222222222222";
 
 const branches = [
-  { id: BRANCH_A, region_id: "r1", name: "강남지점", created_at: "2026-01-01T00:00:00Z" },
-  { id: BRANCH_B, region_id: "r1", name: "분당지점", created_at: "2026-01-01T00:00:00Z" },
+  {
+    id: BRANCH_A,
+    region_id: "r1",
+    name: "강남지점",
+    created_at: "2026-01-01T00:00:00Z",
+  },
+  {
+    id: BRANCH_B,
+    region_id: "r1",
+    name: "분당지점",
+    created_at: "2026-01-01T00:00:00Z",
+  },
 ];
 
 const users = [
@@ -40,6 +58,8 @@ const users = [
     roles: ["MECHANIC"],
     branch_ids: [BRANCH_A],
     is_active: true,
+    has_passkey: true,
+    account_status: "ACTIVE",
     created_at: "2026-01-01T00:00:00Z",
   },
 ];
@@ -109,6 +129,30 @@ describe("UsersPage listing", () => {
     expect(cells.getByText("강남지점")).toBeVisible();
   });
 
+  it("shows pending setup instead of active for users without a passkey", async () => {
+    const pendingUser = {
+      ...users[0],
+      id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      display_name: "가입대기",
+      has_passkey: false,
+      account_status: "PENDING_SETUP",
+    };
+    server.use(
+      http.get("*/api/v1/users", () =>
+        HttpResponse.json(userPage([pendingUser])),
+      ),
+      http.get("*/api/v1/branches", () => HttpResponse.json(branches)),
+    );
+
+    renderApp("/settings/users", makeAuthContext(adminSession));
+
+    const row = (await screen.findByText("가입대기")).closest("tr");
+    expect(row).not.toBeNull();
+    const cells = within(row as HTMLElement);
+    expect(cells.getByText("설정 대기")).toBeVisible();
+    expect(cells.queryByText("활성")).not.toBeInTheDocument();
+  });
+
   it("shows the empty state when there are no users", async () => {
     server.use(
       http.get("*/api/v1/users", () => HttpResponse.json(userPage([]))),
@@ -135,9 +179,7 @@ describe("UsersPage listing", () => {
         // total = 2 but each page returns one row, so "더 보기" is offered until
         // the appended rows reach the total.
         return HttpResponse.json(
-          offset === "0"
-            ? userPage(users, 2)
-            : userPage([secondUser], 2),
+          offset === "0" ? userPage(users, 2) : userPage([secondUser], 2),
         );
       }),
       http.get("*/api/v1/branches", () => HttpResponse.json(branches)),
@@ -177,6 +219,8 @@ describe("UsersPage create", () => {
             roles: ["MECHANIC"],
             branch_ids: [BRANCH_A],
             is_active: true,
+            has_passkey: false,
+            account_status: "PENDING_SETUP",
             created_at: "2026-01-01T00:00:00Z",
           },
           { status: 201 },
@@ -230,6 +274,8 @@ describe("UsersPage no-credential UX", () => {
       roles: ["MECHANIC"],
       branch_ids: [BRANCH_A],
       is_active: true,
+      has_passkey: false,
+      account_status: "PENDING_SETUP",
       created_at: "2026-01-02T00:00:00Z",
     };
 
@@ -317,17 +363,14 @@ describe("UsersPage credential reset", () => {
     server.use(
       http.get("*/api/v1/users", () => HttpResponse.json(userPage(users))),
       http.get("*/api/v1/branches", () => HttpResponse.json(branches)),
-      http.post(
-        "*/api/v1/auth/admin/credential-reset",
-        async ({ request }) => {
-          resetBody(await request.json());
-          return HttpResponse.json({
-            user_id: users[0].id,
-            otp: "RESET999",
-            expires_at: "2026-06-19T00:00:00Z",
-          });
-        },
-      ),
+      http.post("*/api/v1/auth/admin/credential-reset", async ({ request }) => {
+        resetBody(await request.json());
+        return HttpResponse.json({
+          user_id: users[0].id,
+          otp: "RESET999",
+          expires_at: "2026-06-19T00:00:00Z",
+        });
+      }),
     );
 
     renderApp("/settings/users", makeAuthContext(adminSession));
@@ -346,9 +389,7 @@ describe("UsersPage credential reset", () => {
 
     const dialog = await screen.findByRole("dialog");
     // The dialog must warn that existing passkeys are revoked.
-    expect(
-      within(dialog).getByText(/기존 패스키가 모두 삭제/),
-    ).toBeVisible();
+    expect(within(dialog).getByText(/기존 패스키가 모두 삭제/)).toBeVisible();
 
     // Trigger the reset and confirm the returned one-time code is shown.
     await user.click(

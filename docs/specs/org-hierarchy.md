@@ -2,8 +2,10 @@
 
 **Story:** G002 (Track B0) · **Status:** P0 schema/resolvers IMPLEMENTED (`6c7d121`); P1 AccessScope
 kernel bridge IMPLEMENTED; P2 JWT claims + principal legacy-default resolution IMPLEMENTED; P3
-consolidated-read helper IMPLEMENTED; P4+ authz/API/UI/security-review scope remains open · **RLS posture:** the per-법인 `app.current_org` boundary is **UNCHANGED**. This spec
-adds a *controlled cross-entity scope above* that boundary; it never punches a hole in it.
+consolidated-read helper IMPLEMENTED; P4a platform-operator bridge LOCAL/UNRELEASED; P4b+ tenant-tier
+group authz/API/UI/security-review scope remains open · **RLS posture:** the per-법인 `app.current_org`
+boundary is **UNCHANGED**. This spec adds a *controlled cross-entity scope above* that boundary; it never
+punches a hole in it.
 
 ## 0. Security-review revisions (applied — review verdict was MUST-REVISE-DESIGN-FIRST)
 The keystone architecture (N armed per-member reads, no BYPASSRLS on the data path) PASSED and is kept.
@@ -52,6 +54,18 @@ RBAC unless an explicit group role grants it. The **Org remains the single RLS h
 org_id-immutability triggers) — unmodified.
 Non-goals: intercompany/elimination accounting (Track C); column/cell masking; no-code group ontology.
 The vendor Platform tier (`PlatformPrincipal`, view-as) is a distinct higher tier, unchanged (§6 contrasts).
+
+### 1.1 Platform-operator bridge (local P4a support slice, not tenant-tier group admin)
+Implemented in the current local worktree, but not yet merged/released: platform-only
+`/api/platform/tenant-context` start/exit endpoints let a vendor platform operator enter an audited,
+short-lived writable `SUPER_ADMIN` tenant context pinned to one active 법인. Platform tenant/ops reads also
+project identity-only group metadata (`group_id`, `group_slug`, `group_name`) so the platform console can
+switch between 전체 / 그룹 / 개별 조직 views before isolating into one org.
+
+This is the support bridge requested for a superadmin that can "see it all together" and also isolate into
+each tenant org. It deliberately does **not** complete the tenant-tier group-admin surface in §5-§6: there is
+still no tenant-tier group-role grant endpoint, no consolidated group write API, and no full org-tree /
+personnel / site-responsibility / approval-graph UI.
 
 ## 2. Data Model + Migration
 A Group is NOT a tenant and carries NO tenant data — pure grouping + grant target. Only `groups`
@@ -261,9 +275,11 @@ tenant-isolation: only `groups` is added to the GLOBAL allowlist with a rational
 ## 12. Phased Implementation (each ≤~5 files, mnt_rt tests, separate review pass)
 P0 schema + identity resolver (0060, done) → P1 AccessScope kernel type + BranchScope bridge (pure-logic,
 done in `mnt-kernel-core`) → P2 claims + login resolution + legacy default (done in `mnt-platform-auth` /
-principal adapters) → P3 consolidated-read helper (`platform/group`, done) → P4 group authz +
-group-role principal extension + conjunctive marking → P5 REST consolidated/switch-context/cross-entity + audited
-grant endpoint → P6 scope selector (web, visual-verdict ≥90) → P7 security-review + checklist sign-off.
+principal adapters) → P3 consolidated-read helper (`platform/group`, done) → P4a platform-operator bridge
+(local/unreleased: audited single-tenant management context + platform group/org scope filters) → P4b
+tenant-tier group authz + group-role principal extension + conjunctive marking → P5 REST
+consolidated/switch-context/cross-entity + audited grant endpoint → P6 tenant group scope selector and org
+tree/personnel/site-responsibility UI (web, visual-verdict ≥90) → P7 security-review + checklist sign-off.
 
 ## 13. Open Risks / Decisions for the User
 1. **Is payroll/financial group-visible at all?** Assumed default-NO, unlocked only by `GROUP_FINANCE`. If

@@ -20,6 +20,9 @@ export interface PlatformOrg {
   slug: string;
   name: string;
   status: OrgStatus;
+  group_id?: string | null;
+  group_slug?: string | null;
+  group_name?: string | null;
   created_at: string;
 }
 
@@ -148,6 +151,21 @@ export interface ViewAsStartResponse {
   expires_at: string;
 }
 
+/** Request body for POST /api/platform/tenant-context. */
+export interface TenantContextStartRequest {
+  org_id: string;
+}
+
+/** Response of POST /api/platform/tenant-context: short-lived writable tenant token. */
+export interface TenantContextStartResponse {
+  access_token: string;
+  token_type: string;
+  acting_org_id: string;
+  acting_org_name: string;
+  acting_role: "SUPER_ADMIN";
+  expires_at: string;
+}
+
 /**
  * POST /api/platform/view-as — mint a SHORT-LIVED, READ-ONLY impersonation token
  * to view a tenant as a given role for troubleshooting. Platform-tier only; the
@@ -182,12 +200,48 @@ export async function exitViewAs(
   if (!response.ok) throw await parseError(response);
 }
 
+/**
+ * POST /api/platform/tenant-context — mint a SHORT-LIVED, WRITABLE tenant admin
+ * token for one tenant. Platform-tier only; the token is still pinned to one org
+ * and audited, but it can mutate through ordinary tenant routes.
+ */
+export async function startTenantContext(
+  bearerToken: string | undefined,
+  body: TenantContextStartRequest,
+): Promise<TenantContextStartResponse> {
+  const response = await platformFetch(
+    bearerToken,
+    "/api/platform/tenant-context",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok) throw await parseError(response);
+  return (await response.json()) as TenantContextStartResponse;
+}
+
+/** POST /api/platform/tenant-context/exit — end a writable tenant context (audited). */
+export async function exitTenantContext(
+  bearerToken: string | undefined,
+): Promise<void> {
+  const response = await platformFetch(
+    bearerToken,
+    "/api/platform/tenant-context/exit",
+    { method: "POST" },
+  );
+  if (!response.ok) throw await parseError(response);
+}
+
 /** One tenant's health/usage numbers from the platform ops dashboard. */
 export interface PlatformTenantHealth {
   id: string;
   slug: string;
   name: string;
   status: OrgStatus;
+  group_id?: string | null;
+  group_slug?: string | null;
+  group_name?: string | null;
   user_count: number;
   active_user_count: number;
   active_work_orders: number;

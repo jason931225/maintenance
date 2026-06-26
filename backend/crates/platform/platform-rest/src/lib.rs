@@ -17,8 +17,9 @@
 mod view_as;
 
 pub use view_as::{
-    PLATFORM_VIEW_AS_EXIT_PATH, PLATFORM_VIEW_AS_START_PATH, VIEW_AS_READ_ONLY_CODE,
-    VIEW_AS_TOKEN_TTL, with_view_as_read_only_gate,
+    PLATFORM_TENANT_CONTEXT_EXIT_PATH, PLATFORM_TENANT_CONTEXT_START_PATH,
+    PLATFORM_VIEW_AS_EXIT_PATH, PLATFORM_VIEW_AS_START_PATH, TENANT_CONTEXT_TOKEN_TTL,
+    VIEW_AS_READ_ONLY_CODE, VIEW_AS_TOKEN_TTL, with_view_as_read_only_gate,
 };
 
 use axum::extract::{Path, Query, State};
@@ -45,9 +46,9 @@ pub const PLATFORM_OPS_PATH: &str = "/api/platform/ops";
 pub struct PlatformRestState {
     pool: PgPool,
     jwt_verifier: Option<JwtVerifier>,
-    /// Issuer used ONLY by the view-as START path to mint short-lived read-only
-    /// impersonation tokens. `None` disables the START endpoint (503): no other
-    /// platform route mints tokens, so token issuance is opt-in here.
+    /// Issuer used only by platform START paths that mint short-lived tenant
+    /// context tokens (read-only view-as and writable tenant management).
+    /// `None` disables those START endpoints (503), so token issuance is opt-in.
     view_as_issuer: Option<JwtIssuer>,
     provisioner: PlatformProvisioner,
 }
@@ -67,9 +68,9 @@ impl PlatformRestState {
         }
     }
 
-    /// Install the JWT issuer the view-as START path uses to mint impersonation
-    /// tokens. Without it the START endpoint returns 503; EXIT and the read-only
-    /// gate do not need an issuer.
+    /// Install the JWT issuer used by platform START paths that mint tenant
+    /// context tokens. Without it START endpoints return 503; EXIT and the
+    /// read-only gate do not need an issuer.
     #[must_use]
     pub fn with_view_as_issuer(mut self, issuer: Option<JwtIssuer>) -> Self {
         self.view_as_issuer = issuer;
@@ -113,6 +114,9 @@ struct OrgResponse {
     slug: String,
     name: String,
     status: String,
+    group_id: Option<Uuid>,
+    group_slug: Option<String>,
+    group_name: Option<String>,
     // `time::OffsetDateTime` derives a numeric-array Serialize by default; the
     // console reads these as rfc3339 strings (`new Date(created_at)`), so emit
     // rfc3339 like every other tenant DTO (e.g. financial `created_at`).
@@ -129,6 +133,9 @@ impl From<OrganizationSummary> for OrgResponse {
             slug: o.slug,
             name: o.name,
             status: o.status,
+            group_id: o.group_id,
+            group_slug: o.group_slug,
+            group_name: o.group_name,
             created_at: o.created_at,
             updated_at: o.updated_at,
         }
@@ -181,6 +188,9 @@ struct TenantHealthResponse {
     slug: String,
     name: String,
     status: String,
+    group_id: Option<Uuid>,
+    group_slug: Option<String>,
+    group_name: Option<String>,
     user_count: i64,
     active_user_count: i64,
     active_work_orders: i64,
@@ -196,6 +206,9 @@ impl From<TenantHealth> for TenantHealthResponse {
             slug: h.slug,
             name: h.name,
             status: h.status,
+            group_id: h.group_id,
+            group_slug: h.group_slug,
+            group_name: h.group_name,
             user_count: h.user_count,
             active_user_count: h.active_user_count,
             active_work_orders: h.active_work_orders,
