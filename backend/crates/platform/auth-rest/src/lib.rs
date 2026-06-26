@@ -9,10 +9,10 @@ use std::collections::BTreeSet;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::post;
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, OrgId, TraceContext, UserId,
@@ -25,7 +25,7 @@ use mnt_platform_auth::{
 use mnt_platform_authz::{
     Action, Feature, Principal, Role, authorize, resolve_branch_scope_in_org,
 };
-use mnt_platform_db::{DbError, with_audit, with_org_conn};
+use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_platform_email::{EmailSender, StubEmailSender};
 use mnt_platform_provisioning::{BootstrapCredentialStore, ProvisioningError};
 use serde::{Deserialize, Serialize};
@@ -57,6 +57,8 @@ pub const PASSKEY_LOGIN_FINISH_PATH: &str = "/api/v1/auth/passkey/login/finish";
 pub const OTP_REDEEM_PATH: &str = "/api/v1/auth/otp/redeem";
 pub const ADMIN_OTP_ISSUE_PATH: &str = "/api/v1/auth/admin/otp/issue";
 pub const ADMIN_CREDENTIAL_RESET_PATH: &str = "/api/v1/auth/admin/credential-reset";
+pub const AUTH_PASSKEYS_PATH: &str = "/api/v1/auth/passkeys";
+pub const AUTH_PASSKEY_PATH_TEMPLATE: &str = "/api/v1/auth/passkeys/{id}";
 pub const PASSKEY_ENROLL_HANDOFF_PATH: &str = "/api/v1/auth/passkey/enroll-handoff";
 pub const PRIVACY_CONSENT_STATUS_PATH: &str = "/api/v1/auth/privacy-consent/status";
 pub const PRIVACY_CONSENT_ACCEPT_PATH: &str = "/api/v1/auth/privacy-consent/accept";
@@ -71,6 +73,8 @@ pub const AUTH_ROUTE_PATHS: &[&str] = &[
     OTP_REDEEM_PATH,
     ADMIN_OTP_ISSUE_PATH,
     ADMIN_CREDENTIAL_RESET_PATH,
+    AUTH_PASSKEYS_PATH,
+    AUTH_PASSKEY_PATH_TEMPLATE,
     PASSKEY_ENROLL_HANDOFF_PATH,
     PRIVACY_CONSENT_STATUS_PATH,
     PRIVACY_CONSENT_ACCEPT_PATH,
@@ -268,6 +272,8 @@ pub fn router(state: AuthRestState) -> Router {
         .route(OTP_REDEEM_PATH, post(redeem_otp))
         .route(ADMIN_OTP_ISSUE_PATH, post(issue_admin_otp))
         .route(ADMIN_CREDENTIAL_RESET_PATH, post(admin_credential_reset))
+        .route(AUTH_PASSKEYS_PATH, get(list_self_passkeys))
+        .route(AUTH_PASSKEY_PATH_TEMPLATE, delete(delete_self_passkey))
         .route(PASSKEY_ENROLL_HANDOFF_PATH, post(enroll_handoff))
         .route(PRIVACY_CONSENT_STATUS_PATH, post(privacy_consent_status))
         .route(PRIVACY_CONSENT_ACCEPT_PATH, post(accept_privacy_consent))
@@ -300,6 +306,7 @@ struct StepUpAssertion {
 struct RegisterStartResponse {
     ceremony_id: Uuid,
     challenge: serde_json::Value,
+    #[serde(with = "time::serde::rfc3339")]
     expires_at: OffsetDateTime,
 }
 
@@ -320,6 +327,7 @@ struct RegisterFinishResponse {
 struct LoginStartResponse {
     ceremony_id: Uuid,
     challenge: serde_json::Value,
+    #[serde(with = "time::serde::rfc3339")]
     expires_at: OffsetDateTime,
 }
 
@@ -367,6 +375,7 @@ struct OtpRedeemResponse {
     access_token: String,
     refresh_token: Option<String>,
     token_type: &'static str,
+    #[serde(with = "time::serde::rfc3339")]
     refresh_expires_at: OffsetDateTime,
     requires_passkey_setup: bool,
 }
@@ -386,6 +395,7 @@ struct AdminIssueOtpRequest {
 struct AdminIssueOtpResponse {
     user_id: Uuid,
     otp: String,
+    #[serde(with = "time::serde::rfc3339")]
     expires_at: OffsetDateTime,
 }
 
@@ -404,6 +414,7 @@ struct AdminCredentialResetRequest {
 struct AdminCredentialResetResponse {
     user_id: Uuid,
     otp: String,
+    #[serde(with = "time::serde::rfc3339")]
     expires_at: OffsetDateTime,
 }
 
@@ -426,8 +437,21 @@ struct EnrollHandoffRequest {
 #[derive(Debug, Serialize)]
 struct EnrollHandoffResponse {
     otp: String,
+    #[serde(with = "time::serde::rfc3339")]
     expires_at: OffsetDateTime,
     enroll_url: String,
+}
+
+/// Passkey credential summary for the authenticated user's self-management
+/// surface. Carries no secret material: never the raw credential id, public key,
+/// or serialized passkey blob.
+#[derive(Debug, Serialize)]
+struct PasskeySummary {
+    id: Uuid,
+    #[serde(with = "time::serde::rfc3339")]
+    created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339::option")]
+    last_used_at: Option<OffsetDateTime>,
 }
 
 /// Required first-login privacy/terms acceptance. The booleans are deliberately
@@ -444,6 +468,7 @@ struct PrivacyConsentAcceptRequest {
 struct PrivacyConsentStatusResponse {
     policy_version: &'static str,
     accepted: bool,
+    #[serde(with = "time::serde::rfc3339::option")]
     accepted_at: Option<OffsetDateTime>,
 }
 
@@ -457,6 +482,7 @@ struct TokenPairResponse {
     access_token: String,
     refresh_token: Option<String>,
     token_type: &'static str,
+    #[serde(with = "time::serde::rfc3339")]
     refresh_expires_at: OffsetDateTime,
 }
 
@@ -1180,6 +1206,128 @@ async fn admin_credential_reset(
         otp: issue.token.as_str().to_owned(),
         expires_at: issue.expires_at,
     }))
+}
+
+/// List the AUTHENTICATED user's OWN passkey credentials through the auth
+/// namespace. Unlike `/api/v1/passkeys`, this route is not behind the tenant
+/// middleware, so it also works for PLATFORM accounts whose token is deliberately
+/// rejected from tenant APIs.
+async fn list_self_passkeys(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<PasskeySummary>>, RestError> {
+    let services = state.services()?;
+    let (user_id, org_id) = authenticated_user_context(services, &headers)?;
+
+    let summaries =
+        with_org_conn::<_, Vec<PasskeySummary>, RestError>(&state.pool, org_id, move |tx| {
+            Box::pin(async move {
+                let rows = sqlx::query(
+                    r#"
+                    SELECT id, created_at, last_used_at
+                    FROM auth_webauthn_credentials
+                    WHERE user_id = $1
+                    ORDER BY created_at
+                    "#,
+                )
+                .bind(user_id)
+                .fetch_all(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+                rows.into_iter()
+                    .map(|row| {
+                        Ok(PasskeySummary {
+                            id: row.try_get("id").map_err(DbError::Sqlx)?,
+                            created_at: row.try_get("created_at").map_err(DbError::Sqlx)?,
+                            last_used_at: row.try_get("last_used_at").map_err(DbError::Sqlx)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, RestError>>()
+            })
+        })
+        .await?;
+
+    Ok(Json(summaries))
+}
+
+/// Revoke ONE of the authenticated user's OWN passkey credentials through the
+/// auth namespace. Self-only and IDOR-hardened: the delete is constrained by both
+/// credential id and caller id. The last-passkey floor prevents self-lockout.
+async fn delete_self_passkey(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, RestError> {
+    let services = state.services()?;
+    let (user_id, org_id) = authenticated_user_context(services, &headers)?;
+    let actor = UserId::from_uuid(user_id);
+    let now = OffsetDateTime::now_utc();
+
+    with_audits::<_, (), RestError>(&state.pool, org_id, move |tx| {
+        Box::pin(async move {
+            let total: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM auth_webauthn_credentials WHERE user_id = $1",
+            )
+            .bind(user_id)
+            .fetch_one(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+
+            let credential_id: Option<String> = sqlx::query_scalar(
+                r#"
+                SELECT credential_id
+                FROM auth_webauthn_credentials
+                WHERE id = $1 AND user_id = $2
+                "#,
+            )
+            .bind(id)
+            .bind(user_id)
+            .fetch_optional(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+
+            let Some(credential_id) = credential_id else {
+                return Err(RestError::not_found("passkey not found"));
+            };
+
+            if total <= 1 {
+                return Err(RestError::conflict(
+                    "cannot delete your last passkey; register another first",
+                ));
+            }
+
+            sqlx::query("DELETE FROM auth_webauthn_credentials WHERE id = $1 AND user_id = $2")
+                .bind(id)
+                .bind(user_id)
+                .execute(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+            let event = AuditEvent::new(
+                Some(actor),
+                AuditAction::new("auth.passkey.revoke")
+                    .map_err(|err| RestError::internal(err.to_string()))?,
+                "auth_webauthn_credential",
+                id.to_string(),
+                TraceContext::generate(),
+                now,
+            )
+            .with_org(org_id)
+            .with_snapshots(
+                Some(serde_json::json!({
+                    "credential_id": credential_id,
+                    "user_id": user_id,
+                })),
+                None,
+            );
+
+            Ok(((), vec![event]))
+        })
+    })
+    .await?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Mint a cross-device passkey-enrollment handoff for the AUTHENTICATED user.

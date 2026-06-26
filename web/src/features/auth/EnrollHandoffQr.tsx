@@ -17,7 +17,7 @@ interface EnrollHandoffQrProps {
 
 type HandoffState =
   | { status: "loading" }
-  | { status: "ready"; url: string }
+  | { status: "ready"; url: string; otp: string; expiresAt: string }
   | { status: "error" };
 
 /**
@@ -38,7 +38,12 @@ export function EnrollHandoffQr({ requireStepUp }: EnrollHandoffQrProps) {
     setState({ status: "loading" });
     try {
       const handoff = await issueEnrollHandoff(api, requireStepUp);
-      setState({ status: "ready", url: handoff.enroll_url });
+      setState({
+        status: "ready",
+        url: handoff.enroll_url,
+        otp: handoff.otp,
+        expiresAt: handoff.expires_at,
+      });
     } catch {
       setState({ status: "error" });
     }
@@ -102,7 +107,26 @@ export function EnrollHandoffQr({ requireStepUp }: EnrollHandoffQrProps) {
       >
         {ko.enrollHandoff.linkLabel}
       </a>
-      <p className="text-xs text-steel">{ko.enrollHandoff.expiresHint}</p>
+      <div className="grid gap-1 rounded-md border border-line bg-muted-panel px-4 py-3">
+        <span className="text-xs font-semibold text-steel">
+          {ko.enrollHandoff.otpLabel}
+        </span>
+        <code className="font-mono text-lg font-bold tracking-wider text-ink">
+          {state.otp}
+        </code>
+        <span className="text-xs text-steel">{ko.enrollHandoff.otpHelp}</span>
+      </div>
+      <p className="text-xs text-steel">
+        {ko.enrollHandoff.expiresHint}{" "}
+        {formatTimestamp(state.expiresAt)}
+      </p>
     </div>
   );
+}
+
+function formatTimestamp(value: string): string {
+  return new Intl.DateTimeFormat("ko-KR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value));
 }

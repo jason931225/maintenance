@@ -189,12 +189,24 @@ async fn platform_group_crud_assigns_subsidiaries_and_audits(pool: PgPool) {
         Method::POST,
         PLATFORM_GROUPS_PATH.to_owned(),
         &platform_token,
-        Some(r#"{"slug":"geurupsa-test","name":"그룹사"}"#),
+        Some(r#"{"slug":"group-test","name":"그룹"}"#),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{created:?}");
     let group_id = Uuid::parse_str(created["id"].as_str().unwrap()).unwrap();
     assert_eq!(created["member_count"], 0);
+
+    let (status, updated) = request(
+        &service,
+        Method::PATCH,
+        format!("/api/platform/groups/{group_id}"),
+        &platform_token,
+        Some(r#"{"slug":"group-renamed","name":"그룹 본사"}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated:?}");
+    assert_eq!(updated["slug"], "group-renamed");
+    assert_eq!(updated["name"], "그룹 본사");
 
     let (status, assigned) = request(
         &service,
@@ -206,7 +218,69 @@ async fn platform_group_crud_assigns_subsidiaries_and_audits(pool: PgPool) {
     .await;
     assert_eq!(status, StatusCode::OK, "{assigned:?}");
     assert_eq!(assigned["group_id"].as_str().unwrap(), group_id.to_string());
-    assert_eq!(assigned["group_name"], "그룹사");
+    assert_eq!(assigned["group_name"], "그룹 본사");
+
+    let (status, created_account) = request(
+        &service,
+        Method::POST,
+        format!("/api/platform/groups/{group_id}/accounts"),
+        &platform_token,
+        Some(&format!(
+            r#"{{
+                "org_id":"{tenant_a}",
+                "display_name":"개발자",
+                "phone":"webservicepost@gmail.com",
+                "tenant_roles":["MEMBER"],
+                "group_role":"GROUP_ADMIN"
+            }}"#
+        )),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{created_account:?}");
+    assert!(created_account["otp"].as_str().unwrap().len() >= 8);
+    let account = &created_account["account"];
+    let account_user_id = Uuid::parse_str(account["user_id"].as_str().unwrap()).unwrap();
+    assert_eq!(account["display_name"], "개발자");
+    assert_eq!(account["phone"], "webservicepost@gmail.com");
+    assert_eq!(account["org_id"], tenant_a.to_string());
+    assert_eq!(account["account_status"], "PENDING_SETUP");
+    assert_eq!(account["tenant_roles"].as_array().unwrap()[0], "MEMBER");
+    assert_eq!(account["group_roles"].as_array().unwrap()[0], "GROUP_ADMIN");
+
+    let open_otp_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM auth_bootstrap_credentials WHERE user_id = $1 AND org_id = $2 AND consumed_at IS NULL AND revoked_at IS NULL",
+    )
+    .bind(account_user_id)
+    .bind(tenant_a)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(open_otp_count, 1, "group account must get one setup OTP");
+
+    let (status, accounts) = request(
+        &service,
+        Method::GET,
+        format!("/api/platform/groups/{group_id}/accounts"),
+        &platform_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{accounts:?}");
+    assert_eq!(accounts.as_array().unwrap().len(), 1);
+    assert_eq!(
+        accounts.as_array().unwrap()[0]["user_id"],
+        account_user_id.to_string()
+    );
+
+    let (status, body) = request(
+        &service,
+        Method::DELETE,
+        format!("/api/platform/groups/{group_id}/accounts/{account_user_id}/roles/GROUP_ADMIN"),
+        &platform_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body:?}");
 
     let (status, listed) = request(
         &service,
@@ -240,13 +314,13 @@ async fn platform_group_crud_assigns_subsidiaries_and_audits(pool: PgPool) {
     assert!(removed["group_id"].is_null());
 
     let audit_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM audit_events WHERE actor = $1 AND action IN ('platform.group.create', 'platform.group.assign_org', 'platform.group.list', 'platform.group.remove_org')",
+        "SELECT COUNT(*) FROM audit_events WHERE actor = $1 AND action IN ('platform.group.create', 'platform.group.update', 'platform.group.assign_org', 'platform.group.accounts.list', 'platform.group.account.create', 'platform.group.account.revoke', 'platform.group.list', 'platform.group.remove_org')",
     )
     .bind(*admin.as_uuid())
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(audit_count, 4, "every group action must be audited");
+    assert_eq!(audit_count, 8, "every group action must be audited");
 
     let raw_read_err = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM group_memberships")
         .fetch_one(&harness.rt_pool)
@@ -256,5 +330,15 @@ async fn platform_group_crud_assigns_subsidiaries_and_audits(pool: PgPool) {
     assert!(
         raw_read_err.contains("permission denied"),
         "raw group_memberships read as mnt_rt must be denied, got: {raw_read_err}"
+    );
+
+    let raw_grants_err = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM group_role_grants")
+        .fetch_one(&harness.rt_pool)
+        .await
+        .expect_err("runtime role must not read raw group_role_grants")
+        .to_string();
+    assert!(
+        raw_grants_err.contains("permission denied"),
+        "raw group_role_grants read as mnt_rt must be denied, got: {raw_grants_err}"
     );
 }

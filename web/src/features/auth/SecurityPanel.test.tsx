@@ -67,14 +67,14 @@ describe("SecurityPanel", () => {
     let deleted: string | undefined;
     let listCalls = 0;
     server.use(
-      http.get("*/api/v1/passkeys", () => {
+      http.get("*/api/v1/auth/passkeys", () => {
         listCalls += 1;
         // After the delete, the second list returns only the kept passkey.
         return HttpResponse.json(
           listCalls === 1 ? twoPasskeys : [twoPasskeys[0]],
         );
       }),
-      http.delete("*/api/v1/passkeys/:id", ({ params }) => {
+      http.delete("*/api/v1/auth/passkeys/:id", ({ params }) => {
         deleted = params.id as string;
         return new HttpResponse(null, { status: 204 });
       }),
@@ -99,7 +99,9 @@ describe("SecurityPanel", () => {
 
   it("disables revoke and warns when only one passkey remains", async () => {
     server.use(
-      http.get("*/api/v1/passkeys", () => HttpResponse.json([twoPasskeys[0]])),
+      http.get("*/api/v1/auth/passkeys", () =>
+        HttpResponse.json([twoPasskeys[0]]),
+      ),
     );
 
     renderPanel();
@@ -119,8 +121,8 @@ describe("SecurityPanel", () => {
     // the other credential was removed concurrently). The panel shows the
     // friendly last-passkey message rather than a generic error.
     server.use(
-      http.get("*/api/v1/passkeys", () => HttpResponse.json(twoPasskeys)),
-      http.delete("*/api/v1/passkeys/:id", () =>
+      http.get("*/api/v1/auth/passkeys", () => HttpResponse.json(twoPasskeys)),
+      http.delete("*/api/v1/auth/passkeys/:id", () =>
         HttpResponse.json(
           { error: { code: "conflict", message: "last passkey" } },
           { status: 409 },

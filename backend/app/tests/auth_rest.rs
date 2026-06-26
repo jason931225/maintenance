@@ -71,6 +71,7 @@ struct AdminCredentialResetResponse {
 struct PrivacyConsentStatusResponse {
     policy_version: String,
     accepted: bool,
+    #[serde(with = "time::serde::rfc3339::option")]
     accepted_at: Option<OffsetDateTime>,
 }
 

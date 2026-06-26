@@ -141,6 +141,11 @@ const PlatformOnboardPage = lazy(() =>
     default: m.PlatformOnboardPage,
   })),
 );
+const PlatformAccountPage = lazy(() =>
+  import("./pages/PlatformAccountPage").then((m) => ({
+    default: m.PlatformAccountPage,
+  })),
+);
 const PlatformOpsPage = lazy(() =>
   import("./features/platform/PlatformOpsPage").then((m) => ({
     default: m.PlatformOpsPage,
@@ -233,6 +238,7 @@ export function AppRouter() {
             <Route path="groups" element={<PlatformGroupsPage />} />
             <Route path="ops" element={<PlatformOpsPage />} />
             <Route path="onboard" element={<PlatformOnboardPage />} />
+            <Route path="account" element={<PlatformAccountPage />} />
             <Route
               path="*"
               element={<Navigate to="/platform/tenants" replace />}

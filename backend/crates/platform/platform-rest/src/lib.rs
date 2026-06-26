@@ -30,8 +30,9 @@ use axum::{Extension, Json, Router};
 use mnt_platform_auth::{JwtIssuer, JwtVerifier};
 use mnt_platform_authz::{PlatformFeature, PlatformPrincipal};
 use mnt_platform_provisioning::{
-    GroupMemberSummary, GroupSummary, OrganizationSummary, PlatformProvisioner, ProvisioningError,
-    TenantHealth, TenantOnboarding, TenantRemovalOutcome,
+    GroupAccountOnboarding, GroupAccountSummary, GroupMemberSummary, GroupSummary,
+    OrganizationSummary, PlatformProvisioner, ProvisioningError, TenantHealth, TenantOnboarding,
+    TenantRemovalOutcome,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -42,6 +43,9 @@ pub const PLATFORM_ORGS_PATH: &str = "/api/platform/orgs";
 pub const PLATFORM_ORG_PATH_TEMPLATE: &str = "/api/platform/orgs/{id}";
 pub const PLATFORM_GROUPS_PATH: &str = "/api/platform/groups";
 pub const PLATFORM_GROUP_PATH_TEMPLATE: &str = "/api/platform/groups/{id}";
+pub const PLATFORM_GROUP_ACCOUNTS_PATH_TEMPLATE: &str = "/api/platform/groups/{id}/accounts";
+pub const PLATFORM_GROUP_ACCOUNT_ROLE_PATH_TEMPLATE: &str =
+    "/api/platform/groups/{id}/accounts/{user_id}/roles/{group_role}";
 pub const PLATFORM_GROUP_ORG_PATH_TEMPLATE: &str =
     "/api/platform/groups/{id}/organizations/{org_id}";
 pub const PLATFORM_OPS_PATH: &str = "/api/platform/ops";
@@ -93,6 +97,14 @@ pub fn router(state: PlatformRestState) -> Router {
         )
         .route(PLATFORM_GROUPS_PATH, get(list_groups).post(create_group))
         .route(PLATFORM_GROUP_PATH_TEMPLATE, patch(update_group))
+        .route(
+            PLATFORM_GROUP_ACCOUNTS_PATH_TEMPLATE,
+            get(list_group_accounts).post(create_group_account),
+        )
+        .route(
+            PLATFORM_GROUP_ACCOUNT_ROLE_PATH_TEMPLATE,
+            axum::routing::delete(revoke_group_role),
+        )
         .route(
             PLATFORM_GROUP_ORG_PATH_TEMPLATE,
             put(assign_org_to_group).delete(remove_org_from_group),
@@ -161,6 +173,8 @@ struct CreateGroupRequest {
 #[derive(Debug, Deserialize)]
 struct UpdateGroupRequest {
     #[serde(default)]
+    slug: Option<String>,
+    #[serde(default)]
     name: Option<String>,
     /// New group lifecycle status: ACTIVE | SUSPENDED | ARCHIVED.
     #[serde(default)]
@@ -215,6 +229,77 @@ impl From<GroupSummary> for GroupResponse {
                 .collect(),
             created_at: group.created_at,
             updated_at: group.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateGroupAccountRequest {
+    org_id: Uuid,
+    display_name: String,
+    #[serde(default)]
+    phone: Option<String>,
+    /// Tenant-local roles for the account's home org. Defaults to MEMBER so
+    /// group authority remains explicit in group_role_grants.
+    #[serde(default)]
+    tenant_roles: Option<Vec<String>>,
+    /// GROUP_ADMIN | GROUP_VIEWER | GROUP_FINANCE. Defaults to GROUP_ADMIN for
+    /// the platform "add group account" workflow.
+    #[serde(default)]
+    group_role: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct GroupAccountResponse {
+    user_id: Uuid,
+    display_name: String,
+    phone: Option<String>,
+    tenant_roles: Vec<String>,
+    is_active: bool,
+    has_passkey: bool,
+    account_status: String,
+    org_id: Uuid,
+    org_slug: String,
+    org_name: String,
+    group_roles: Vec<String>,
+    #[serde(with = "time::serde::rfc3339")]
+    created_at: OffsetDateTime,
+}
+
+impl From<GroupAccountSummary> for GroupAccountResponse {
+    fn from(account: GroupAccountSummary) -> Self {
+        Self {
+            user_id: account.user_id,
+            display_name: account.display_name,
+            phone: account.phone,
+            tenant_roles: account.tenant_roles,
+            is_active: account.is_active,
+            has_passkey: account.has_passkey,
+            account_status: account.account_status,
+            org_id: account.org_id,
+            org_slug: account.org_slug,
+            org_name: account.org_name,
+            group_roles: account.group_roles,
+            created_at: account.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct CreateGroupAccountResponse {
+    account: GroupAccountResponse,
+    /// One-time setup code for the created tenant account. Returned once only.
+    otp: String,
+    #[serde(with = "time::serde::rfc3339")]
+    otp_expires_at: OffsetDateTime,
+}
+
+impl From<GroupAccountOnboarding> for CreateGroupAccountResponse {
+    fn from(value: GroupAccountOnboarding) -> Self {
+        Self {
+            account: GroupAccountResponse::from(value.account),
+            otp: value.otp.as_str().to_owned(),
+            otp_expires_at: value.otp_expires_at,
         }
     }
 }
@@ -424,6 +509,7 @@ async fn update_group(
             &state.pool,
             Some(principal.user_id),
             id,
+            body.slug.as_deref(),
             body.name.as_deref(),
             body.status.as_deref(),
             OffsetDateTime::now_utc(),
@@ -432,6 +518,98 @@ async fn update_group(
         .map_err(PlatformError::from_provisioning)?;
 
     Ok(Json(GroupResponse::from(group)).into_response())
+}
+
+/// GET /platform/groups/{id}/accounts — list tenant-anchored group accounts.
+async fn list_group_accounts(
+    State(state): State<PlatformRestState>,
+    Extension(principal): Extension<PlatformPrincipal>,
+    Path(id): Path<Uuid>,
+) -> Result<Response, PlatformError> {
+    principal
+        .authorize(PlatformFeature::GroupManage)
+        .map_err(|_| PlatformError::forbidden("platform principal cannot list group accounts"))?;
+
+    let accounts = state
+        .provisioner
+        .list_group_accounts(
+            &state.pool,
+            Some(principal.user_id),
+            id,
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(PlatformError::from_provisioning)?;
+
+    let items: Vec<GroupAccountResponse> = accounts
+        .into_iter()
+        .map(GroupAccountResponse::from)
+        .collect();
+    Ok(Json(items).into_response())
+}
+
+/// POST /platform/groups/{id}/accounts — create a tenant-anchored group account.
+async fn create_group_account(
+    State(state): State<PlatformRestState>,
+    Extension(principal): Extension<PlatformPrincipal>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<CreateGroupAccountRequest>,
+) -> Result<Response, PlatformError> {
+    principal
+        .authorize(PlatformFeature::GroupManage)
+        .map_err(|_| PlatformError::forbidden("platform principal cannot create group accounts"))?;
+
+    let tenant_roles = body
+        .tenant_roles
+        .unwrap_or_else(|| vec!["MEMBER".to_owned()]);
+    let group_role = body.group_role.unwrap_or_else(|| "GROUP_ADMIN".to_owned());
+    let created = state
+        .provisioner
+        .create_group_account(
+            &state.pool,
+            Some(principal.user_id),
+            id,
+            body.org_id,
+            &body.display_name,
+            body.phone.as_deref(),
+            &tenant_roles,
+            &group_role,
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(PlatformError::from_provisioning)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(CreateGroupAccountResponse::from(created)),
+    )
+        .into_response())
+}
+
+/// DELETE /platform/groups/{id}/accounts/{user_id}/roles/{group_role}.
+async fn revoke_group_role(
+    State(state): State<PlatformRestState>,
+    Extension(principal): Extension<PlatformPrincipal>,
+    Path((id, user_id, group_role)): Path<(Uuid, Uuid, String)>,
+) -> Result<Response, PlatformError> {
+    principal
+        .authorize(PlatformFeature::GroupManage)
+        .map_err(|_| PlatformError::forbidden("platform principal cannot revoke group roles"))?;
+
+    state
+        .provisioner
+        .revoke_group_role(
+            &state.pool,
+            Some(principal.user_id),
+            id,
+            user_id,
+            &group_role,
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(PlatformError::from_provisioning)?;
+
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 /// PUT /platform/groups/{id}/organizations/{org_id} — assign/move org into group.

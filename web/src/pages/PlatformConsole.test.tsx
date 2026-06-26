@@ -27,6 +27,7 @@ import type { AuthContextValue, AuthSession } from "../context/auth";
 import { createConsoleApiClient } from "../api/client";
 import { PlatformOpsPage } from "../features/platform/PlatformOpsPage";
 import { PlatformGroupsPage } from "./PlatformGroupsPage";
+import { PlatformAccountPage } from "./PlatformAccountPage";
 import { PlatformOnboardPage } from "./PlatformOnboardPage";
 import { PlatformTenantsPage } from "./PlatformTenantsPage";
 
@@ -49,8 +50,8 @@ const orgs = [
     name: "Acme Corporation",
     status: "ACTIVE",
     group_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-    group_slug: "geurupsa",
-    group_name: "그룹사",
+    group_slug: "group",
+    group_name: "그룹",
     created_at: "2026-01-01T00:00:00Z",
   },
   {
@@ -68,8 +69,8 @@ const orgs = [
 const platformGroups = [
   {
     id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-    slug: "geurupsa",
-    name: "그룹사",
+    slug: "group",
+    name: "그룹",
     status: "ACTIVE",
     member_count: 1,
     members: [
@@ -94,6 +95,11 @@ const platformGroups = [
     updated_at: "2026-01-02T00:00:00Z",
   },
 ];
+
+const emptyGroupAccountsHandler = http.get(
+  "*/api/platform/groups/:groupId/accounts",
+  () => HttpResponse.json([]),
+);
 
 function makeAuthContext(
   session: AuthSession,
@@ -133,6 +139,7 @@ function renderApp(path: string, ctx: AuthContextValue) {
               <Route path="tenants" element={<PlatformTenantsPage />} />
               <Route path="groups" element={<PlatformGroupsPage />} />
               <Route path="ops" element={<PlatformOpsPage />} />
+              <Route path="account" element={<PlatformAccountPage />} />
             </Route>
           </Route>
         </Routes>
@@ -204,6 +211,7 @@ describe("Platform console routing", () => {
         HttpResponse.json(platformGroups),
       ),
       http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
+      emptyGroupAccountsHandler,
     );
 
     renderApp("/platform/groups", makeAuthContext(platformSession));
@@ -211,8 +219,21 @@ describe("Platform console routing", () => {
     expect(
       await screen.findByRole("heading", { name: "그룹 관리" }),
     ).toBeVisible();
-    expect(await screen.findByText("그룹사")).toBeVisible();
+    expect(await screen.findByText("그룹")).toBeVisible();
     expect(screen.getByText("Acme Corporation")).toBeVisible();
+  });
+
+  it("routes platform admins to self-service account settings", async () => {
+    server.use(
+      http.get("*/api/v1/auth/passkeys", () => HttpResponse.json([])),
+    );
+
+    renderApp("/platform/account", makeAuthContext(platformSession));
+
+    expect(
+      await screen.findByRole("heading", { name: "플랫폼 계정 설정" }),
+    ).toBeVisible();
+    expect(await screen.findByText("등록된 패스키가 없습니다.")).toBeVisible();
   });
 });
 
@@ -227,7 +248,7 @@ describe("Platform tenant list", () => {
     const cells = within(row as HTMLElement);
     expect(cells.getByText("acme-corporation")).toBeVisible();
     expect(cells.getByText("활성")).toBeVisible();
-    expect(cells.getByText("그룹사")).toBeVisible();
+    expect(cells.getByText("그룹")).toBeVisible();
   });
 
   it("filters tenant management by group and individual organization", async () => {
@@ -326,6 +347,7 @@ describe("Platform group management", () => {
         HttpResponse.json(platformGroups),
       ),
       http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
+      emptyGroupAccountsHandler,
     );
 
     renderPlatformPage(<PlatformGroupsPage />, "/platform/groups");
@@ -333,11 +355,107 @@ describe("Platform group management", () => {
     expect(
       await screen.findByRole("heading", { name: "그룹 관리" }),
     ).toBeVisible();
-    expect(screen.getByRole("heading", { name: "그룹사" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "그룹" })).toBeVisible();
     expect(screen.getByText(/소속 조직 1개/)).toBeVisible();
     expect(screen.getByText("Acme Corporation")).toBeVisible();
     expect(screen.getAllByText("보기 범위")[0]).toBeVisible();
     expect(screen.getAllByText(/전체 그룹\/조직.*그룹.*조직/)[0]).toBeVisible();
+  });
+
+  it("edits group identity and creates a tenant-anchored group account", async () => {
+    const user = userEvent.setup();
+    const patched = vi.fn();
+    const created = vi.fn();
+    let group = platformGroups[0];
+    let accounts: unknown[] = [];
+    server.use(
+      http.get("*/api/platform/groups", () =>
+        HttpResponse.json([group, platformGroups[1]]),
+      ),
+      http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
+      http.get("*/api/platform/groups/:groupId/accounts", () =>
+        HttpResponse.json(accounts),
+      ),
+      http.patch("*/api/platform/groups/:groupId", async ({ request }) => {
+        const body = (await request.json()) as { name: string; slug: string };
+        patched(body);
+        group = { ...group, ...body };
+        return HttpResponse.json(group);
+      }),
+      http.post(
+        "*/api/platform/groups/:groupId/accounts",
+        async ({ request }) => {
+          const body = await request.json();
+          created(body);
+          const account = {
+            user_id: "99999999-9999-4999-8999-999999999999",
+            display_name: "개발자",
+            phone: "webservicepost@gmail.com",
+            tenant_roles: ["MEMBER"],
+            is_active: true,
+            has_passkey: false,
+            account_status: "PENDING_SETUP",
+            org_id: orgs[0].id,
+            org_slug: orgs[0].slug,
+            org_name: orgs[0].name,
+            group_roles: ["GROUP_ADMIN"],
+            created_at: "2026-06-26T00:00:00Z",
+          };
+          accounts = [account];
+          return HttpResponse.json(
+            {
+              account,
+              otp: "otp-123456",
+              otp_expires_at: "2026-06-27T00:00:00Z",
+            },
+            { status: 201 },
+          );
+        },
+      ),
+    );
+
+    renderPlatformPage(<PlatformGroupsPage />, "/platform/groups");
+
+    await screen.findByRole("heading", { name: "그룹" });
+    await user.clear(screen.getAllByLabelText("그룹명")[1]);
+    await user.type(screen.getAllByLabelText("그룹명")[1], "그룹 본사");
+    await user.clear(screen.getAllByLabelText("슬러그")[1]);
+    await user.type(screen.getAllByLabelText("슬러그")[1], "group-hq");
+    await user.click(screen.getAllByRole("button", { name: "그룹 저장" })[0]);
+
+    await waitFor(() => {
+      expect(patched).toHaveBeenCalledWith({
+        name: "그룹 본사",
+        slug: "group-hq",
+      });
+    });
+    expect(
+      await screen.findByRole("heading", { name: "그룹 본사" }),
+    ).toBeVisible();
+
+    await user.selectOptions(screen.getAllByLabelText("소속 조직/테넌시")[0], [
+      orgs[0].id,
+    ]);
+    await user.type(screen.getAllByLabelText("이름")[0], "개발자");
+    await user.type(
+      screen.getAllByLabelText("연락처 또는 이메일")[0],
+      "webservicepost@gmail.com",
+    );
+    await user.click(
+      screen.getAllByRole("button", { name: "그룹 계정 추가" })[0],
+    );
+
+    await waitFor(() => {
+      expect(created).toHaveBeenCalledWith({
+        org_id: orgs[0].id,
+        display_name: "개발자",
+        phone: "webservicepost@gmail.com",
+        tenant_roles: ["MEMBER"],
+        group_role: "GROUP_ADMIN",
+      });
+    });
+    expect(await screen.findByText(/otp-123456/)).toBeVisible();
+    expect((await screen.findAllByText("가입 대기")).length).toBeGreaterThan(0);
   });
 
   it("assigns an organization to a group and refreshes membership", async () => {
@@ -368,6 +486,7 @@ describe("Platform group management", () => {
             : platformGroups,
         ),
       ),
+      emptyGroupAccountsHandler,
       http.put(
         "*/api/platform/groups/:groupId/organizations/:orgId",
         ({ params }) => {
@@ -385,7 +504,7 @@ describe("Platform group management", () => {
 
     renderPlatformPage(<PlatformGroupsPage />, "/platform/groups");
 
-    await screen.findByRole("heading", { name: "그룹사" });
+    await screen.findByRole("heading", { name: "그룹" });
     await user.selectOptions(screen.getAllByLabelText("자회사/조직 배정")[0], [
       orgs[1].id,
     ]);
@@ -412,6 +531,7 @@ describe("Platform group management", () => {
         HttpResponse.json(platformGroups),
       ),
       http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
+      emptyGroupAccountsHandler,
       http.post("*/api/platform/tenant-context", async ({ request }) => {
         started(await request.json());
         return HttpResponse.json({
@@ -459,8 +579,8 @@ const opsTenants = {
       name: "Acme Corporation",
       status: "ACTIVE",
       group_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      group_slug: "geurupsa",
-      group_name: "그룹사",
+      group_slug: "group",
+      group_name: "그룹",
       user_count: 12,
       active_user_count: 9,
       active_work_orders: 4,
@@ -499,7 +619,7 @@ describe("Platform ops dashboard", () => {
     expect(row).not.toBeNull();
     const cells = within(row as HTMLElement);
     expect(cells.getByText("acme-corporation")).toBeVisible();
-    expect(cells.getByText("그룹사")).toBeVisible();
+    expect(cells.getByText("그룹")).toBeVisible();
     expect(cells.getByText("활성")).toBeVisible();
     expect(cells.getByText("12")).toBeVisible();
     expect(cells.getByText("4")).toBeVisible();

@@ -20,6 +20,7 @@ const VALID_ROLES: &[&str] = &[
     "EXECUTIVE",
     "MEMBER",
 ];
+const VALID_GROUP_ROLES: &[&str] = &["GROUP_ADMIN", "GROUP_VIEWER", "GROUP_FINANCE"];
 const VALID_TEAMS: &[&str] = &["정비", "예방", "관리", "접수"];
 
 #[derive(Debug, thiserror::Error)]
@@ -721,6 +722,31 @@ pub struct GroupSummary {
     pub members: Vec<GroupMemberSummary>,
 }
 
+/// Tenant-anchored account that holds one or more group-level grants.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GroupAccountSummary {
+    pub user_id: Uuid,
+    pub display_name: String,
+    pub phone: Option<String>,
+    pub tenant_roles: Vec<String>,
+    pub is_active: bool,
+    pub has_passkey: bool,
+    pub account_status: String,
+    pub org_id: Uuid,
+    pub org_slug: String,
+    pub org_name: String,
+    pub group_roles: Vec<String>,
+    pub created_at: OffsetDateTime,
+}
+
+/// Result of creating a group account: the account plus the one-time setup OTP.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupAccountOnboarding {
+    pub account: GroupAccountSummary,
+    pub otp: BootstrapToken,
+    pub otp_expires_at: OffsetDateTime,
+}
+
 /// Per-tenant health/usage rollup for the platform ops dashboard.
 ///
 /// Produced by the SECURITY DEFINER `platform_org_health()` function (the only
@@ -1097,15 +1123,18 @@ impl PlatformProvisioner {
 
     /// Update group identity/status. Membership is managed by the explicit
     /// assign/remove endpoints so lifecycle and topology changes stay auditable.
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_group(
         &self,
         pool: &PgPool,
         actor: Option<UserId>,
         group_id: Uuid,
+        slug: Option<&str>,
         name: Option<&str>,
         status: Option<&str>,
         now: OffsetDateTime,
     ) -> Result<GroupSummary, ProvisioningError> {
+        let slug = slug.map(str::trim).filter(|value| !value.is_empty());
         let name = name.map(str::trim).filter(|value| !value.is_empty());
         if let Some(status) = status
             && !matches!(status, "ACTIVE" | "SUSPENDED" | "ARCHIVED")
@@ -1114,7 +1143,7 @@ impl PlatformProvisioner {
                 "invalid group status {status:?}"
             )));
         }
-        if name.is_none() && status.is_none() {
+        if slug.is_none() && name.is_none() && status.is_none() {
             return Err(ProvisioningError::InvalidRoster(
                 "at least one group field is required".to_owned(),
             ));
@@ -1122,8 +1151,9 @@ impl PlatformProvisioner {
 
         let mut tx = pool.begin().await?;
         let updated_id: Option<Uuid> =
-            sqlx::query_scalar("SELECT platform_update_group($1, $2, $3)")
+            sqlx::query_scalar("SELECT platform_update_group($1, $2, $3, $4)")
                 .bind(group_id)
+                .bind(slug)
                 .bind(name)
                 .bind(status)
                 .fetch_one(tx.as_mut())
@@ -1147,6 +1177,7 @@ impl PlatformProvisioner {
             None,
             Some(serde_json::json!({
                 "group_id": group_id,
+                "slug": slug,
                 "name": name,
                 "status": status,
             })),
@@ -1209,6 +1240,226 @@ impl PlatformProvisioner {
 
         tx.commit().await?;
         Ok(organization)
+    }
+
+    /// List group-level account grants. Accounts remain homed in a concrete
+    /// tenant org; group roles are cross-org grants layered on top.
+    pub async fn list_group_accounts(
+        &self,
+        pool: &PgPool,
+        actor: Option<UserId>,
+        group_id: Uuid,
+        now: OffsetDateTime,
+    ) -> Result<Vec<GroupAccountSummary>, ProvisioningError> {
+        let mut tx = pool.begin().await?;
+        // Preserve 404 semantics: an empty grant list for an existing group is
+        // different from a typoed group id.
+        let _group = fetch_group_tx(&mut tx, group_id).await?;
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                user_id, display_name, phone, tenant_roles, is_active,
+                has_passkey, account_status, org_id, org_slug, org_name,
+                group_roles, created_at
+            FROM platform_list_group_accounts($1)
+            "#,
+        )
+        .bind(group_id)
+        .fetch_all(tx.as_mut())
+        .await?;
+        let accounts = rows
+            .into_iter()
+            .map(group_account_from_row)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let event = AuditEvent::new(
+            actor,
+            AuditAction::new("platform.group.accounts.list")?,
+            "group_role_grants",
+            group_id.to_string(),
+            TraceContext::generate(),
+            now,
+        )
+        .with_snapshots(
+            None,
+            Some(serde_json::json!({
+                "group_id": group_id,
+                "count": accounts.len(),
+            })),
+        );
+        insert_audit_event(&mut tx, &event).await?;
+
+        tx.commit().await?;
+        Ok(accounts)
+    }
+
+    /// Create one tenant-anchored user account and grant a group role.
+    ///
+    /// The tenant role defaults to MEMBER at the REST layer. This method accepts
+    /// an explicit role set so platform operators can intentionally make a user a
+    /// tenant admin too; group authority remains stored in group_role_grants.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_group_account(
+        &self,
+        pool: &PgPool,
+        actor: Option<UserId>,
+        group_id: Uuid,
+        org_id: Uuid,
+        display_name: &str,
+        phone: Option<&str>,
+        tenant_roles: &[String],
+        group_role: &str,
+        now: OffsetDateTime,
+    ) -> Result<GroupAccountOnboarding, ProvisioningError> {
+        let display_name = display_name.trim();
+        if display_name.is_empty() {
+            return Err(ProvisioningError::InvalidRoster(
+                "display_name is required".to_owned(),
+            ));
+        }
+        if tenant_roles.is_empty()
+            || tenant_roles
+                .iter()
+                .any(|role| !VALID_ROLES.contains(&role.as_str()))
+        {
+            return Err(ProvisioningError::InvalidRoster(
+                "tenant role is invalid".to_owned(),
+            ));
+        }
+        if !VALID_GROUP_ROLES.contains(&group_role) {
+            return Err(ProvisioningError::InvalidRoster(
+                "group role is invalid".to_owned(),
+            ));
+        }
+        let phone = phone.map(str::trim).filter(|value| !value.is_empty());
+        let ttl = self.onboarding_otp_ttl;
+
+        let mut tx = pool.begin().await?;
+        let user_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT platform_create_group_account($1, $2, $3, $4, $5, $6, $7)")
+                .bind(group_id)
+                .bind(org_id)
+                .bind(display_name)
+                .bind(phone)
+                .bind(tenant_roles)
+                .bind(group_role)
+                .bind(actor.map(|id| *id.as_uuid()))
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(map_group_write_error)?;
+        let Some(user_id) = user_id else {
+            tx.rollback().await?;
+            return Err(ProvisioningError::NotFound(
+                "group or organization not found".to_owned(),
+            ));
+        };
+
+        // platform_create_group_account arms app.current_org to org_id for this
+        // transaction; keep it armed so the bootstrap credential passes FORCE RLS.
+        let issue = issue_bootstrap_if_needed_tx(
+            &mut tx,
+            user_id,
+            OrgId::from_uuid(org_id),
+            now,
+            ttl,
+            IssueMode::RejectIfPresent,
+        )
+        .await?
+        .ok_or(ProvisioningError::ActiveBootstrapCredentialExists)?;
+
+        let account = fetch_group_account_tx(&mut tx, group_id, user_id).await?;
+
+        let event = AuditEvent::new(
+            actor,
+            AuditAction::new("platform.group.account.create")?,
+            "group_role_grants",
+            format!("{group_id}:{user_id}:{group_role}"),
+            TraceContext::generate(),
+            now,
+        )
+        .with_org(OrgId::from_uuid(org_id))
+        .with_snapshots(
+            None,
+            Some(serde_json::json!({
+                "group_id": group_id,
+                "org_id": org_id,
+                "user_id": user_id,
+                "tenant_roles": tenant_roles,
+                "group_role": group_role,
+            })),
+        );
+        insert_audit_event(&mut tx, &event).await?;
+
+        tx.commit().await?;
+        Ok(GroupAccountOnboarding {
+            account,
+            otp: issue.token,
+            otp_expires_at: issue.expires_at,
+        })
+    }
+
+    /// Revoke one group role from a tenant-anchored account. The user row is not
+    /// deleted; tenant admins can still manage/deactivate it from the tenant UI.
+    pub async fn revoke_group_role(
+        &self,
+        pool: &PgPool,
+        actor: Option<UserId>,
+        group_id: Uuid,
+        user_id: Uuid,
+        group_role: &str,
+        now: OffsetDateTime,
+    ) -> Result<(), ProvisioningError> {
+        if !VALID_GROUP_ROLES.contains(&group_role) {
+            return Err(ProvisioningError::InvalidRoster(
+                "group role is invalid".to_owned(),
+            ));
+        }
+        let mut tx = pool.begin().await?;
+        // Resolve the account through the group helper instead of reading
+        // `users` directly under tenant RLS. This also gives us a stable target
+        // org for the audit row before the grant is deleted.
+        let account = fetch_group_account_tx(&mut tx, group_id, user_id).await?;
+        let revoked: Option<Uuid> =
+            sqlx::query_scalar("SELECT platform_revoke_group_role($1, $2, $3)")
+                .bind(group_id)
+                .bind(user_id)
+                .bind(group_role)
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(map_group_write_error)?;
+        let Some(_revoked) = revoked else {
+            tx.rollback().await?;
+            return Err(ProvisioningError::NotFound(
+                "group account role not found".to_owned(),
+            ));
+        };
+
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(account.org_id.to_string())
+            .execute(tx.as_mut())
+            .await?;
+
+        let event = AuditEvent::new(
+            actor,
+            AuditAction::new("platform.group.account.revoke")?,
+            "group_role_grants",
+            format!("{group_id}:{user_id}:{group_role}"),
+            TraceContext::generate(),
+            now,
+        )
+        .with_snapshots(
+            Some(serde_json::json!({
+                "group_id": group_id,
+                "user_id": user_id,
+                "group_role": group_role,
+            })),
+            None,
+        )
+        .with_org(OrgId::from_uuid(account.org_id));
+        insert_audit_event(&mut tx, &event).await?;
+
+        tx.commit().await?;
+        Ok(())
     }
 
     /// Remove an organization from one group without deleting the organization.
@@ -1836,6 +2087,25 @@ fn group_from_row(row: sqlx::postgres::PgRow) -> Result<GroupSummary, Provisioni
     })
 }
 
+fn group_account_from_row(
+    row: sqlx::postgres::PgRow,
+) -> Result<GroupAccountSummary, ProvisioningError> {
+    Ok(GroupAccountSummary {
+        user_id: row.try_get("user_id")?,
+        display_name: row.try_get("display_name")?,
+        phone: row.try_get("phone")?,
+        tenant_roles: row.try_get("tenant_roles")?,
+        is_active: row.try_get("is_active")?,
+        has_passkey: row.try_get("has_passkey")?,
+        account_status: row.try_get("account_status")?,
+        org_id: row.try_get("org_id")?,
+        org_slug: row.try_get("org_slug")?,
+        org_name: row.try_get("org_name")?,
+        group_roles: row.try_get("group_roles")?,
+        created_at: row.try_get("created_at")?,
+    })
+}
+
 /// Read one platform group by id via the SECURITY DEFINER `platform_get_group`.
 async fn fetch_group_tx(
     tx: &mut Transaction<'_, Postgres>,
@@ -1853,6 +2123,31 @@ async fn fetch_group_tx(
     .ok_or_else(|| ProvisioningError::NotFound("group not found".to_owned()))?;
 
     group_from_row(row)
+}
+
+/// Read one platform group account through the narrow account listing function.
+async fn fetch_group_account_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    group_id: Uuid,
+    user_id: Uuid,
+) -> Result<GroupAccountSummary, ProvisioningError> {
+    let row = sqlx::query(
+        r#"
+        SELECT
+            user_id, display_name, phone, tenant_roles, is_active,
+            has_passkey, account_status, org_id, org_slug, org_name,
+            group_roles, created_at
+        FROM platform_list_group_accounts($1)
+        WHERE user_id = $2
+        "#,
+    )
+    .bind(group_id)
+    .bind(user_id)
+    .fetch_optional(tx.as_mut())
+    .await?
+    .ok_or_else(|| ProvisioningError::NotFound("group account not found".to_owned()))?;
+
+    group_account_from_row(row)
 }
 
 fn map_group_write_error(err: sqlx::Error) -> ProvisioningError {
