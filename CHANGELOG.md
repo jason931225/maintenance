@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.19](https://github.com/jason931225/maintenance/compare/v0.1.18...v0.1.19) (2026-06-27)
+
+
+### Bug Fixes
+
+* **worker:** prune stale Apalis worker rows ([605e593](https://github.com/jason931225/maintenance/commit/605e5933be8773ac1be7b7c47c621d2e4044b4b8))
+
 ## [0.1.18](https://github.com/jason931225/maintenance/compare/v0.1.17...v0.1.18) (2026-06-27)
 
 
