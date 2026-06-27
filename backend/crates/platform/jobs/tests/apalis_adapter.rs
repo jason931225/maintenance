@@ -2,9 +2,11 @@
 
 use std::time::Duration as StdDuration;
 
+use apalis_postgres::PgPool as ApalisPgPool;
 use mnt_kernel_core::{FixedClock, Timestamp};
 use mnt_platform_jobs::{
-    ApalisPostgresJobQueue, JobQueue, JobRequest, SkewedClock,
+    ApalisPostgresJobQueue, DEFAULT_APALIS_WORKER_RETENTION, JobQueue, JobRequest, SkewedClock,
+    prune_stale_apalis_workers,
     soak::{self, APALIS_POSTGRES_VERSION, APALIS_VERSION},
 };
 use sqlx::Row;
@@ -74,4 +76,143 @@ async fn apalis_adapter_dedupes_repeated_idempotency_keys() {
         .execute(&workspace_pool)
         .await
         .expect("cleanup apalis jobs");
+}
+
+#[tokio::test]
+async fn apalis_worker_retention_prunes_only_stale_unreferenced_workers() {
+    let database_url =
+        std::env::var("DATABASE_URL").expect("DATABASE_URL is required for apalis adapter test");
+    let queue_name = format!("mnt.t110.retention-test.{}", uuid::Uuid::new_v4());
+    let other_queue_name = format!("mnt.t110.retention-other.{}", uuid::Uuid::new_v4());
+    let current_worker = format!("retention-current-{}", uuid::Uuid::new_v4());
+    let stale_worker = format!("retention-stale-{}", uuid::Uuid::new_v4());
+    let recent_worker = format!("retention-recent-{}", uuid::Uuid::new_v4());
+    let referenced_worker = format!("retention-referenced-{}", uuid::Uuid::new_v4());
+    let other_queue_worker = format!("retention-other-{}", uuid::Uuid::new_v4());
+    let referenced_job_id = format!("retention-job-{}", uuid::Uuid::new_v4());
+
+    let _queue = ApalisPostgresJobQueue::connect(&database_url, &queue_name)
+        .await
+        .expect("setup apalis queue");
+    let apalis_pool = ApalisPgPool::connect(&database_url)
+        .await
+        .expect("connect apalis sqlx pool");
+    let workspace_pool = sqlx::PgPool::connect(&database_url)
+        .await
+        .expect("connect workspace sqlx pool");
+
+    cleanup_worker_retention_rows(
+        &workspace_pool,
+        &[
+            current_worker.as_str(),
+            stale_worker.as_str(),
+            recent_worker.as_str(),
+            referenced_worker.as_str(),
+            other_queue_worker.as_str(),
+        ],
+        &[referenced_job_id.as_str()],
+    )
+    .await;
+
+    for (worker_id, worker_type, age_sql) in [
+        (&current_worker, &queue_name, "8 days"),
+        (&stale_worker, &queue_name, "8 days"),
+        (&referenced_worker, &queue_name, "8 days"),
+        (&other_queue_worker, &other_queue_name, "8 days"),
+        (&recent_worker, &queue_name, "1 hour"),
+    ] {
+        sqlx::query(
+            r#"
+            INSERT INTO apalis.workers (id, worker_type, storage_name, layers, last_seen)
+            VALUES ($1, $2, 'PostgresStorage', '', NOW() - ($3::TEXT)::INTERVAL)
+            "#,
+        )
+        .bind(worker_id)
+        .bind(worker_type)
+        .bind(age_sql)
+        .execute(&workspace_pool)
+        .await
+        .expect("insert retention test worker");
+    }
+    sqlx::query(
+        r#"
+        INSERT INTO apalis.jobs (job, id, job_type, status, lock_by)
+        VALUES (decode('00', 'hex'), $1, $2, 'Done', $3)
+        "#,
+    )
+    .bind(&referenced_job_id)
+    .bind(&queue_name)
+    .bind(&referenced_worker)
+    .execute(&workspace_pool)
+    .await
+    .expect("insert job referencing stale worker");
+
+    let summary = prune_stale_apalis_workers(
+        &apalis_pool,
+        &queue_name,
+        &current_worker,
+        DEFAULT_APALIS_WORKER_RETENTION,
+    )
+    .await
+    .expect("prune stale apalis workers");
+
+    assert_eq!(summary.stale_workers_pruned, 1);
+    assert_eq!(summary.stale_workers_retained_with_jobs, 1);
+    assert_eq!(summary.worker_rows_remaining, 3);
+
+    assert!(
+        !worker_exists(&workspace_pool, &stale_worker).await,
+        "stale unreferenced worker should be pruned"
+    );
+    for worker_id in [
+        &current_worker,
+        &recent_worker,
+        &referenced_worker,
+        &other_queue_worker,
+    ] {
+        assert!(
+            worker_exists(&workspace_pool, worker_id).await,
+            "{worker_id} should be retained"
+        );
+    }
+
+    cleanup_worker_retention_rows(
+        &workspace_pool,
+        &[
+            current_worker.as_str(),
+            stale_worker.as_str(),
+            recent_worker.as_str(),
+            referenced_worker.as_str(),
+            other_queue_worker.as_str(),
+        ],
+        &[referenced_job_id.as_str()],
+    )
+    .await;
+}
+
+async fn worker_exists(pool: &sqlx::PgPool, worker_id: &str) -> bool {
+    let row = sqlx::query("SELECT COUNT(*)::BIGINT FROM apalis.workers WHERE id = $1")
+        .bind(worker_id)
+        .fetch_one(pool)
+        .await
+        .expect("count apalis worker");
+    let count: i64 = row.try_get(0).expect("count column");
+    count == 1
+}
+
+async fn cleanup_worker_retention_rows(pool: &sqlx::PgPool, worker_ids: &[&str], job_ids: &[&str]) {
+    for job_id in job_ids {
+        sqlx::query("DELETE FROM apalis.jobs WHERE id = $1")
+            .bind(*job_id)
+            .execute(pool)
+            .await
+            .expect("cleanup retention test job");
+    }
+    for worker_id in worker_ids {
+        sqlx::query("DELETE FROM apalis.workers WHERE id = $1")
+            .bind(*worker_id)
+            .execute(pool)
+            .await
+            .expect("cleanup retention test worker");
+    }
 }

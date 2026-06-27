@@ -17,6 +17,14 @@ use thiserror::Error;
 
 pub mod soak;
 
+/// Operational hygiene cap for per-pod Apalis worker identities.
+///
+/// Kubernetes pods generate unique worker names, so old pods can otherwise
+/// leave inert `apalis.workers` rows forever. Seven days is intentionally much
+/// longer than the Apalis heartbeat/orphan re-enqueue window, while still
+/// bounding registry growth for rows that are no longer referenced by jobs.
+pub const DEFAULT_APALIS_WORKER_RETENTION: StdDuration = StdDuration::from_secs(7 * 24 * 60 * 60);
+
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -215,6 +223,9 @@ pub enum JobQueueError {
     #[error("schedule delay is too large")]
     ScheduleDelayTooLarge,
 
+    #[error("worker retention window is too large")]
+    WorkerRetentionTooLarge,
+
     #[error("apalis-postgres error: {0}")]
     ApalisPostgres(String),
 
@@ -232,6 +243,26 @@ pub enum JobQueueError {
 
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ApalisWorkerRetentionSummary {
+    pub stale_workers_pruned: i64,
+    pub stale_workers_retained_with_jobs: i64,
+    pub worker_rows_remaining: i64,
+}
+
+#[cfg(test)]
+fn should_prune_apalis_worker(
+    current_worker_name: &str,
+    candidate_worker_name: &str,
+    candidate_age: StdDuration,
+    retention: StdDuration,
+    referenced_by_jobs: bool,
+) -> bool {
+    candidate_worker_name != current_worker_name
+        && candidate_age >= retention
+        && !referenced_by_jobs
 }
 
 #[derive(Debug, Clone)]
@@ -638,8 +669,25 @@ where
         .await
         .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
     setup_apalis_schema(&pool).await?;
+    let worker_name = worker_name.into();
+    let retention_summary = prune_stale_apalis_workers(
+        &pool,
+        queue_name,
+        &worker_name,
+        DEFAULT_APALIS_WORKER_RETENTION,
+    )
+    .await?;
+    tracing::info!(
+        queue_name = %queue_name,
+        worker_name = %worker_name,
+        retention_seconds = DEFAULT_APALIS_WORKER_RETENTION.as_secs(),
+        stale_workers_pruned = retention_summary.stale_workers_pruned,
+        stale_workers_retained_with_jobs = retention_summary.stale_workers_retained_with_jobs,
+        worker_rows_remaining = retention_summary.worker_rows_remaining,
+        "apalis worker registry retention applied"
+    );
     let backend = PostgresStorage::<PlatformJob>::new_with_config(&pool, &Config::new(queue_name));
-    let worker = WorkerBuilder::new(worker_name.into())
+    let worker = WorkerBuilder::new(worker_name)
         .backend(backend)
         .data(Arc::new(handler))
         .build(handle_queued_platform_job::<H>);
@@ -648,6 +696,82 @@ where
         result = worker.run() => result.map_err(|err| JobQueueError::Worker(err.to_string())),
         () = shutdown => Ok(()),
     }
+}
+
+pub async fn prune_stale_apalis_workers(
+    pool: &ApalisPgPool,
+    queue_name: &str,
+    current_worker_name: &str,
+    retention: StdDuration,
+) -> Result<ApalisWorkerRetentionSummary, JobQueueError> {
+    let retention_seconds =
+        i64::try_from(retention.as_secs()).map_err(|_| JobQueueError::WorkerRetentionTooLarge)?;
+    let row = apalis_sqlx::query(
+        r#"
+        WITH stale AS (
+            SELECT workers.id
+            FROM apalis.workers workers
+            WHERE workers.worker_type = $1
+                AND workers.id <> $2
+                AND workers.last_seen < NOW() - ($3::DOUBLE PRECISION * INTERVAL '1 second')
+        ),
+        referenced_stale AS (
+            SELECT COUNT(*)::BIGINT AS count
+            FROM stale
+            WHERE EXISTS (
+                SELECT 1
+                FROM apalis.jobs jobs
+                WHERE jobs.lock_by = stale.id
+            )
+        ),
+        deleted AS (
+            DELETE FROM apalis.workers workers
+            WHERE workers.worker_type = $1
+                AND workers.id <> $2
+                AND workers.last_seen < NOW() - ($3::DOUBLE PRECISION * INTERVAL '1 second')
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM apalis.jobs jobs
+                    WHERE jobs.lock_by = workers.id
+                )
+            RETURNING workers.id
+        )
+        SELECT
+            (SELECT COUNT(*)::BIGINT FROM deleted) AS stale_workers_pruned,
+            (SELECT count FROM referenced_stale) AS stale_workers_retained_with_jobs
+        "#,
+    )
+    .bind(queue_name)
+    .bind(current_worker_name)
+    .bind(retention_seconds)
+    // rls-arming: ok apalis.workers/apalis.jobs are global scheduler tables (no org_id, no RLS); pruning is queue-scoped and never tenant-data scoped
+    .fetch_one(pool)
+    .await
+    .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+    let worker_rows_remaining = apalis_sqlx::query(
+        r#"
+        SELECT COUNT(*)::BIGINT AS count
+        FROM apalis.workers workers
+        WHERE workers.worker_type = $1
+        "#,
+    )
+    .bind(queue_name)
+    // rls-arming: ok apalis.workers is a global scheduler registry table (no org_id, no RLS); this readback is queue-scoped
+    .fetch_one(pool)
+    .await
+    .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?
+    .try_get::<i64, _>("count")
+    .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+
+    Ok(ApalisWorkerRetentionSummary {
+        stale_workers_pruned: row
+            .try_get::<i64, _>("stale_workers_pruned")
+            .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?,
+        stale_workers_retained_with_jobs: row
+            .try_get::<i64, _>("stale_workers_retained_with_jobs")
+            .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?,
+        worker_rows_remaining,
+    })
 }
 
 async fn handle_queued_platform_job<H>(
@@ -739,6 +863,40 @@ mod tests {
         ));
         assert!(!is_unique_idempotency_conflict(
             "duplicate key value violates unique constraint"
+        ));
+    }
+
+    #[test]
+    fn worker_retention_prunes_only_stale_unreferenced_non_current_workers() {
+        let retention = StdDuration::from_secs(60);
+
+        assert!(should_prune_apalis_worker(
+            "current-worker",
+            "old-unreferenced-worker",
+            StdDuration::from_secs(61),
+            retention,
+            false
+        ));
+        assert!(!should_prune_apalis_worker(
+            "current-worker",
+            "current-worker",
+            StdDuration::from_secs(3_600),
+            retention,
+            false
+        ));
+        assert!(!should_prune_apalis_worker(
+            "current-worker",
+            "recent-worker",
+            StdDuration::from_secs(59),
+            retention,
+            false
+        ));
+        assert!(!should_prune_apalis_worker(
+            "current-worker",
+            "old-referenced-worker",
+            StdDuration::from_secs(61),
+            retention,
+            true
         ));
     }
 
