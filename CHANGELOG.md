@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.16](https://github.com/jason931225/maintenance/compare/v0.1.15...v0.1.16) (2026-06-27)
+
+
+### Features
+
+* **dispatch:** map arrival events with routing ([3482a0d](https://github.com/jason931225/maintenance/commit/3482a0d25d04583c15a8dbef51da3ae5922ea8d7))
+
 ## [0.1.15](https://github.com/jason931225/maintenance/compare/v0.1.14...v0.1.15) (2026-06-26)
 
 
