@@ -1291,6 +1291,22 @@ export const ko = {
     ungeocodedHint: "아래 사업장은 좌표가 없어 지도에 표시되지 않습니다.",
     sitePanelTitle: "사업장 장비 현황",
     substitutionTitle: "대차 배정",
+    arrivals: {
+      title: "현장 도착·복귀",
+      description:
+        "근무 중 위치 동의가 활성화된 정비사의 지오펜스 도착·복귀 기록을 최근순으로 표시합니다.",
+      privacyGate:
+        "원시 GPS는 표시하지 않습니다. 모바일 앱은 위치 동의 + 근무 중(on_duty)일 때만 전송하고, 콘솔 지도는 업무 사실과 사업장 좌표만 사용합니다.",
+      arrival: "도착",
+      departure: "복귀",
+      route: "길찾기",
+      empty: "최근 도착·복귀 기록이 없습니다.",
+      noCoordinates:
+        "최근 기록은 있으나 좌표가 입력된 사업장이 없어 지도에 표시할 수 없습니다.",
+      unavailable:
+        "현재 권한 또는 지점 범위에서 도착·복귀 기록을 표시할 수 없습니다.",
+      error: "도착·복귀 기록을 불러오지 못했습니다.",
+    },
     fields: {
       province: "시도",
       city: "시군구",

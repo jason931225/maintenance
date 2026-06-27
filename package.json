@@ -20,6 +20,7 @@
     "check:kotlin": "node scripts/run-kotlin-build.mjs",
     "check:swift": "swift build --package-path clients/swift",
     "check:openapi-app": "node scripts/check-openapi-app.mjs",
+    "check:dispatch-map": "node scripts/check-dispatch-map.mjs",
     "check:api-drift:portable": "npm run gen:api:portable && git diff --exit-code -- clients/ts clients/kotlin",
     "check:api-drift:swift": "npm run gen:api:swift && git diff --exit-code -- clients/swift",
     "test:contract": "tsx scripts/contract-roundtrip.ts",

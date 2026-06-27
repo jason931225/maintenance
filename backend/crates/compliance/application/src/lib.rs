@@ -125,21 +125,25 @@ pub struct ArrivalEventQuery {
 }
 
 /// One site arrival or departure — a coordinate-free attendance fact, hydrated
-/// with the work-order request_no and site name for display.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// with work-order, mechanic, customer, and admin-entered site coordinate data
+/// for dispatch-map display. The raw phone GPS ping is intentionally not exposed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ArrivalEvent {
     pub id: String,
-    // Slimmed wire model: the OpsDashboard renders only the human-facing
-    // request_no / site_name / kind / time, so the raw user_id, branch_id,
-    // work_order_id and site_id UUIDs are no longer shipped to the browser.
+    pub work_order_id: String,
+    pub site_id: String,
     pub work_order_no: String,
     pub site_name: String,
+    pub customer_name: String,
+    pub mechanic_name: String,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
     pub kind: String,
     pub occurred_at: Timestamp,
 }
 
 /// Paged site arrival/departure events.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ArrivalEventPage {
     pub items: Vec<ArrivalEvent>,
     pub limit: i64,

@@ -96,6 +96,9 @@ const server = setupServer(
   http.get("*/api/v1/location-consents/ledger", () =>
     HttpResponse.json({ items: [], limit: 10, offset: 0, total: 0 }),
   ),
+  http.get("*/api/v1/location/arrival-events", () =>
+    HttpResponse.json({ items: [], limit: 50, offset: 0, total: 0 }),
+  ),
 );
 
 // Track in-flight requests so a test can wait for late on-mount fetches (e.g.

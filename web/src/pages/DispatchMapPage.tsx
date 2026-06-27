@@ -1,11 +1,12 @@
 import "leaflet/dist/leaflet.css";
 
-import { MapPinned } from "lucide-react";
+import { MapPinned, Navigation } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import { Link } from "react-router-dom";
 
 import type {
+  ArrivalEvent,
   EquipmentSummary,
   SiteLocationGroup,
 } from "../api/types";
@@ -20,6 +21,7 @@ import { useAuth } from "../context/auth";
 import { ensureLeafletIcon } from "../features/dispatch/leafletIcon";
 import { SubstitutionPanel } from "../features/equipment/SubstitutionPanel";
 import { ko } from "../i18n/ko";
+import { formatKoreanDateTime } from "../lib/datetime";
 
 const t = ko.dispatchMap;
 
@@ -47,12 +49,29 @@ function centerOf(sites: SiteLocationGroup[]): [number, number] {
 }
 
 type LoadState = "loading" | "ready" | "error";
+type ArrivalLoadState = "loading" | "ready" | "unavailable" | "error";
+
+function hasEventCoordinates(
+  event: ArrivalEvent,
+): event is ArrivalEvent & { latitude: number; longitude: number } {
+  return event.latitude !== null && event.longitude !== null;
+}
+
+function directionsUrl(latitude: number, longitude: number): string {
+  const destination = encodeURIComponent(
+    `${String(latitude)},${String(longitude)}`,
+  );
+  return `https://www.google.com/maps/dir/?api=1&destination=${destination}`;
+}
 
 export function DispatchMapPage() {
   const { api, session } = useAuth();
   const canManage = hasAnyRole(session?.roles, EQUIPMENT_MANAGE_ROLES);
   const [sites, setSites] = useState<SiteLocationGroup[]>([]);
+  const [arrivals, setArrivals] = useState<ArrivalEvent[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
+  const [arrivalState, setArrivalState] =
+    useState<ArrivalLoadState>("loading");
   const [selectedSiteId, setSelectedSiteId] = useState<string>();
 
   const load = useCallback(
@@ -69,6 +88,34 @@ export function DispatchMapPage() {
     [api],
   );
 
+  const loadArrivals = useCallback(
+    async (signal?: AbortSignal) => {
+      setArrivalState("loading");
+      try {
+        const response = await api.GET("/api/v1/location/arrival-events", {
+          params: { query: { limit: 50 } },
+          signal,
+        });
+        if (response.data) {
+          setArrivals(response.data.items);
+          setArrivalState("ready");
+        } else if (!signal?.aborted) {
+          setArrivals([]);
+          setArrivalState(
+            response.response.status === 403 || response.response.status === 422
+              ? "unavailable"
+              : "error",
+          );
+        }
+      } catch {
+        if (signal?.aborted) return;
+        setArrivals([]);
+        setArrivalState("error");
+      }
+    },
+    [api],
+  );
+
   useEffect(() => {
     ensureLeafletIcon();
     // Abort the initial load if the page unmounts before it resolves, so the
@@ -77,12 +124,15 @@ export function DispatchMapPage() {
     // case unmount already happened.
     const controller = new AbortController();
     void Promise.resolve().then(() => {
-      if (!controller.signal.aborted) void load(controller.signal);
+      if (!controller.signal.aborted) {
+        void load(controller.signal);
+        void loadArrivals(controller.signal);
+      }
     });
     return () => {
       controller.abort();
     };
-  }, [load]);
+  }, [load, loadArrivals]);
 
   const geocoded = useMemo(
     () => sites.filter((s) => s.latitude !== null && s.longitude !== null),
@@ -97,6 +147,10 @@ export function DispatchMapPage() {
     [sites, selectedSiteId],
   );
   const center = useMemo(() => centerOf(geocoded), [geocoded]);
+  const arrivalMarkers = useMemo(
+    () => arrivals.filter(hasEventCoordinates),
+    [arrivals],
+  );
 
   return (
     <>
@@ -111,6 +165,7 @@ export function DispatchMapPage() {
           message={t.loadFailed}
           onRetry={() => {
             void load();
+            void loadArrivals();
           }}
         />
       ) : null}
@@ -151,10 +206,48 @@ export function DispatchMapPage() {
                   </Popup>
                 </Marker>
               ))}
+              {arrivalMarkers.map((event) => (
+                <Marker
+                  key={`arrival-${event.id}`}
+                  position={[event.latitude, event.longitude]}
+                  eventHandlers={{
+                    click: () => {
+                      setSelectedSiteId(event.site_id);
+                    },
+                  }}
+                >
+                  <Popup>
+                    <span className="font-semibold">
+                      {event.kind === "ARRIVAL"
+                        ? t.arrivals.arrival
+                        : t.arrivals.departure}
+                    </span>
+                    <br />
+                    {event.site_name} · {event.work_order_no}
+                    <br />
+                    {event.mechanic_name} ·{" "}
+                    {formatKoreanDateTime(event.occurred_at)}
+                    <br />
+                    <a
+                      className="text-brand-teal underline"
+                      href={directionsUrl(event.latitude, event.longitude)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {t.arrivals.route}
+                    </a>
+                  </Popup>
+                </Marker>
+              ))}
             </MapContainer>
           </Card>
 
           <div className="grid gap-5">
+            <ArrivalEventsPanel
+              events={arrivals}
+              state={arrivalState}
+              onSelectSite={setSelectedSiteId}
+            />
             {selectedSite ? (
               <SiteAssetPanel api={api} site={selectedSite} canManage={canManage} />
             ) : (
@@ -186,6 +279,100 @@ function EmptyState() {
       <Button asChild variant="secondary">
         <Link to="/equipment">{t.emptyLink}</Link>
       </Button>
+    </Card>
+  );
+}
+
+function ArrivalEventsPanel({
+  events,
+  state,
+  onSelectSite,
+}: {
+  events: ArrivalEvent[];
+  state: ArrivalLoadState;
+  onSelectSite: (siteId: string) => void;
+}) {
+  return (
+    <Card className="grid gap-3">
+      <div>
+        <h2 className="text-lg font-semibold text-ink">{t.arrivals.title}</h2>
+        <p className="text-sm text-steel">{t.arrivals.description}</p>
+      </div>
+      <p className="rounded-md border border-line bg-muted-panel p-3 text-xs text-steel">
+        {t.arrivals.privacyGate}
+      </p>
+      {state === "loading" ? (
+        <SkeletonCards count={1} lines={2} />
+      ) : state === "unavailable" ? (
+        <p className="rounded-md border border-dashed border-line p-3 text-sm text-steel">
+          {t.arrivals.unavailable}
+        </p>
+      ) : state === "error" ? (
+        <p className="rounded-md border border-dashed border-red-300 p-3 text-sm text-red-700">
+          {t.arrivals.error}
+        </p>
+      ) : events.length === 0 ? (
+        <p className="rounded-md border border-dashed border-line p-3 text-sm text-steel">
+          {t.arrivals.empty}
+        </p>
+      ) : (
+        <ul className="grid gap-2">
+          {events.map((event) => {
+            const hasCoordinates = hasEventCoordinates(event);
+            return (
+              <li
+                key={event.id}
+                className="grid gap-2 rounded-md border border-line bg-muted-panel p-3"
+              >
+                <button
+                  type="button"
+                  className="grid gap-1 text-left"
+                  onClick={() => {
+                    onSelectSite(event.site_id);
+                  }}
+                >
+                  <span className="flex flex-wrap items-center gap-2 text-sm">
+                    <span
+                      className={
+                        event.kind === "ARRIVAL"
+                          ? "font-semibold text-brand-teal"
+                          : "font-semibold text-steel"
+                      }
+                    >
+                      {event.kind === "ARRIVAL"
+                        ? t.arrivals.arrival
+                        : t.arrivals.departure}
+                    </span>
+                    <span className="font-medium text-ink">{event.site_name}</span>
+                  </span>
+                  <span className="text-xs text-steel">
+                    {event.customer_name} · {event.work_order_no} ·{" "}
+                    {event.mechanic_name}
+                  </span>
+                  <span className="text-xs text-steel">
+                    {formatKoreanDateTime(event.occurred_at)}
+                  </span>
+                </button>
+                {hasCoordinates ? (
+                  <a
+                    className="inline-flex items-center gap-1 text-sm font-medium text-brand-teal underline"
+                    href={directionsUrl(event.latitude, event.longitude)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <Navigation aria-hidden="true" size={14} />
+                    {t.arrivals.route}
+                  </a>
+                ) : (
+                  <span className="text-xs text-steel">
+                    {t.arrivals.noCoordinates}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </Card>
   );
 }
