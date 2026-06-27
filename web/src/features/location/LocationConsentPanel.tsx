@@ -307,10 +307,14 @@ function formatTimestamp(value: string | null | undefined): string {
   if (!value) {
     return ko.common.notSet;
   }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return ko.common.notSet;
+  }
   return new Intl.DateTimeFormat("ko-KR", {
     dateStyle: "short",
     timeStyle: "short",
-  }).format(new Date(value));
+  }).format(date);
 }
 
 function downloadCsv(csv: string) {

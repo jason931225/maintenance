@@ -84,6 +84,50 @@ describe("LocationConsentPanel", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("renders consent controls when the API returns malformed timestamps", async () => {
+    server.use(
+      http.get("*/api/v1/location-consent/status", () =>
+        HttpResponse.json({
+          ...consentStatus("GRANTED"),
+          updated_at: "not-a-real-timestamp",
+        }),
+      ),
+      http.get("*/api/v1/location-consents/ledger", () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: "00000000-0000-4000-8000-000000000020",
+              consent_id: "00000000-0000-4000-8000-000000000011",
+              user_id: userId,
+              branch_id: branchId,
+              actor: userId,
+              action: "consent.grant",
+              from_status: "NO_RECORD",
+              to_status: "GRANTED",
+              occurred_at: "not-a-real-timestamp",
+              created_at: "not-a-real-timestamp",
+            },
+          ],
+          limit: 10,
+          offset: 0,
+          total: 1,
+        }),
+      ),
+    );
+
+    render(
+      <LocationConsentPanel
+        api={createConsoleApiClient(tokenPair.access_token)}
+        branchId={branchId}
+        session={tokenPair}
+      />,
+    );
+
+    expect(await screen.findByText("동의됨")).toBeVisible();
+    expect(screen.getByRole("button", { name: "GPS 끄기" })).toBeEnabled();
+    expect(screen.getAllByText("미지정")).toHaveLength(2);
+  });
+
   it("keeps GPS off and withdrawal controls visible and mutates through the API", async () => {
     const user = userEvent.setup();
 
