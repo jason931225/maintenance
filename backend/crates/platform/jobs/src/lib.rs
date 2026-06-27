@@ -744,6 +744,7 @@ pub async fn prune_stale_apalis_workers(
     .bind(queue_name)
     .bind(current_worker_name)
     .bind(retention_seconds)
+    // rls-arming: ok apalis.workers/apalis.jobs are global scheduler tables (no org_id, no RLS); pruning is queue-scoped and never tenant-data scoped
     .fetch_one(pool)
     .await
     .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
@@ -755,6 +756,7 @@ pub async fn prune_stale_apalis_workers(
         "#,
     )
     .bind(queue_name)
+    // rls-arming: ok apalis.workers is a global scheduler registry table (no org_id, no RLS); this readback is queue-scoped
     .fetch_one(pool)
     .await
     .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?
