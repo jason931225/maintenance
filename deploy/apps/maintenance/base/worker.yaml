@@ -36,6 +36,10 @@ spec:
               value: "worker"
             - name: MNT_SERVICE_NAME # metrics/traces service_name (distinct from the api)
               value: "mnt-app-worker"
+            - name: MNT_POD_NAME # unique Apalis worker identity during rolling updates
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             # Runtime connects as the NON-OWNER role mnt_rt (subject to RLS).
             # Schema migrations are applied out of band with the owner mnt-db-app
             # secret — never from this workload.
