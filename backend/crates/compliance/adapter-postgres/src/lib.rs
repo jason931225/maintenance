@@ -488,7 +488,9 @@ impl PgComplianceStore {
 
     /// Read the site arrival/departure events log (issue #13), tenant-scoped and
     /// branch-filtered, newest first. The durable, coordinate-free attendance
-    /// rows are hydrated with the work-order request_no and site name.
+    /// rows are hydrated with work-order, mechanic, customer, and admin-entered
+    /// site coordinate data for dispatch-map display. Raw phone GPS is never
+    /// returned from this feed.
     pub async fn list_arrival_events(
         &self,
         branch_scope: &BranchScope,
@@ -497,15 +499,22 @@ impl PgComplianceStore {
         let total = self.count_arrival_events(branch_scope, &query).await?;
         let mut builder = QueryBuilder::<Postgres>::new(
             r#"
-            -- The user_id/branch_id/work_order_id/site_id columns are still used
-            -- to JOIN and to scope the WHERE filters, but they are no longer
-            -- SELECTed: the slimmed ArrivalEvent wire model ships only the
-            -- human-facing request_no / site_name / kind / time.
-            SELECT l.id, w.request_no AS work_order_no, s.name AS site_name,
-                   l.kind, l.occurred_at
+            SELECT l.id,
+                   l.work_order_id,
+                   l.site_id,
+                   w.request_no AS work_order_no,
+                   s.name AS site_name,
+                   c.name AS customer_name,
+                   u.display_name AS mechanic_name,
+                   s.latitude,
+                   s.longitude,
+                   l.kind,
+                   l.occurred_at
             FROM site_attendance_events l
             JOIN work_orders w    ON w.id = l.work_order_id
             JOIN registry_sites s ON s.id = l.site_id
+            JOIN registry_customers c ON c.id = s.customer_id
+            JOIN users u ON u.id = l.user_id
             WHERE
             "#,
         );
@@ -523,10 +532,18 @@ impl PgComplianceStore {
         let mut items = Vec::with_capacity(rows.len());
         for row in rows {
             let id: uuid::Uuid = row.try_get("id")?;
+            let work_order_id: uuid::Uuid = row.try_get("work_order_id")?;
+            let site_id: uuid::Uuid = row.try_get("site_id")?;
             items.push(ArrivalEvent {
                 id: id.to_string(),
+                work_order_id: work_order_id.to_string(),
+                site_id: site_id.to_string(),
                 work_order_no: row.try_get("work_order_no")?,
                 site_name: row.try_get("site_name")?,
+                customer_name: row.try_get("customer_name")?,
+                mechanic_name: row.try_get("mechanic_name")?,
+                latitude: row.try_get("latitude")?,
+                longitude: row.try_get("longitude")?,
                 kind: row.try_get("kind")?,
                 occurred_at: row.try_get("occurred_at")?,
             });

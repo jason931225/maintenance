@@ -6595,10 +6595,22 @@ public enum Components {
         public struct ArrivalEvent: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ArrivalEvent/id`.
             public var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/work_order_id`.
+            public var workOrderId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/site_id`.
+            public var siteId: Components.Schemas.Uuid
             /// - Remark: Generated from `#/components/schemas/ArrivalEvent/work_order_no`.
             public var workOrderNo: Swift.String
             /// - Remark: Generated from `#/components/schemas/ArrivalEvent/site_name`.
             public var siteName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/customer_name`.
+            public var customerName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/mechanic_name`.
+            public var mechanicName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/latitude`.
+            public var latitude: Swift.Double?
+            /// - Remark: Generated from `#/components/schemas/ArrivalEvent/longitude`.
+            public var longitude: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/ArrivalEvent/kind`.
             @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
                 case arrival = "ARRIVAL"
@@ -6612,27 +6624,51 @@ public enum Components {
             ///
             /// - Parameters:
             ///   - id:
+            ///   - workOrderId:
+            ///   - siteId:
             ///   - workOrderNo:
             ///   - siteName:
+            ///   - customerName:
+            ///   - mechanicName:
+            ///   - latitude:
+            ///   - longitude:
             ///   - kind:
             ///   - occurredAt:
             public init(
                 id: Swift.String,
+                workOrderId: Components.Schemas.Uuid,
+                siteId: Components.Schemas.Uuid,
                 workOrderNo: Swift.String,
                 siteName: Swift.String,
+                customerName: Swift.String,
+                mechanicName: Swift.String,
+                latitude: Swift.Double? = nil,
+                longitude: Swift.Double? = nil,
                 kind: Components.Schemas.ArrivalEvent.KindPayload,
                 occurredAt: Components.Schemas.Timestamp
             ) {
                 self.id = id
+                self.workOrderId = workOrderId
+                self.siteId = siteId
                 self.workOrderNo = workOrderNo
                 self.siteName = siteName
+                self.customerName = customerName
+                self.mechanicName = mechanicName
+                self.latitude = latitude
+                self.longitude = longitude
                 self.kind = kind
                 self.occurredAt = occurredAt
             }
             public enum CodingKeys: String, CodingKey {
                 case id
+                case workOrderId = "work_order_id"
+                case siteId = "site_id"
                 case workOrderNo = "work_order_no"
                 case siteName = "site_name"
+                case customerName = "customer_name"
+                case mechanicName = "mechanic_name"
+                case latitude
+                case longitude
                 case kind
                 case occurredAt = "occurred_at"
             }

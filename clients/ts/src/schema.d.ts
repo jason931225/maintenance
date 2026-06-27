@@ -3567,8 +3567,16 @@ export interface components {
         };
         ArrivalEvent: {
             id: string;
+            work_order_id: components["schemas"]["Uuid"];
+            site_id: components["schemas"]["Uuid"];
             work_order_no: string;
             site_name: string;
+            customer_name: string;
+            mechanic_name: string;
+            /** Format: double */
+            latitude: number | null;
+            /** Format: double */
+            longitude: number | null;
             /** @enum {string} */
             kind: "ARRIVAL" | "DEPARTURE";
             occurred_at: components["schemas"]["Timestamp"];

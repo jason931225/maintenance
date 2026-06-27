@@ -32,8 +32,14 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param id
+ * @param workOrderId
+ * @param siteId
  * @param workOrderNo
  * @param siteName
+ * @param customerName
+ * @param mechanicName
+ * @param latitude
+ * @param longitude
  * @param kind
  * @param occurredAt
  */
@@ -44,11 +50,29 @@ data class ArrivalEvent (
     @SerialName(value = "id")
     val id: kotlin.String,
 
+    @Contextual @SerialName(value = "work_order_id")
+    val workOrderId: java.util.UUID,
+
+    @Contextual @SerialName(value = "site_id")
+    val siteId: java.util.UUID,
+
     @SerialName(value = "work_order_no")
     val workOrderNo: kotlin.String,
 
     @SerialName(value = "site_name")
     val siteName: kotlin.String,
+
+    @SerialName(value = "customer_name")
+    val customerName: kotlin.String,
+
+    @SerialName(value = "mechanic_name")
+    val mechanicName: kotlin.String,
+
+    @SerialName(value = "latitude")
+    val latitude: kotlin.Double?,
+
+    @SerialName(value = "longitude")
+    val longitude: kotlin.Double?,
 
     @SerialName(value = "kind")
     val kind: ArrivalEvent.Kind,

@@ -1,10 +1,13 @@
 #![allow(clippy::unwrap_used)]
 
 use mnt_compliance_adapter_postgres::PgComplianceStore;
-use mnt_compliance_application::{ConsentTransitionCommand, ConsentTransitionKind};
+use mnt_compliance_application::{
+    ArrivalEventQuery, ConsentTransitionCommand, ConsentTransitionKind,
+};
 use mnt_compliance_domain::{LocationPing, PingVolumeBound};
-use mnt_kernel_core::{BranchId, LocationPingId, OrgId, TraceContext, UserId};
+use mnt_kernel_core::{BranchId, BranchScope, LocationPingId, OrgId, TraceContext, UserId};
 use sqlx::{PgPool, Row};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use time::{Duration, OffsetDateTime, macros::datetime};
 
@@ -412,7 +415,7 @@ async fn geofence_arrival_departure_is_audited_and_survives_withdrawal(pool: PgP
         // Site at Seoul City Hall; default 300 m geofence (no per-site override).
         let site_id = seed_site(&pool, branch_id, customer_id, 37.5665, 126.9780).await;
         let equipment_id = seed_equipment(&pool, branch_id, customer_id, site_id).await;
-        seed_assigned_work_order(
+        let work_order_id = seed_assigned_work_order(
             &pool,
             branch_id,
             equipment_id,
@@ -474,6 +477,28 @@ async fn geofence_arrival_departure_is_audited_and_survives_withdrawal(pool: PgP
         assert_eq!(count_audit_action(&pool, "site.arrival").await, 1);
         assert_eq!(count_audit_action(&pool, "site.departure").await, 1);
         assert_eq!(count_presence(&pool, user_id).await, 1);
+
+        let feed = store
+            .list_arrival_events(
+                &BranchScope::Branches(BTreeSet::from([branch_id])),
+                ArrivalEventQuery {
+                    user_id: None,
+                    branch_id: None,
+                    limit: 10,
+                    offset: 0,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(feed.total, 2);
+        assert_eq!(feed.items[0].kind, "DEPARTURE");
+        assert_eq!(feed.items[0].work_order_id, work_order_id.to_string());
+        assert_eq!(feed.items[0].site_id, site_id.to_string());
+        assert_eq!(feed.items[0].site_name, "Geofence Site");
+        assert_eq!(feed.items[0].customer_name, "Geofence Customer");
+        assert_eq!(feed.items[0].mechanic_name, "Geofence Mechanic");
+        assert_eq!(feed.items[0].latitude, Some(37.5665));
+        assert_eq!(feed.items[0].longitude, Some(126.9780));
 
         // Consent withdrawal erases the raw pings AND the transient geofence
         // presence state, but the durable coordinate-free attendance events
