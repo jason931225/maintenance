@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.17](https://github.com/jason931225/maintenance/compare/v0.1.16...v0.1.17) (2026-06-27)
+
+
+### Bug Fixes
+
+* **worker:** avoid Apalis identity collision during rollout ([d1b1f79](https://github.com/jason931225/maintenance/commit/d1b1f79a674c87aa3873c58d312731f9db35cb96))
+
 ## [0.1.16](https://github.com/jason931225/maintenance/compare/v0.1.15...v0.1.16) (2026-06-27)
 
 
