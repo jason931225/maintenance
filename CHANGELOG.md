@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.18](https://github.com/jason931225/maintenance/compare/v0.1.17...v0.1.18) (2026-06-27)
+
+
+### Bug Fixes
+
+* **web:** keep GPS settings resilient to malformed timestamps ([#57](https://github.com/jason931225/maintenance/issues/57)) ([0d793b5](https://github.com/jason931225/maintenance/commit/0d793b51db2ef3ad538ca57c6dfd6a59636c31ae))
+
 ## [0.1.17](https://github.com/jason931225/maintenance/compare/v0.1.16...v0.1.17) (2026-06-27)
 
 
