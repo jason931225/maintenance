@@ -2179,10 +2179,15 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
         }
     });
 
+    // Kubernetes sets this explicitly via the Downward API in worker.yaml. Do
+    // not use generic HOSTNAME: Docker/local shells often set it too, and those
+    // environments should keep the stable service-name-only worker identity.
+    let pod_name = env::var("MNT_POD_NAME").ok();
+    let worker_name = dispatch_apalis_worker_name(&config.service_name, pod_name.as_deref());
     let result = run_apalis_worker_until_shutdown(
         database_url,
         "mnt.dispatch",
-        format!("{}-dispatch-worker", config.service_name),
+        worker_name,
         worker,
         shutdown_signal(config.shutdown_timeout, state.clone()),
     )
@@ -2191,6 +2196,19 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
 
     health_server.abort();
     result
+}
+
+fn dispatch_apalis_worker_name(service_name: &str, pod_name: Option<&str>) -> String {
+    let service_name = service_name.trim();
+    let service_name = if service_name.is_empty() {
+        DEFAULT_SERVICE_NAME
+    } else {
+        service_name
+    };
+    match pod_name.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(pod_name) => format!("{service_name}-{pod_name}-dispatch-worker"),
+        None => format!("{service_name}-dispatch-worker"),
+    }
 }
 
 /// Routes apalis jobs on the shared `mnt.dispatch` queue: `EvidenceTranscode`
@@ -2447,6 +2465,43 @@ mod router_layer_tests {
     #[test]
     fn default_request_timeout_is_thirty_seconds() {
         assert_eq!(REQUEST_TIMEOUT, Duration::from_secs(30));
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod worker_identity_tests {
+    use super::{DEFAULT_SERVICE_NAME, dispatch_apalis_worker_name};
+
+    #[test]
+    fn dispatch_worker_name_includes_pod_hostname_when_present() {
+        let name = dispatch_apalis_worker_name("mnt-app-worker", Some("mnt-worker-abc123"));
+
+        assert_eq!(name, "mnt-app-worker-mnt-worker-abc123-dispatch-worker");
+    }
+
+    #[test]
+    fn dispatch_worker_name_falls_back_to_service_name_outside_kubernetes() {
+        let name = dispatch_apalis_worker_name("mnt-app-worker", None);
+
+        assert_eq!(name, "mnt-app-worker-dispatch-worker");
+    }
+
+    #[test]
+    fn dispatch_worker_name_ignores_empty_hostname() {
+        let name = dispatch_apalis_worker_name("mnt-app-worker", Some("   "));
+
+        assert_eq!(name, "mnt-app-worker-dispatch-worker");
+    }
+
+    #[test]
+    fn dispatch_worker_name_uses_default_service_for_empty_service_name() {
+        let name = dispatch_apalis_worker_name(" ", Some("pod-1"));
+
+        assert_eq!(
+            name,
+            format!("{DEFAULT_SERVICE_NAME}-pod-1-dispatch-worker")
+        );
     }
 }
 
