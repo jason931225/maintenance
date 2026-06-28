@@ -2010,6 +2010,8 @@ export const ko = {
     searchResults: "검색 결과",
     searching: "검색 중",
     searchEmpty: "검색 결과가 없습니다.",
+    openThread: "대화 열기",
+    openSearchResult: (threadTitle: string) => `${threadTitle} 대화 열기`,
     memberCount: "명",
     newThread: "새 대화",
     newThreadTitle: "새 대화 시작",

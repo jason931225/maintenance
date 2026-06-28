@@ -13,6 +13,7 @@ import {
   useReducer,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 
 import type { ConsoleApiClient } from "../../api/client";
@@ -437,9 +438,41 @@ export function MessengerPanel({
                   {ko.messenger.searchEmpty}
                 </p>
               ) : (
-                state.searchResults.map((message) => (
-                  <MessageRow key={`search-${message.id}`} message={message} />
-                ))
+                <div className="grid gap-2" role="list">
+                  {state.searchResults.map((message) => {
+                    const sourceThread = state.threads.find(
+                      (thread) => thread.id === message.thread_id,
+                    );
+                    return (
+                      <MessageRow
+                        key={`search-${message.id}`}
+                        message={message}
+                        role="listitem"
+                        action={
+                          sourceThread ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              aria-label={ko.messenger.openSearchResult(
+                                threadTitle(sourceThread),
+                              )}
+                              onClick={() => {
+                                dispatch({
+                                  type: "threadSelected",
+                                  threadId: sourceThread.id,
+                                });
+                                void loadMessages(sourceThread.id);
+                              }}
+                            >
+                              {ko.messenger.openThread}
+                            </Button>
+                          ) : null
+                        }
+                      />
+                    );
+                  })}
+                </div>
               )}
             </div>
           ) : null}
@@ -684,10 +717,21 @@ export function MessengerPanel({
   );
 }
 
-function MessageRow({ message }: { message: MessengerMessageSummary }) {
+function MessageRow({
+  message,
+  action,
+  role,
+}: {
+  message: MessengerMessageSummary;
+  action?: ReactNode;
+  role?: string;
+}) {
   return (
-    <article className="rounded-md border border-line bg-white p-3">
-      <p className="whitespace-pre-wrap text-sm text-ink">{message.body}</p>
+    <article role={role} className="rounded-md border border-line bg-white p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="whitespace-pre-wrap text-sm text-ink">{message.body}</p>
+        {action}
+      </div>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-steel">
         <span className="font-medium text-ink">
           {safeLabel(message.sender_name)}
