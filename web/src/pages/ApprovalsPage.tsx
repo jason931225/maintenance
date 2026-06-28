@@ -179,6 +179,7 @@ export function ApprovalsPage() {
         ) : (
           <>
             <ApprovalCommandCenter
+              items={approvalPage?.items ?? []}
               workOrders={workOrders}
               dailyPlans={dailyPlans}
               targetChanges={targetChanges}

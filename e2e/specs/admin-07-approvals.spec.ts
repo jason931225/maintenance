@@ -58,6 +58,12 @@ test("ADMIN-07 admin approves a submitted completion", async ({
   await expect(
     page.getByRole("heading", { name: /승인 대기/, level: 1 }),
   ).toBeVisible({ timeout: 8_000 });
+  await expect(page.getByRole("region", { name: "승인 액션 큐" })).toBeVisible({
+    timeout: 8_000,
+  });
+  await expect(page.getByText("Workflow + Approval")).not.toBeVisible();
+  await expect(page.getByText("다음 결정")).toBeVisible();
+  await expect(page.getByRole("link", { name: /결정하기/ }).first()).toBeVisible();
 
   // The seeded -071 work order's approve button has accessible name
   // "{requestNo} 승인" (the request_no lives in the aria-label, not the text).

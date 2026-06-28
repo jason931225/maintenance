@@ -1911,37 +1911,48 @@ export const ko = {
       dailyPlans: "계획업무",
       targetChanges: "일정 변경",
     },
+    sourceLabels: {
+      WORK_ORDER: "작업 보고",
+      DAILY_PLAN: "계획업무",
+      TARGET_CHANGE: "일정 변경",
+    },
+    actionLabels: {
+      approve_work_order: "작업 승인",
+      review_daily_plan: "계획 검토",
+      review_target_change: "일정 변경 검토",
+    },
+    scopeLabels: {
+      BRANCH: "지점 범위",
+    },
     commandCenter: {
-      eyebrow: "Workflow + Approval",
-      title: "승인 커맨드 센터",
-      description:
-        "작업 보고, 계획업무, 일정 변경 요청을 원천 업무 객체와 연결해 감사 가능한 승인 흐름으로 처리합니다.",
-      auditBadge: "권한·감사 재검사",
+      title: "승인 액션 큐",
+      auditBadge: "정책: 서버 재검사",
       none: "없음",
+      nextDecisionsTitle: "다음 결정",
+      nextDecisionsLabel: "승인 우선순위 결정 목록",
+      empty: "승인 대기 건이 없습니다.",
+      decide: "결정하기",
+      dueAt: "마감",
+      noDueAt: "마감 없음",
+      scope: "범위",
+      workflow: "액션",
+      policyBadge: "정책: 서버 재검사",
       sources: {
         workReports: {
           title: "작업 보고 승인",
-          description:
-            "정비 보고, 진단, 조치, 결과, 증빙을 확인한 뒤 승인·반려합니다.",
           action: "작업 승인 큐로 이동",
         },
         dailyPlans: {
           title: "계획업무 검토",
-          description:
-            "요청된 일일·주간 계획을 계획업무 원천 화면에서 검토합니다.",
           action: "계획업무 검토 열기",
         },
         targetChange: {
           title: "일정 변경 검토",
-          description:
-            "배차에서 발행된 목표 완료 변경 요청을 업무 객체와 정책 범위 안에서 검토합니다.",
           action: "일정 변경 검토로 이동",
         },
       },
       dailyPlans: {
         pendingTitle: "검토 요청된 계획업무",
-        pendingDescription:
-          "REQUESTED 상태의 계획만 승인 대기로 표시하며, 결정은 계획업무 원천 화면으로 연결합니다.",
         listLabel: "검토 요청된 계획업무 목록",
         requested: "검토 요청",
         open: "계획업무 검토 열기",
