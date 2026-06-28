@@ -299,7 +299,11 @@ function buildSupportItems(tickets: SupportTicketSummary[]): HubItem[] {
 }
 
 function isActionableSupportTicket(ticket: SupportTicketSummary): boolean {
-  return ticket.status !== "CLOSED" && !ticket.closed_at;
+  return (
+    (ticket.status === "OPEN" || ticket.status === "IN_PROGRESS" || ticket.status === "ON_HOLD") &&
+    !ticket.resolved_at &&
+    !ticket.closed_at
+  );
 }
 
 function buildInboxItems(data: WorkHubData): HubItem[] {
