@@ -315,7 +315,7 @@ describe("WorkHubPage", () => {
     });
   });
 
-  it("excludes closed support tickets from the action inbox", async () => {
+  it("excludes terminal support tickets from the action inbox", async () => {
     installHappyHandlers();
     server.use(
       http.get("*/api/v1/support/tickets", () =>
@@ -357,9 +357,27 @@ describe("WorkHubPage", () => {
               resolved_at: "2026-06-27T02:00:00Z",
               closed_at: "2026-06-27T03:00:00Z",
             },
+            {
+              id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+              branch_id: "11111111-1111-4111-8111-111111111111",
+              origin: "INTERNAL",
+              category: "OPERATIONAL",
+              priority: "NORMAL",
+              status: "RESOLVED",
+              title: "이미 해결된 요청",
+              requester_user_id: "88888888-8888-4888-8888-888888888888",
+              requester_name: "김관리",
+              assignee_user_id: null,
+              assignee_name: null,
+              due_at: null,
+              created_at: "2026-06-27T01:00:00Z",
+              updated_at: "2026-06-27T02:00:00Z",
+              resolved_at: "2026-06-27T02:00:00Z",
+              closed_at: null,
+            },
           ],
           next_cursor: null,
-          total: 2,
+          total: 3,
         }),
       ),
     );
@@ -372,6 +390,7 @@ describe("WorkHubPage", () => {
 
     expect(await screen.findByText("부품 입고 확인")).toBeVisible();
     expect(screen.queryByText("이미 닫힌 요청")).not.toBeInTheDocument();
+    expect(screen.queryByText("이미 해결된 요청")).not.toBeInTheDocument();
   });
 
   it("does not render protocol-relative approval links from server payloads", async () => {
