@@ -2,10 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import type {
-  DailyPlanSummary,
+  ApprovalItemsPage,
   TargetChangeDecision,
   TargetChangeRequestSummary,
-  WorkOrderListItem,
 } from "../api/types";
 import { Badge } from "../components/ui/badge";
 import { PageHeader } from "../components/shell/PageHeader";
@@ -15,56 +14,53 @@ import { SkeletonCards } from "../components/states/Skeleton";
 import { useAuth } from "../context/auth";
 import {
   ApprovalCommandCenter,
-  type ApprovalSourceKey,
 } from "../features/approvals/ApprovalCommandCenter";
 import { ApprovalQueue } from "../features/approvals/ApprovalQueue";
 import { TargetChangeReviewQueue } from "../features/approvals/TargetChangeReviewQueue";
 import { ko } from "../i18n/ko";
 
-const approvalStatuses: WorkOrderListItem["status"][] = [
-  "REPORT_SUBMITTED",
-  "ADMIN_REVIEW",
-];
-
 type ReadState = "idle" | "loading" | "error";
 type WriteState = "idle" | "error";
-
-interface CapturedSource<T = unknown> {
-  key: ApprovalSourceKey;
-  data?: T;
-  failed: boolean;
-}
-
-async function capture<T>(
-  key: ApprovalSourceKey,
-  request: Promise<{ data?: T } | undefined>,
-): Promise<CapturedSource<T>> {
-  const response = await request.catch(() => undefined);
-  return { key, data: response?.data, failed: !response?.data };
-}
-
-function sourceFailureMessage(failures: ApprovalSourceKey[]): string {
-  return ko.approvals.partialFailure.replace(
-    "{sources}",
-    failures.map((failure) => ko.approvals.sources[failure]).join(", "),
-  );
-}
 
 export function ApprovalsPage() {
   const { api } = useAuth();
   const location = useLocation();
-  const [workOrders, setWorkOrders] = useState<WorkOrderListItem[]>([]);
-  const [dailyPlans, setDailyPlans] = useState<DailyPlanSummary[]>([]);
-  const [failures, setFailures] = useState<ApprovalSourceKey[]>([]);
+  const [approvalPage, setApprovalPage] = useState<ApprovalItemsPage>();
   const [readState, setReadState] = useState<ReadState>("loading");
   const [writeState, setWriteState] = useState<WriteState>("idle");
 
+  const workOrders = useMemo(
+    () =>
+      approvalPage?.items.flatMap((item) =>
+        item.work_order ? [item.work_order] : [],
+      ) ?? [],
+    [approvalPage],
+  );
+  const dailyPlans = useMemo(
+    () =>
+      approvalPage?.items.flatMap((item) =>
+        item.daily_plan ? [item.daily_plan] : [],
+      ) ?? [],
+    [approvalPage],
+  );
+  const targetChanges = useMemo(
+    () =>
+      approvalPage?.items.flatMap((item) =>
+        item.target_change ? [item.target_change] : [],
+      ) ?? [],
+    [approvalPage],
+  );
   const requestedDailyPlans = useMemo(
     () => dailyPlans.filter((plan) => plan.status === "REQUESTED"),
     [dailyPlans],
   );
-  const pendingCount = workOrders.length + requestedDailyPlans.length;
-  const workOrdersFailed = failures.includes("workOrders");
+  const pendingCount =
+    approvalPage?.total ??
+    workOrders.length + requestedDailyPlans.length + targetChanges.length;
+  const canReviewTargetChanges =
+    !approvalPage ||
+    approvalPage.sources.length === 0 ||
+    approvalPage.sources.some((source) => source.key === "targetChanges");
   const focusedWorkOrderId = useMemo(() => {
     const params = new URLSearchParams(location.search);
     return params.get("source") === "work-order"
@@ -74,35 +70,19 @@ export function ApprovalsPage() {
 
   const loadData = useCallback(async () => {
     setReadState("loading");
-    const results = await Promise.all([
-      capture(
-        "workOrders",
-        api.GET("/api/v1/work-orders", {
-          params: {
-            query: { status: approvalStatuses, limit: 100, offset: 0 },
-          },
-        }),
-      ),
-      capture(
-        "dailyPlans",
-        api.GET("/api/daily-work-plans", { params: { query: {} } }),
-      ),
-    ]);
-
-    const workOrderResult = results.find((result) => result.key === "workOrders") as
-      | CapturedSource<{ items?: WorkOrderListItem[] }>
-      | undefined;
-    const dailyPlanResult = results.find((result) => result.key === "dailyPlans") as
-      | CapturedSource<{ items?: DailyPlanSummary[] }>
-      | undefined;
-    const nextFailures = results
-      .filter((result) => result.failed)
-      .map((result) => result.key);
-
-    setWorkOrders(workOrderResult?.data?.items ?? []);
-    setDailyPlans(dailyPlanResult?.data?.items ?? []);
-    setFailures(nextFailures);
-    setReadState(nextFailures.length === results.length ? "error" : "idle");
+    try {
+      const response = await api.GET("/api/approval-items", {
+        params: { query: { limit: 100, offset: 0 } },
+      });
+      if (!response.data) {
+        setReadState("error");
+        return;
+      }
+      setApprovalPage(response.data);
+      setReadState("idle");
+    } catch {
+      setReadState("error");
+    }
   }, [api]);
 
   useEffect(() => {
@@ -164,6 +144,7 @@ export function ApprovalsPage() {
         setWriteState("error");
         return undefined;
       }
+      await loadData();
       return response.data;
     } catch {
       setWriteState("error");
@@ -172,7 +153,7 @@ export function ApprovalsPage() {
   }
 
   const isInitialLoading =
-    readState === "loading" && workOrders.length === 0 && dailyPlans.length === 0;
+    readState === "loading" && !approvalPage;
 
   return (
     <>
@@ -200,32 +181,25 @@ export function ApprovalsPage() {
             <ApprovalCommandCenter
               workOrders={workOrders}
               dailyPlans={dailyPlans}
-              failures={failures}
+              targetChanges={targetChanges}
+              sources={approvalPage?.sources ?? []}
             />
-            {failures.length > 0 ? (
-              <PageError
-                message={sourceFailureMessage(failures)}
-                onRetry={() => { void loadData(); }}
-              />
-            ) : null}
             <div id="work-order-approval-queue" className="scroll-mt-24">
-              {workOrdersFailed ? (
-                <PageError
-                  message={sourceFailureMessage(["workOrders"])}
-                  onRetry={() => { void loadData(); }}
-                />
-              ) : (
-                <ApprovalQueue
-                  workOrders={workOrders}
-                  focusedWorkOrderId={focusedWorkOrderId}
-                  onApprove={approveWorkOrder}
-                  onReject={rejectWorkOrder}
-                />
-              )}
+              <ApprovalQueue
+                workOrders={workOrders}
+                focusedWorkOrderId={focusedWorkOrderId}
+                onApprove={approveWorkOrder}
+                onReject={rejectWorkOrder}
+              />
             </div>
-            <div id="target-change-review-queue" className="scroll-mt-24">
-              <TargetChangeReviewQueue onReview={reviewTargetChange} />
-            </div>
+            {canReviewTargetChanges ? (
+              <div id="target-change-review-queue" className="scroll-mt-24">
+                <TargetChangeReviewQueue
+                  requests={targetChanges}
+                  onReview={reviewTargetChange}
+                />
+              </div>
+            ) : null}
           </>
         )}
       </div>

@@ -98,6 +98,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/approval-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List federated approval workflow items
+         * @description Returns a server-owned, paginated approval queue across typed workflow objects. Each item carries ontology, workflow, and policy context so clients can render RBAC/PBAC/ABAC-aware approval tasks without composing source queues in the browser. The backend enforces authentication, tenant RLS, feature authorization, and branch scope before returning any item; source-specific mutation endpoints re-check authorization.
+         */
+        get: operations["listApprovalItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/work-orders": {
         parameters: {
             query?: never;
@@ -3372,6 +3392,86 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        ApprovalItemSource: {
+            /** @enum {string} */
+            key: "workOrders" | "dailyPlans" | "targetChanges";
+            label: string;
+            /** @enum {string} */
+            status: "ok";
+            /** Format: int64 */
+            count: number;
+        };
+        /** @description Tenant/org/branch/object identity for ontology-aware workflow, analytics, audit, and future group/organization hierarchy views. */
+        ApprovalOntologyContext: {
+            /** @enum {string} */
+            object_type: "WORK_ORDER" | "DAILY_PLAN" | "TARGET_CHANGE";
+            object_id: components["schemas"]["Uuid"];
+            tenant_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+        };
+        /** @description Workflow/action identity for a typed approval task. */
+        ApprovalWorkflowContext: {
+            /**
+             * @example work_order.report_completion_review
+             * @example daily_plan.review
+             * @example work_order.target_change_review
+             */
+            workflow_key: string;
+            /**
+             * @example approve_work_order
+             * @example review_daily_plan
+             * @example review_target_change
+             */
+            action_key: string;
+        };
+        /** @description Server policy result and requirements. Clients may display it, but must not treat it as authorization proof; source mutation endpoints always re-check PBAC/RBAC/ABAC server-side. */
+        ApprovalPolicyContext: {
+            /** @enum {string} */
+            decision: "ALLOWED";
+            /** @enum {string} */
+            enforcement: "server";
+            required_features: string[];
+            /** @enum {string} */
+            scope_kind: "BRANCH";
+            scope_id: components["schemas"]["Uuid"];
+        };
+        /** @description A typed approval task over an ontology object. The source-specific payloads are mutually exclusive; `source` selects which payload is populated. */
+        ApprovalItem: {
+            /** @description Stable federated id in `{source}:{source_id}` form. */
+            id: string;
+            /** @enum {string} */
+            source: "WORK_ORDER" | "DAILY_PLAN" | "TARGET_CHANGE";
+            source_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            status: string;
+            title: string;
+            summary: string;
+            /** Format: date-time */
+            requested_at: string | null;
+            /** Format: date-time */
+            due_at: string | null;
+            href: string;
+            action_href: string;
+            ontology: components["schemas"]["ApprovalOntologyContext"];
+            workflow: components["schemas"]["ApprovalWorkflowContext"];
+            policy: components["schemas"]["ApprovalPolicyContext"];
+            /** @description Present only when `source` is `WORK_ORDER`. */
+            work_order?: components["schemas"]["WorkOrderListItem"];
+            /** @description Present only when `source` is `DAILY_PLAN`. */
+            daily_plan?: components["schemas"]["DailyPlanSummary"];
+            /** @description Present only when `source` is `TARGET_CHANGE`. */
+            target_change?: components["schemas"]["TargetChangeRequestSummary"];
+        };
+        ApprovalItemsPage: {
+            items: components["schemas"]["ApprovalItem"][];
+            sources: components["schemas"]["ApprovalItemSource"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
         WorkOrderDetail: components["schemas"]["WorkOrderListItem"] & {
             symptom: string;
             customer_request: string | null;
@@ -5052,6 +5152,32 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    listApprovalItems: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Federated approval items for the caller's policy scope. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalItemsPage"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     createWorkOrder: {

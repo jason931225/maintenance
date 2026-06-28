@@ -113,7 +113,7 @@ test("ADMIN-19 admin creates an outsource work for a work order", async ({
   });
 });
 
-test("ADMIN-19 admin approves a target due-date change request by id", async ({
+test("ADMIN-19 admin approves a target due-date change request from the review queue", async ({
   page,
   loginAs,
 }) => {
@@ -164,14 +164,20 @@ test("ADMIN-19 admin approves a target due-date change request by id", async ({
     )
     .toBe(true);
 
-  // The review queue renders below the work-order queue; wait for its input.
-  const reviewInput = page.locator("#target-change-request-id");
-  await expect(reviewInput).toBeVisible({ timeout: 8_000 });
-  await reviewInput.fill(TARGET_CHANGE_ID);
-  const reviewMemo = page.locator("#target-change-memo");
+  // The target-change review queue is server-fed: approve the concrete
+  // pending request row instead of typing a raw request id into a free-form box.
+  const targetChangeQueue = page.locator("#target-change-review-queue");
+  const targetChangeRow = targetChangeQueue.locator(
+    `[id="target-change-${TARGET_CHANGE_ID}"]`,
+  );
+  await expect(targetChangeRow).toBeVisible({ timeout: 8_000 });
+  await expect(targetChangeRow.getByText(WO_OUTSOURCE)).toBeVisible();
+
+  const reviewMemo = targetChangeRow.locator(
+    `[id="target-change-memo-${TARGET_CHANGE_ID}"]`,
+  );
   await reviewMemo.fill("E2E 승인 메모");
-  await reviewMemo.press("Tab");
-  await page.keyboard.press("Enter");
+  await targetChangeRow.getByRole("button", { name: "승인", exact: true }).click();
 
   await expect(page.getByText(/일정 변경 요청을 승인했습니다\./)).toBeVisible({
     timeout: 10_000,

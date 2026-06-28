@@ -10,12 +10,13 @@ import { AuthContext } from "../context/auth";
 import { branchId, primaryMechanicId, workOrderListItems } from "../test/fixtures";
 import { ApprovalsPage } from "./ApprovalsPage";
 
-const listRequests: URL[] = [];
-const dailyRequests: URL[] = [];
+const federatedRequests: URL[] = [];
+const legacyListRequests: URL[] = [];
+const legacyDailyRequests: URL[] = [];
 const server = setupServer();
 
 const requestedPlanId = "44444444-4444-4444-8444-444444444444";
-const approvedPlanId = "55555555-5555-4555-8555-555555555555";
+const testTenantId = "99999999-0000-4000-8000-999999999999";
 
 const adminSession: AuthSession = {
   access_token: "admin-token",
@@ -30,8 +31,9 @@ beforeAll(() => {
 
 afterEach(() => {
   server.resetHandlers();
-  listRequests.length = 0;
-  dailyRequests.length = 0;
+  federatedRequests.length = 0;
+  legacyListRequests.length = 0;
+  legacyDailyRequests.length = 0;
 });
 
 afterAll(() => {
@@ -64,45 +66,142 @@ function renderPage(initialEntries = ["/approvals"]) {
   );
 }
 
+const targetChangeId = "66666666-6666-4666-8666-666666666666";
+
+function approvalContext(source: "WORK_ORDER" | "DAILY_PLAN" | "TARGET_CHANGE", sourceId: string) {
+  const contexts = {
+    WORK_ORDER: {
+      workflow_key: "work_order.report_completion_review",
+      action_key: "approve_work_order",
+      required_features: ["completion_review"],
+    },
+    DAILY_PLAN: {
+      workflow_key: "daily_plan.review",
+      action_key: "review_daily_plan",
+      required_features: ["daily_plan_review"],
+    },
+    TARGET_CHANGE: {
+      workflow_key: "work_order.target_change_review",
+      action_key: "review_target_change",
+      required_features: ["target_manage"],
+    },
+  }[source];
+  return {
+    ontology: {
+      object_type: source,
+      object_id: sourceId,
+      tenant_id: testTenantId,
+      branch_id: branchId,
+    },
+    workflow: {
+      workflow_key: contexts.workflow_key,
+      action_key: contexts.action_key,
+    },
+    policy: {
+      decision: "ALLOWED",
+      enforcement: "server",
+      required_features: contexts.required_features,
+      scope_kind: "BRANCH",
+      scope_id: branchId,
+    },
+  };
+}
+
+function federatedApprovalPayload() {
+  const workOrder =
+    workOrderListItems.find((item) => item.status === "REPORT_SUBMITTED") ??
+    workOrderListItems.find((item) => item.status === "ADMIN_REVIEW") ??
+    workOrderListItems[0];
+  return {
+    items: [
+      {
+        id: `WORK_ORDER:${workOrder.id}`,
+        source: "WORK_ORDER",
+        source_id: workOrder.id,
+        branch_id: workOrder.branch_id,
+        status: workOrder.status,
+        title: `${workOrder.request_no} 작업 보고 승인`,
+        summary: workOrder.equipment.model ?? workOrder.equipment.equipment_no,
+        requested_at: workOrder.created_at,
+        due_at: workOrder.target_due_at,
+        href: `/approvals?source=work-order&focus=${workOrder.id}`,
+        action_href: `/api/work-orders/${workOrder.id}/approve`,
+        ...approvalContext("WORK_ORDER", workOrder.id),
+        work_order: workOrder,
+      },
+      {
+        id: `DAILY_PLAN:${requestedPlanId}`,
+        source: "DAILY_PLAN",
+        source_id: requestedPlanId,
+        branch_id: branchId,
+        status: "REQUESTED",
+        title: "2026-06-29 계획업무 검토",
+        summary: "계획업무 검토 요청",
+        requested_at: "2026-06-28T01:00:00Z",
+        due_at: "2026-06-29T00:00:00Z",
+        href: `/daily-plan?planId=${requestedPlanId}`,
+        action_href: `/api/daily-work-plans/${requestedPlanId}/review`,
+        ...approvalContext("DAILY_PLAN", requestedPlanId),
+        daily_plan: {
+          id: requestedPlanId,
+          branch_id: branchId,
+          mechanic_id: primaryMechanicId,
+          plan_date: "2026-06-29",
+          status: "REQUESTED",
+        },
+      },
+      {
+        id: `TARGET_CHANGE:${targetChangeId}`,
+        source: "TARGET_CHANGE",
+        source_id: targetChangeId,
+        branch_id: branchId,
+        status: "REQUESTED",
+        title: "일정 변경 요청",
+        summary: "목표 완료 변경 검토",
+        requested_at: "2026-06-28T02:00:00Z",
+        due_at: "2026-07-05T00:00:00Z",
+        href: `#target-change-${targetChangeId}`,
+        action_href: `/api/target-change-requests/${targetChangeId}/review`,
+        ...approvalContext("TARGET_CHANGE", targetChangeId),
+        target_change: {
+          id: targetChangeId,
+          work_order_id: workOrder.id,
+          branch_id: branchId,
+          requested_target_due_at: "2026-07-05T00:00:00Z",
+          status: "REQUESTED",
+        },
+      },
+    ],
+    sources: [
+      { key: "workOrders", label: "작업 보고", status: "ok", count: 1 },
+      { key: "dailyPlans", label: "계획업무", status: "ok", count: 1 },
+      { key: "targetChanges", label: "일정 변경", status: "ok", count: 1 },
+    ],
+    limit: 100,
+    offset: 0,
+    total: 3,
+  };
+}
+
 function installHappyHandlers() {
   server.use(
+    http.get("*/api/approval-items", ({ request }) => {
+      federatedRequests.push(new URL(request.url));
+      return HttpResponse.json(federatedApprovalPayload());
+    }),
     http.get("*/api/v1/work-orders", ({ request }) => {
-      const url = new URL(request.url);
-      listRequests.push(url);
-      const statusFilter = url.searchParams
-        .getAll("status")
-        .flatMap((value) => value.split(","));
-      const items = statusFilter.length
-        ? workOrderListItems.filter((item) => statusFilter.includes(item.status))
-        : workOrderListItems;
-      return HttpResponse.json({ items, limit: 100, offset: 0, total: items.length });
+      legacyListRequests.push(new URL(request.url));
+      return HttpResponse.json({ error: "legacy work-order approval list should not be called" }, { status: 500 });
     }),
     http.get("*/api/daily-work-plans", ({ request }) => {
-      dailyRequests.push(new URL(request.url));
-      return HttpResponse.json({
-        items: [
-          {
-            id: requestedPlanId,
-            branch_id: branchId,
-            mechanic_id: primaryMechanicId,
-            plan_date: "2026-06-29",
-            status: "REQUESTED",
-          },
-          {
-            id: approvedPlanId,
-            branch_id: branchId,
-            mechanic_id: primaryMechanicId,
-            plan_date: "2026-06-30",
-            status: "APPROVED",
-          },
-        ],
-      });
+      legacyDailyRequests.push(new URL(request.url));
+      return HttpResponse.json({ error: "legacy daily-plan approval list should not be called" }, { status: 500 });
     }),
   );
 }
 
 describe("ApprovalsPage", () => {
-  it("renders an approval command center across work reports, daily plans, and target-change review", async () => {
+  it("renders a server-federated approval command center across work reports, daily plans, and target-change review", async () => {
     installHappyHandlers();
 
     renderPage();
@@ -124,46 +223,47 @@ describe("ApprovalsPage", () => {
     );
     expect(screen.queryByRole("link", { name: /2026-06-30 계획업무/ })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "일정 변경 요청 검토", level: 2 })).toBeVisible();
+    expect(screen.getByText("2026-07-05 09:00")).toBeVisible();
 
     await waitFor(() => {
-      expect(
-        listRequests.some(
-          (url) =>
-            url.search.includes("REPORT_SUBMITTED") &&
-            url.search.includes("ADMIN_REVIEW"),
-        ),
-      ).toBe(true);
-      expect(dailyRequests.length).toBe(1);
+      expect(federatedRequests.length).toBe(1);
+      expect(federatedRequests[0].searchParams.get("limit")).toBe("100");
+      expect(legacyListRequests).toHaveLength(0);
+      expect(legacyDailyRequests).toHaveLength(0);
     });
   });
 
-  it("keeps work-order approvals visible when the daily-plan source fails", async () => {
+  it("shows a full retryable error when the federated approval API fails", async () => {
     installHappyHandlers();
     server.use(
-      http.get("*/api/daily-work-plans", () =>
-        HttpResponse.json({ error: "daily offline" }, { status: 503 }),
+      http.get("*/api/approval-items", () =>
+        HttpResponse.json({ error: "approval federation offline" }, { status: 503 }),
       ),
     );
 
     renderPage();
 
-    expect(await screen.findByText("일부 승인 원천을 불러오지 못했습니다: 계획업무")).toBeVisible();
-    expect(await screen.findByText("20260612-002")).toBeVisible();
-    expect(screen.queryByText("이 화면을 표시하지 못했습니다.")).not.toBeInTheDocument();
+    expect(await screen.findByText("데이터를 불러오지 못했습니다.")).toBeVisible();
+    expect(screen.queryByText("20260612-002")).not.toBeInTheDocument();
   });
 
   it("focuses the work-order approval linked from the work hub", async () => {
     installHappyHandlers();
 
+    const focusedWorkOrder = federatedApprovalPayload().items.find(
+      (item) => item.source === "WORK_ORDER",
+    );
+    if (!focusedWorkOrder) throw new Error("fixture missing work-order approval item");
+
     renderPage([
-      "/approvals?source=work-order&focus=77777777-7777-4777-8777-777777777777",
+      `/approvals?source=work-order&focus=${focusedWorkOrder.source_id}`,
     ]);
 
     expect(await screen.findByText("업무 허브에서 연결된 승인 건을 강조했습니다.")).toBeVisible();
     const focusedApproval = screen.getByLabelText(/20260612-002 연결된 승인 건/);
     expect(focusedApproval).toHaveAttribute(
       "id",
-      "approval-work-order-77777777-7777-4777-8777-777777777777",
+      `approval-work-order-${focusedWorkOrder.source_id}`,
     );
     expect(focusedApproval).toHaveAttribute("aria-current", "true");
   });

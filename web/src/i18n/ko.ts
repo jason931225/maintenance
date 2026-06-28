@@ -1268,6 +1268,7 @@ export const ko = {
     sources: {
       workOrders: "작업 보고",
       dailyPlans: "계획업무",
+      targetChanges: "일정 변경",
     },
     commandCenter: {
       eyebrow: "Workflow + Approval",
@@ -1276,7 +1277,6 @@ export const ko = {
         "작업 보고, 계획업무, 일정 변경 요청을 원천 업무 객체와 연결해 감사 가능한 승인 흐름으로 처리합니다.",
       auditBadge: "권한·감사 재검사",
       none: "없음",
-      codeBased: "요청 코드",
       sources: {
         workReports: {
           title: "작업 보고 승인",
@@ -1290,7 +1290,8 @@ export const ko = {
         },
         targetChange: {
           title: "일정 변경 검토",
-          description: "배차에서 발행된 목표 완료 변경 요청을 요청 코드로 검토합니다.",
+          description:
+            "배차에서 발행된 목표 완료 변경 요청을 업무 객체와 정책 범위 안에서 검토합니다.",
           action: "일정 변경 검토로 이동",
         },
       },
@@ -1336,11 +1337,10 @@ export const ko = {
     targetChange: {
       title: "일정 변경 요청 검토",
       description:
-        "배차에서 요청된 일정(목표 완료) 변경 건을 요청 코드로 조회해 승인 또는 반려합니다.",
-      lookupLabel: "요청 코드",
-      lookupPlaceholder: "알림에서 확인한 요청 코드를 입력하세요.",
-      lookup: "조회",
-      notFound: "해당 일정 변경 요청을 찾을 수 없습니다.",
+        "배차에서 요청된 일정(목표 완료) 변경 건을 승인 대기 목록에서 확인하고 승인 또는 반려합니다.",
+      listLabel: "일정 변경 승인 대기 목록",
+      empty: "검토 대기 중인 일정 변경 요청이 없습니다.",
+      workOrderLabel: "연결 작업지시",
       requestedTargetDueAt: "요청 목표 완료",
       memoLabel: "일정 변경 검토 메모",
       memoPlaceholder: "일정 변경 검토 메모를 입력하세요. (선택)",

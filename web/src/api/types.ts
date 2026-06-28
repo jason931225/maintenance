@@ -5,6 +5,15 @@ export type WorkOrderSummary = components["schemas"]["WorkOrderSummary"];
 export type WorkOrderListItem = components["schemas"]["WorkOrderListItem"];
 export type WorkOrderDetail = components["schemas"]["WorkOrderDetail"];
 export type WorkOrderListPage = components["schemas"]["WorkOrderListPage"];
+export type ApprovalItemSource = components["schemas"]["ApprovalItemSource"];
+export type ApprovalOntologyContext =
+  components["schemas"]["ApprovalOntologyContext"];
+export type ApprovalWorkflowContext =
+  components["schemas"]["ApprovalWorkflowContext"];
+export type ApprovalPolicyContext =
+  components["schemas"]["ApprovalPolicyContext"];
+export type ApprovalItem = components["schemas"]["ApprovalItem"];
+export type ApprovalItemsPage = components["schemas"]["ApprovalItemsPage"];
 export type CreateWorkOrderRequest =
   components["schemas"]["CreateWorkOrderRequest"];
 export type EquipmentLookupResponse =

@@ -34,8 +34,9 @@ use mnt_workorder_application::{
     DailyPlanItemInput, DailyPlanListQuery, DailyPlanStatus, DailyPlanSummary,
     RejectWorkOrderCommand, ReviewDailyPlanCommand, ReviewTargetChangeCommand,
     SendDailyPlanForReviewCommand, SubmitReportCommand, TargetChangeDecision,
-    TargetChangeRequestCommand, UpdatePriorityCommand, WorkOrderApprovalCommand,
-    WorkOrderAssignmentCommand, WorkOrderStartCommand,
+    TargetChangeRequestCommand, TargetChangeRequestSummary, TargetChangeStatus,
+    UpdatePriorityCommand, WorkOrderApprovalCommand, WorkOrderAssignmentCommand,
+    WorkOrderStartCommand,
 };
 use mnt_workorder_domain::{
     AssignmentRole, AttachmentStage, PriorityLevel, WorkOrderStatus, WorkResultType,
@@ -133,6 +134,7 @@ pub fn router(state: WorkOrderRestState) -> Router {
     let verifier = state.jwt_verifier.clone();
     let pool = state.store.pool().clone();
     let router = Router::new()
+        .route("/api/approval-items", get(list_approval_items))
         .route("/api/v1/work-orders", get(list_work_orders))
         .route(
             "/api/v1/work-orders/{work_order_id}",
@@ -302,6 +304,97 @@ struct ListDailyPlansQuery {
 #[derive(Debug, Serialize)]
 struct DailyPlanListResponse {
     items: Vec<DailyPlanSummary>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct ApprovalItemsQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+#[derive(Debug)]
+struct NormalizedApprovalItemsQuery {
+    limit: i64,
+    offset: i64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ApprovalSourceVisibility {
+    work_orders: bool,
+    daily_plans: bool,
+    target_changes: bool,
+}
+
+impl ApprovalSourceVisibility {
+    fn any(self) -> bool {
+        self.work_orders || self.daily_plans || self.target_changes
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ApprovalItemsPage {
+    items: Vec<ApprovalItem>,
+    sources: Vec<ApprovalItemSource>,
+    limit: i64,
+    offset: i64,
+    total: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct ApprovalItemSource {
+    key: &'static str,
+    label: &'static str,
+    status: &'static str,
+    count: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct ApprovalItem {
+    /// Stable federated id (`{source}:{source_id}`) for UI selection, audit
+    /// correlation, and future object-activity references.
+    id: String,
+    source: String,
+    source_id: uuid::Uuid,
+    branch_id: BranchId,
+    status: String,
+    title: String,
+    summary: String,
+    requested_at: Option<time::OffsetDateTime>,
+    due_at: Option<time::OffsetDateTime>,
+    href: String,
+    action_href: String,
+    ontology: ApprovalOntologyContext,
+    workflow: ApprovalWorkflowContext,
+    policy: ApprovalPolicyContext,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_order: Option<WorkOrderListItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    daily_plan: Option<DailyPlanSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_change: Option<TargetChangeRequestSummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct ApprovalOntologyContext {
+    object_type: String,
+    object_id: uuid::Uuid,
+    tenant_id: OrgId,
+    branch_id: BranchId,
+}
+
+#[derive(Debug, Serialize)]
+struct ApprovalWorkflowContext {
+    workflow_key: String,
+    action_key: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ApprovalPolicyContext {
+    decision: &'static str,
+    enforcement: &'static str,
+    required_features: Vec<&'static str>,
+    scope_kind: &'static str,
+    scope_id: uuid::Uuid,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1944,6 +2037,50 @@ async fn list_work_orders(
     }))
 }
 
+async fn list_approval_items(
+    State(state): State<WorkOrderRestState>,
+    headers: HeaderMap,
+    Query(query): Query<ApprovalItemsQuery>,
+) -> Result<Json<ApprovalItemsPage>, RestError> {
+    let principal = principal_from_headers(&state, &headers)?;
+    let visibility = approval_source_visibility(&principal)?;
+    let query = NormalizedApprovalItemsQuery {
+        limit: normalize_limit(query.limit, 100, 200)?,
+        offset: normalize_offset(query.offset)?,
+    };
+    // Approval queues follow the same queue-visibility rule as work-order and
+    // daily-plan triage: org-wide queue triagers see every branch in the tenant;
+    // everyone else remains confined to their explicit branch membership.
+    let branch_scope = work_order_list_scope(&principal);
+    let pool = state.store.pool();
+
+    let counts = fetch_approval_source_counts(pool, &branch_scope, visibility).await?;
+    let total: i64 = counts.values().sum();
+    let rows = fetch_approval_rows(pool, &branch_scope, visibility, &query).await?;
+    let work_order_ids = rows
+        .iter()
+        .filter_map(|row| {
+            let source: String = row.try_get("source").ok()?;
+            (source == "WORK_ORDER")
+                .then(|| row.try_get("source_id").ok())
+                .flatten()
+        })
+        .collect::<Vec<uuid::Uuid>>();
+    let assignments = fetch_assignment_map(pool, &work_order_ids).await?;
+    let items = rows
+        .iter()
+        .map(|row| approval_item_from_row(row, &assignments))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(Json(ApprovalItemsPage {
+        items,
+        sources: approval_sources_from_counts(&counts, visibility),
+        limit: query.limit,
+        offset: query.offset,
+        total,
+    }))
+}
+
 async fn get_work_order_detail(
     State(state): State<WorkOrderRestState>,
     headers: HeaderMap,
@@ -2706,6 +2843,34 @@ fn authorize_daily_plan_list(principal: &Principal) -> Result<(), RestError> {
         .or_else(|_| authorize_feature_in_scope(principal, Feature::OrgWideQueueTriage))
 }
 
+/// Resolve the exact approval sources this principal may see. This is
+/// intentionally stricter than generic work-order read: mechanics may read their
+/// own work but must not see the manager/admin approval inbox. Source visibility
+/// follows source review capabilities; `OrgWideQueueTriage` widens both branch
+/// scope and source visibility for executive triage. Source-specific actions
+/// still re-authorize on their own endpoints before mutating state.
+fn approval_source_visibility(
+    principal: &Principal,
+) -> Result<ApprovalSourceVisibility, RestError> {
+    let org_wide = feature_allowed_in_scope(principal, Feature::OrgWideQueueTriage);
+    let visibility = ApprovalSourceVisibility {
+        work_orders: org_wide || feature_allowed_in_scope(principal, Feature::CompletionReview),
+        daily_plans: org_wide || feature_allowed_in_scope(principal, Feature::DailyPlanReview),
+        target_changes: org_wide || feature_allowed_in_scope(principal, Feature::TargetManage),
+    };
+    if visibility.any() {
+        Ok(visibility)
+    } else {
+        Err(RestError::from_kernel(KernelError::forbidden(
+            "role is not allowed to use approval items",
+        )))
+    }
+}
+
+fn feature_allowed_in_scope(principal: &Principal, feature: Feature) -> bool {
+    authorize_feature_in_scope(principal, feature).is_ok()
+}
+
 /// Authorize a read-style feature against a representative branch from the
 /// principal's scope (the first branch it belongs to, or any branch when the
 /// scope is `All`). Shared by the work-order and daily-plan list gates.
@@ -2717,6 +2882,265 @@ fn authorize_feature_in_scope(principal: &Principal, feature: Feature) -> Result
         })?,
     };
     authorize(principal, Action::new(feature), resource_branch).map_err(RestError::from_kernel)
+}
+
+async fn fetch_approval_source_counts(
+    pool: &PgPool,
+    branch_scope: &BranchScope,
+    visibility: ApprovalSourceVisibility,
+) -> Result<BTreeMap<String, i64>, RestError> {
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+    let mut builder =
+        QueryBuilder::<Postgres>::new("SELECT source, COUNT(*)::BIGINT AS count FROM (");
+    push_approval_federation_union(&mut builder, branch_scope, visibility)?;
+    builder.push(") approval GROUP BY source");
+    let rows = with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+    })
+    .await?;
+
+    rows.iter()
+        .map(|row| {
+            Ok((
+                row.try_get::<String, _>("source")?,
+                row.try_get::<i64, _>("count")?,
+            ))
+        })
+        .collect()
+}
+
+async fn fetch_approval_rows(
+    pool: &PgPool,
+    branch_scope: &BranchScope,
+    visibility: ApprovalSourceVisibility,
+    query: &NormalizedApprovalItemsQuery,
+) -> Result<Vec<sqlx::postgres::PgRow>, RestError> {
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            approval.source,
+            approval.source_id,
+            approval.org_id AS approval_org_id,
+            approval.branch_id AS approval_branch_id,
+            approval.status AS approval_status,
+            approval.requested_at AS approval_requested_at,
+            approval.due_at AS approval_due_at,
+            w.id AS id,
+            w.request_no,
+            w.branch_id,
+            w.status,
+            w.priority,
+            w.result_type,
+            w.target_due_at,
+            w.created_at,
+            w.updated_at,
+            e.id AS equipment_id,
+            e.equipment_no,
+            e.management_no,
+            e.model,
+            e.status AS equipment_status,
+            e.specification,
+            e.ton_text,
+            c.id AS customer_id,
+            c.name AS customer_name,
+            s.id AS site_id,
+            s.name AS site_name,
+            s.contact_name AS site_contact_name,
+            s.contact_phone AS site_contact_phone,
+            s.contact_email AS site_contact_email,
+            d.id AS daily_plan_id,
+            d.branch_id AS daily_branch_id,
+            d.mechanic_id AS daily_mechanic_id,
+            d.plan_date AS daily_plan_date,
+            d.status AS daily_status,
+            t.id AS target_change_id,
+            t.work_order_id AS target_work_order_id,
+            t.requested_target_due_at AS target_requested_target_due_at,
+            t.status AS target_status
+        FROM (
+        "#,
+    );
+    push_approval_federation_union(&mut builder, branch_scope, visibility)?;
+    builder.push(
+        r#"
+        ) approval
+        LEFT JOIN work_orders w
+          ON approval.source = 'WORK_ORDER'
+         AND w.id = approval.source_id
+        LEFT JOIN registry_equipment e
+          ON approval.source = 'WORK_ORDER'
+         AND e.id = w.equipment_id
+        LEFT JOIN registry_customers c
+          ON approval.source = 'WORK_ORDER'
+         AND c.id = w.customer_id
+        LEFT JOIN registry_sites s
+          ON approval.source = 'WORK_ORDER'
+         AND s.id = w.site_id
+        LEFT JOIN daily_work_plans d
+          ON approval.source = 'DAILY_PLAN'
+         AND d.id = approval.source_id
+        LEFT JOIN target_change_requests t
+          ON approval.source = 'TARGET_CHANGE'
+         AND t.id = approval.source_id
+        ORDER BY
+            approval.due_at ASC NULLS LAST,
+            approval.requested_at ASC NULLS LAST,
+            approval.sort_rank ASC,
+            approval.source_id ASC
+        LIMIT
+        "#,
+    );
+    builder.push_bind(query.limit);
+    builder.push(" OFFSET ");
+    builder.push_bind(query.offset);
+
+    with_org_conn::<_, _, RestError>(pool, org, move |tx| {
+        Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+    })
+    .await
+}
+
+fn push_approval_federation_union(
+    builder: &mut QueryBuilder<Postgres>,
+    branch_scope: &BranchScope,
+    visibility: ApprovalSourceVisibility,
+) -> Result<(), RestError> {
+    let mut pushed = false;
+    if visibility.work_orders {
+        push_approval_union_separator(builder, &mut pushed);
+        builder.push(
+            r#"
+        SELECT
+            'WORK_ORDER'::TEXT AS source,
+            w.id AS source_id,
+            w.org_id,
+            w.branch_id,
+            w.status,
+            COALESCE(pending_step.requested_at, w.report_submitted_at, w.updated_at, w.created_at)
+                AS requested_at,
+            w.target_due_at AS due_at,
+            1 AS sort_rank
+        FROM work_orders w
+        LEFT JOIN LATERAL (
+            SELECT step.requested_at
+            FROM work_order_approval_steps step
+            WHERE step.work_order_id = w.id
+              AND step.status = 'PENDING'
+            ORDER BY step.step_order ASC
+            LIMIT 1
+        ) pending_step ON TRUE
+        WHERE w.status IN ('REPORT_SUBMITTED', 'ADMIN_REVIEW')
+          AND
+        "#,
+        );
+        push_branch_scope_filter(
+            builder,
+            branch_scope,
+            BranchColumn::new("w.branch_id").map_err(RestError::from_kernel)?,
+        );
+    }
+    if visibility.daily_plans {
+        push_approval_union_separator(builder, &mut pushed);
+        builder.push(
+            r#"
+        SELECT
+            'DAILY_PLAN'::TEXT AS source,
+            d.id AS source_id,
+            d.org_id,
+            d.branch_id,
+            d.status,
+            COALESCE(d.requested_at, d.updated_at, d.created_at) AS requested_at,
+            (d.plan_date::TIMESTAMP AT TIME ZONE 'Asia/Seoul') AS due_at,
+            2 AS sort_rank
+        FROM daily_work_plans d
+        WHERE d.status = 'REQUESTED'
+          AND
+        "#,
+        );
+        push_branch_scope_filter(
+            builder,
+            branch_scope,
+            BranchColumn::new("d.branch_id").map_err(RestError::from_kernel)?,
+        );
+    }
+    if visibility.target_changes {
+        push_approval_union_separator(builder, &mut pushed);
+        builder.push(
+            r#"
+        SELECT
+            'TARGET_CHANGE'::TEXT AS source,
+            t.id AS source_id,
+            w.org_id,
+            w.branch_id,
+            t.status,
+            t.created_at AS requested_at,
+            t.requested_target_due_at AS due_at,
+            3 AS sort_rank
+        FROM target_change_requests t
+        JOIN work_orders w ON w.id = t.work_order_id
+        WHERE t.status = 'REQUESTED'
+          AND
+        "#,
+        );
+        push_branch_scope_filter(
+            builder,
+            branch_scope,
+            BranchColumn::new("w.branch_id").map_err(RestError::from_kernel)?,
+        );
+    }
+    debug_assert!(
+        pushed,
+        "approval visibility must include at least one source"
+    );
+    Ok(())
+}
+
+fn push_approval_union_separator(builder: &mut QueryBuilder<Postgres>, pushed: &mut bool) {
+    if *pushed {
+        builder.push(" UNION ALL ");
+    }
+    *pushed = true;
+}
+
+fn approval_sources_from_counts(
+    counts: &BTreeMap<String, i64>,
+    visibility: ApprovalSourceVisibility,
+) -> Vec<ApprovalItemSource> {
+    fn count(counts: &BTreeMap<String, i64>, source: &str) -> i64 {
+        counts.get(source).copied().unwrap_or(0)
+    }
+
+    let mut sources = Vec::new();
+    if visibility.work_orders {
+        sources.push(ApprovalItemSource {
+            key: "workOrders",
+            label: "작업 보고",
+            status: "ok",
+            count: count(counts, "WORK_ORDER"),
+        });
+    }
+    if visibility.daily_plans {
+        sources.push(ApprovalItemSource {
+            key: "dailyPlans",
+            label: "계획업무",
+            status: "ok",
+            count: count(counts, "DAILY_PLAN"),
+        });
+    }
+    if visibility.target_changes {
+        sources.push(ApprovalItemSource {
+            key: "targetChanges",
+            label: "일정 변경",
+            status: "ok",
+            count: count(counts, "TARGET_CHANGE"),
+        });
+    }
+    sources
 }
 
 fn parse_work_order_list_query(
@@ -3173,6 +3597,176 @@ fn work_order_list_item_from_row(
         site_contact: site_contact_from_row(row)?,
         assignments: assignments.get(&id).cloned().unwrap_or_default(),
     })
+}
+
+fn approval_item_from_row(
+    row: &sqlx::postgres::PgRow,
+    assignments: &BTreeMap<uuid::Uuid, Vec<AssignmentSummary>>,
+) -> Result<ApprovalItem, RestError> {
+    let source: String = row.try_get("source")?;
+    let source_id: uuid::Uuid = row.try_get("source_id")?;
+    let tenant_id = OrgId::from_uuid(row.try_get("approval_org_id")?);
+    let branch_id = BranchId::from_uuid(row.try_get("approval_branch_id")?);
+    let status: String = row.try_get("approval_status")?;
+    let requested_at = row.try_get("approval_requested_at")?;
+    let due_at = row.try_get("approval_due_at")?;
+    let base = ApprovalItemBase {
+        source: source.clone(),
+        source_id,
+        tenant_id,
+        branch_id,
+        status: status.clone(),
+        requested_at,
+        due_at,
+    };
+
+    match source.as_str() {
+        "WORK_ORDER" => {
+            let work_order = work_order_list_item_from_row(row, assignments)?;
+            let title = format!("{} 작업 보고 승인", work_order.request_no);
+            let summary = work_order
+                .equipment
+                .model
+                .as_ref()
+                .filter(|model| !model.trim().is_empty())
+                .cloned()
+                .unwrap_or_else(|| work_order.equipment.equipment_no.clone());
+            Ok(base.into_item(
+                title,
+                summary,
+                format!("/approvals?source=work-order&focus={source_id}"),
+                format!("/api/work-orders/{source_id}/approve"),
+                Some(work_order),
+                None,
+                None,
+            ))
+        }
+        "DAILY_PLAN" => {
+            let daily_status: String = row.try_get("daily_status")?;
+            let plan = DailyPlanSummary {
+                id: DailyPlanId::from_uuid(row.try_get("daily_plan_id")?),
+                branch_id: BranchId::from_uuid(row.try_get("daily_branch_id")?),
+                mechanic_id: UserId::from_uuid(row.try_get("daily_mechanic_id")?),
+                plan_date: row.try_get("daily_plan_date")?,
+                status: DailyPlanStatus::from_db_str(&daily_status)
+                    .map_err(RestError::from_kernel)?,
+            };
+            let title = format!("{} 계획업무 검토", plan.plan_date);
+            Ok(base.into_item(
+                title,
+                "계획업무 검토 요청".to_owned(),
+                format!("/daily-plan?planId={source_id}"),
+                format!("/api/daily-work-plans/{source_id}/review"),
+                None,
+                Some(plan),
+                None,
+            ))
+        }
+        "TARGET_CHANGE" => {
+            let target_status: String = row.try_get("target_status")?;
+            let request = TargetChangeRequestSummary {
+                id: row.try_get("target_change_id")?,
+                work_order_id: WorkOrderId::from_uuid(row.try_get("target_work_order_id")?),
+                branch_id,
+                requested_target_due_at: row.try_get("target_requested_target_due_at")?,
+                status: TargetChangeStatus::from_db_str(&target_status)
+                    .map_err(RestError::from_kernel)?,
+            };
+            Ok(base.into_item(
+                "일정 변경 요청".to_owned(),
+                "목표 완료 변경 검토".to_owned(),
+                format!("#target-change-{source_id}"),
+                format!("/api/target-change-requests/{source_id}/review"),
+                None,
+                None,
+                Some(request),
+            ))
+        }
+        other => Err(RestError::from_kernel(KernelError::validation(format!(
+            "unknown approval source {other:?}"
+        )))),
+    }
+}
+
+struct ApprovalItemBase {
+    source: String,
+    source_id: uuid::Uuid,
+    tenant_id: OrgId,
+    branch_id: BranchId,
+    status: String,
+    requested_at: Option<time::OffsetDateTime>,
+    due_at: Option<time::OffsetDateTime>,
+}
+
+impl ApprovalItemBase {
+    #[allow(clippy::too_many_arguments)]
+    fn into_item(
+        self,
+        title: String,
+        summary: String,
+        href: String,
+        action_href: String,
+        work_order: Option<WorkOrderListItem>,
+        daily_plan: Option<DailyPlanSummary>,
+        target_change: Option<TargetChangeRequestSummary>,
+    ) -> ApprovalItem {
+        let ontology = ApprovalOntologyContext {
+            object_type: self.source.clone(),
+            object_id: self.source_id,
+            tenant_id: self.tenant_id,
+            branch_id: self.branch_id,
+        };
+        let workflow = approval_workflow_context(&self.source);
+        let policy = approval_policy_context(&self.source, self.branch_id);
+        ApprovalItem {
+            id: format!("{}:{}", self.source, self.source_id),
+            source: self.source,
+            source_id: self.source_id,
+            branch_id: self.branch_id,
+            status: self.status,
+            title,
+            summary,
+            requested_at: self.requested_at,
+            due_at: self.due_at,
+            href,
+            action_href,
+            ontology,
+            workflow,
+            policy,
+            work_order,
+            daily_plan,
+            target_change,
+        }
+    }
+}
+
+fn approval_workflow_context(source: &str) -> ApprovalWorkflowContext {
+    let (workflow_key, action_key) = match source {
+        "WORK_ORDER" => ("work_order.report_completion_review", "approve_work_order"),
+        "DAILY_PLAN" => ("daily_plan.review", "review_daily_plan"),
+        "TARGET_CHANGE" => ("work_order.target_change_review", "review_target_change"),
+        _ => ("approval.unknown", "unknown"),
+    };
+    ApprovalWorkflowContext {
+        workflow_key: workflow_key.to_owned(),
+        action_key: action_key.to_owned(),
+    }
+}
+
+fn approval_policy_context(source: &str, branch_id: BranchId) -> ApprovalPolicyContext {
+    let required_features = match source {
+        "WORK_ORDER" => vec!["completion_review"],
+        "DAILY_PLAN" => vec!["daily_plan_review"],
+        "TARGET_CHANGE" => vec!["target_manage"],
+        _ => Vec::new(),
+    };
+    ApprovalPolicyContext {
+        decision: "ALLOWED",
+        enforcement: "server",
+        required_features,
+        scope_kind: "BRANCH",
+        scope_id: *branch_id.as_uuid(),
+    }
 }
 
 fn work_order_detail_from_row(

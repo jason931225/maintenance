@@ -7,18 +7,30 @@ import type {
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
-import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import { ko } from "../../i18n/ko";
 import { formatKoreanDateTime } from "../../lib/datetime";
 
+type ReviewableTargetChangeRequest = TargetChangeRequestSummary & {
+  id: string;
+  work_order_id: string;
+  requested_target_due_at: string;
+  status: NonNullable<TargetChangeRequestSummary["status"]>;
+};
+
+function isReviewableTargetChange(
+  request: TargetChangeRequestSummary,
+): request is ReviewableTargetChangeRequest {
+  return Boolean(
+    request.id &&
+      request.work_order_id &&
+      request.requested_target_due_at &&
+      request.status,
+  );
+}
+
 export interface TargetChangeReviewQueueProps {
-  /**
-   * Review a target due-date change request by id. There is no list/get endpoint
-   * for these (managers create them from the dispatch controls and carry the id
-   * forward), so the reviewer acts on the id directly, mirroring the P1 dispatch
-   * offers panel. Returns the updated summary, or undefined on failure.
-   */
+  requests: TargetChangeRequestSummary[];
   onReview: (
     requestId: string,
     decision: TargetChangeDecision,
@@ -27,38 +39,46 @@ export interface TargetChangeReviewQueueProps {
 }
 
 /**
- * Admin review surface for target due-date change requests: enter the request id,
- * then approve or reject (with an optional memo). Both actions POST to
- * `/api/target-change-requests/{requestId}/review`; the backend re-checks the
- * TargetManage authorization on every call.
+ * Admin review surface for target due-date change requests. The list is loaded
+ * from the federated approval API, while each decision still POSTs to the
+ * source-specific review endpoint where TargetManage authorization is checked
+ * again before any mutation.
  */
 export function TargetChangeReviewQueue({
+  requests,
   onReview,
 }: TargetChangeReviewQueueProps) {
   const t = ko.approvals.targetChange;
 
-  const [requestId, setRequestId] = useState("");
-  const [summary, setSummary] = useState<TargetChangeRequestSummary>();
-  const [memo, setMemo] = useState("");
-  const [pending, setPending] = useState(false);
+  const [memoById, setMemoById] = useState<Record<string, string>>({});
+  const [pendingId, setPendingId] = useState<string>();
   const [feedback, setFeedback] = useState<string>();
   const [error, setError] = useState<string>();
+  const reviewableRequests = requests.filter(isReviewableTargetChange);
 
-  async function handleReview(decision: TargetChangeDecision) {
-    const id = requestId.trim();
-    if (!id) return;
-    setPending(true);
+  async function handleReview(
+    requestId: string,
+    decision: TargetChangeDecision,
+  ) {
+    if (pendingId) return;
+    setPendingId(requestId);
     setFeedback(undefined);
     setError(undefined);
-    const result = await onReview(id, decision, memo.trim());
-    setPending(false);
+    const result = await onReview(
+      requestId,
+      decision,
+      (memoById[requestId] ?? "").trim(),
+    );
+    setPendingId(undefined);
     if (!result) {
-      setSummary(undefined);
       setError(t.actionFailed);
       return;
     }
-    setSummary(result);
-    setMemo("");
+    setMemoById((current) => {
+      const { [requestId]: removed, ...remaining } = current;
+      void removed;
+      return remaining;
+    });
     setFeedback(decision === "APPROVED" ? t.approveDone : t.rejectDone);
   }
 
@@ -67,42 +87,6 @@ export function TargetChangeReviewQueue({
       <div>
         <h2 className="text-lg font-semibold text-ink">{t.title}</h2>
         <p className="text-sm text-steel">{t.description}</p>
-      </div>
-
-      <div className="grid gap-2">
-        <label
-          className="text-sm font-medium text-steel"
-          htmlFor="target-change-request-id"
-        >
-          {t.lookupLabel}
-        </label>
-        <Input
-          id="target-change-request-id"
-          aria-label={t.lookupLabel}
-          placeholder={t.lookupPlaceholder}
-          value={requestId}
-          onChange={(event) => {
-            setRequestId(event.target.value);
-          }}
-        />
-      </div>
-
-      <div className="grid gap-2">
-        <label
-          className="text-sm font-medium text-steel"
-          htmlFor="target-change-memo"
-        >
-          {t.memoLabel}
-        </label>
-        <Textarea
-          id="target-change-memo"
-          aria-label={t.memoLabel}
-          placeholder={t.memoPlaceholder}
-          value={memo}
-          onChange={(event) => {
-            setMemo(event.target.value);
-          }}
-        />
       </div>
 
       {feedback ? (
@@ -116,45 +100,81 @@ export function TargetChangeReviewQueue({
         </p>
       ) : null}
 
-      <div className="flex gap-2">
-        <Button
-          type="button"
-          disabled={pending || !requestId.trim()}
-          onClick={() => {
-            void handleReview("APPROVED");
-          }}
-        >
-          {pending ? t.reviewing : t.approve}
-        </Button>
-        <Button
-          type="button"
-          variant="destructive"
-          disabled={pending || !requestId.trim()}
-          onClick={() => {
-            void handleReview("REJECTED");
-          }}
-        >
-          {pending ? t.reviewing : t.reject}
-        </Button>
-      </div>
+      {reviewableRequests.length === 0 ? (
+        <p className="rounded-md border border-dashed border-line p-4 text-sm text-steel">
+          {t.empty}
+        </p>
+      ) : (
+        <ul className="grid gap-3" aria-label={t.listLabel}>
+          {reviewableRequests.map((request) => {
+            const pending = pendingId === request.id;
+            const memoId = `target-change-memo-${request.id}`;
+            return (
+              <li
+                key={request.id}
+                id={`target-change-${request.id}`}
+                className="grid gap-3 rounded-md border border-line p-4"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-steel">
+                      {t.requestedTargetDueAt}
+                    </p>
+                    <p className="font-semibold text-ink">
+                      {formatKoreanDateTime(request.requested_target_due_at)}
+                    </p>
+                    <p className="mt-1 text-xs text-steel">
+                      {t.workOrderLabel}: {request.work_order_id}
+                    </p>
+                  </div>
+                  <Badge>{t.statuses[request.status]}</Badge>
+                </div>
 
-      {summary ? (
-        <div className="grid gap-2 rounded-md border border-line p-4">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-sm font-medium text-steel">
-              {t.requestedTargetDueAt}
-            </span>
-            {summary.status ? (
-              <Badge>{t.statuses[summary.status]}</Badge>
-            ) : null}
-          </div>
-          {summary.requested_target_due_at ? (
-            <span className="text-sm text-steel">
-              {formatKoreanDateTime(summary.requested_target_due_at)}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium text-steel" htmlFor={memoId}>
+                    {t.memoLabel}
+                  </label>
+                  <Textarea
+                    id={memoId}
+                    aria-label={t.memoLabel}
+                    placeholder={t.memoPlaceholder}
+                    value={memoById[request.id] ?? ""}
+                    onChange={(event) => {
+                      const { value } = event.currentTarget;
+                      setMemoById((current) => ({
+                        ...current,
+                        [request.id]: value,
+                      }));
+                    }}
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    disabled={Boolean(pendingId)}
+                    onClick={() => {
+                      void handleReview(request.id, "APPROVED");
+                    }}
+                  >
+                    {pending ? t.reviewing : t.approve}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={Boolean(pendingId)}
+                    onClick={() => {
+                      void handleReview(request.id, "REJECTED");
+                    }}
+                  >
+                    {pending ? t.reviewing : t.reject}
+                  </Button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </Card>
   );
 }
