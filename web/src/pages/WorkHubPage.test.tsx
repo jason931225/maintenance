@@ -143,6 +143,12 @@ describe("WorkHubPage", () => {
     expect(await screen.findByText("20260612-002 승인 검토")).toBeVisible();
     expect(screen.getByText("P1 현장 대화")).toBeVisible();
     expect(screen.getByText("부품 입고 확인")).toBeVisible();
+    const workflowRail = screen.getByRole("region", {
+      name: "업무 객체 중심 실행 흐름",
+    });
+    expect(workflowRail).toHaveClass("bg-brand-teal/5");
+    expect(workflowRail).not.toHaveClass("bg-ink");
+    expect(workflowRail).not.toHaveClass("text-white");
     expect(screen.getByRole("link", { name: "승인센터에서 검토" })).toHaveAttribute(
       "href",
       "/approvals?source=work-order&focus=77777777-7777-4777-8777-777777777777",
@@ -165,6 +171,65 @@ describe("WorkHubPage", () => {
         ),
       ).toBe(true);
     });
+  });
+
+  it("excludes closed support tickets from the action inbox", async () => {
+    installHappyHandlers();
+    server.use(
+      http.get("*/api/v1/support/tickets", () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: "77777777-7777-4777-8777-777777777777",
+              branch_id: "11111111-1111-4111-8111-111111111111",
+              origin: "INTERNAL",
+              category: "OPERATIONAL",
+              priority: "URGENT",
+              status: "OPEN",
+              title: "부품 입고 확인",
+              requester_user_id: "88888888-8888-4888-8888-888888888888",
+              requester_name: "김관리",
+              assignee_user_id: null,
+              assignee_name: null,
+              due_at: "2026-06-28T05:00:00Z",
+              created_at: "2026-06-28T01:00:00Z",
+              updated_at: "2026-06-28T01:30:00Z",
+              resolved_at: null,
+              closed_at: null,
+            },
+            {
+              id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+              branch_id: "11111111-1111-4111-8111-111111111111",
+              origin: "INTERNAL",
+              category: "OPERATIONAL",
+              priority: "NORMAL",
+              status: "CLOSED",
+              title: "이미 닫힌 요청",
+              requester_user_id: "88888888-8888-4888-8888-888888888888",
+              requester_name: "김관리",
+              assignee_user_id: null,
+              assignee_name: null,
+              due_at: null,
+              created_at: "2026-06-27T01:00:00Z",
+              updated_at: "2026-06-27T03:00:00Z",
+              resolved_at: "2026-06-27T02:00:00Z",
+              closed_at: "2026-06-27T03:00:00Z",
+            },
+          ],
+          next_cursor: null,
+          total: 2,
+        }),
+      ),
+    );
+
+    renderPage({
+      access_token: "admin-token",
+      roles: ["ADMIN"],
+      branches: ["11111111-1111-4111-8111-111111111111"],
+    });
+
+    expect(await screen.findByText("부품 입고 확인")).toBeVisible();
+    expect(screen.queryByText("이미 닫힌 요청")).not.toBeInTheDocument();
   });
 
   it("keeps a mechanic dashboard scoped to assigned work and hides admin-only modules", async () => {

@@ -5,6 +5,7 @@ import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { EquipmentBrowsePage } from "./EquipmentBrowsePage";
+import { EquipmentManagePage } from "./EquipmentManagePage";
 import { AuthContext } from "../context/auth";
 import type { AuthContextValue, AuthSession } from "../context/auth";
 import { createConsoleApiClient } from "../api/client";
@@ -66,6 +67,14 @@ function renderPage(session: AuthSession) {
   );
 }
 
+function renderManagePage(session: AuthSession) {
+  return render(
+    <AuthContext.Provider value={makeAuthContext(session)}>
+      <EquipmentManagePage />
+    </AuthContext.Provider>,
+  );
+}
+
 const adminSession: AuthSession = {
   access_token: "a",
   user_id: "admin-1",
@@ -87,6 +96,24 @@ function listHandler(rows: EquipmentListItem[] = [item]) {
 }
 
 describe("EquipmentBrowsePage detail dialog", () => {
+  it("makes the management route list-first before admin tools", async () => {
+    server.use(
+      listHandler(),
+      http.get("*/api/v1/equipment-by-location", () =>
+        HttpResponse.json({ items: [] }),
+      ),
+    );
+
+    renderManagePage(adminSession);
+
+    const listFirst = await screen.findByRole("region", {
+      name: "전체 장비 목록에서 선택",
+    });
+    expect(listFirst).toHaveClass("bg-brand-teal/5");
+    expect(await screen.findByText("D-25-290")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "등록·일괄작업·현장/대차 도구" })).toBeVisible();
+  });
+
   it("opens a detail popup with the equipment details when a row is clicked", async () => {
     const user = userEvent.setup();
     server.use(listHandler());

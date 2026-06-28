@@ -210,6 +210,12 @@ describe("ApprovalsPage", () => {
       await screen.findByRole("heading", { name: "승인 대기", level: 1 }),
     ).toBeVisible();
     expect(await screen.findByText("승인 커맨드 센터")).toBeVisible();
+    const commandCenter = screen.getByRole("region", {
+      name: "승인 커맨드 센터",
+    });
+    expect(commandCenter).toHaveClass("bg-brand-teal/5");
+    expect(commandCenter).not.toHaveClass("bg-ink");
+    expect(commandCenter).not.toHaveClass("text-white");
     expect(screen.getByText("작업 보고 승인")).toBeVisible();
     expect(screen.getByText("계획업무 검토")).toBeVisible();
     expect(screen.getByText("일정 변경 검토")).toBeVisible();

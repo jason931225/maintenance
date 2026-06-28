@@ -255,6 +255,10 @@ function buildSupportItems(tickets: SupportTicketSummary[]): HubItem[] {
   });
 }
 
+function isActionableSupportTicket(ticket: SupportTicketSummary): boolean {
+  return ticket.status !== "CLOSED" && !ticket.closed_at;
+}
+
 function buildInboxItems(data: WorkHubData): HubItem[] {
   return [
     ...buildApprovalItems(data.approvalWorkOrders),
@@ -323,7 +327,7 @@ export function WorkHubPage() {
       approvalWorkOrders: (results.find((r) => r.key === "approvals")?.data as { items?: WorkOrderListItem[] } | undefined)?.items ?? [],
       dailyPlans: (results.find((r) => r.key === "dailyPlans")?.data as { items?: DailyPlanSummary[] } | undefined)?.items ?? [],
       threads: (results.find((r) => r.key === "messenger")?.data as { items?: MessengerThreadSummary[] } | undefined)?.items ?? [],
-      tickets: (results.find((r) => r.key === "support")?.data as { items?: SupportTicketSummary[] } | undefined)?.items ?? [],
+      tickets: ((results.find((r) => r.key === "support")?.data as { items?: SupportTicketSummary[] } | undefined)?.items ?? []).filter(isActionableSupportTicket),
     };
 
     setData(nextData);
@@ -427,20 +431,26 @@ export function WorkHubPage() {
           ))}
         </section>
 
-        <Card className="grid gap-4 bg-ink text-white">
+        <Card
+          aria-labelledby="work-hub-workflow-title"
+          className="grid gap-4 border-brand-teal/20 bg-brand-teal/5"
+          role="region"
+        >
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-sm font-semibold text-signal">{ko.workHub.workflowRail.eyebrow}</p>
-              <h2 className="mt-1 text-xl font-semibold">{ko.workHub.workflowRail.title}</h2>
-              <p className="mt-2 max-w-3xl text-sm text-slate-200">{ko.workHub.workflowRail.description}</p>
+              <p className="text-sm font-semibold text-brand-teal">{ko.workHub.workflowRail.eyebrow}</p>
+              <h2 id="work-hub-workflow-title" className="mt-1 text-xl font-semibold text-ink">
+                {ko.workHub.workflowRail.title}
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm text-steel">{ko.workHub.workflowRail.description}</p>
             </div>
-            <Badge className="border-slate-600 bg-slate-900 text-slate-100">{ko.workHub.workflowRail.auditBadge}</Badge>
+            <Badge className="border-brand-teal/20 bg-white text-brand-teal">{ko.workHub.workflowRail.auditBadge}</Badge>
           </div>
           <div className="grid gap-3 md:grid-cols-3">
             {ko.workHub.workflowRail.steps.map((step) => (
-              <div key={step.title} className="rounded-lg border border-slate-700 bg-slate-950/50 p-3">
-                <p className="font-semibold">{step.title}</p>
-                <p className="mt-1 text-sm text-slate-300">{step.description}</p>
+              <div key={step.title} className="rounded-lg border border-line bg-white p-3">
+                <p className="font-semibold text-ink">{step.title}</p>
+                <p className="mt-1 text-sm text-steel">{step.description}</p>
               </div>
             ))}
           </div>

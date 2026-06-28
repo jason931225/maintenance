@@ -25,7 +25,8 @@ target is a single platform where
 거래처, 전표, 재고품목, 매물…) with a 360° view, clickable links, and role-gated, audited, closed-loop
 actions — benchmarked **heavily** on Palantir's pre-AI operational design (Foundry ontology + object
 views, Gotham map/timeline/graph/faceted lenses, the Blueprint visual system, decision-first triage,
-provenance). **No AI/LLM integration for now.**
+provenance). **No AI/LLM integration in the immediate scope; AI/ML/RL/LLM is a last-stage augmentation
+after the mechanical, algorithmic, observable operating system is proven.**
 
 Success = a KNL employee runs their whole job here — receive work, plan, dispatch, execute, approve,
 bill, get paid, manage people, close the books — without leaving the platform, with nothing silently
@@ -33,7 +34,8 @@ failing and every number traceable to its source.
 
 ## Strategy (crystallized via deep-interview)
 
-- **North star**: a faithful **carbon-copy of Palantir Foundry** (NO AI) — a generic, object-centric
+- **North star**: a faithful **carbon-copy of Palantir Foundry** for the operating substrate (no
+  immediate AI) — a generic, object-centric
   operational platform that can **capture any business's operations, employees, assets, and workflows**
   as first-class objects, ultimately with a **full no-code configurable ontology** (users define object
   types/links/actions/workflows). Diverge into KNL/conglomerate-specific capabilities *after* the
@@ -108,7 +110,7 @@ Do not start with advanced analytics. The current setup sequence is:
 Only after those foundations are reliable should the backlog move into cross-business analytics and
 optimization.
 
-### Analytics/optimization backlog (not current setup slice)
+### Operations intelligence / analytics backlog (not current setup slice)
 
 The platform should eventually support business-wide optimization across every domain: rental pricing,
 cost/profitability analytics, asset lifecycle sell/keep recommendations based on operating cost and
@@ -116,6 +118,13 @@ expected market value, reserve equipment/spare-parts sizing from SLA/probabilist
 workforce utilization and scheduling optimization, and executive scenario planning. These capabilities
 must be built as governed analytics over trusted master data with explainable assumptions and audited
 write-back recommendations, not as ad-hoc dashboards inside the maintenance vertical.
+
+Detailed guardrails live in `docs/specs/operations-intelligence.md`. In short: nail the mechanical
+operating system first — trusted master data, ledgers, workflow outcomes, deterministic calculators,
+probabilistic forecasts, policy, audit, and observability. Only after that foundation works should
+AI/ML/RL/LLM assist executive decision making, operational intelligence, analytics, scenario narratives,
+or workflow drafting. AI output must remain an untrusted draft/recommendation routed through the same
+policy/workflow/passkey controls as human proposals.
 
 **CORE PRINCIPLE — capability-driven & industry-agnostic. Do NOT hardcode industries.** The platform is
 generic operational primitives + a configurable ontology; an industry is a *configuration*, not code
@@ -286,11 +295,13 @@ reviewer; never self-approve) · operational/business mutations go through the a
 geocode, 전자세금계산서 relay, payroll data) · anything that changes the authz matrix or RLS posture ·
 enabling a regulated module in production.
 
-**Never (for now)**: AI/LLM/generative integration (deferred — Palantir reference is pre-AI Foundry/
-Gotham) · ship a **payroll or 세금계산서** calculation to production without (a) versioned effective-dated
-rate/세액표 config, (b) a worked golden-case test, and (c) a 노무사/세무사 sign-off — the system computes
-+ issues, a licensed professional validates; we do not provide tax/labor advice · secrets to /tmp ·
-self-approving a review · weakening tenant isolation.
+**Never (current foundation stage)**: AI/LLM/generative/RL production write-back or decision automation
+before the deterministic/algorithmic product, observability, evaluation, rollback, privacy, and workflow
+controls in `docs/specs/operations-intelligence.md` are live · ship a **payroll or 세금계산서**
+calculation to production without (a) versioned effective-dated rate/세액표 config, (b) a worked
+golden-case test, and (c) a 노무사/세무사 sign-off — the system computes + issues, a licensed
+professional validates; we do not provide tax/labor advice · secrets to /tmp · self-approving a review ·
+weakening tenant isolation.
 
 ## Success Criteria
 
@@ -303,7 +314,8 @@ self-approving a review · weakening tenant isolation.
 4. **ERP**: a transaction flows 견적→수주→세금계산서→미수금 and PO→입고→거래명세표→미지급금; a 부가세 period
    reconciles; parts consumed by a WO decrement inventory + post to the cost ledger.
 5. **Provenance**: every KPI/number drills to its source objects; every mutation is audited.
-6. **Quality**: all gates green; visual-verdict ≥90 on every path; no AI.
+6. **Quality**: all gates green; visual-verdict ≥90 on every path; no premature AI/ML/RL/LLM, and any
+   future intelligence remains recommendation-only until governed workflow approval.
 
 ## Phased Roadmap (incremental; folds in existing tasks)
 

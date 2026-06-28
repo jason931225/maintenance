@@ -44,6 +44,7 @@ import {
 import { formatListCount, safeLabel } from "../lib/utils";
 
 type ReadState = "idle" | "loading" | "error";
+const ELEVATED_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "EXECUTIVE"]);
 
 // The /api/v1/users endpoint now returns a UserPage with `total` + `offset`, so
 // the roster pages properly: fetch one page at a time and append via offset, and
@@ -655,6 +656,10 @@ function UserFormDrawer({
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
+  const selectedBranchLabels = branchIds.map(
+    (id) => branches.find((branch) => branch.id === id)?.name ?? id,
+  );
+  const hasElevatedRole = roles.some((role) => ELEVATED_ROLES.has(role));
 
   // Close on Escape, matching the OTP/reset dialogs' keyboard affordance.
   useEffect(() => {
@@ -855,6 +860,60 @@ function UserFormDrawer({
               </>
             )}
           </fieldset>
+
+          <Card
+            aria-labelledby="user-policy-preview-title"
+            className="grid gap-3 border-brand-teal/20 bg-brand-teal/5"
+            role="region"
+          >
+            <div>
+              <p className="text-sm font-semibold text-brand-teal">
+                {ko.users.form.policyPreview.eyebrow}
+              </p>
+              <h3 id="user-policy-preview-title" className="mt-1 font-semibold text-ink">
+                {ko.users.form.policyPreview.title}
+              </h3>
+              <p className="mt-1 text-sm text-steel">
+                {ko.users.form.policyPreview.description}
+              </p>
+            </div>
+            <div className="grid gap-2 rounded-lg border border-line bg-white p-3 text-sm text-steel">
+              <p>
+                <span className="font-semibold text-ink">
+                  {ko.users.form.policyPreview.teamLabel}
+                </span>{" "}
+                {teamLabel(team)}
+              </p>
+              <p>
+                <span className="font-semibold text-ink">
+                  {ko.users.form.policyPreview.rolesLabel}
+                </span>{" "}
+                {roles.length > 0
+                  ? roles.map((role) => roleLabel(role)).join(", ")
+                  : ko.users.form.policyPreview.none}
+              </p>
+              <p>
+                <span className="font-semibold text-ink">
+                  {ko.users.form.policyPreview.scopeLabel}
+                </span>{" "}
+                {selectedBranchLabels.length > 0
+                  ? selectedBranchLabels.join(", ")
+                  : ko.users.form.policyPreview.none}
+              </p>
+              <p>
+                <span className="font-semibold text-ink">
+                  {ko.users.form.policyPreview.futureLabel}
+                </span>{" "}
+                {ko.users.form.policyPreview.futureValue}
+              </p>
+              <p>{ko.users.form.policyPreview.configurable}</p>
+              {hasElevatedRole ? (
+                <p className="rounded-md border border-signal/30 bg-signal/10 p-2 font-medium text-ink">
+                  {ko.users.form.policyPreview.elevated}
+                </p>
+              ) : null}
+            </div>
+          </Card>
 
           {error ? (
             <p role="alert" className="text-sm font-medium text-red-700">

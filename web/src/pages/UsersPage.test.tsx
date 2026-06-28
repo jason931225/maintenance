@@ -249,6 +249,17 @@ describe("UsersPage create", () => {
 
     await user.click(drawer.getByLabelText("정비사"));
     await user.click(drawer.getByLabelText("강남지점"));
+    const policyPreview = drawer.getByRole("region", {
+      name: "직무·책임·범위 정책 미리보기",
+    });
+    expect(within(policyPreview).getByText("정비사")).toBeVisible();
+    expect(within(policyPreview).getByText("강남지점")).toBeVisible();
+    expect(
+      within(policyPreview).getByText(/정책은 고정값이 아니라/),
+    ).toBeVisible();
+    expect(
+      within(policyPreview).queryByText(/관리·임원 권한이 포함되어 있습니다/),
+    ).not.toBeInTheDocument();
     await user.click(drawer.getByRole("button", { name: "사용자 등록" }));
 
     await waitFor(() => {

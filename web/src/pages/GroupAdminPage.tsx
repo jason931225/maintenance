@@ -17,6 +17,7 @@ import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
 
 type ReadState = "loading" | "idle" | "error";
+type GroupAdminDestination = "/settings/org" | "/approvals" | "/daily-plan" | "/work-hub";
 
 export function GroupAdminPage() {
   const { session, enterViewAs } = useAuth();
@@ -48,7 +49,10 @@ export function GroupAdminPage() {
     void Promise.resolve().then(load);
   }, [load]);
 
-  async function manageSubsidiary(member: GroupAdminMemberOrg) {
+  async function manageSubsidiary(
+    member: GroupAdminMemberOrg,
+    destination: GroupAdminDestination,
+  ) {
     setManageOrgId(member.id);
     setManageError(undefined);
     try {
@@ -61,7 +65,7 @@ export function GroupAdminPage() {
         actingOrgName: result.acting_org_name,
         actingRole: result.acting_role,
       });
-      void navigate("/settings/org");
+      void navigate(destination);
     } catch {
       setManageError(ko.groupAdmin.manageFailed);
     } finally {
@@ -102,11 +106,34 @@ export function GroupAdminPage() {
       ) : null}
       {readState === "idle" && groups.length > 0 ? (
         <div className="grid gap-5">
-          <p className="text-sm text-steel">
-            {ko.groupAdmin.summary
-              .replace("{groups}", String(groups.length))
-              .replace("{members}", String(memberCount))}
-          </p>
+          <Card className="grid gap-3 border-brand-teal/20 bg-brand-teal/5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-brand-teal">
+                  {ko.groupAdmin.command.eyebrow}
+                </p>
+                <h2 className="mt-1 text-lg font-semibold text-ink">
+                  {ko.groupAdmin.command.title}
+                </h2>
+                <p className="mt-1 max-w-3xl text-sm text-steel">
+                  {ko.groupAdmin.command.description}
+                </p>
+              </div>
+              <p className="rounded-full border border-brand-teal/20 bg-white px-3 py-1 text-sm font-semibold text-brand-teal">
+                {ko.groupAdmin.summary
+                  .replace("{groups}", String(groups.length))
+                  .replace("{members}", String(memberCount))}
+              </p>
+            </div>
+            <div className="grid gap-2 rounded-lg border border-line bg-white p-3 text-sm text-steel md:grid-cols-3">
+              {ko.groupAdmin.command.principles.map((principle) => (
+                <div key={principle.title}>
+                  <p className="font-semibold text-ink">{principle.title}</p>
+                  <p className="mt-1">{principle.description}</p>
+                </div>
+              ))}
+            </div>
+          </Card>
           {groups.map((group) => (
             <Card key={group.id} className="overflow-hidden p-0">
               <div className="border-b border-line px-4 py-3">
@@ -142,20 +169,58 @@ export function GroupAdminPage() {
                         <td className="px-4 py-3 text-steel">
                           {member.status}
                         </td>
-                        <td className="px-4 py-3 text-right">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            disabled={manageOrgId === member.id}
-                            onClick={() => {
-                              void manageSubsidiary(member);
-                            }}
-                          >
-                            {manageOrgId === member.id
-                              ? ko.groupAdmin.managing
-                              : ko.groupAdmin.manage}
-                          </Button>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={manageOrgId === member.id}
+                              aria-label={`${member.name} ${ko.groupAdmin.actions.workHub}`}
+                              onClick={() => {
+                                void manageSubsidiary(member, "/work-hub");
+                              }}
+                            >
+                              {manageOrgId === member.id
+                                ? ko.groupAdmin.managing
+                                : ko.groupAdmin.actions.workHub}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              disabled={manageOrgId === member.id}
+                              aria-label={`${member.name} ${ko.groupAdmin.actions.org}`}
+                              onClick={() => {
+                                void manageSubsidiary(member, "/settings/org");
+                              }}
+                            >
+                              {ko.groupAdmin.actions.org}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              disabled={manageOrgId === member.id}
+                              aria-label={`${member.name} ${ko.groupAdmin.actions.approvals}`}
+                              onClick={() => {
+                                void manageSubsidiary(member, "/approvals");
+                              }}
+                            >
+                              {ko.groupAdmin.actions.approvals}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              disabled={manageOrgId === member.id}
+                              aria-label={`${member.name} ${ko.groupAdmin.actions.dailyPlan}`}
+                              onClick={() => {
+                                void manageSubsidiary(member, "/daily-plan");
+                              }}
+                            >
+                              {ko.groupAdmin.actions.dailyPlan}
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     ))}
