@@ -16,7 +16,7 @@ import {
 
 /** Same-origin relative paths only; reject protocol-relative (//evil) and absolute URLs. */
 function safeNext(raw: string | null): string {
-  return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/dispatch";
+  return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/work-hub";
 }
 
 /**

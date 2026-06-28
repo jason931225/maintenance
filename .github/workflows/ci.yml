@@ -618,6 +618,13 @@ jobs:
       - name: Install PostgreSQL client (psql for the harness seeding)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
 
+      - name: Install Python E2E helpers
+        run: |
+          python3 -m venv .venv-e2e
+          .venv-e2e/bin/python -m pip install --upgrade pip
+          .venv-e2e/bin/python -m pip install -r e2e/requirements.txt
+          echo "$PWD/.venv-e2e/bin" >> "$GITHUB_PATH"
+
       - name: Build backend binary (mnt-app) for the harness
         working-directory: backend
         # SQLX_OFFLINE so the query! macros compile against the committed .sqlx cache

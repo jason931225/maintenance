@@ -122,7 +122,10 @@ base("ADMIN-16/AUTH-08 admin credential-reset recovers a locked-out user", async
     // ── Step 1b: confirm the OLD passkey can log in BEFORE the reset ─────────────
     await logout(userPage);
     await passkeyLogin(userPage);
-    await expect(userPage).toHaveURL(/\/dispatch/, { timeout: 15_000 });
+    // Passkey login uses LoginPage's default authenticated landing, now the
+    // Work Hub. OTP onboarding still lands on /dispatch because onboarding owns
+    // that post-enroll navigation separately.
+    await expect(userPage).toHaveURL(/\/work-hub/, { timeout: 15_000 });
 
     // ── Step 2: the SUPER_ADMIN resets the user's credentials ───────────────────
     await loginAs(adminPage, "SUPER_ADMIN");
@@ -177,7 +180,7 @@ base("ADMIN-16/AUTH-08 admin credential-reset recovers a locked-out user", async
       // The recovered NEW passkey logs in cleanly.
       await logout(userPage);
       await passkeyLogin(userPage);
-      await expect(userPage).toHaveURL(/\/dispatch/, { timeout: 15_000 });
+      await expect(userPage).toHaveURL(/\/work-hub/, { timeout: 15_000 });
     } finally {
       await removeVirtualAuthenticator(newAuth);
     }
