@@ -120,6 +120,7 @@ import com.maintenance.api.client.model.MailTestConnectionResult
 import com.maintenance.api.client.model.MailThreadDetail
 import com.maintenance.api.client.model.MailThreadView
 import com.maintenance.api.client.model.MarkMessengerThreadReadRequest
+import com.maintenance.api.client.model.MessengerMemberListResponse
 import com.maintenance.api.client.model.MessengerMessageListResponse
 import com.maintenance.api.client.model.MessengerMessagePage
 import com.maintenance.api.client.model.MessengerMessageSummary
@@ -8407,6 +8408,88 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/mail/threads",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/messenger/members
+     * List active branch members eligible for messenger thread creation
+     * Authenticated branch members can discover active coworkers in a branch they are scoped to without requiring the admin-only user-management endpoint. The response intentionally excludes phone numbers and other profile fields that are not needed to start a work conversation.
+     * @param branchId
+     * @param limit  (optional, default to 100L)
+     * @return MessengerMemberListResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listMessengerMembers(branchId: java.util.UUID, limit: kotlin.Long? = 100L) : MessengerMemberListResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listMessengerMembersWithHttpInfo(branchId = branchId, limit = limit)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MessengerMemberListResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/messenger/members
+     * List active branch members eligible for messenger thread creation
+     * Authenticated branch members can discover active coworkers in a branch they are scoped to without requiring the admin-only user-management endpoint. The response intentionally excludes phone numbers and other profile fields that are not needed to start a work conversation.
+     * @param branchId
+     * @param limit  (optional, default to 100L)
+     * @return ApiResponse<MessengerMemberListResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listMessengerMembersWithHttpInfo(branchId: java.util.UUID, limit: kotlin.Long?) : ApiResponse<MessengerMemberListResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listMessengerMembersRequestConfig(branchId = branchId, limit = limit)
+
+        return@withContext request<Unit, MessengerMemberListResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listMessengerMembers
+     *
+     * @param branchId
+     * @param limit  (optional, default to 100L)
+     * @return RequestConfig
+     */
+    fun listMessengerMembersRequestConfig(branchId: java.util.UUID, limit: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("branch_id", listOf(branchId.toString()))
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/messenger/members",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

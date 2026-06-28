@@ -86,15 +86,13 @@ export const ko = {
     },
     messenger: {
       title: "메신저 운영",
-      description:
-        "작업지시·팀·1:1 대화를 SLA와 지원 흐름에 연결합니다.",
+      description: "작업지시·팀·1:1 대화를 SLA와 지원 흐름에 연결합니다.",
       empty: "최근 대화방이 없습니다.",
       memberCount: (count: number) => `참여자 ${String(count)}명`,
     },
     mail: {
       title: "메일 업무",
-      description:
-        "회사 메일을 고객지원·승인·증빙 흐름 옆에서 처리합니다.",
+      description: "회사 메일을 고객지원·승인·증빙 흐름 옆에서 처리합니다.",
       empty: "최근 메일이 없습니다.",
       forbidden: "이 역할은 회사 메일함 사용 권한이 없습니다.",
       unavailable: "메일 서버 또는 암호화 키가 아직 구성되지 않았습니다.",
@@ -332,15 +330,18 @@ export const ko = {
       principles: [
         {
           title: "전체 보기",
-          description: "그룹과 소속 법인 범위를 먼저 확인하고 대상 법인을 선택합니다.",
+          description:
+            "그룹과 소속 법인 범위를 먼저 확인하고 대상 법인을 선택합니다.",
         },
         {
           title: "관리 전환",
-          description: "선택한 법인으로 전환한 뒤 해당 법인의 정책·감사 범위에서 실행합니다.",
+          description:
+            "선택한 법인으로 전환한 뒤 해당 법인의 정책·감사 범위에서 실행합니다.",
         },
         {
           title: "원천 객체",
-          description: "승인·계획·조직 작업은 원천 업무 객체 화면으로 직접 연결합니다.",
+          description:
+            "승인·계획·조직 작업은 원천 업무 객체 화면으로 직접 연결합니다.",
         },
       ],
     },
@@ -521,7 +522,8 @@ export const ko = {
         rolesLabel: "현재 역할",
         scopeLabel: "지점 범위",
         futureLabel: "정책 확장 대상",
-        futureValue: "직책 · 직무 · 책임 · 부서/팀 · 객체/그룹 범위 · 근무 상태",
+        futureValue:
+          "직책 · 직무 · 책임 · 부서/팀 · 객체/그룹 범위 · 근무 상태",
         configurable:
           "정책은 고정값이 아니라 승인·미리보기·버전 관리가 가능한 구성 대상입니다. 입사·전보·휴직·퇴직 상태 변화도 접근 범위와 업무 큐에 반영되어야 합니다.",
         none: "미선택",
@@ -1545,15 +1547,18 @@ export const ko = {
       steps: [
         {
           title: "업무 확인",
-          description: "오늘·이번 주 작업과 대화, 티켓을 권한 범위 안에서 확인합니다.",
+          description:
+            "오늘·이번 주 작업과 대화, 티켓을 권한 범위 안에서 확인합니다.",
         },
         {
           title: "증빙·대화 연결",
-          description: "작업 대화, 지원 댓글, 파일 증빙을 원천 업무 객체에 연결합니다.",
+          description:
+            "작업 대화, 지원 댓글, 파일 증빙을 원천 업무 객체에 연결합니다.",
         },
         {
           title: "승인·반려",
-          description: "관리자는 승인센터에서 보고·일정 변경·계획 검토를 감사 가능한 결정으로 처리합니다.",
+          description:
+            "관리자는 승인센터에서 보고·일정 변경·계획 검토를 감사 가능한 결정으로 처리합니다.",
         },
       ],
     },
@@ -1840,7 +1845,8 @@ export const ko = {
   },
   approvals: {
     title: "승인 대기",
-    description: "보고가 제출된 작업지시와 운영 승인 흐름을 검토하고 승인 또는 반려합니다.",
+    description:
+      "보고가 제출된 작업지시와 운영 승인 흐름을 검토하고 승인 또는 반려합니다.",
     partialFailure: "일부 승인 원천을 불러오지 못했습니다: {sources}",
     sources: {
       workOrders: "작업 보고",
@@ -1857,12 +1863,14 @@ export const ko = {
       sources: {
         workReports: {
           title: "작업 보고 승인",
-          description: "정비 보고, 진단, 조치, 결과, 증빙을 확인한 뒤 승인·반려합니다.",
+          description:
+            "정비 보고, 진단, 조치, 결과, 증빙을 확인한 뒤 승인·반려합니다.",
           action: "작업 승인 큐로 이동",
         },
         dailyPlans: {
           title: "계획업무 검토",
-          description: "요청된 일일·주간 계획을 계획업무 원천 화면에서 검토합니다.",
+          description:
+            "요청된 일일·주간 계획을 계획업무 원천 화면에서 검토합니다.",
           action: "계획업무 검토 열기",
         },
         targetChange: {
@@ -1966,11 +1974,17 @@ export const ko = {
     subjectPlaceholder: "대화 제목 (선택)",
     participants: "참여자",
     participantsHint: "대화에 참여할 인원을 선택하세요.",
+    participantsLoading: "참여자를 불러오는 중입니다.",
+    participantsEmpty: "이 지점에서 선택할 활성 참여자가 없습니다.",
+    participantsLoadFailed:
+      "참여자 목록을 불러오지 못했습니다. 잠시 후 다시 시도하세요.",
     create: "대화 만들기",
     creating: "생성 중",
     createCancel: "취소",
     createFailed: "대화를 만들지 못했습니다.",
     participantsRequired: "참여자를 한 명 이상 선택하세요.",
+    branchRequired:
+      "대화를 만들 지점 컨텍스트가 없습니다. 지점을 선택한 뒤 다시 시도하세요.",
     kinds: {
       work_order: "작업",
       team: "팀",

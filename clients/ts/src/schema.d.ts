@@ -1753,6 +1753,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/messenger/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List active branch members eligible for messenger thread creation
+         * @description Authenticated branch members can discover active coworkers in a branch they are scoped to without requiring the admin-only user-management endpoint. The response intentionally excludes phone numbers and other profile fields that are not needed to start a work conversation.
+         */
+        get: operations["listMessengerMembers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/messenger/threads": {
         parameters: {
             query?: never;
@@ -4437,6 +4457,14 @@ export interface components {
         };
         /** @enum {string} */
         MessengerThreadKind: "work_order" | "team" | "dm" | "group";
+        MessengerMemberSummary: {
+            id: components["schemas"]["Uuid"];
+            display_name: string;
+            team: string | null;
+        };
+        MessengerMemberListResponse: {
+            items: components["schemas"]["MessengerMemberSummary"][];
+        };
         CreateMessengerThreadRequest: {
             branch_id: components["schemas"]["Uuid"];
             kind: components["schemas"]["MessengerThreadKind"];
@@ -7875,6 +7903,31 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+        };
+    };
+    listMessengerMembers: {
+        parameters: {
+            query: {
+                branch_id: components["schemas"]["Uuid"];
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active messenger participants visible in the branch. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerMemberListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listMessengerThreads: {

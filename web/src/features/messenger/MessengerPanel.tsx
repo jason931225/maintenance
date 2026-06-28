@@ -18,9 +18,9 @@ import {
 import type { ConsoleApiClient } from "../../api/client";
 import type {
   EvidencePresignResponse,
+  MessengerMemberSummary,
   MessengerMessageSummary,
   MessengerThreadSummary,
-  UserSummary,
 } from "../../api/types";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -82,9 +82,10 @@ export function MessengerPanel({
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [isComposingThread, setIsComposingThread] = useState(false);
-  const [members, setMembers] = useState<UserSummary[]>([]);
+  const [members, setMembers] = useState<MessengerMemberSummary[]>([]);
   const [newSubject, setNewSubject] = useState("");
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   const [isCreatingThread, setIsCreatingThread] = useState(false);
   const [createError, setCreateError] = useState<string>();
   const newThreadTitleId = useId();
@@ -94,7 +95,7 @@ export function MessengerPanel({
     (thread) => thread.id === state.selectedThreadId,
   );
   const selectedMessages = state.selectedThreadId
-    ? state.messagesByThread[state.selectedThreadId] ?? []
+    ? (state.messagesByThread[state.selectedThreadId] ?? [])
     : [];
 
   useEffect(() => {
@@ -128,7 +129,10 @@ export function MessengerPanel({
         {
           params: {
             path: { threadId },
-            query: { before_message_id: beforeMessageId ?? undefined, limit: 50 },
+            query: {
+              before_message_id: beforeMessageId ?? undefined,
+              limit: 50,
+            },
           },
         },
       );
@@ -245,27 +249,40 @@ export function MessengerPanel({
     setCreateError(undefined);
     setNewSubject("");
     setSelectedMemberIds([]);
-    const response = await api
-      .GET("/api/v1/users", { params: { query: { include_inactive: false } } })
-      .catch(() => undefined);
-    if (response?.data) {
+    setMembers([]);
+    if (!branchId) {
+      setCreateError(ko.messenger.branchRequired);
+      return;
+    }
+    setIsLoadingMembers(true);
+    try {
+      const response = await api.GET("/api/messenger/members", {
+        params: { query: { branch_id: branchId, limit: 100 } },
+      });
+      if (!response.data) {
+        throw new Error("messenger members response missing data");
+      }
       setMembers(
-        response.data.items.filter((user) => user.id !== currentUserId),
+        response.data.items.filter((member) => member.id !== currentUserId),
       );
+    } catch {
+      setCreateError(ko.messenger.participantsLoadFailed);
+    } finally {
+      setIsLoadingMembers(false);
     }
   }
 
   function toggleMember(id: string) {
     setSelectedMemberIds((prev) =>
-      prev.includes(id)
-        ? prev.filter((value) => value !== id)
-        : [...prev, id],
+      prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id],
     );
   }
 
   async function handleCreateThread() {
     if (!branchId || selectedMemberIds.length === 0 || isCreatingThread) {
-      if (selectedMemberIds.length === 0) {
+      if (!branchId) {
+        setCreateError(ko.messenger.branchRequired);
+      } else if (selectedMemberIds.length === 0) {
         setCreateError(ko.messenger.participantsRequired);
       }
       return;
@@ -369,7 +386,11 @@ export function MessengerPanel({
           <Plus aria-hidden="true" size={16} />
           {ko.messenger.newThread}
         </Button>
-        <Button type="button" variant="secondary" onClick={() => void loadThreads()}>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => void loadThreads()}
+        >
           <RefreshCw aria-hidden="true" size={16} />
           {ko.messenger.refresh}
         </Button>
@@ -474,7 +495,11 @@ export function MessengerPanel({
               <div className="grid gap-2">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-base font-semibold text-ink">
-                    <MessageSquare aria-hidden="true" className="mr-2 inline" size={18} />
+                    <MessageSquare
+                      aria-hidden="true"
+                      className="mr-2 inline"
+                      size={18}
+                    />
                     {threadTitle(selectedThread)}
                   </h3>
                   {state.nextCursorByThread[selectedThread.id] ? (
@@ -533,7 +558,10 @@ export function MessengerPanel({
                   }}
                 />
                 {sendError ? (
-                  <p role="alert" className="text-sm font-semibold text-red-700">
+                  <p
+                    role="alert"
+                    className="text-sm font-semibold text-red-700"
+                  >
                     {sendError}
                   </p>
                 ) : null}
@@ -559,10 +587,7 @@ export function MessengerPanel({
         titleId={newThreadTitleId}
         closeOnScrimClick={!isCreatingThread}
       >
-        <h2
-          id={newThreadTitleId}
-          className="text-lg font-semibold text-ink"
-        >
+        <h2 id={newThreadTitleId} className="text-lg font-semibold text-ink">
           {ko.messenger.newThreadTitle}
         </h2>
         <div className="grid gap-2">
@@ -585,10 +610,21 @@ export function MessengerPanel({
           <span className="text-sm font-medium text-steel">
             {ko.messenger.participants}
           </span>
-          <p className="text-xs text-steel">
-            {ko.messenger.participantsHint}
-          </p>
+          <p className="text-xs text-steel">{ko.messenger.participantsHint}</p>
           <div className="grid max-h-56 gap-1 overflow-y-auto">
+            {isLoadingMembers ? (
+              <p
+                role="status"
+                className="rounded-md border border-dashed border-line p-3 text-sm text-steel"
+              >
+                {ko.messenger.participantsLoading}
+              </p>
+            ) : null}
+            {!isLoadingMembers && members.length === 0 ? (
+              <p className="rounded-md border border-dashed border-line p-3 text-sm text-steel">
+                {ko.messenger.participantsEmpty}
+              </p>
+            ) : null}
             {members.map((member) => (
               <label
                 key={member.id}
@@ -596,13 +632,19 @@ export function MessengerPanel({
               >
                 <input
                   type="checkbox"
+                  aria-label={member.display_name}
                   checked={selectedMemberIds.includes(member.id)}
                   onChange={() => {
                     toggleMember(member.id);
                   }}
                 />
-                <span className="font-medium text-ink">
-                  {member.display_name}
+                <span className="grid">
+                  <span className="font-medium text-ink">
+                    {member.display_name}
+                  </span>
+                  {member.team ? (
+                    <span className="text-xs text-steel">{member.team}</span>
+                  ) : null}
                 </span>
               </label>
             ))}
@@ -626,7 +668,12 @@ export function MessengerPanel({
           </Button>
           <Button
             type="button"
-            disabled={isCreatingThread || selectedMemberIds.length === 0}
+            disabled={
+              isLoadingMembers ||
+              isCreatingThread ||
+              !branchId ||
+              selectedMemberIds.length === 0
+            }
             onClick={() => void handleCreateThread()}
           >
             {isCreatingThread ? ko.messenger.creating : ko.messenger.create}
@@ -659,10 +706,7 @@ function MessageRow({ message }: { message: MessengerMessageSummary }) {
   );
 }
 
-async function putEvidenceUpload(
-  ticket: EvidencePresignResponse,
-  file: File,
-) {
+async function putEvidenceUpload(ticket: EvidencePresignResponse, file: File) {
   const uploadHeaders = Object.fromEntries(
     ticket.upload.headers.map(([name, value]) => [name, value]),
   );
@@ -672,6 +716,8 @@ async function putEvidenceUpload(
     body: file,
   });
   if (!response.ok) {
-    throw new Error(`evidence upload failed with status ${String(response.status)}`);
+    throw new Error(
+      `evidence upload failed with status ${String(response.status)}`,
+    );
   }
 }

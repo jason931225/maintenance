@@ -183,6 +183,8 @@ src/main/kotlin/com/maintenance/api/client/model/MailThreadDetail.kt
 src/main/kotlin/com/maintenance/api/client/model/MailThreadView.kt
 src/main/kotlin/com/maintenance/api/client/model/MarkMessengerThreadReadRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/MediaKind.kt
+src/main/kotlin/com/maintenance/api/client/model/MessengerMemberListResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/MessengerMemberSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/MessengerMessageListResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/MessengerMessagePage.kt
 src/main/kotlin/com/maintenance/api/client/model/MessengerMessageSummary.kt

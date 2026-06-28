@@ -8,10 +8,10 @@ use mnt_kernel_core::{
     WorkOrderId,
 };
 use mnt_messenger_application::{
-    CreateThreadCommand, EnsureWorkOrderThreadCommand, ListThreadsQuery, MarkThreadReadCommand,
-    MessageNotifier, MessagePage, MessagePageQuery, MessagePostedNotification, MessageSummary,
-    ReadReceiptSummary, SearchMessagesQuery, SendMessageCommand, ThreadSummary,
-    messenger_audit_event,
+    CreateThreadCommand, EnsureWorkOrderThreadCommand, ListMembersQuery, ListThreadsQuery,
+    MarkThreadReadCommand, MemberSummary, MessageNotifier, MessagePage, MessagePageQuery,
+    MessagePostedNotification, MessageSummary, ReadReceiptSummary, SearchMessagesQuery,
+    SendMessageCommand, ThreadSummary, messenger_audit_event,
 };
 use mnt_messenger_domain::{MessageBody, ThreadKind};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
@@ -114,6 +114,8 @@ impl PgMessengerStore {
                 if let Some(work_order_id) = command.work_order_id {
                     ensure_work_order_branch_tx(tx, work_order_id, branch_id).await?;
                 }
+                ensure_members_active_in_branch_tx(tx, branch_id, command.actor, &member_ids)
+                    .await?;
                 insert_thread_tx(
                     tx,
                     NewThread {
@@ -408,6 +410,46 @@ impl PgMessengerStore {
         rows.iter().map(thread_summary_from_row).collect()
     }
 
+    pub async fn list_members(
+        &self,
+        query: ListMembersQuery,
+    ) -> Result<Vec<MemberSummary>, PgMessengerError> {
+        ensure_branch_scope(&query.branch_scope, query.branch_id)?;
+        let limit = normalized_limit(query.limit);
+        let branch_id = query.branch_id;
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgMessengerError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query(
+                    r#"
+                    SELECT u.id, u.display_name, u.team
+                    FROM users u
+                    JOIN user_branches ub
+                      ON ub.user_id = u.id
+                     AND ub.branch_id = $1
+                    WHERE u.is_active = true
+                    ORDER BY lower(u.display_name), u.created_at DESC, u.id
+                    LIMIT $2
+                    "#,
+                )
+                .bind(*branch_id.as_uuid())
+                .bind(limit)
+                .fetch_all(tx.as_mut())
+                .await?)
+            })
+        })
+        .await?;
+        rows.iter()
+            .map(|row| {
+                Ok(MemberSummary {
+                    id: UserId::from_uuid(row.try_get("id")?),
+                    display_name: row.try_get("display_name")?,
+                    team: row.try_get("team")?,
+                })
+            })
+            .collect()
+    }
+
     pub async fn message_page(
         &self,
         query: MessagePageQuery,
@@ -585,6 +627,48 @@ fn ensure_branch_scope(scope: &BranchScope, branch_id: BranchId) -> Result<(), P
 
 fn normalized_limit(limit: i64) -> i64 {
     limit.clamp(1, 100)
+}
+
+async fn ensure_members_active_in_branch_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    branch_id: BranchId,
+    actor: UserId,
+    member_ids: &[UserId],
+) -> Result<(), PgMessengerError> {
+    let requested: Vec<uuid::Uuid> = member_ids
+        .iter()
+        .copied()
+        .filter(|member_id| *member_id != actor)
+        .map(|member_id| *member_id.as_uuid())
+        .collect();
+    if requested.is_empty() {
+        return Ok(());
+    }
+
+    let active_member_count: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(DISTINCT u.id)
+        FROM users u
+        JOIN user_branches ub
+          ON ub.user_id = u.id
+         AND ub.branch_id = $1
+        WHERE u.id = ANY($2)
+          AND u.is_active = true
+        "#,
+    )
+    .bind(*branch_id.as_uuid())
+    .bind(&requested)
+    .fetch_one(tx.as_mut())
+    .await?;
+
+    if usize::try_from(active_member_count).ok() == Some(requested.len()) {
+        Ok(())
+    } else {
+        Err(
+            KernelError::validation("messenger members must be active users in the thread branch")
+                .into(),
+        )
+    }
 }
 
 async fn insert_thread_tx(

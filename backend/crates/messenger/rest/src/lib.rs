@@ -12,8 +12,8 @@ use mnt_kernel_core::{
 };
 use mnt_messenger_adapter_postgres::{PgMessengerError, PgMessengerStore};
 use mnt_messenger_application::{
-    CreateThreadCommand, ListThreadsQuery, MarkThreadReadCommand, MessagePageQuery,
-    SearchMessagesQuery, SendMessageCommand,
+    CreateThreadCommand, ListMembersQuery, ListThreadsQuery, MarkThreadReadCommand,
+    MessagePageQuery, SearchMessagesQuery, SendMessageCommand,
 };
 use mnt_messenger_domain::ThreadKind;
 use mnt_platform_auth::JwtVerifier;
@@ -21,6 +21,7 @@ use mnt_platform_authz::Principal;
 use serde::{Deserialize, Serialize};
 
 pub const MESSENGER_ROUTE_PATHS: &[&str] = &[
+    "/api/messenger/members",
     "/api/messenger/threads",
     "/api/messenger/threads/{threadId}/messages",
     "/api/messenger/threads/{threadId}/read-receipt",
@@ -47,6 +48,7 @@ pub fn router(state: MessengerRestState) -> Router {
     let verifier = state.jwt_verifier.clone();
     let pool = state.store.pool().clone();
     let router = Router::new()
+        .route("/api/messenger/members", get(list_members))
         .route(
             "/api/messenger/threads",
             get(list_threads).post(create_thread),
@@ -87,6 +89,12 @@ struct ReadReceiptRequest {
 
 #[derive(Debug, Deserialize)]
 struct LimitQuery {
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MembersQuery {
+    branch_id: BranchId,
     limit: Option<i64>,
 }
 
@@ -154,6 +162,25 @@ async fn list_threads(
             actor: principal.user_id,
             branch_scope: principal.branch_scope,
             limit: query.limit.unwrap_or(50),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(Items { items }).into_response())
+}
+
+async fn list_members(
+    State(state): State<MessengerRestState>,
+    headers: HeaderMap,
+    Query(query): Query<MembersQuery>,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let items = state
+        .store
+        .list_members(ListMembersQuery {
+            actor: principal.user_id,
+            branch_scope: principal.branch_scope,
+            branch_id: query.branch_id,
+            limit: query.limit.unwrap_or(100),
         })
         .await
         .map_err(RestError::from_store)?;

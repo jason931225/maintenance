@@ -127,6 +127,10 @@ export type OpsEquipmentStatus = components["schemas"]["OpsEquipmentStatus"];
 export type OpsMechanicLoad = components["schemas"]["OpsMechanicLoad"];
 export type TokenPairResponse = components["schemas"]["TokenPairResponse"];
 export type MessengerThreadKind = components["schemas"]["MessengerThreadKind"];
+export type MessengerMemberSummary =
+  components["schemas"]["MessengerMemberSummary"];
+export type MessengerMemberListResponse =
+  components["schemas"]["MessengerMemberListResponse"];
 export type MessengerThreadSummary =
   components["schemas"]["MessengerThreadSummary"];
 export type MessengerThreadListResponse =
@@ -267,8 +271,7 @@ export type MailFolderView = components["schemas"]["MailFolderView"];
 export type MailThreadView = components["schemas"]["MailThreadView"];
 export type MailThreadDetail = components["schemas"]["MailThreadDetail"];
 export type MailMessageView = components["schemas"]["MailMessageView"];
-export type MailAttachmentView =
-  components["schemas"]["MailAttachmentView"];
+export type MailAttachmentView = components["schemas"]["MailAttachmentView"];
 export type MailAttachmentDownload =
   components["schemas"]["MailAttachmentDownload"];
 
@@ -301,8 +304,7 @@ export type EmployeeDirectoryItem = components["schemas"]["Employee"];
 export type EmployeeDirectoryPage = components["schemas"]["EmployeePage"];
 export type EmployeeImportSummary =
   components["schemas"]["EmployeeImportReport"];
-export type HrOrgChartResponse =
-  components["schemas"]["HrOrgChartResponse"];
+export type HrOrgChartResponse = components["schemas"]["HrOrgChartResponse"];
 export type LeaveBalancePage = components["schemas"]["LeaveBalancePage"];
 export type AttendanceSummaryPage =
   components["schemas"]["AttendanceSummaryPage"];
