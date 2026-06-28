@@ -28,7 +28,7 @@ import { SkeletonTable } from "../components/states/Skeleton";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { useAuth } from "../context/auth";
-import { roleLabel } from "../features/org/org-format";
+import { roleLabel, teamLabel } from "../features/org/org-format";
 import { ko } from "../i18n/ko";
 import { formatKoreanDateTime } from "../lib/datetime";
 import { safeLabel } from "../lib/utils";
@@ -1365,6 +1365,8 @@ function AssignmentPlanner({
   if (customRoles.length === 0) {
     return <PageEmpty message={ko.policyStudio.assignments.noRoles} />;
   }
+  const selectedUser = users.find((user) => user.id === selectedUserId);
+  const plannedRoles = customRoles.filter((role) => plannedRoleIds.has(role.id));
 
   return (
     <div className="grid gap-4">
@@ -1441,7 +1443,12 @@ function AssignmentPlanner({
         </p>
       ) : null}
 
-      <AssignmentImpactPreview preview={preview} />
+      <AssignmentImpactPreview
+        preview={preview}
+        selectedUser={selectedUser}
+        currentAssignments={assignments}
+        plannedRoles={plannedRoles}
+      />
 
       {preview ? (
         <label className="flex items-start gap-2 rounded-md border border-line bg-white p-3 text-sm text-steel">
@@ -1502,8 +1509,14 @@ function AssignmentPlanner({
 
 function AssignmentImpactPreview({
   preview,
+  selectedUser,
+  currentAssignments,
+  plannedRoles,
 }: {
   preview: PolicyAssignmentPreviewResponse | undefined;
+  selectedUser: UserSummary | undefined;
+  currentAssignments: PolicyRoleAssignmentResponse[];
+  plannedRoles: PolicyRoleResponse[];
 }) {
   if (!preview) return null;
   const rollup = policyAssignmentPreviewRollup(preview);
@@ -1538,6 +1551,12 @@ function AssignmentImpactPreview({
           {previewDecisionLabel(rollup.decision)}
         </Badge>
       </div>
+      <PolicyAssignmentDecisionPath
+        selectedUser={selectedUser}
+        currentAssignments={currentAssignments}
+        plannedRoles={plannedRoles}
+        decision={rollup.decision}
+      />
       <div
         className="grid gap-3 rounded border border-line bg-white/80 p-3 text-xs text-steel md:grid-cols-[auto_minmax(0,1fr)]"
         aria-label={ko.policyStudio.assignments.rollup.title}
@@ -1696,6 +1715,96 @@ function AssignmentImpactPreview({
       ) : null}
     </section>
   );
+}
+
+function PolicyAssignmentDecisionPath({
+  selectedUser,
+  currentAssignments,
+  plannedRoles,
+  decision,
+}: {
+  selectedUser: UserSummary | undefined;
+  currentAssignments: PolicyRoleAssignmentResponse[];
+  plannedRoles: PolicyRoleResponse[];
+  decision: PolicyAssignmentPreviewRollup["decision"];
+}) {
+  const currentRoleNames = currentAssignments.map((role) =>
+    safeLabel(role.display_name),
+  );
+  const plannedRoleNames = plannedRoles.map((role) =>
+    safeLabel(role.display_name),
+  );
+  return (
+    <div
+      role="group"
+      aria-label={ko.policyStudio.assignments.decisionPath.title}
+      className="rounded border border-line bg-white/90 p-3 text-xs text-steel"
+    >
+      <ol className="grid gap-2 md:grid-cols-5">
+        <DecisionPathStep
+          label={ko.policyStudio.assignments.decisionPath.targetUser}
+          value={selectedUser ? safeLabel(selectedUser.display_name) : "—"}
+          detail={selectedUser ? teamLabel(selectedUser.team) : undefined}
+        />
+        <DecisionPathStep
+          label={ko.policyStudio.assignments.decisionPath.currentRoles}
+          value={
+            currentRoleNames.length > 0
+              ? currentRoleNames.join(", ")
+              : ko.policyStudio.assignments.decisionPath.noCurrentRoles
+          }
+        />
+        <DecisionPathStep
+          label={ko.policyStudio.assignments.decisionPath.proposedRoles}
+          value={
+            plannedRoleNames.length > 0
+              ? plannedRoleNames.join(", ")
+              : ko.policyStudio.assignments.decisionPath.noProposedRoles
+          }
+        />
+        <DecisionPathStep
+          label={ko.policyStudio.assignments.decisionPath.runtimeDecision}
+          value={previewDecisionLabel(decision)}
+        />
+        <DecisionPathStep
+          label={ko.policyStudio.assignments.decisionPath.nextStep}
+          value={assignmentNextStepLabel(decision)}
+        />
+      </ol>
+    </div>
+  );
+}
+
+function DecisionPathStep({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+}) {
+  return (
+    <li className="rounded border border-line bg-slate-50 px-3 py-2">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-steel">
+        {label}
+      </div>
+      <div className="mt-1 text-sm font-semibold text-ink">{value}</div>
+      {detail ? <div className="mt-0.5 text-xs text-steel">{detail}</div> : null}
+    </li>
+  );
+}
+
+function assignmentNextStepLabel(
+  decision: PolicyAssignmentPreviewRollup["decision"],
+): string {
+  if (decision === "runtime_blocked") {
+    return ko.policyStudio.assignments.decisionPath.nextStepBlocked;
+  }
+  if (decision === "review") {
+    return ko.policyStudio.assignments.decisionPath.nextStepReview;
+  }
+  return ko.policyStudio.assignments.decisionPath.nextStepReady;
 }
 
 function PreviewMetric({ label, value }: { label: string; value: number }) {
