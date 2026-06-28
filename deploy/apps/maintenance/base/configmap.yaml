@@ -54,6 +54,10 @@ data:
   MNT_EMAIL_SMTP_PORT: "587"
   MNT_EMAIL_FROM: "no-reply@knllogistic.com"
   MNT_EMAIL_FROM_NAME: "MNT 정비 콘솔"
+  # Corporate webmail. The API mail endpoints mount regardless, but they return
+  # 503 until MNT_MAIL_MASTER_KEY is present in mnt-secrets. The worker mirrors
+  # IMAP only when this flag, the KEK, and object storage are all configured.
+  MNT_MAIL_ENABLED: "true"
   # OTLP trace export (opt-in). Leave unset to keep tracing as JSON-to-stdout
   # only. Uncommenting enables gRPC OTLP export to an in-cluster collector — the
   # OTel collector MUST be deployed first, otherwise every request will attempt

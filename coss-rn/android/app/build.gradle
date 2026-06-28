@@ -7,6 +7,15 @@ apply plugin: "com.facebook.react"
  * By default you don't need to apply any configuration, just uncomment the lines you need.
  */
 react {
+    def localNodeModulesDir = file("../../node_modules")
+    def workspaceNodeModulesDir = file("../../../node_modules")
+    def resolvedNodeModulesDir = new File(localNodeModulesDir, "react-native").exists() ? localNodeModulesDir : workspaceNodeModulesDir
+
+    root = file("../..")
+    reactNativeDir = new File(resolvedNodeModulesDir, "react-native")
+    codegenDir = new File(resolvedNodeModulesDir, "@react-native/codegen")
+    cliFile = new File(resolvedNodeModulesDir, "react-native/cli.js")
+
     /* Folders */
     //   The root of your project, i.e. where "package.json" lives. Default is '../..'
     // root = file("../../")

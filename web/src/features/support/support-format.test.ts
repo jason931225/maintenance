@@ -5,8 +5,11 @@ import {
   allowedTransitions,
   categoryLabel,
   originLabel,
+  priorityBadgeClass,
   priorityLabel,
   slaState,
+  slaStateBadgeClass,
+  statusBadgeClass,
   statusLabel,
   transitionActionLabel,
 } from "./support-format";
@@ -51,6 +54,37 @@ describe("support-format", () => {
     expect(slaState(past, "RESOLVED", now)).toBe("ok");
     expect(slaState(past, "CLOSED", now)).toBe("ok");
   });
+
+  it("maps support badges to semantic tone classes", () => {
+    expect(priorityBadgeClass("URGENT")).toBe(
+      "border-tone-danger-border bg-tone-danger-bg text-tone-danger-text",
+    );
+    expect(priorityBadgeClass("HIGH")).toBe(
+      "border-tone-warning-border bg-tone-warning-bg text-tone-warning-text",
+    );
+    expect(priorityBadgeClass("MEDIUM")).toBe(
+      "border-tone-neutral-border bg-tone-neutral-bg text-tone-neutral-text",
+    );
+    expect(statusBadgeClass("OPEN")).toBe(
+      "border-tone-info-border bg-tone-info-bg text-tone-info-text",
+    );
+    expect(statusBadgeClass("IN_PROGRESS")).toBe(
+      "border-tone-accent-border bg-tone-accent-bg text-tone-accent-text",
+    );
+    expect(statusBadgeClass("RESOLVED")).toBe(
+      "border-tone-success-border bg-tone-success-bg text-tone-success-text",
+    );
+    expect(statusBadgeClass("CLOSED")).toBe(
+      "border-tone-neutral-border bg-tone-neutral-bg text-tone-neutral-text",
+    );
+    expect(slaStateBadgeClass("overdue")).toBe(
+      "border-tone-danger-border bg-tone-danger-bg text-tone-danger-text",
+    );
+    expect(slaStateBadgeClass("dueSoon")).toBe(
+      "border-tone-warning-border bg-tone-warning-bg text-tone-warning-text",
+    );
+  });
+
 
   it("resolves Korean labels for every enum value", () => {
     expect(statusLabel("ON_HOLD")).toBe(ko.support.ticketStatus.ON_HOLD);

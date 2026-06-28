@@ -160,8 +160,8 @@ const REFRESH_COOKIE_NAME = "mnt_refresh";
  * spec that immediately navigates away does not race the still-settling session.
  *
  * The race being closed: after enrollment the OnboardingPage does a CLIENT-side
- * `navigate("/dispatch")` (web/src/pages/OnboardingPage.tsx) the instant the
- * passkey is registered. The URL flips to /dispatch immediately, but at that
+ * `navigate("/work-hub")` (web/src/pages/OnboardingPage.tsx) the instant the
+ * passkey is registered. The URL flips to /work-hub immediately, but at that
  * point the session lives in an in-memory access token plus an HttpOnly
  * `mnt_refresh` cookie the redeem/enroll exchange is still committing. A spec
  * that returns here and then `page.goto(...)` (a FULL document reload) drops the
@@ -169,7 +169,7 @@ const REFRESH_COOKIE_NAME = "mnt_refresh";
  * (web/src/context/auth.tsx) to rebuild the session from that cookie — so the
  * cookie MUST already be committed before we return.
  *
- * Readiness is gated on the AUTHENTICATED SHELL, not on the /dispatch page's own
+ * Readiness is gated on the AUTHENTICATED SHELL, not on the /work-hub page's own
  * data render. The shell's main nav (메인 내비게이션) paints for any authenticated
  * tenant session once `restoring` settles and a valid session clears
  * ProtectedRoute — i.e. we are in the app, not bounced to /login. We deliberately
@@ -202,7 +202,7 @@ export async function waitForSessionReady(page: Page): Promise<void> {
  * Drive the REAL ceremony for a seeded role on a page that already has a virtual
  * authenticator attached: redeem the role's fresh bootstrap OTP, get forced into
  * onboarding, enroll a discoverable passkey, and land in the tenant app
- * (/dispatch). The caller owns the authenticator lifecycle.
+ * (/work-hub). The caller owns the authenticator lifecycle.
  */
 export async function performRoleLogin(
   page: Page,
@@ -211,8 +211,10 @@ export async function performRoleLogin(
   seedRoleOtp(role);
   await redeemOtp(page, ROLE_CONFIG[role].otp);
   await enrollPasskey(page);
-  // Every seeded tenant role lands on the default tenant route after onboarding.
-  await expect(page).toHaveURL(/\/dispatch/, { timeout: 15_000 });
+  // Every seeded tenant role lands on the default tenant work hub after
+  // onboarding. Dispatch-specific specs may navigate to /dispatch explicitly
+  // after this helper has proven the real first screen.
+  await expect(page).toHaveURL(/\/work-hub/, { timeout: 15_000 });
   // Do not return until the session is fully established AND durable — otherwise
   // a spec that immediately reloads via page.goto() races the still-committing
   // refresh cookie and gets bounced to /login. Gates ALL loginAs callers.
@@ -226,6 +228,20 @@ export async function performRoleLogin(
  * both directly by specs and to capture a reusable storageState.
  */
 export async function loginAs(page: Page, role: TenantRole): Promise<void> {
+  await loginAsLanding(page, role);
+  // Keep existing dispatch-oriented e2e specs stable while the product landing
+  // moves to /work-hub. Use the authenticated shell link instead of a full
+  // document reload: a reload immediately after first passkey enrollment can
+  // race the boot-time refresh rotation, abort the Set-Cookie response, and make
+  // the next spec navigation reuse a stale refresh token. Specs that need to
+  // assert the actual first screen use loginAsLanding directly.
+  await page.getByRole("link", { name: "배차", exact: true }).click();
+  await expect(page).toHaveURL(/\/dispatch/, { timeout: 15_000 });
+  await waitForSessionReady(page);
+}
+
+/** Login and leave the page on the real authenticated landing route (/work-hub). */
+export async function loginAsLanding(page: Page, role: TenantRole): Promise<void> {
   await seedDeviceId(page);
   const authenticator = await attachVirtualAuthenticator(page);
   try {

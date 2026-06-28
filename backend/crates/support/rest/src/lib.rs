@@ -12,22 +12,19 @@
 //! `PushNotifier` port, degrading gracefully (no-op) when FCM is unconfigured.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::str::FromStr;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, KernelError, OrgId, SupportTicketId, TraceContext, UserId,
+    BranchId, BranchScope, ErrorKind, KernelError, SupportTicketId, TraceContext, UserId,
 };
-use mnt_platform_auth::{AccessClaims, JwtVerifier};
-use mnt_platform_authz::{
-    Action, Feature, Principal, Role, authorize, resolve_branch_scope_in_org,
-};
+use mnt_platform_auth::JwtVerifier;
+use mnt_platform_authz::{Action, Feature, Principal, authorize};
 use mnt_platform_push::{FcmPushMessage, PushNotifier};
 use mnt_support_adapter_postgres::{
     MAX_BODY_CHARS, MAX_REQUESTER_CONTACT_CHARS, MAX_REQUESTER_NAME_CHARS, MAX_TITLE_CHARS,
@@ -629,55 +626,43 @@ async fn principal_from_headers(
     let verifier = state.jwt_verifier.as_ref().ok_or_else(|| {
         RestError::unavailable("JWT verification is not configured for support API")
     })?;
-    let token = bearer_token(headers)?;
-    let claims = verifier
-        .verify_access_token(token)
-        .map_err(|_| RestError::unauthorized("invalid bearer token"))?;
-    principal_from_claims(state.pool(), claims).await
-}
-
-fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {
-    let header_value = headers
-        .get(header::AUTHORIZATION)
-        .ok_or_else(|| RestError::unauthorized("missing bearer token"))?
-        .to_str()
-        .map_err(|_| RestError::unauthorized("invalid authorization header"))?;
-    header_value
-        .strip_prefix("Bearer ")
-        .filter(|token| !token.trim().is_empty())
-        .ok_or_else(|| RestError::unauthorized("authorization header must use Bearer scheme"))
-}
-
-async fn principal_from_claims(
-    pool: &PgPool,
-    claims: AccessClaims,
-) -> Result<Principal, RestError> {
-    let user_id = UserId::from_str(&claims.sub)
-        .map_err(|_| RestError::unauthorized("token subject is not a valid user id"))?;
-    let roles = claims
-        .roles
-        .iter()
-        .map(|role| {
-            Role::from_str(role)
-                .map_err(|_| RestError::unauthorized("token contains an unknown role"))
-        })
-        .collect::<Result<BTreeSet<_>, _>>()?;
-    let role_vec = roles.iter().copied().collect::<Vec<_>>();
-    let org_id = OrgId::from_str(&claims.org)
-        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
-    // Re-resolve the live branch scope from the database rather than trusting the
-    // token's `branches` claim, so a branch-membership revocation takes effect
-    // immediately. SUPER_ADMIN/EXECUTIVE still resolve to `BranchScope::All`.
-    // Arm the verified-token org explicitly: this path resolves the principal and
-    // may run before the per-request tenant middleware has set CURRENT_ORG.
-    let branch_scope = resolve_branch_scope_in_org(pool, org_id, user_id, &role_vec)
+    mnt_platform_request_context::resolve_principal(verifier, state.pool(), headers)
         .await
-        .map_err(|err| RestError::internal(err.to_string()))?;
+        .map_err(rest_error_from_request_context)
+}
 
-    let access_scope = claims
-        .access_scope()
-        .map_err(|_| RestError::unauthorized("token contains an invalid access scope"))?;
-    Ok(Principal::new(user_id, org_id, roles, branch_scope).with_access_scope(access_scope))
+fn rest_error_from_request_context(
+    err: mnt_platform_request_context::RequestContextError,
+) -> RestError {
+    match err {
+        mnt_platform_request_context::RequestContextError::VerifierUnavailable => {
+            RestError::unavailable("JWT verification is not configured for support API")
+        }
+        mnt_platform_request_context::RequestContextError::WrongTokenTier => {
+            RestError::from_kernel(KernelError::forbidden(
+                "token tier is not valid for this route",
+            ))
+        }
+        mnt_platform_request_context::RequestContextError::AccessScope(error) => {
+            RestError::from_kernel(error)
+        }
+        mnt_platform_request_context::RequestContextError::BranchScope(message)
+        | mnt_platform_request_context::RequestContextError::EffectivePolicy(message) => {
+            RestError::from_kernel(KernelError::internal(message))
+        }
+        mnt_platform_request_context::RequestContextError::MissingOrg => RestError::from_kernel(
+            KernelError::internal("no tenant context is bound to the current request"),
+        ),
+        mnt_platform_request_context::RequestContextError::MissingBearer => {
+            RestError::unauthorized("missing or malformed bearer token")
+        }
+        mnt_platform_request_context::RequestContextError::InvalidToken => {
+            RestError::unauthorized("invalid bearer token")
+        }
+        mnt_platform_request_context::RequestContextError::InvalidClaim(message) => {
+            RestError::unauthorized(format!("token claim is invalid: {message}"))
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

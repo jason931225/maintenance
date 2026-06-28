@@ -1,6 +1,6 @@
 import { Navigate, Outlet } from "react-router-dom";
 
-import { hasAnyRole, ROLES } from "./shell/nav";
+import { FEATURES, hasAnyFeatureGrant, hasAnyRole, ROLES } from "./shell/nav";
 import { useAuth } from "../context/auth";
 
 /** HR employee directory read roles: ADMIN/EXECUTIVE/SUPER_ADMIN. */
@@ -10,11 +10,16 @@ const EMPLOYEE_DIRECTORY_ROLES = [
   ROLES.SUPER_ADMIN,
 ] as const;
 
+const EMPLOYEE_DIRECTORY_FEATURES = [FEATURES.EMPLOYEE_DIRECTORY_READ] as const;
+
 export function RequireEmployeeDirectoryRoute() {
   const { session } = useAuth();
 
-  if (!hasAnyRole(session?.roles, EMPLOYEE_DIRECTORY_ROLES)) {
-    return <Navigate to="/dispatch" replace />;
+  if (
+    !hasAnyRole(session?.roles, EMPLOYEE_DIRECTORY_ROLES) &&
+    !hasAnyFeatureGrant(session?.feature_grants, EMPLOYEE_DIRECTORY_FEATURES)
+  ) {
+    return <Navigate to="/work-hub" replace />;
   }
 
   return <Outlet />;

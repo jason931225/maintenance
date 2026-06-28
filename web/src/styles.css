@@ -14,6 +14,32 @@
   --color-steel: #51606c;
   --color-muted-panel: #eef2f5;
   --color-line: #d7dee5;
+
+  /* Authenticated console semantic tokens. These resolve through .console vars
+   * so storefront pages keep their existing KNL brand palette while app surfaces
+   * get one AA-tuned color language for status, priority, and SLA meaning. */
+  --color-console-canvas: var(--console-canvas);
+  --color-console-surface: var(--console-surface);
+  --color-console-muted: var(--console-muted);
+  --color-console-border: var(--console-border);
+  --color-tone-danger-bg: var(--tone-danger-bg);
+  --color-tone-danger-border: var(--tone-danger-border);
+  --color-tone-danger-text: var(--tone-danger-text);
+  --color-tone-warning-bg: var(--tone-warning-bg);
+  --color-tone-warning-border: var(--tone-warning-border);
+  --color-tone-warning-text: var(--tone-warning-text);
+  --color-tone-success-bg: var(--tone-success-bg);
+  --color-tone-success-border: var(--tone-success-border);
+  --color-tone-success-text: var(--tone-success-text);
+  --color-tone-info-bg: var(--tone-info-bg);
+  --color-tone-info-border: var(--tone-info-border);
+  --color-tone-info-text: var(--tone-info-text);
+  --color-tone-accent-bg: var(--tone-accent-bg);
+  --color-tone-accent-border: var(--tone-accent-border);
+  --color-tone-accent-text: var(--tone-accent-text);
+  --color-tone-neutral-bg: var(--tone-neutral-bg);
+  --color-tone-neutral-border: var(--tone-neutral-border);
+  --color-tone-neutral-text: var(--tone-neutral-text);
 }
 
 /*
@@ -107,6 +133,64 @@ select {
 
 #root {
   min-height: 100vh;
+}
+
+/*
+ * Console-only Blueprint foundation. The authenticated app shells add the
+ * `.console` class; public storefront pages do not. Tone variables are named by
+ * meaning, not by hue, so P1/URGENT/SLA-breached all share the same danger red
+ * and future dark/density modes can swap values without touching components.
+ */
+.console {
+  --console-canvas: #f4f6f8;
+  --console-surface: #ffffff;
+  --console-muted: #eef2f5;
+  --console-border: #d7dee5;
+  --tone-danger-bg: #fef2f2;
+  --tone-danger-border: #fca5a5;
+  --tone-danger-text: #991b1b;
+  --tone-warning-bg: #fffbeb;
+  --tone-warning-border: #fcd34d;
+  --tone-warning-text: #92400e;
+  --tone-success-bg: #ecfdf5;
+  --tone-success-border: #6ee7b7;
+  --tone-success-text: #065f46;
+  --tone-info-bg: #eff6ff;
+  --tone-info-border: #93c5fd;
+  --tone-info-text: #1e40af;
+  --tone-accent-bg: #fffbeb;
+  --tone-accent-border: #f6b521;
+  --tone-accent-text: #78350f;
+  --tone-neutral-bg: #eef2f5;
+  --tone-neutral-border: #d7dee5;
+  --tone-neutral-text: #51606c;
+  background: var(--console-canvas);
+}
+
+.console.dark {
+  color-scheme: dark;
+  --console-canvas: #0b1220;
+  --console-surface: #111827;
+  --console-muted: #1f2937;
+  --console-border: #334155;
+  --tone-danger-bg: #450a0a;
+  --tone-danger-border: #991b1b;
+  --tone-danger-text: #fecaca;
+  --tone-warning-bg: #451a03;
+  --tone-warning-border: #b45309;
+  --tone-warning-text: #fde68a;
+  --tone-success-bg: #022c22;
+  --tone-success-border: #047857;
+  --tone-success-text: #a7f3d0;
+  --tone-info-bg: #172554;
+  --tone-info-border: #2563eb;
+  --tone-info-text: #bfdbfe;
+  --tone-accent-bg: #422006;
+  --tone-accent-border: #c88800;
+  --tone-accent-text: #fde68a;
+  --tone-neutral-bg: #1f2937;
+  --tone-neutral-border: #475569;
+  --tone-neutral-text: #cbd5e1;
 }
 
 /* Respect users who ask for less motion: neutralise transitions/animations. */

@@ -1,4 +1,5 @@
 import type { FinancialConfigSnapshot } from "../../api/types";
+import { formatWonAmount } from "../../lib/currency";
 import { ROLES } from "../../components/shell/nav";
 
 /**
@@ -81,5 +82,5 @@ export const DEFAULT_FINANCIAL_CONFIG: FinancialConfigSnapshot = {
 
 /** Format an integer won amount with thousands separators (no currency glyph). */
 export function formatWon(amount: number): string {
-  return new Intl.NumberFormat("ko-KR").format(amount);
+  return formatWonAmount(amount);
 }

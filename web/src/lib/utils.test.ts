@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ko } from "../i18n/ko";
-import { identityLabel, isUuid, safeLabel } from "./utils";
+import { identityLabel, isUuid, priorityClass, safeLabel } from "./utils";
 
 const UUID = "3f2e1a4d-0000-4000-8000-000000000001";
 
@@ -40,5 +40,26 @@ describe("identityLabel", () => {
 
   it("ignores a UUID-shaped display name", () => {
     expect(identityLabel({ display_name: UUID }, "관리자")).toBe("관리자");
+  });
+});
+
+
+describe("priorityClass", () => {
+  it("maps work-order priorities to the semantic tone system", () => {
+    expect(priorityClass("P1")).toBe(
+      "border-tone-danger-border bg-tone-danger-bg text-tone-danger-text",
+    );
+    expect(priorityClass("P2")).toBe(
+      "border-tone-warning-border bg-tone-warning-bg text-tone-warning-text",
+    );
+    expect(priorityClass("P3")).toBe(
+      "border-tone-success-border bg-tone-success-bg text-tone-success-text",
+    );
+    expect(priorityClass("OUTSOURCE")).toBe(
+      "border-tone-info-border bg-tone-info-bg text-tone-info-text",
+    );
+    expect(priorityClass("UNSET")).toBe(
+      "border-tone-neutral-border bg-tone-neutral-bg text-tone-neutral-text",
+    );
   });
 });

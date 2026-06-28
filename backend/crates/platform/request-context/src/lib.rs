@@ -26,9 +26,13 @@ use axum::extract::Request;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
-use mnt_kernel_core::{KernelError, OrgId, UserId};
-use mnt_platform_auth::JwtVerifier;
-use mnt_platform_authz::{PlatformPrincipal, Principal, Role, resolve_branch_scope_in_org};
+use mnt_kernel_core::{AccessScope, BranchScope, ErrorKind, KernelError, OrgId, UserId};
+use mnt_platform_auth::{JwtVerifier, TenantAccessContext};
+use mnt_platform_authz::{
+    PlatformPrincipal, Principal, Role, effective_branch_scope_for_tenant,
+    resolve_branch_scope_in_org, resolve_effective_feature_grants_in_org,
+};
+use mnt_platform_group::group_admin_member_orgs;
 use sqlx::PgPool;
 use std::collections::BTreeSet;
 
@@ -67,6 +71,14 @@ pub enum RequestContextError {
     #[error("failed to resolve branch scope: {0}")]
     BranchScope(String),
 
+    /// Resolving runtime-effective custom policy grants from the database failed.
+    #[error("failed to resolve effective policy: {0}")]
+    EffectivePolicy(String),
+
+    /// The verified JWT's hierarchy scope is not valid for this tenant route.
+    #[error("access scope is not valid for this route: {0}")]
+    AccessScope(KernelError),
+
     /// A PLATFORM token was presented to a tenant (`/api/*`) route, or a TENANT
     /// token was presented to a `/platform/*` route. The two tiers are strictly
     /// separated; crossing them is rejected before any handler runs.
@@ -81,7 +93,10 @@ impl From<RequestContextError> for KernelError {
     /// query reached the DB without a bound org), so it maps to an internal
     /// error — the request never produces tenant data on this path.
     fn from(err: RequestContextError) -> Self {
-        KernelError::internal(err.to_string())
+        match err {
+            RequestContextError::AccessScope(error) => error,
+            err => KernelError::internal(err.to_string()),
+        }
     }
 }
 
@@ -125,6 +140,20 @@ pub async fn resolve_principal(
     headers: &HeaderMap,
 ) -> Result<Principal, RequestContextError> {
     let token = bearer_token(headers)?;
+    resolve_principal_from_bearer_token(verifier, pool, token).await
+}
+
+/// Resolve a tenant [`Principal`] from an already-extracted bearer token.
+///
+/// Realtime WebSocket handshakes may carry the token in `Sec-WebSocket-Protocol`
+/// rather than `Authorization`, but the security path after extraction must be
+/// identical: verify, reject platform tier, parse roles/org/access scope,
+/// re-resolve live branch memberships, and narrow by [`AccessScope`].
+pub async fn resolve_principal_from_bearer_token(
+    verifier: &JwtVerifier,
+    pool: &PgPool,
+    token: &str,
+) -> Result<Principal, RequestContextError> {
     let claims = verifier
         .verify_access_token(token)
         .map_err(|_| RequestContextError::InvalidToken)?;
@@ -151,12 +180,83 @@ pub async fn resolve_principal(
         })
         .collect::<Result<BTreeSet<_>, _>>()?;
 
+    if claims.tenant_context == Some(TenantAccessContext::GroupAdmin) {
+        return resolve_group_admin_tenant_context_principal(
+            pool,
+            user_id,
+            org_id,
+            access_scope,
+            roles,
+            claims.group_context_id.as_deref(),
+        )
+        .await;
+    }
+
     let role_vec = roles.iter().copied().collect::<Vec<_>>();
-    let branch_scope = resolve_branch_scope_in_org(pool, org_id, user_id, &role_vec)
+    let live_branch_scope = resolve_branch_scope_in_org(pool, org_id, user_id, &role_vec)
         .await
         .map_err(|err| RequestContextError::BranchScope(err.to_string()))?;
+    let branch_scope = effective_branch_scope_for_tenant(live_branch_scope, access_scope, org_id)
+        .map_err(RequestContextError::AccessScope)?;
+    let effective_feature_grants =
+        resolve_effective_feature_grants_in_org(pool, org_id, user_id, &branch_scope)
+            .await
+            .map_err(|err| RequestContextError::EffectivePolicy(err.to_string()))?;
 
-    Ok(Principal::new(user_id, org_id, roles, branch_scope).with_access_scope(access_scope))
+    Ok(Principal::new(user_id, org_id, roles, branch_scope)
+        .with_access_scope(access_scope)
+        .with_effective_feature_grants(effective_feature_grants))
+}
+
+async fn resolve_group_admin_tenant_context_principal(
+    pool: &PgPool,
+    user_id: UserId,
+    org_id: OrgId,
+    access_scope: AccessScope,
+    roles: BTreeSet<Role>,
+    group_context_id: Option<&str>,
+) -> Result<Principal, RequestContextError> {
+    let expected_roles = BTreeSet::from([Role::Admin]);
+    if roles != expected_roles {
+        return Err(RequestContextError::InvalidClaim(
+            "group-admin tenant context must carry only ADMIN",
+        ));
+    }
+    let group_id = group_context_id
+        .ok_or(RequestContextError::InvalidClaim(
+            "group-admin tenant context is missing group id",
+        ))?
+        .parse::<uuid::Uuid>()
+        .map_err(|_| RequestContextError::InvalidClaim("group id is not a valid uuid"))?;
+
+    let members = group_admin_member_orgs(pool, group_id, user_id)
+        .await
+        .map_err(|err| RequestContextError::BranchScope(err.to_string()))?;
+    if !members
+        .iter()
+        .any(|member| member.org_id == org_id && member.status == "ACTIVE")
+    {
+        return Err(RequestContextError::AccessScope(KernelError::forbidden(
+            "group-admin tenant context is no longer authorized for this organization",
+        )));
+    }
+
+    // The live group resolver proves the actor still administers this
+    // subsidiary. Project through the token's scope so future narrower
+    // hierarchy scopes cannot widen here, then build a bounded tenant principal:
+    // ADMIN permissions, all-branch only for this subsidiary, never SUPER_ADMIN.
+    let branch_scope = effective_branch_scope_for_tenant(BranchScope::All, access_scope, org_id)
+        .map_err(RequestContextError::AccessScope)?;
+    let effective_feature_grants =
+        resolve_effective_feature_grants_in_org(pool, org_id, user_id, &branch_scope)
+            .await
+            .map_err(|err| RequestContextError::EffectivePolicy(err.to_string()))?;
+
+    Ok(
+        Principal::new(user_id, org_id, expected_roles, branch_scope)
+            .with_access_scope(access_scope)
+            .with_effective_feature_grants(effective_feature_grants),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -215,7 +315,13 @@ fn error_response(status: StatusCode, message: &str) -> Response {
 fn error_response_for(err: &RequestContextError) -> Response {
     let status = match err {
         RequestContextError::VerifierUnavailable => StatusCode::SERVICE_UNAVAILABLE,
-        RequestContextError::BranchScope(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        RequestContextError::BranchScope(_) | RequestContextError::EffectivePolicy(_) => {
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+        RequestContextError::AccessScope(error) if error.kind == ErrorKind::Forbidden => {
+            StatusCode::FORBIDDEN
+        }
+        RequestContextError::AccessScope(_) => StatusCode::INTERNAL_SERVER_ERROR,
         // A valid token presented to the wrong tier is an authorization failure,
         // not an authentication one: the caller IS authenticated, just not for
         // this route. 403 keeps it distinct from "no/!invalid token" (401).
@@ -305,4 +411,32 @@ where
     F: std::future::Future<Output = T>,
 {
     CURRENT_ORG.scope(org, fut).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mnt_platform_authz::{Action, Feature, authorize_org_wide};
+
+    #[test]
+    fn delegated_group_admin_principal_does_not_gain_executive_queue_triage() -> Result<(), String>
+    {
+        let principal = Principal::new(
+            UserId::new(),
+            OrgId::new(),
+            BTreeSet::from([Role::Admin]),
+            BranchScope::All,
+        );
+
+        let err = match authorize_org_wide(&principal, Action::new(Feature::OrgWideQueueTriage)) {
+            Ok(()) => {
+                return Err(
+                    "delegated group-admin tenant context gained executive queue triage".to_owned(),
+                );
+            }
+            Err(err) => err,
+        };
+        assert_eq!(err.kind, ErrorKind::Forbidden);
+        Ok(())
+    }
 }

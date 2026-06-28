@@ -1,4 +1,5 @@
 import { test, expect } from "../fixtures/roles";
+import { navigateByHref } from "../fixtures/ux";
 
 /**
  * MECH-11 — mechanic opens a messenger thread and sends a message.
@@ -14,7 +15,7 @@ test("MECH-11 mechanic opens a thread and sends a message", async ({
   await loginAs("MECHANIC");
   await expect(page).toHaveURL(/\/dispatch/, { timeout: 15_000 });
 
-  await page.goto("/messenger");
+  await navigateByHref(page, "/messenger");
   await expect(
     page.getByRole("heading", { name: /메신저/, level: 1 }),
   ).toBeVisible({ timeout: 8_000 });

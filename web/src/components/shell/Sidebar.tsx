@@ -4,6 +4,7 @@ import { NavLink } from "react-router-dom";
 import { cn } from "../../lib/utils";
 import { ko } from "../../i18n/ko";
 import { NAV_GROUPS, isNavItemVisible } from "./nav";
+import { navGroupLabel, navItemLabel } from "./nav-labels";
 import type { AuthSession } from "../../context/auth";
 
 interface SidebarProps {
@@ -12,20 +13,6 @@ interface SidebarProps {
   onCollapse: () => void;
   onMobileClose: () => void;
   session: AuthSession | undefined;
-}
-
-const groupLabels: Record<string, string> = {
-  operations: ko.nav.groups.operations,
-  executive: ko.nav.groups.executive,
-  assets: ko.nav.groups.assets,
-  finance: ko.nav.groups.finance,
-  organization: ko.nav.groups.organization,
-  identity: ko.nav.groups.identity,
-  settings: ko.nav.groups.settings,
-};
-
-function navGroupLabel(key: string): string {
-  return groupLabels[key] ?? key;
 }
 
 export function Sidebar({
@@ -37,11 +24,12 @@ export function Sidebar({
 }: SidebarProps) {
   const roles = session?.roles;
   const groupRoles = session?.group_roles;
+  const featureGrants = session?.feature_grants;
 
   const filteredGroups = NAV_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter((item) =>
-      isNavItemVisible(item.key, roles, groupRoles),
+      isNavItemVisible(item.key, roles, groupRoles, featureGrants),
     ),
   })).filter((group) => group.items.length > 0);
 
@@ -92,8 +80,7 @@ export function Sidebar({
               )}
               <div className="grid gap-1">
                 {group.items.map((item) => {
-                  const label = ko.nav[item.key as keyof typeof ko.nav];
-                  const labelStr = typeof label === "string" ? label : item.key;
+                  const labelStr = navItemLabel(item.key);
                   return (
                     <NavLink
                       key={item.key}

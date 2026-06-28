@@ -356,6 +356,7 @@ fn issue_token(
         view_as: false,
         read_only: false,
         display_name: None,
+        feature_grants: Vec::new(),
         issued_at: OffsetDateTime::now_utc(),
     })?)
 }

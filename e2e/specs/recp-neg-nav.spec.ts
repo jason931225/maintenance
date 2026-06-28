@@ -3,7 +3,7 @@ import { test, expect } from "../fixtures/roles";
 /**
  * RECEPTIONIST NEGATIVE — daily-plan (and the other manager/admin surfaces) are
  * hidden from the receptionist's nav, and a direct visit to /daily-plan is
- * bounced back to /dispatch.
+ * bounced back to the default authenticated landing (/work-hub).
  *
  * Expected VISIBLE for RECEPTIONIST (web/src/components/shell/nav.test.ts):
  *   dispatch, intake, messenger, support, reporting, equipment, financial,
@@ -13,7 +13,7 @@ import { test, expect } from "../fixtures/roles";
  *   approvals, daily-plan, inspection, ops, kpi, users, org, security
  *
  * daily-plan: DailyPlanRequest is `[D, A, A, D, A]` (receptionist denied), so the
- * route is gated by RequireDailyPlanRoute and bounces to /dispatch.
+ * route is gated by RequireDailyPlanRoute and bounces to /work-hub.
  */
 
 const VISIBLE_NAV_LABELS = [
@@ -59,20 +59,20 @@ test("RECP-NEG manager/admin nav items (incl. daily-plan, kpi) are hidden", asyn
   }
 });
 
-test("RECP-NEG direct visit to /daily-plan bounces to /dispatch", async ({
+test("RECP-NEG direct visit to /daily-plan bounces to /work-hub", async ({
   page,
   loginAs,
 }) => {
   await loginAs("RECEPTIONIST");
   await expect(page).toHaveURL(/\/dispatch/, { timeout: 15_000 });
 
-  // /daily-plan is gated by RequireDailyPlanRoute → redirects to /dispatch.
+  // /daily-plan is gated by RequireDailyPlanRoute → redirects to /work-hub.
   await page.goto("/daily-plan");
   await expect(page).not.toHaveURL(/\/daily-plan/, { timeout: 8_000 });
-  await expect(page).toHaveURL(/\/dispatch/, { timeout: 8_000 });
+  await expect(page).toHaveURL(/\/work-hub/, { timeout: 8_000 });
 });
 
-test("RECP-NEG direct visit to /kpi bounces to /dispatch", async ({
+test("RECP-NEG direct visit to /kpi bounces to /work-hub", async ({
   page,
   loginAs,
 }) => {
@@ -82,5 +82,5 @@ test("RECP-NEG direct visit to /kpi bounces to /dispatch", async ({
   // /kpi is gated by RequireKpiRoute (KpiRead is `[D, D, A, A, A]`) → redirect.
   await page.goto("/kpi");
   await expect(page).not.toHaveURL(/\/kpi/, { timeout: 8_000 });
-  await expect(page).toHaveURL(/\/dispatch/, { timeout: 8_000 });
+  await expect(page).toHaveURL(/\/work-hub/, { timeout: 8_000 });
 });

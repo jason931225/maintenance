@@ -184,3 +184,18 @@ export async function auditPage(
   await assertNoAxeViolations(page, { context: options?.context });
   options?.consoleGuard?.assertClean();
 }
+
+/**
+ * Navigate within the SPA by clicking the visible shell/link anchor for `href`.
+ * This preserves the in-memory access token across authenticated role specs;
+ * use `page.goto()` only when intentionally testing a full document reload and
+ * silent-refresh recovery.
+ */
+export async function navigateByHref(page: Page, href: string): Promise<void> {
+  const escaped = href.replace(/(["\\])/g, "\\$1");
+  await page.locator(`a[href="${escaped}"]`).first().click();
+  const path = href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  await expect(page).toHaveURL(new RegExp(`${path}(?:$|[?#])`), {
+    timeout: 15_000,
+  });
+}

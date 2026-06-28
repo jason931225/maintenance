@@ -1,11 +1,8 @@
 //! Financial REST API.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-use std::collections::BTreeSet;
-use std::str::FromStr;
-
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -18,11 +15,11 @@ use mnt_financial_application::{
 };
 use mnt_financial_domain::{MoneyInput, RentalQuoteInput, compute_rental_quote};
 use mnt_kernel_core::{
-    BranchId, BranchScope, EquipmentId, ErrorKind, EvidenceId, KernelError, OrgId,
-    PurchaseRequestId, QuoteId, TraceContext, UserId, WorkOrderId,
+    BranchId, EquipmentId, ErrorKind, EvidenceId, KernelError, PurchaseRequestId, QuoteId,
+    TraceContext, WorkOrderId,
 };
-use mnt_platform_auth::{AccessClaims, JwtVerifier};
-use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
+use mnt_platform_auth::JwtVerifier;
+use mnt_platform_authz::{Action, Feature, Principal, authorize};
 use mnt_platform_db::DbError;
 use serde::{Deserialize, Serialize};
 
@@ -177,7 +174,7 @@ async fn compute_quote(
     headers: HeaderMap,
     Json(body): Json<ComputeQuoteRequest>,
 ) -> Result<impl IntoResponse, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize(
         &principal,
         Action::new(Feature::RentalQuoteManage),
@@ -199,7 +196,7 @@ async fn create_rental_quote(
     headers: HeaderMap,
     Json(body): Json<CreateRentalQuoteRequest>,
 ) -> Result<impl IntoResponse, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize(
         &principal,
         Action::new(Feature::RentalQuoteManage),
@@ -226,7 +223,7 @@ async fn get_rental_quote(
     headers: HeaderMap,
     Path(quote_id): Path<uuid::Uuid>,
 ) -> Result<impl IntoResponse, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let quote = state
         .store
         .rental_quote(QuoteId::from_uuid(quote_id))
@@ -247,7 +244,7 @@ async fn list_cost_ledger(
     Path(equipment_id): Path<uuid::Uuid>,
 ) -> Result<impl IntoResponse, RestError> {
     let equipment_id = EquipmentId::from_uuid(equipment_id);
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let branch_id = state
         .store
         .equipment_branch(equipment_id)
@@ -273,7 +270,7 @@ async fn get_lifecycle_cost(
     Path(equipment_id): Path<uuid::Uuid>,
 ) -> Result<impl IntoResponse, RestError> {
     let equipment_id = EquipmentId::from_uuid(equipment_id);
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     let branch_id = state
         .store
         .equipment_branch(equipment_id)
@@ -299,7 +296,7 @@ async fn append_manual_cost_ledger(
     Path(equipment_id): Path<uuid::Uuid>,
     Json(body): Json<AppendManualCostLedgerRequest>,
 ) -> Result<impl IntoResponse, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize(
         &principal,
         Action::new(Feature::EquipmentCostLedgerWrite),
@@ -330,7 +327,7 @@ async fn create_purchase_request(
     headers: HeaderMap,
     Json(body): Json<CreatePurchaseRequest>,
 ) -> Result<impl IntoResponse, RestError> {
-    let principal = principal_from_headers(&state, &headers)?;
+    let principal = principal_from_headers(&state, &headers).await?;
     authorize(
         &principal,
         Action::request(Feature::PurchaseRequestCreate),
@@ -583,7 +580,7 @@ async fn authorize_for_purchase_read(
     headers: &HeaderMap,
     purchase_request_id: PurchaseRequestId,
 ) -> Result<(mnt_financial_application::PurchaseRequestSummary, Principal), RestError> {
-    let principal = principal_from_headers(state, headers)?;
+    let principal = principal_from_headers(state, headers).await?;
     let purchase = state
         .store
         .purchase_request(purchase_request_id)
@@ -615,67 +612,50 @@ fn authorize_any(
     }
 }
 
-fn principal_from_headers(
+async fn principal_from_headers(
     state: &FinancialRestState,
     headers: &HeaderMap,
 ) -> Result<Principal, RestError> {
     let verifier = state.jwt_verifier.as_ref().ok_or_else(|| {
         RestError::unavailable("JWT verification is not configured for financial API")
     })?;
-    let token = bearer_token(headers)?;
-    let claims = verifier
-        .verify_access_token(token)
-        .map_err(|_| RestError::unauthorized("invalid bearer token"))?;
-    principal_from_claims(claims)
+    mnt_platform_request_context::resolve_principal(verifier, state.store.pool(), headers)
+        .await
+        .map_err(rest_error_from_request_context)
 }
 
-fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {
-    let header_value = headers
-        .get(header::AUTHORIZATION)
-        .ok_or_else(|| RestError::unauthorized("missing bearer token"))?
-        .to_str()
-        .map_err(|_| RestError::unauthorized("invalid authorization header"))?;
-    header_value
-        .strip_prefix("Bearer ")
-        .filter(|token| !token.trim().is_empty())
-        .ok_or_else(|| RestError::unauthorized("authorization header must use Bearer scheme"))
-}
-
-fn principal_from_claims(claims: AccessClaims) -> Result<Principal, RestError> {
-    let user_id = UserId::from_str(&claims.sub)
-        .map_err(|_| RestError::unauthorized("token subject is not a valid user id"))?;
-    let roles_vec: Vec<Role> = claims
-        .roles
-        .iter()
-        .map(|role| {
-            Role::from_str(role)
-                .map_err(|_| RestError::unauthorized("token contains an unknown role"))
-        })
-        .collect::<Result<_, _>>()?;
-    let roles = roles_vec.iter().copied().collect::<BTreeSet<_>>();
-    let branch_scope = if roles_vec
-        .iter()
-        .any(|role| matches!(role, Role::SuperAdmin | Role::Executive))
-    {
-        BranchScope::All
-    } else {
-        let branches = claims
-            .branches
-            .iter()
-            .map(|branch| {
-                BranchId::from_str(branch)
-                    .map_err(|_| RestError::unauthorized("token contains an invalid branch id"))
-            })
-            .collect::<Result<BTreeSet<_>, _>>()?;
-        BranchScope::Branches(branches)
-    };
-
-    let org_id = OrgId::from_str(&claims.org)
-        .map_err(|_| RestError::unauthorized("token contains an invalid org id"))?;
-    let access_scope = claims
-        .access_scope()
-        .map_err(|_| RestError::unauthorized("token contains an invalid access scope"))?;
-    Ok(Principal::new(user_id, org_id, roles, branch_scope).with_access_scope(access_scope))
+fn rest_error_from_request_context(
+    err: mnt_platform_request_context::RequestContextError,
+) -> RestError {
+    match err {
+        mnt_platform_request_context::RequestContextError::VerifierUnavailable => {
+            RestError::unavailable("JWT verification is not configured for financial API")
+        }
+        mnt_platform_request_context::RequestContextError::WrongTokenTier => {
+            RestError::from_kernel(KernelError::forbidden(
+                "token tier is not valid for this route",
+            ))
+        }
+        mnt_platform_request_context::RequestContextError::AccessScope(error) => {
+            RestError::from_kernel(error)
+        }
+        mnt_platform_request_context::RequestContextError::BranchScope(message)
+        | mnt_platform_request_context::RequestContextError::EffectivePolicy(message) => {
+            RestError::internal(message)
+        }
+        mnt_platform_request_context::RequestContextError::MissingOrg => {
+            RestError::internal("no tenant context is bound to the current request")
+        }
+        mnt_platform_request_context::RequestContextError::MissingBearer => {
+            RestError::unauthorized("missing or malformed bearer token")
+        }
+        mnt_platform_request_context::RequestContextError::InvalidToken => {
+            RestError::unauthorized("invalid bearer token")
+        }
+        mnt_platform_request_context::RequestContextError::InvalidClaim(message) => {
+            RestError::unauthorized(format!("token claim is invalid: {message}"))
+        }
+    }
 }
 
 #[derive(Debug)]

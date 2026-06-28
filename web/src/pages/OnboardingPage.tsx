@@ -94,7 +94,7 @@ export function OnboardingPage() {
       const ceremony = await startPasskeyRegistration(api, {}, "platform");
       await finishPasskeyRegistration(api, ceremony);
       clearPasskeySetup();
-      void navigate("/dispatch", { replace: true });
+      void navigate("/work-hub", { replace: true });
     } catch (cause) {
       const cancelled =
         cause instanceof DOMException &&

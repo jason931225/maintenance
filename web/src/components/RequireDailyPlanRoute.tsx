@@ -1,7 +1,7 @@
 import { Navigate, Outlet } from "react-router-dom";
 
 import { useAuth } from "../context/auth";
-import { hasAnyRole, ROLES } from "./shell/nav";
+import { FEATURES, hasAnyFeatureGrant, hasAnyRole, ROLES } from "./shell/nav";
 
 /**
  * JWT roles that may act on daily work plans (backend `DailyPlanRequest`:
@@ -21,11 +21,20 @@ const DAILY_PLAN_ROLES = [
  * unreachable by direct URL for roles whose nav hides it. The backend re-checks
  * authorization on every call.
  */
+const DAILY_PLAN_FEATURES = [
+  FEATURES.DAILY_PLAN_REQUEST,
+  FEATURES.DAILY_PLAN_REVIEW,
+  FEATURES.ORG_WIDE_QUEUE_TRIAGE,
+] as const;
+
 export function RequireDailyPlanRoute() {
   const { session } = useAuth();
 
-  if (!hasAnyRole(session?.roles, DAILY_PLAN_ROLES)) {
-    return <Navigate to="/dispatch" replace />;
+  if (
+    !hasAnyRole(session?.roles, DAILY_PLAN_ROLES) &&
+    !hasAnyFeatureGrant(session?.feature_grants, DAILY_PLAN_FEATURES)
+  ) {
+    return <Navigate to="/work-hub" replace />;
   }
 
   return <Outlet />;

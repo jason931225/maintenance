@@ -1,12 +1,13 @@
 import type { WorkOrderListItem } from "../../api/types";
 import { Badge } from "../../components/ui/badge";
 import { ko } from "../../i18n/ko";
+import { toneBadgeClass } from "../../lib/semantic";
 import { slaStatus, type SlaStatus } from "./sla";
 
 const STATUS_CLASS: Record<Exclude<SlaStatus, "none">, string> = {
-  "on-track": "border-brand-teal/30 bg-brand-teal/10 text-brand-teal",
-  "at-risk": "border-amber-300 bg-amber-50 text-amber-900",
-  breached: "border-red-300 bg-red-50 text-red-800",
+  "on-track": toneBadgeClass("success"),
+  "at-risk": toneBadgeClass("warning"),
+  breached: toneBadgeClass("danger"),
 };
 
 const STATUS_LABEL: Record<Exclude<SlaStatus, "none">, string> = {

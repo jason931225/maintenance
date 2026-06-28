@@ -13,8 +13,10 @@ enum AID {
 
     static let authenticatedTabs = "shell.authenticatedTabs"
     static let todayTab = "shell.todayTab"
+    static let workHubTab = "shell.workHubTab"
     static let messengerTab = "shell.messengerTab"
 
+    static let workHubList = "workHub.list"
     static let todayList = "today.list"
     static let todayEmpty = "today.empty"
     static let todayRefreshButton = "today.refresh"
@@ -65,6 +67,7 @@ enum KO {
     static let loginButton = "로그인"
     static let todayTitle = "오늘 작업"
     static let emptyToday = "오늘 배정된 작업이 없습니다."
+    static let workHubTitle = "업무 허브"
     static let messengerTitle = "메신저"
     static let messengerEmptyThreads = "표시할 대화방이 없습니다."
     static let messengerSelectThread = "대화방을 선택하세요."

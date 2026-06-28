@@ -172,14 +172,14 @@ describe("asset lifecycle cost panel", () => {
     await user.click(screen.getByRole("button", { name: "비용 조회" }));
 
     // TCO and maintenance splits render with thousands separators.
-    expect(await screen.findByText("34,500,000 원")).toBeVisible();
-    expect(screen.getByText("4,500,000 원")).toBeVisible();
+    expect(await screen.findByLabelText("34,500,000 원")).toBeVisible();
+    expect(screen.getByLabelText("4,500,000 원")).toBeVisible();
     // Gross margin (a loss) is shown only when sold.
-    expect(screen.getByText("-6,500,000 원")).toBeVisible();
+    expect(screen.getByLabelText("-6,500,000 원")).toBeVisible();
     // Per-hour intensity.
-    expect(screen.getByText("3,750 원")).toBeVisible();
+    expect(screen.getByLabelText("3,750 원")).toBeVisible();
     // Outsource cost is surfaced read-only.
-    expect(screen.getByText("4,000,000 원")).toBeVisible();
+    expect(screen.getByLabelText("4,000,000 원")).toBeVisible();
   });
 
   it("handles a NONE/fallback acquisition and NULL per-hour/per-month", async () => {

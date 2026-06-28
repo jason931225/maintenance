@@ -11,6 +11,7 @@ import {
   priorityBadgeClass,
   priorityLabel,
   slaState,
+  slaStateBadgeClass,
   statusBadgeClass,
   statusLabel,
 } from "./support-format";
@@ -92,11 +93,11 @@ export function SupportTicketList({
                     </Badge>
                     <Badge>{originLabel(ticket.origin)}</Badge>
                     {sla === "overdue" ? (
-                      <Badge className="border-red-300 bg-red-50 text-red-900">
+                      <Badge className={slaStateBadgeClass(sla)}>
                         {ko.support.overdue}
                       </Badge>
                     ) : sla === "dueSoon" ? (
-                      <Badge className="border-amber-300 bg-amber-50 text-amber-900">
+                      <Badge className={slaStateBadgeClass(sla)}>
                         {ko.support.dueSoon}
                       </Badge>
                     ) : null}

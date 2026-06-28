@@ -8,7 +8,8 @@ import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { ko } from "../../i18n/ko";
 import { formatKoreanDateTime } from "../../lib/datetime";
-import { COST_LEDGER_READ_ROLES, formatWon } from "./config";
+import { Won } from "../../lib/format";
+import { COST_LEDGER_READ_ROLES } from "./config";
 import { EquipmentSelector } from "./EquipmentSelector";
 import type { SelectedEquipment } from "./EquipmentSelector";
 
@@ -170,9 +171,7 @@ function LifecycleSummary({
                 key={entry.id}
                 className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-line p-3"
               >
-                <span className="font-semibold text-ink">
-                  {formatWon(entry.amount_won)} {ko.financial.wonUnit}
-                </span>
+                <Won amount={entry.amount_won} className="font-semibold text-ink" />
                 <div className="flex items-center gap-2">
                   <Badge>{t.sources[entry.source]}</Badge>
                   <span className="text-sm text-steel">
@@ -209,9 +208,7 @@ function Money({
             : "text-ink"
         }
       >
-        {amount == null
-          ? t.notAvailable
-          : `${formatWon(amount)} ${ko.financial.wonUnit}`}
+        {amount == null ? t.notAvailable : <Won amount={amount} />}
       </dd>
       {note ? <dd className="text-sm text-steel">{note}</dd> : null}
     </div>

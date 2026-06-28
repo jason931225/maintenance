@@ -40,7 +40,7 @@ export function PlatformShell() {
 
   return (
     <TitleProvider>
-      <div className="flex h-screen overflow-hidden bg-muted-panel">
+      <div className="console flex h-screen overflow-hidden bg-console-canvas">
         <a
           href="#platform-main"
           className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:rounded-md focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-ink focus:shadow-md focus:outline-2 focus:outline-ink"

@@ -72,6 +72,83 @@ pub struct DeactivateUserCommand {
     pub occurred_at: Timestamp,
 }
 
+/// Create one tenant-owned custom role definition. Definitions are persisted,
+/// audited, versioned, and become runtime-effective only through ACTIVE
+/// custom-role assignments resolved by the platform authz layer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CreatePolicyRoleCommand {
+    pub actor: UserId,
+    pub role_key: String,
+    pub display_name: String,
+    pub description: Option<String>,
+    pub permissions: Vec<PolicyRolePermission>,
+    pub conditions: Vec<PolicyRoleCondition>,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+/// Change a tenant-owned custom role definition lifecycle state. Publishing or
+/// rolling back a role is a sensitive policy action: the REST layer must require
+/// a fresh passkey step-up before constructing this command.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdatePolicyRoleStatusCommand {
+    pub actor: UserId,
+    pub role_id: uuid::Uuid,
+    pub status: String,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+/// Update mutable metadata and policy surface for a tenant-owned custom role.
+/// The role key is immutable; changing permissions/conditions is a sensitive
+/// policy action and must be guarded by REST-layer passkey step-up.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdatePolicyRoleCommand {
+    pub actor: UserId,
+    pub role_id: uuid::Uuid,
+    pub display_name: String,
+    pub description: Option<String>,
+    pub permissions: Vec<PolicyRolePermission>,
+    pub conditions: Vec<PolicyRoleCondition>,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+/// Replace a user's custom-role assignments. ACTIVE custom roles become
+/// runtime-effective on the user's next resolved request principal; DRAFT and
+/// RETIRED roles remain audit/planning data only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReplacePolicyRoleAssignmentsCommand {
+    pub actor: UserId,
+    pub user_id: UserId,
+    pub role_ids: Vec<uuid::Uuid>,
+    pub preview_receipt_id: uuid::Uuid,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+/// Persist a short-lived receipt for the exact assignment preview the actor saw.
+/// The write path consumes this server-side receipt only if the mutable
+/// authorization baseline still matches under the write transaction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CreatePolicyAssignmentPreviewReceiptCommand {
+    pub actor: UserId,
+    pub user_id: UserId,
+    pub current_branch_ids: Vec<uuid::Uuid>,
+    pub current_role_ids: Vec<uuid::Uuid>,
+    pub role_ids: Vec<uuid::Uuid>,
+    pub policy_version: i64,
+    pub expires_at: Timestamp,
+}
+
+/// Server-side receipt proving an actor reviewed a policy assignment preview
+/// for one exact target user and normalized role set.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyAssignmentPreviewReceiptSummary {
+    pub id: uuid::Uuid,
+    pub expires_at: Timestamp,
+}
+
 /// Create a region.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CreateRegionCommand {
@@ -209,6 +286,75 @@ pub struct UserSummary {
     pub created_at: Timestamp,
 }
 
+/// One permission cell in a custom role definition. Keys are canonical snake-case
+/// `Feature` and `PermissionLevel` strings validated at the REST boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyRolePermission {
+    pub feature_key: String,
+    pub permission_level: String,
+}
+
+/// One ABAC/PBAC condition attached to a custom role definition. Runtime
+/// authorization currently consumes branch equals/in as scope narrowers and team
+/// equals/in as live user-attribute matches; unsupported conditions fail closed
+/// at authorization time while remaining visible for preview/audit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyRoleCondition {
+    pub condition_key: String,
+    pub attribute: String,
+    pub operator: String,
+    pub values: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyRoleSummary {
+    pub id: uuid::Uuid,
+    pub role_key: String,
+    pub display_name: String,
+    pub description: Option<String>,
+    pub status: String,
+    pub is_system: bool,
+    pub permissions: Vec<PolicyRolePermission>,
+    pub conditions: Vec<PolicyRoleCondition>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyRoleAssignmentSummary {
+    pub user_id: UserId,
+    pub role_id: uuid::Uuid,
+    pub role_key: String,
+    pub display_name: String,
+    pub status: String,
+    pub assigned_by: Option<UserId>,
+    pub created_at: Timestamp,
+}
+
+/// Per-tenant monotonic policy revision used by the future effective-policy
+/// resolver cache. A missing DB row means no custom policy write has occurred,
+/// so read APIs surface version 0 without mutating on read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyVersionSummary {
+    pub version: i64,
+    pub updated_at: Option<Timestamp>,
+}
+
+/// Append-only policy audit evidence visible from Policy Studio.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyAuditEventSummary {
+    pub id: uuid::Uuid,
+    pub actor: Option<UserId>,
+    pub action: String,
+    pub target_type: String,
+    pub target_id: String,
+    pub before_snapshot: Option<serde_json::Value>,
+    pub after_snapshot: Option<serde_json::Value>,
+    pub trace_id: String,
+    pub span_id: String,
+    pub occurred_at: Timestamp,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegionSummary {
     pub id: RegionId,
@@ -233,6 +379,44 @@ pub struct BranchSummary {
 // ---------------------------------------------------------------------------
 // Audit builders
 // ---------------------------------------------------------------------------
+
+/// Build a custom-role policy audit event. Role policy changes are org-global;
+/// the permission diff is stored in snapshots by the adapter.
+pub fn policy_role_audit_event(
+    action: &str,
+    actor: Option<UserId>,
+    role_id: uuid::Uuid,
+    trace: TraceContext,
+    occurred_at: Timestamp,
+) -> Result<AuditEvent, KernelError> {
+    Ok(AuditEvent::new(
+        actor,
+        AuditAction::new(action)?,
+        "policy_role",
+        role_id.to_string(),
+        trace,
+        occurred_at,
+    ))
+}
+
+/// Build a custom-role assignment audit event. The target is the user whose
+/// custom-role assignment set changed.
+pub fn policy_role_assignment_audit_event(
+    action: &str,
+    actor: Option<UserId>,
+    user_id: UserId,
+    trace: TraceContext,
+    occurred_at: Timestamp,
+) -> Result<AuditEvent, KernelError> {
+    Ok(AuditEvent::new(
+        actor,
+        AuditAction::new(action)?,
+        "policy_role_assignment",
+        user_id.to_string(),
+        trace,
+        occurred_at,
+    ))
+}
 
 /// Build a user-management audit event. User management is org-global (a user
 /// can span branches), so no `branch_id` is attached; the role/branch changes

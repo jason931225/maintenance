@@ -6,17 +6,26 @@
 //! every user; a branch-scoped caller sees only users sharing an in-scope branch.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+use std::collections::BTreeSet;
+
 use mnt_identity_application::{
-    BranchSummary, CreateBranchCommand, CreateRegionCommand, CreateUserCommand,
-    DeactivateBranchCommand, DeactivateRegionCommand, DeactivateUserCommand, RegionSummary,
-    UpdateBranchCommand, UpdateRegionCommand, UpdateSelfProfileCommand, UpdateUserCommand,
-    UserListQuery, UserPage, UserSummary, account_status_for, branch_audit_event,
+    BranchSummary, CreateBranchCommand, CreatePolicyAssignmentPreviewReceiptCommand,
+    CreatePolicyRoleCommand, CreateRegionCommand, CreateUserCommand, DeactivateBranchCommand,
+    DeactivateRegionCommand, DeactivateUserCommand, PolicyAssignmentPreviewReceiptSummary,
+    PolicyAuditEventSummary, PolicyRoleAssignmentSummary, PolicyRoleCondition,
+    PolicyRolePermission, PolicyRoleSummary, PolicyVersionSummary, RegionSummary,
+    ReplacePolicyRoleAssignmentsCommand, UpdateBranchCommand, UpdatePolicyRoleCommand,
+    UpdatePolicyRoleStatusCommand, UpdateRegionCommand, UpdateSelfProfileCommand,
+    UpdateUserCommand, UserListQuery, UserPage, UserSummary, account_status_for,
+    branch_audit_event, policy_role_assignment_audit_event, policy_role_audit_event,
     region_audit_event, user_audit_event,
 };
 use mnt_identity_domain::{
     Team, normalize_optional_phone, validate_display_name, validate_org_name,
 };
-use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, KernelError, RegionId, UserId};
+use mnt_kernel_core::{
+    BranchId, BranchScope, ErrorKind, KernelError, RegionId, TraceContext, UserId,
+};
 use mnt_platform_db::{DbError, insert_audit_event, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row, Transaction};
@@ -505,6 +514,680 @@ impl PgOrgStore {
     }
 
     // -----------------------------------------------------------------------
+    // Policy Studio custom roles (G016-P0)
+    // -----------------------------------------------------------------------
+
+    /// List tenant-owned custom role definitions. Built-in system role templates
+    /// are synthesized by the REST layer from the authz matrix; this adapter only
+    /// reads tenant data under RLS.
+    pub async fn list_policy_roles(&self) -> Result<Vec<PolicyRoleSummary>, PgOrgError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let ids: Vec<uuid::Uuid> = with_org_conn::<_, _, PgOrgError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query_scalar(
+                    "SELECT id FROM policy_roles ORDER BY is_system DESC, role_key ASC",
+                )
+                .fetch_all(tx.as_mut())
+                .await?)
+            })
+        })
+        .await?;
+
+        let mut roles = Vec::with_capacity(ids.len());
+        for id in ids {
+            roles.push(fetch_policy_role(&self.pool, id).await?);
+        }
+        Ok(roles)
+    }
+
+    /// Read the current per-org policy revision under RLS. Version 0 is a
+    /// read-only projection for "no custom policy write yet" because
+    /// `policy_versions` itself only stores real write revisions starting at 1.
+    pub async fn get_policy_version(&self) -> Result<PolicyVersionSummary, PgOrgError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        with_org_conn::<_, _, PgOrgError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let row = sqlx::query(
+                    r#"
+                    SELECT version, updated_at
+                    FROM policy_versions
+                    WHERE org_id = $1
+                    "#,
+                )
+                .bind(org_uuid)
+                .fetch_optional(tx.as_mut())
+                .await?;
+
+                let Some(row) = row else {
+                    return Ok(PolicyVersionSummary {
+                        version: 0,
+                        updated_at: None,
+                    });
+                };
+                Ok(PolicyVersionSummary {
+                    version: row.try_get("version")?,
+                    updated_at: Some(row.try_get("updated_at")?),
+                })
+            })
+        })
+        .await
+    }
+
+    /// Return append-only policy audit evidence for the current tenant. This is
+    /// read-only console evidence: it does not mutate policy and it never reads
+    /// non-policy audit rows.
+    pub async fn list_policy_audit_events(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<PolicyAuditEventSummary>, PgOrgError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        with_org_conn::<_, _, PgOrgError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let rows = sqlx::query(
+                    r#"
+                    SELECT
+                        id,
+                        actor,
+                        action,
+                        target_type,
+                        target_id,
+                        before_snap,
+                        after_snap,
+                        trace_id::text AS trace_id,
+                        span_id::text AS span_id,
+                        occurred_at
+                    FROM audit_events
+                    WHERE org_id = $1
+                      AND action LIKE 'policy.%'
+                      AND target_type IN ('policy_role', 'policy_role_assignment')
+                    ORDER BY occurred_at DESC, created_at DESC
+                    LIMIT $2
+                    "#,
+                )
+                .bind(org_uuid)
+                .bind(limit)
+                .fetch_all(tx.as_mut())
+                .await?;
+
+                rows.into_iter()
+                    .map(|row| {
+                        Ok(PolicyAuditEventSummary {
+                            id: row.try_get("id")?,
+                            actor: row
+                                .try_get::<Option<uuid::Uuid>, _>("actor")?
+                                .map(UserId::from_uuid),
+                            action: row.try_get("action")?,
+                            target_type: row.try_get("target_type")?,
+                            target_id: row.try_get("target_id")?,
+                            before_snapshot: row.try_get("before_snap")?,
+                            after_snapshot: row.try_get("after_snap")?,
+                            trace_id: row.try_get("trace_id")?,
+                            span_id: row.try_get("span_id")?,
+                            occurred_at: row.try_get("occurred_at")?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, sqlx::Error>>()
+                    .map_err(PgOrgError::from)
+            })
+        })
+        .await
+    }
+
+    /// Create a tenant-owned custom role definition and bump the tenant policy
+    /// version in the same audited transaction. G016-P0 definitions do not yet
+    /// become effective login grants; they are durable policy catalog rows.
+    pub async fn create_policy_role(
+        &self,
+        command: CreatePolicyRoleCommand,
+    ) -> Result<PolicyRoleSummary, PgOrgError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let role_id = uuid::Uuid::new_v4();
+        let role_key = command.role_key;
+        let display_name = command.display_name;
+        let description = command.description;
+        let permissions = command.permissions;
+        let conditions = command.conditions;
+        let occurred_at = command.occurred_at;
+        let actor = command.actor;
+
+        let event = policy_role_audit_event(
+            "policy.role.create",
+            Some(actor),
+            role_id,
+            command.trace,
+            occurred_at,
+        )?
+        .with_org(org)
+        .with_snapshots(
+            None,
+            Some(serde_json::json!({
+                "role_key": &role_key,
+                "display_name": &display_name,
+                "description": &description,
+                "status": "DRAFT",
+                "permissions": &permissions,
+                "conditions": &conditions,
+            })),
+        );
+
+        with_audit::<_, PolicyRoleSummary, PgOrgError>(&self.pool, event, |tx| {
+            Box::pin(async move {
+                sqlx::query(
+                    r#"
+                    INSERT INTO policy_roles (
+                        id, org_id, role_key, display_name, description, status,
+                        is_system, created_by, updated_by, created_at, updated_at
+                    ) VALUES ($1, $2, $3, $4, $5, 'DRAFT', false, $6, $6, $7, $7)
+                    "#,
+                )
+                .bind(role_id)
+                .bind(org_uuid)
+                .bind(&role_key)
+                .bind(&display_name)
+                .bind(description.as_deref())
+                .bind(*actor.as_uuid())
+                .bind(occurred_at)
+                .execute(tx.as_mut())
+                .await?;
+
+                for permission in &permissions {
+                    sqlx::query(
+                        r#"
+                        INSERT INTO policy_role_permissions (
+                            org_id, role_id, feature_key, permission_level
+                        ) VALUES ($1, $2, $3, $4)
+                        "#,
+                    )
+                    .bind(org_uuid)
+                    .bind(role_id)
+                    .bind(&permission.feature_key)
+                    .bind(&permission.permission_level)
+                    .execute(tx.as_mut())
+                    .await?;
+                }
+
+                for condition in &conditions {
+                    sqlx::query(
+                        r#"
+                        INSERT INTO policy_role_conditions (
+                            org_id, role_id, condition_key, attribute, operator, condition_values
+                        ) VALUES ($1, $2, $3, $4, $5, $6)
+                        "#,
+                    )
+                    .bind(org_uuid)
+                    .bind(role_id)
+                    .bind(&condition.condition_key)
+                    .bind(&condition.attribute)
+                    .bind(&condition.operator)
+                    .bind(&condition.values)
+                    .execute(tx.as_mut())
+                    .await?;
+                }
+
+                bump_policy_version_tx(tx, org_uuid, occurred_at).await?;
+                fetch_policy_role_tx(tx, role_id).await
+            })
+        })
+        .await
+    }
+
+    /// Update a tenant-owned custom role definition. Runtime authorization is
+    /// still unchanged in G016; this edits versioned policy-definition data and
+    /// records before/after audit evidence.
+    pub async fn update_policy_role(
+        &self,
+        command: UpdatePolicyRoleCommand,
+    ) -> Result<PolicyRoleSummary, PgOrgError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let role_id = command.role_id;
+        let display_name = command.display_name;
+        let description = command.description;
+        let permissions = command.permissions;
+        let conditions = command.conditions;
+        let actor = command.actor;
+        let occurred_at = command.occurred_at;
+
+        let event = policy_role_audit_event(
+            "policy.role.update",
+            Some(actor),
+            role_id,
+            command.trace,
+            occurred_at,
+        )?
+        .with_org(org);
+
+        with_audit::<_, PolicyRoleSummary, PgOrgError>(&self.pool, event, |tx| {
+            Box::pin(async move {
+                let row = sqlx::query(
+                    r#"
+                    SELECT is_system
+                    FROM policy_roles
+                    WHERE id = $1
+                    FOR UPDATE
+                    "#,
+                )
+                .bind(role_id)
+                .fetch_optional(tx.as_mut())
+                .await?;
+
+                let Some(row) = row else {
+                    return Err(PgOrgError::Domain(KernelError::not_found(
+                        "policy role not found",
+                    )));
+                };
+                if row.try_get::<bool, _>("is_system")? {
+                    return Err(PgOrgError::Domain(KernelError::validation(
+                        "system policy roles cannot be changed",
+                    )));
+                }
+
+                let previous = fetch_policy_role_tx(tx, role_id).await?;
+
+                sqlx::query(
+                    r#"
+                    UPDATE policy_roles
+                    SET display_name = $2,
+                        description = $3,
+                        updated_by = $4,
+                        updated_at = $5
+                    WHERE id = $1 AND is_system = false
+                    "#,
+                )
+                .bind(role_id)
+                .bind(&display_name)
+                .bind(description.as_deref())
+                .bind(*actor.as_uuid())
+                .bind(occurred_at)
+                .execute(tx.as_mut())
+                .await?;
+
+                sqlx::query(
+                    r#"
+                    DELETE FROM policy_role_permissions
+                    WHERE org_id = $1 AND role_id = $2
+                    "#,
+                )
+                .bind(org_uuid)
+                .bind(role_id)
+                .execute(tx.as_mut())
+                .await?;
+                for permission in &permissions {
+                    sqlx::query(
+                        r#"
+                        INSERT INTO policy_role_permissions (
+                            org_id, role_id, feature_key, permission_level
+                        ) VALUES ($1, $2, $3, $4)
+                        "#,
+                    )
+                    .bind(org_uuid)
+                    .bind(role_id)
+                    .bind(&permission.feature_key)
+                    .bind(&permission.permission_level)
+                    .execute(tx.as_mut())
+                    .await?;
+                }
+
+                sqlx::query(
+                    r#"
+                    DELETE FROM policy_role_conditions
+                    WHERE org_id = $1 AND role_id = $2
+                    "#,
+                )
+                .bind(org_uuid)
+                .bind(role_id)
+                .execute(tx.as_mut())
+                .await?;
+                for condition in &conditions {
+                    sqlx::query(
+                        r#"
+                        INSERT INTO policy_role_conditions (
+                            org_id, role_id, condition_key, attribute, operator, condition_values
+                        ) VALUES ($1, $2, $3, $4, $5, $6)
+                        "#,
+                    )
+                    .bind(org_uuid)
+                    .bind(role_id)
+                    .bind(&condition.condition_key)
+                    .bind(&condition.attribute)
+                    .bind(&condition.operator)
+                    .bind(&condition.values)
+                    .execute(tx.as_mut())
+                    .await?;
+                }
+
+                bump_policy_version_tx(tx, org_uuid, occurred_at).await?;
+                let next = fetch_policy_role_tx(tx, role_id).await?;
+                let snapshot_event = policy_role_audit_event(
+                    "policy.role.update.snapshot",
+                    Some(actor),
+                    role_id,
+                    TraceContext::generate(),
+                    occurred_at,
+                )?
+                .with_org(org)
+                .with_snapshots(
+                    Some(serde_json::json!({ "role": &previous })),
+                    Some(serde_json::json!({ "role": &next })),
+                );
+                insert_audit_event(tx, &snapshot_event).await?;
+                Ok(next)
+            })
+        })
+        .await
+    }
+
+    /// Change a custom role lifecycle state. The REST layer owns the passkey
+    /// step-up; this adapter owns the RLS-scoped mutation, audit snapshot, and
+    /// policy-version bump.
+    pub async fn update_policy_role_status(
+        &self,
+        command: UpdatePolicyRoleStatusCommand,
+    ) -> Result<PolicyRoleSummary, PgOrgError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let role_id = command.role_id;
+        let status = command.status;
+        let actor = command.actor;
+        let occurred_at = command.occurred_at;
+
+        let event = policy_role_audit_event(
+            "policy.role.status_update",
+            Some(actor),
+            role_id,
+            command.trace,
+            occurred_at,
+        )?
+        .with_org(org);
+
+        with_audit::<_, PolicyRoleSummary, PgOrgError>(&self.pool, event, |tx| {
+            Box::pin(async move {
+                let row = sqlx::query(
+                    r#"
+                    SELECT is_system
+                    FROM policy_roles
+                    WHERE id = $1
+                    FOR UPDATE
+                    "#,
+                )
+                .bind(role_id)
+                .fetch_optional(tx.as_mut())
+                .await?;
+
+                let Some(row) = row else {
+                    return Err(PgOrgError::Domain(KernelError::not_found(
+                        "policy role not found",
+                    )));
+                };
+                if row.try_get::<bool, _>("is_system")? {
+                    return Err(PgOrgError::Domain(KernelError::validation(
+                        "system policy roles cannot be changed",
+                    )));
+                }
+
+                let previous = fetch_policy_role_tx(tx, role_id).await?;
+                validate_policy_role_status_transition(&previous.status, &status)?;
+                if previous.status != status {
+                    sqlx::query(
+                        r#"
+                        UPDATE policy_roles
+                        SET status = $2, updated_by = $3, updated_at = $4
+                        WHERE id = $1 AND is_system = false
+                        "#,
+                    )
+                    .bind(role_id)
+                    .bind(&status)
+                    .bind(*actor.as_uuid())
+                    .bind(occurred_at)
+                    .execute(tx.as_mut())
+                    .await?;
+                    bump_policy_version_tx(tx, org_uuid, occurred_at).await?;
+                }
+
+                let next = fetch_policy_role_tx(tx, role_id).await?;
+                let snapshot_event = policy_role_audit_event(
+                    "policy.role.status_update.snapshot",
+                    Some(actor),
+                    role_id,
+                    TraceContext::generate(),
+                    occurred_at,
+                )?
+                .with_org(org)
+                .with_snapshots(
+                    Some(serde_json::json!({ "role": &previous })),
+                    Some(serde_json::json!({ "role": &next })),
+                );
+                insert_audit_event(tx, &snapshot_event).await?;
+                Ok(next)
+            })
+        })
+        .await
+    }
+
+    /// List a user's custom-role assignments. ACTIVE assigned roles are
+    /// resolved into runtime grants by mnt-platform-authz; DRAFT/RETIRED roles
+    /// remain inert governance data.
+    pub async fn list_policy_role_assignments(
+        &self,
+        user_id: UserId,
+    ) -> Result<Vec<PolicyRoleAssignmentSummary>, PgOrgError> {
+        let org = current_org().map_err(KernelError::from)?;
+        with_org_conn::<_, _, PgOrgError>(&self.pool, org, move |tx| {
+            Box::pin(async move { fetch_policy_role_assignments_tx(tx, user_id).await })
+        })
+        .await
+    }
+
+    /// Count assignments for one custom policy role. This is a read-only
+    /// impact preview helper used to flag status changes that may alter
+    /// runtime grants for already-assigned users.
+    pub async fn count_policy_role_assignments(
+        &self,
+        role_id: uuid::Uuid,
+    ) -> Result<i64, PgOrgError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        with_org_conn::<_, _, PgOrgError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query_scalar(
+                    r#"
+                    SELECT count(*)::bigint
+                    FROM user_role_assignments
+                    WHERE org_id = $1 AND role_id = $2
+                    "#,
+                )
+                .bind(org_uuid)
+                .bind(role_id)
+                .fetch_one(tx.as_mut())
+                .await?)
+            })
+        })
+        .await
+    }
+
+    /// Persist a short-lived receipt for an assignment impact preview. The
+    /// mutating assignment replacement consumes this receipt inside the write
+    /// transaction so a client cannot skip preview by sending only a boolean.
+    pub async fn create_policy_assignment_preview_receipt(
+        &self,
+        command: CreatePolicyAssignmentPreviewReceiptCommand,
+    ) -> Result<PolicyAssignmentPreviewReceiptSummary, PgOrgError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let actor = command.actor;
+        let user_id = command.user_id;
+        let current_branch_ids = normalize_policy_role_ids(command.current_branch_ids);
+        let current_role_ids = normalize_policy_role_ids(command.current_role_ids);
+        let role_ids = normalize_policy_role_ids(command.role_ids);
+        let policy_version = command.policy_version;
+        let expires_at = command.expires_at;
+        with_org_conn::<_, _, PgOrgError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let exists: Option<uuid::Uuid> =
+                    sqlx::query_scalar("SELECT id FROM users WHERE id = $1 FOR UPDATE")
+                        .bind(*user_id.as_uuid())
+                        .fetch_optional(tx.as_mut())
+                        .await?;
+                if exists.is_none() {
+                    return Err(PgOrgError::Domain(KernelError::not_found("user not found")));
+                }
+                let locked_branch_ids = fetch_user_branch_uuid_ids_tx(tx, user_id).await?;
+                if locked_branch_ids != current_branch_ids {
+                    return Err(stale_policy_assignment_preview_error());
+                }
+                let locked_current_role_ids = normalize_policy_role_ids(
+                    fetch_policy_role_assignments_tx(tx, user_id)
+                        .await?
+                        .into_iter()
+                        .map(|assignment| assignment.role_id)
+                        .collect(),
+                );
+                if locked_current_role_ids != current_role_ids {
+                    return Err(stale_policy_assignment_preview_error());
+                }
+                let locked_policy_version = lock_policy_version_tx(tx, org_uuid).await?;
+                if locked_policy_version != policy_version {
+                    return Err(stale_policy_assignment_preview_error());
+                }
+                validate_custom_policy_roles_tx(tx, &role_ids).await?;
+                let row: (uuid::Uuid, time::OffsetDateTime) = sqlx::query_as(
+                    r#"
+                    INSERT INTO policy_assignment_preview_receipts (
+                        org_id, actor_id, user_id, current_branch_ids,
+                        current_role_ids, role_ids, policy_version, expires_at
+                    ) VALUES ($1, $2, $3, $4::uuid[], $5::uuid[], $6::uuid[], $7, $8)
+                    RETURNING id, expires_at
+                    "#,
+                )
+                .bind(org_uuid)
+                .bind(*actor.as_uuid())
+                .bind(*user_id.as_uuid())
+                .bind(&current_branch_ids)
+                .bind(&current_role_ids)
+                .bind(&role_ids)
+                .bind(policy_version)
+                .bind(expires_at)
+                .fetch_one(tx.as_mut())
+                .await?;
+                Ok(PolicyAssignmentPreviewReceiptSummary {
+                    id: row.0,
+                    expires_at: row.1,
+                })
+            })
+        })
+        .await
+    }
+
+    /// Replace a user's custom-role assignments atomically. This bumps
+    /// policy_version for resolver/cache invalidation readiness while leaving
+    /// `users.roles` system-role-only.
+    pub async fn replace_policy_role_assignments(
+        &self,
+        command: ReplacePolicyRoleAssignmentsCommand,
+    ) -> Result<Vec<PolicyRoleAssignmentSummary>, PgOrgError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let user_id = command.user_id;
+        let actor = command.actor;
+        let occurred_at = command.occurred_at;
+        let preview_receipt_id = command.preview_receipt_id;
+        let role_ids = normalize_policy_role_ids(command.role_ids);
+
+        let event = policy_role_assignment_audit_event(
+            "policy.role_assignment.replace",
+            Some(actor),
+            user_id,
+            command.trace,
+            occurred_at,
+        )?
+        .with_org(org);
+
+        with_audit::<_, Vec<PolicyRoleAssignmentSummary>, PgOrgError>(&self.pool, event, |tx| {
+            Box::pin(async move {
+                let exists: Option<uuid::Uuid> =
+                    sqlx::query_scalar("SELECT id FROM users WHERE id = $1 FOR UPDATE")
+                        .bind(*user_id.as_uuid())
+                        .fetch_optional(tx.as_mut())
+                        .await?;
+                if exists.is_none() {
+                    return Err(PgOrgError::Domain(KernelError::not_found("user not found")));
+                }
+
+                let previous = fetch_policy_role_assignments_tx(tx, user_id).await?;
+                let current_branch_ids = fetch_user_branch_uuid_ids_tx(tx, user_id).await?;
+                let current_role_ids = normalize_policy_role_ids(
+                    previous
+                        .iter()
+                        .map(|assignment| assignment.role_id)
+                        .collect(),
+                );
+                let policy_version = lock_policy_version_tx(tx, org_uuid).await?;
+                validate_custom_policy_roles_tx(tx, &role_ids).await?;
+                consume_policy_assignment_preview_receipt_tx(
+                    tx,
+                    AssignmentPreviewReceiptConsumption {
+                        actor,
+                        user_id,
+                        current_branch_ids: &current_branch_ids,
+                        current_role_ids: &current_role_ids,
+                        role_ids: &role_ids,
+                        policy_version,
+                        receipt_id: preview_receipt_id,
+                        occurred_at,
+                        org_uuid,
+                    },
+                )
+                .await?;
+
+                sqlx::query("DELETE FROM user_role_assignments WHERE user_id = $1")
+                    .bind(*user_id.as_uuid())
+                    .execute(tx.as_mut())
+                    .await?;
+
+                for role_id in &role_ids {
+                    sqlx::query(
+                        r#"
+                        INSERT INTO user_role_assignments (
+                            org_id, user_id, role_id, assigned_by, created_at
+                        ) VALUES ($1, $2, $3, $4, $5)
+                        "#,
+                    )
+                    .bind(org_uuid)
+                    .bind(*user_id.as_uuid())
+                    .bind(role_id)
+                    .bind(*actor.as_uuid())
+                    .bind(occurred_at)
+                    .execute(tx.as_mut())
+                    .await?;
+                }
+
+                bump_policy_version_tx(tx, org_uuid, occurred_at).await?;
+                let next = fetch_policy_role_assignments_tx(tx, user_id).await?;
+
+                let snapshot_event = policy_role_assignment_audit_event(
+                    "policy.role_assignment.replace.snapshot",
+                    Some(actor),
+                    user_id,
+                    TraceContext::generate(),
+                    occurred_at,
+                )?
+                .with_org(org)
+                .with_snapshots(
+                    Some(serde_json::json!({ "assignments": &previous })),
+                    Some(serde_json::json!({ "assignments": &next })),
+                );
+                insert_audit_event(tx, &snapshot_event).await?;
+
+                Ok(next)
+            })
+        })
+        .await
+    }
+
+    // -----------------------------------------------------------------------
     // Regions
     // -----------------------------------------------------------------------
 
@@ -967,6 +1650,329 @@ const USER_SELECT_WITH_PASSKEY: &str = r#"
     FROM users u WHERE u.id = $1
 "#;
 
+async fn fetch_policy_role(
+    pool: &PgPool,
+    role_id: uuid::Uuid,
+) -> Result<PolicyRoleSummary, PgOrgError> {
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgOrgError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
+                SELECT id, role_key, display_name, description, status, is_system, created_at, updated_at
+                FROM policy_roles
+                WHERE id = $1
+                "#,
+            )
+            .bind(role_id)
+            .fetch_one(tx.as_mut())
+            .await?)
+        })
+    })
+    .await?;
+    let permissions = fetch_policy_role_permissions(pool, role_id).await?;
+    let conditions = fetch_policy_role_conditions(pool, role_id).await?;
+    policy_role_from_row(&row, permissions, conditions)
+}
+
+async fn fetch_policy_role_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    role_id: uuid::Uuid,
+) -> Result<PolicyRoleSummary, PgOrgError> {
+    let row = sqlx::query(
+        r#"
+        SELECT id, role_key, display_name, description, status, is_system, created_at, updated_at
+        FROM policy_roles
+        WHERE id = $1
+        "#,
+    )
+    .bind(role_id)
+    .fetch_one(tx.as_mut())
+    .await?;
+    let permissions = fetch_policy_role_permissions_tx(tx, role_id).await?;
+    let conditions = fetch_policy_role_conditions_tx(tx, role_id).await?;
+    policy_role_from_row(&row, permissions, conditions)
+}
+
+async fn fetch_policy_role_permissions(
+    pool: &PgPool,
+    role_id: uuid::Uuid,
+) -> Result<Vec<PolicyRolePermission>, PgOrgError> {
+    let org = current_org().map_err(KernelError::from)?;
+    with_org_conn::<_, _, PgOrgError>(pool, org, move |tx| {
+        Box::pin(async move { fetch_policy_role_permissions_tx(tx, role_id).await })
+    })
+    .await
+}
+
+async fn fetch_policy_role_permissions_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    role_id: uuid::Uuid,
+) -> Result<Vec<PolicyRolePermission>, PgOrgError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT feature_key, permission_level
+        FROM policy_role_permissions
+        WHERE role_id = $1
+        ORDER BY feature_key
+        "#,
+    )
+    .bind(role_id)
+    .fetch_all(tx.as_mut())
+    .await?;
+    rows.into_iter()
+        .map(|row| {
+            Ok(PolicyRolePermission {
+                feature_key: row.try_get("feature_key")?,
+                permission_level: row.try_get("permission_level")?,
+            })
+        })
+        .collect()
+}
+
+async fn fetch_policy_role_conditions(
+    pool: &PgPool,
+    role_id: uuid::Uuid,
+) -> Result<Vec<PolicyRoleCondition>, PgOrgError> {
+    let org = current_org().map_err(KernelError::from)?;
+    with_org_conn::<_, _, PgOrgError>(pool, org, move |tx| {
+        Box::pin(async move { fetch_policy_role_conditions_tx(tx, role_id).await })
+    })
+    .await
+}
+
+async fn fetch_policy_role_conditions_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    role_id: uuid::Uuid,
+) -> Result<Vec<PolicyRoleCondition>, PgOrgError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT condition_key, attribute, operator, condition_values
+        FROM policy_role_conditions
+        WHERE role_id = $1
+        ORDER BY condition_key
+        "#,
+    )
+    .bind(role_id)
+    .fetch_all(tx.as_mut())
+    .await?;
+    rows.into_iter()
+        .map(|row| {
+            Ok(PolicyRoleCondition {
+                condition_key: row.try_get("condition_key")?,
+                attribute: row.try_get("attribute")?,
+                operator: row.try_get("operator")?,
+                values: row.try_get("condition_values")?,
+            })
+        })
+        .collect()
+}
+
+async fn bump_policy_version_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+    occurred_at: time::OffsetDateTime,
+) -> Result<(), PgOrgError> {
+    sqlx::query(
+        r#"
+        INSERT INTO policy_versions (org_id, version, updated_at)
+        VALUES ($1, 1, $2)
+        ON CONFLICT (org_id) DO UPDATE
+        SET version = policy_versions.version + 1,
+            updated_at = EXCLUDED.updated_at
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(occurred_at)
+    .execute(tx.as_mut())
+    .await?;
+    Ok(())
+}
+
+async fn lock_policy_version_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+) -> Result<i64, PgOrgError> {
+    let version = sqlx::query_scalar(
+        r#"
+        SELECT version
+        FROM policy_versions
+        WHERE org_id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(org_uuid)
+    .fetch_optional(tx.as_mut())
+    .await?
+    .unwrap_or(0);
+    Ok(version)
+}
+
+async fn validate_custom_policy_roles_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    role_ids: &[uuid::Uuid],
+) -> Result<(), PgOrgError> {
+    if role_ids.is_empty() {
+        return Ok(());
+    }
+    let rows: Vec<uuid::Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT id
+        FROM policy_roles
+        WHERE id = ANY($1) AND is_system = false AND status <> 'RETIRED'
+        "#,
+    )
+    .bind(role_ids.to_vec())
+    .fetch_all(tx.as_mut())
+    .await?;
+    if rows.len() != role_ids.len() {
+        return Err(PgOrgError::Domain(KernelError::validation(
+            "assignment references an unknown or retired custom role",
+        )));
+    }
+    Ok(())
+}
+
+fn normalize_policy_role_ids(role_ids: Vec<uuid::Uuid>) -> Vec<uuid::Uuid> {
+    role_ids
+        .into_iter()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn stale_policy_assignment_preview_error() -> PgOrgError {
+    PgOrgError::Domain(KernelError::validation(
+        "assignment preview receipt is missing, expired, consumed, or no longer matches",
+    ))
+}
+
+struct AssignmentPreviewReceiptConsumption<'a> {
+    actor: UserId,
+    user_id: UserId,
+    current_branch_ids: &'a [uuid::Uuid],
+    current_role_ids: &'a [uuid::Uuid],
+    role_ids: &'a [uuid::Uuid],
+    policy_version: i64,
+    receipt_id: uuid::Uuid,
+    occurred_at: time::OffsetDateTime,
+    org_uuid: uuid::Uuid,
+}
+
+async fn consume_policy_assignment_preview_receipt_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    expected: AssignmentPreviewReceiptConsumption<'_>,
+) -> Result<(), PgOrgError> {
+    let consumed: Option<uuid::Uuid> = sqlx::query_scalar(
+        r#"
+        UPDATE policy_assignment_preview_receipts
+        SET consumed_at = $6
+        WHERE id = $1
+          AND org_id = $2
+          AND actor_id = $3
+          AND user_id = $4
+          AND consumed_at IS NULL
+          AND expires_at > $5
+          AND role_ids = $7::uuid[]
+          AND current_role_ids = $8::uuid[]
+          AND current_branch_ids = $9::uuid[]
+          AND policy_version = $10
+        RETURNING id
+        "#,
+    )
+    .bind(expected.receipt_id)
+    .bind(expected.org_uuid)
+    .bind(*expected.actor.as_uuid())
+    .bind(*expected.user_id.as_uuid())
+    .bind(expected.occurred_at)
+    .bind(expected.occurred_at)
+    .bind(expected.role_ids)
+    .bind(expected.current_role_ids)
+    .bind(expected.current_branch_ids)
+    .bind(expected.policy_version)
+    .fetch_optional(tx.as_mut())
+    .await?;
+    if consumed.is_none() {
+        return Err(stale_policy_assignment_preview_error());
+    }
+    Ok(())
+}
+
+async fn fetch_policy_role_assignments_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: UserId,
+) -> Result<Vec<PolicyRoleAssignmentSummary>, PgOrgError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            ura.user_id,
+            ura.role_id,
+            pr.role_key,
+            pr.display_name,
+            pr.status,
+            ura.assigned_by,
+            ura.created_at
+        FROM user_role_assignments ura
+        JOIN policy_roles pr
+          ON pr.id = ura.role_id
+         AND pr.org_id = ura.org_id
+        WHERE ura.user_id = $1
+        ORDER BY pr.role_key
+        "#,
+    )
+    .bind(*user_id.as_uuid())
+    .fetch_all(tx.as_mut())
+    .await?;
+    rows.into_iter()
+        .map(|row| {
+            let assigned_by: Option<uuid::Uuid> = row.try_get("assigned_by")?;
+            Ok(PolicyRoleAssignmentSummary {
+                user_id: UserId::from_uuid(row.try_get("user_id")?),
+                role_id: row.try_get("role_id")?,
+                role_key: row.try_get("role_key")?,
+                display_name: row.try_get("display_name")?,
+                status: row.try_get("status")?,
+                assigned_by: assigned_by.map(UserId::from_uuid),
+                created_at: row.try_get("created_at")?,
+            })
+        })
+        .collect()
+}
+
+fn policy_role_from_row(
+    row: &sqlx::postgres::PgRow,
+    permissions: Vec<PolicyRolePermission>,
+    conditions: Vec<PolicyRoleCondition>,
+) -> Result<PolicyRoleSummary, PgOrgError> {
+    Ok(PolicyRoleSummary {
+        id: row.try_get("id")?,
+        role_key: row.try_get("role_key")?,
+        display_name: row.try_get("display_name")?,
+        description: row.try_get("description")?,
+        status: row.try_get("status")?,
+        is_system: row.try_get("is_system")?,
+        permissions,
+        conditions,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+fn validate_policy_role_status_transition(
+    current_status: &str,
+    requested_status: &str,
+) -> Result<(), PgOrgError> {
+    if current_status == requested_status {
+        return Ok(());
+    }
+    match (current_status, requested_status) {
+        ("DRAFT", "ACTIVE") | ("ACTIVE", "DRAFT") | ("ACTIVE", "RETIRED") => Ok(()),
+        _ => Err(PgOrgError::Domain(KernelError::validation(
+            "policy role status transition is not allowed",
+        ))),
+    }
+}
+
 async fn fetch_user(pool: &PgPool, user_id: UserId) -> Result<UserSummary, PgOrgError> {
     let org = current_org().map_err(KernelError::from)?;
     let row = with_org_conn::<_, _, PgOrgError>(pool, org, move |tx| {
@@ -998,6 +2004,19 @@ async fn fetch_user_tx(
     .await?;
     let branch_ids = branch_rows.into_iter().map(BranchId::from_uuid).collect();
     user_from_row(&row, branch_ids)
+}
+
+async fn fetch_user_branch_uuid_ids_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: UserId,
+) -> Result<Vec<uuid::Uuid>, PgOrgError> {
+    let branch_ids: Vec<uuid::Uuid> = sqlx::query_scalar(
+        "SELECT branch_id FROM user_branches WHERE user_id = $1 ORDER BY branch_id",
+    )
+    .bind(*user_id.as_uuid())
+    .fetch_all(tx.as_mut())
+    .await?;
+    Ok(normalize_policy_role_ids(branch_ids))
 }
 
 async fn fetch_user_branch_ids(

@@ -1,18 +1,27 @@
+import type * as React from "react";
 import { useState } from "react";
 
 import type { components } from "@maintenance/api-client-ts";
 import type { WorkOrderDetail as WorkOrderDetailData } from "../../api/types";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { Card } from "../../components/ui/card";
 import { ko } from "../../i18n/ko";
+import { roleLabel } from "../org/org-format";
 import { formatKoreanDateTime } from "../../lib/datetime";
 import { priorityClass, priorityLabel, safeLabel } from "../../lib/utils";
 import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../../lib/useAutoDismiss";
+import {
+  ObjectViewField,
+  ObjectViewPanel,
+  ObjectViewProperties,
+  ObjectViewScaffold,
+} from "../object-view/ObjectViewScaffold";
 import { EvidenceUpload } from "./EvidenceUpload";
 import { WorkOrderEvidenceList } from "./WorkOrderEvidenceList";
 
 type WorkResultType = components["schemas"]["WorkResultType"];
+type ApprovalStepSummary = components["schemas"]["ApprovalStepSummary"];
+type StatusHistorySummary = components["schemas"]["StatusHistorySummary"];
 
 const RESULT_TYPES: WorkResultType[] = [
   "COMPLETED",
@@ -58,9 +67,6 @@ export function WorkOrderDetail({
   onStartWork,
   onSubmitReport,
 }: WorkOrderDetailProps) {
-  const t = ko.workOrder.detail;
-  const primary = workOrder.assignments.find((a) => a.role === "PRIMARY");
-
   const [startPending, setStartPending] = useState(false);
   const [startDone, setStartDone] = useState<string | null>(null);
   const [startError, setStartError] = useState(false);
@@ -132,101 +138,16 @@ export function WorkOrderDetail({
   }
 
   return (
-    <div className="grid gap-5">
-      <Card className="grid gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm text-steel">{t.requestNo}</p>
-            <p className="text-xl font-semibold text-ink">
-              {workOrder.request_no}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge className={priorityClass(workOrder.priority)}>
-              {priorityLabel(workOrder.priority)}
-            </Badge>
-            <Badge>{ko.status[workOrder.status]}</Badge>
-          </div>
-        </div>
-
-        <dl className="grid gap-3 sm:grid-cols-2">
-          <Field label={t.equipment}>
-            {workOrder.equipment.model ?? ko.common.unknown}
-            {workOrder.equipment.management_no
-              ? ` (#${workOrder.equipment.management_no})`
-              : ""}
-          </Field>
-          <Field label={t.targetDueAt}>
-            {workOrder.target_due_at
-              ? formatKoreanDateTime(workOrder.target_due_at)
-              : ko.common.notSet}
-          </Field>
-          <Field label={t.customer}>{safeLabel(workOrder.customer.name)}</Field>
-          <Field label={t.site}>{safeLabel(workOrder.site.name)}</Field>
-          <Field label={t.assignee}>
-            {primary ? safeLabel(primary.mechanic_name) : t.noAssignee}
-          </Field>
-        </dl>
-
-        {/* Site contact + directions. The work-order/site payload (NamedEntity)
-            carries no address/coordinates, so the directions (gilchatgi) link is
-            deferred with a note until the backend adds a geocoded site
-            address/lat-lon. */}
-        {workOrder.site_contact?.phone ? (
-          <p className="text-sm text-steel">
-            {ko.dispatch.siteContact}:{" "}
-            {safeLabel(workOrder.site_contact.name)}{" "}
-            <a
-              className="text-steel underline-offset-2 hover:underline"
-              href={`tel:${workOrder.site_contact.phone}`}
-            >
-              {workOrder.site_contact.phone}
-            </a>
-          </p>
-        ) : null}
-        <p className="text-xs text-steel">{t.directionsUnavailable}</p>
-      </Card>
-
-      {/* The reported symptom + customer request — the data the mechanic was
-          previously diagnosing without. */}
-      <Card className="grid gap-3">
-        <div>
-          <p className="text-sm font-semibold text-steel">{t.symptom}</p>
-          <p className="whitespace-pre-wrap text-ink">{workOrder.symptom}</p>
-        </div>
-        {workOrder.customer_request ? (
-          <div>
-            <p className="text-sm font-semibold text-steel">
-              {t.customerRequest}
-            </p>
-            <p className="whitespace-pre-wrap text-ink">
-              {workOrder.customer_request}
-            </p>
-          </div>
-        ) : null}
-        {workOrder.diagnosis ? (
-          <div>
-            <p className="text-sm font-semibold text-steel">{t.diagnosis}</p>
-            <p className="whitespace-pre-wrap text-ink">{workOrder.diagnosis}</p>
-          </div>
-        ) : null}
-        {workOrder.action_taken ? (
-          <div>
-            <p className="text-sm font-semibold text-steel">{t.actionTaken}</p>
-            <p className="whitespace-pre-wrap text-ink">
-              {workOrder.action_taken}
-            </p>
-          </div>
-        ) : null}
-      </Card>
+    <ObjectViewScaffold>
+      <WorkOrderIdentityPanel workOrder={workOrder} />
+      <WorkOrderNarrativePanel workOrder={workOrder} />
 
       {/* Write controls — only the assigned mechanic. Read-only viewers
           (receptionist, admin) never see these. */}
       {canAct ? (
-        <Card className="grid gap-3">
-          <h2 className="text-lg font-semibold text-ink">
-            {ko.workOrder.startWork} / {ko.workOrder.submitReport}
-          </h2>
+        <ObjectViewPanel
+          title={`${ko.workOrder.startWork} / ${ko.workOrder.submitReport}`}
+        >
           <div className="flex flex-wrap gap-2">
             {workOrder.status === "ASSIGNED" ? (
               <Button
@@ -409,49 +330,224 @@ export function WorkOrderDetail({
               </div>
             </div>
           ) : null}
-        </Card>
+        </ObjectViewPanel>
       ) : null}
 
-      {/* Evidence: read-only list for everyone; the upload affordance only for
-          the assigned mechanic, surfaced WITH the symptom in view. */}
-      <Card className="grid gap-3">
-        <h2 className="text-lg font-semibold text-ink">{t.evidenceTitle}</h2>
-        <WorkOrderEvidenceList evidence={workOrder.evidence} />
-        {canUploadEvidence ? <EvidenceUpload workOrderId={workOrder.id} /> : null}
-      </Card>
+      <WorkOrderEvidencePanel
+        workOrderId={workOrder.id}
+        evidence={workOrder.evidence}
+        canUploadEvidence={canUploadEvidence}
+      />
+      <WorkOrderApprovalPanel approvalLine={workOrder.approval_line} />
+      <WorkOrderTimelinePanel entries={workOrder.status_history} />
+    </ObjectViewScaffold>
+  );
+}
 
-      {/* Status-history timeline (KST). */}
-      <Card className="grid gap-3">
-        <h2 className="text-lg font-semibold text-ink">{t.historyTitle}</h2>
-        {workOrder.status_history.length === 0 ? (
-          <p className="text-sm text-steel">{t.historyEmpty}</p>
-        ) : (
-          <ol className="grid gap-2">
-            {workOrder.status_history.map((entry) => (
-              <li
-                key={entry.id}
-                className="flex flex-wrap items-baseline justify-between gap-2 rounded-md border border-line p-2 text-sm"
-              >
-                <span className="font-medium text-ink">
-                  {ko.status[entry.to_status]}
-                </span>
-                <span className="text-steel">
-                  {formatKoreanDateTime(entry.occurred_at)}
-                </span>
-              </li>
-            ))}
-          </ol>
-        )}
-      </Card>
+function WorkOrderIdentityPanel({
+  workOrder,
+}: {
+  workOrder: WorkOrderDetailData;
+}) {
+  const t = ko.workOrder.detail;
+  const primary = workOrder.assignments.find((a) => a.role === "PRIMARY");
+
+  return (
+    <ObjectViewPanel className="gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm text-steel">{t.requestNo}</p>
+          <p className="text-xl font-semibold text-ink">
+            {workOrder.request_no}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge className={priorityClass(workOrder.priority)}>
+            {priorityLabel(workOrder.priority)}
+          </Badge>
+          <Badge>{ko.status[workOrder.status]}</Badge>
+        </div>
+      </div>
+
+      <ObjectViewProperties>
+        <ObjectViewField label={t.equipment}>
+          {workOrder.equipment.model ?? ko.common.unknown}
+          {workOrder.equipment.management_no
+            ? ` (#${workOrder.equipment.management_no})`
+            : ""}
+        </ObjectViewField>
+        <ObjectViewField label={t.targetDueAt}>
+          {workOrder.target_due_at
+            ? formatKoreanDateTime(workOrder.target_due_at)
+            : ko.common.notSet}
+        </ObjectViewField>
+        <ObjectViewField label={t.customer}>
+          {safeLabel(workOrder.customer.name)}
+        </ObjectViewField>
+        <ObjectViewField label={t.site}>
+          {safeLabel(workOrder.site.name)}
+        </ObjectViewField>
+        <ObjectViewField label={t.assignee}>
+          {primary ? safeLabel(primary.mechanic_name) : t.noAssignee}
+        </ObjectViewField>
+      </ObjectViewProperties>
+
+      {/* Site contact + directions. The work-order/site payload (NamedEntity)
+          carries no address/coordinates, so the directions (gilchatgi) link is
+          deferred with a note until the backend adds a geocoded site
+          address/lat-lon. */}
+      {workOrder.site_contact?.phone ? (
+        <p className="text-sm text-steel">
+          {ko.dispatch.siteContact}: {safeLabel(workOrder.site_contact.name)}{" "}
+          <a
+            className="text-steel underline-offset-2 hover:underline"
+            href={`tel:${workOrder.site_contact.phone}`}
+          >
+            {workOrder.site_contact.phone}
+          </a>
+        </p>
+      ) : null}
+      <p className="text-xs text-steel">{t.directionsUnavailable}</p>
+    </ObjectViewPanel>
+  );
+}
+
+function WorkOrderNarrativePanel({
+  workOrder,
+}: {
+  workOrder: WorkOrderDetailData;
+}) {
+  const t = ko.workOrder.detail;
+
+  return (
+    <ObjectViewPanel>
+      <NarrativeBlock label={t.symptom}>{workOrder.symptom}</NarrativeBlock>
+      {workOrder.customer_request ? (
+        <NarrativeBlock label={t.customerRequest}>
+          {workOrder.customer_request}
+        </NarrativeBlock>
+      ) : null}
+      {workOrder.diagnosis ? (
+        <NarrativeBlock label={t.diagnosis}>{workOrder.diagnosis}</NarrativeBlock>
+      ) : null}
+      {workOrder.action_taken ? (
+        <NarrativeBlock label={t.actionTaken}>
+          {workOrder.action_taken}
+        </NarrativeBlock>
+      ) : null}
+    </ObjectViewPanel>
+  );
+}
+
+function NarrativeBlock({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <p className="text-sm font-semibold text-steel">{label}</p>
+      <p className="whitespace-pre-wrap text-ink">{children}</p>
     </div>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function WorkOrderEvidencePanel({
+  workOrderId,
+  evidence,
+  canUploadEvidence,
+}: {
+  workOrderId: string;
+  evidence: WorkOrderDetailData["evidence"];
+  canUploadEvidence: boolean;
+}) {
   return (
-    <div>
-      <dt className="text-sm font-semibold text-steel">{label}</dt>
-      <dd className="text-ink">{children}</dd>
-    </div>
+    <ObjectViewPanel title={ko.workOrder.detail.evidenceTitle}>
+      <WorkOrderEvidenceList evidence={evidence} />
+      {canUploadEvidence ? <EvidenceUpload workOrderId={workOrderId} /> : null}
+    </ObjectViewPanel>
+  );
+}
+
+function WorkOrderApprovalPanel({
+  approvalLine,
+}: {
+  approvalLine: ApprovalStepSummary[];
+}) {
+  const t = ko.workOrder.detail;
+
+  if (approvalLine.length === 0) return null;
+
+  return (
+    <ObjectViewPanel title={t.approvalLineTitle}>
+      <ol className="grid gap-2">
+        {approvalLine.map((step) => (
+          <li
+            key={step.id}
+            className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-line p-2 text-sm"
+          >
+            <div className="grid gap-1">
+              <p className="font-medium text-ink">
+                {step.step_order}. {roleLabel(step.role)}
+              </p>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-steel">
+                {step.requested_at ? (
+                  <span>
+                    {t.approvalRequestedAt}: {formatKoreanDateTime(step.requested_at)}
+                  </span>
+                ) : null}
+                {step.approved_at ? (
+                  <span>
+                    {t.approvalApprovedAt}: {formatKoreanDateTime(step.approved_at)}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <Badge>{approvalStatusLabel(step.status)}</Badge>
+          </li>
+        ))}
+      </ol>
+    </ObjectViewPanel>
+  );
+}
+
+function approvalStatusLabel(status: string): string {
+  return (
+    (ko.workOrder.detail.approvalStatuses as Record<string, string>)[status] ??
+    ko.common.unknownLabel
+  );
+}
+
+function WorkOrderTimelinePanel({
+  entries,
+}: {
+  entries: StatusHistorySummary[];
+}) {
+  const t = ko.workOrder.detail;
+
+  return (
+    <ObjectViewPanel title={t.historyTitle}>
+      {entries.length === 0 ? (
+        <p className="text-sm text-steel">{t.historyEmpty}</p>
+      ) : (
+        <ol className="grid gap-2">
+          {entries.map((entry) => (
+            <li
+              key={entry.id}
+              className="flex flex-wrap items-baseline justify-between gap-2 rounded-md border border-line p-2 text-sm"
+            >
+              <span className="font-medium text-ink">
+                {ko.status[entry.to_status]}
+              </span>
+              <span className="text-steel">
+                {formatKoreanDateTime(entry.occurred_at)}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </ObjectViewPanel>
   );
 }

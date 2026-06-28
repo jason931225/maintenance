@@ -24,6 +24,7 @@ import { ko } from "../i18n/ko";
 
 type P1DispatchSummary = components["schemas"]["P1DispatchSummary"];
 type DispatchResponseKind = components["schemas"]["DispatchResponseKind"];
+type WorkOrderStatus = WorkOrderListItem["status"];
 type PriorityLevel = WorkOrderListItem["priority"];
 
 type ReadState = "idle" | "loading" | "error";
@@ -33,17 +34,71 @@ const ADMIN_ROLES = ["ADMIN", "SUPER_ADMIN"];
 
 const WORK_ORDER_PAGE_SIZE = 100;
 
+type WorkOrderDrillFilters = {
+  customer_id?: string;
+  site_id?: string;
+  around_work_order_id?: string;
+  target_due_from?: string;
+  target_due_to?: string;
+};
+
+function statusFromSearchParams(
+  searchParams: URLSearchParams,
+): WorkOrderStatus | "" {
+  const status = searchParams.get("status");
+  return status && status in ko.status ? (status as WorkOrderStatus) : "";
+}
+
+function priorityFromSearchParams(
+  searchParams: URLSearchParams,
+): PriorityLevel | "" {
+  const priority = searchParams.get("priority");
+  return priority && priority in ko.priority ? (priority as PriorityLevel) : "";
+}
+
+function workOrderDrillFiltersFromSearchParams(
+  searchParams: URLSearchParams,
+): WorkOrderDrillFilters {
+  const filters: WorkOrderDrillFilters = {};
+  const customerId = searchParams.get("customer_id");
+  const siteId = searchParams.get("site_id");
+  const aroundWorkOrderId = searchParams.get("around_work_order_id");
+  const targetDueFrom = searchParams.get("target_due_from");
+  const targetDueTo = searchParams.get("target_due_to");
+  if (customerId) filters.customer_id = customerId;
+  if (siteId) filters.site_id = siteId;
+  if (aroundWorkOrderId) filters.around_work_order_id = aroundWorkOrderId;
+  if (targetDueFrom) filters.target_due_from = targetDueFrom;
+  if (targetDueTo) filters.target_due_to = targetDueTo;
+  return filters;
+}
+
+function hasWorkOrderDrillSearchParams(searchParams: URLSearchParams): boolean {
+  return [
+    "status",
+    "priority",
+    "customer_id",
+    "site_id",
+    "around_work_order_id",
+    "target_due_from",
+    "target_due_to",
+  ].some((key) => searchParams.has(key));
+}
+
 export function DispatchPage() {
   const { api, session } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const searchParamKey = searchParams.toString();
   const [workOrders, setWorkOrders] = useState<WorkOrderListItem[]>([]);
   const [workOrderTotal, setWorkOrderTotal] = useState<number | undefined>(
     undefined,
   );
-  const [filters, setFilters] = useState<WorkOrderFilterState>(
-    EMPTY_WORK_ORDER_FILTERS,
-  );
+  const [filters, setFilters] = useState<WorkOrderFilterState>(() => ({
+    ...EMPTY_WORK_ORDER_FILTERS,
+    status: statusFromSearchParams(searchParams),
+    priority: priorityFromSearchParams(searchParams),
+  }));
   const [mechanics, setMechanics] = useState<UserSummary[]>([]);
   const [readState, setReadState] = useState<ReadState>("loading");
   // The HTTP status of a failed read, when known, so PageError can distinguish a
@@ -68,12 +123,21 @@ export function DispatchPage() {
 
   // The list endpoint accepts `status[]` / `priority[]` server-side; the free-text
   // query is applied client-side over the loaded rows (no such backend param).
+  const objectSetDrillFilters = useMemo(
+    () => workOrderDrillFiltersFromSearchParams(searchParams),
+    [searchParams],
+  );
+  const hasObjectSetDrillFilter = useMemo(
+    () => hasWorkOrderDrillSearchParams(searchParams),
+    [searchParams],
+  );
   const serverFilterQuery = useMemo(
     () => ({
+      ...objectSetDrillFilters,
       ...(filters.status ? { status: [filters.status] } : {}),
       ...(filters.priority ? { priority: [filters.priority] } : {}),
     }),
-    [filters.status, filters.priority],
+    [filters.status, filters.priority, objectSetDrillFilters],
   );
 
   const loadData = useCallback(async () => {
@@ -282,13 +346,10 @@ export function DispatchPage() {
   ): Promise<boolean> {
     setWriteState("idle");
     try {
-      const response = await api.POST(
-        "/api/work-orders/{workOrderId}/report",
-        {
-          params: { path: { workOrderId } },
-          body: { result_type: resultType, diagnosis, action_taken: actionTaken },
-        },
-      );
+      const response = await api.POST("/api/work-orders/{workOrderId}/report", {
+        params: { path: { workOrderId } },
+        body: { result_type: resultType, diagnosis, action_taken: actionTaken },
+      });
       if (!response.data) {
         setWriteState("error");
         return false;
@@ -450,7 +511,9 @@ export function DispatchPage() {
         {readState === "error" ? (
           <PageError
             status={readErrorStatus}
-            onRetry={() => { void loadData(); }}
+            onRetry={() => {
+              void loadData();
+            }}
           />
         ) : null}
         {writeState === "error" ? (
@@ -461,8 +524,26 @@ export function DispatchPage() {
           onChange={setFilters}
           onReset={() => {
             setFilters(EMPTY_WORK_ORDER_FILTERS);
+            if (searchParamKey) {
+              void navigate("/dispatch", { replace: true });
+            }
           }}
         />
+        {hasObjectSetDrillFilter ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-brand-teal/30 bg-brand-teal/5 px-3 py-2 text-sm text-steel">
+            <span>{ko.dispatch.search.drilldownActive}</span>
+            <button
+              type="button"
+              className="font-medium text-brand-teal hover:underline"
+              onClick={() => {
+                setFilters(EMPTY_WORK_ORDER_FILTERS);
+                void navigate("/dispatch", { replace: true });
+              }}
+            >
+              {ko.dispatch.search.drilldownClear}
+            </button>
+          </div>
+        ) : null}
         <WorkOrderList
           workOrders={filteredWorkOrders}
           isLoading={readState === "loading"}

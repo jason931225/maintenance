@@ -148,7 +148,7 @@ public protocol APIProtocol: Sendable {
     func getOpsSummary(_ input: Operations.GetOpsSummary.Input) async throws -> Operations.GetOpsSummary.Output
     /// List branch-scoped work orders
     ///
-    /// Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values.
+    /// Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values. `around_work_order_id` searches around a seed work order by returning the seed plus branch/RLS-visible work orders sharing customer, site, or equipment. The response includes a branch/RLS-scoped object-set lens with aggregates, facets, due-date histogram buckets, and customer/site listograms for drill-to-act dashboards.
     ///
     /// - Remark: HTTP `GET /api/v1/work-orders`.
     /// - Remark: Generated from `#/paths//api/v1/work-orders/get(listWorkOrders)`.
@@ -255,6 +255,27 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/employees`.
     /// - Remark: Generated from `#/paths//api/v1/employees/get(listEmployees)`.
     func listEmployees(_ input: Operations.ListEmployees.Input) async throws -> Operations.ListEmployees.Output
+    /// Read the tenant HR organization chart
+    ///
+    /// Executive/admin/super-admin read model grouped by company, org unit, and position. Source workbook rows remain preserved in the employee directory.
+    ///
+    /// - Remark: HTTP `GET /api/v1/hr/org-chart`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/org-chart/get(getHrOrgChart)`.
+    func getHrOrgChart(_ input: Operations.GetHrOrgChart.Input) async throws -> Operations.GetHrOrgChart.Output
+    /// List employee leave-balance rows
+    ///
+    /// Read-only HR leave summary extracted from imported employee workbooks. Payroll and sensitive columns remain preserved in raw import JSON unless explicitly modeled.
+    ///
+    /// - Remark: HTTP `GET /api/v1/hr/leave-balances`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/leave-balances/get(listHrLeaveBalances)`.
+    func listHrLeaveBalances(_ input: Operations.ListHrLeaveBalances.Input) async throws -> Operations.ListHrLeaveBalances.Output
+    /// List branch-scoped attendance summaries
+    ///
+    /// Read-only summary over durable site attendance events. It exposes business clock-in facts, not raw geolocation pings.
+    ///
+    /// - Remark: HTTP `GET /api/v1/hr/attendance-summary`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-summary/get(listHrAttendanceSummary)`.
+    func listHrAttendanceSummary(_ input: Operations.ListHrAttendanceSummary.Input) async throws -> Operations.ListHrAttendanceSummary.Output
     /// Import payroll workbook sheets into the employee directory
     ///
     /// Admin/super-admin multipart .xlsx upload. Each worksheet is treated as a company, row 1 as headers, and rows with non-empty 성명 are upserted by deterministic source filename/sheet/row key. Raw row values and source metadata are preserved as JSONB.
@@ -262,6 +283,14 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/employees/import`.
     /// - Remark: Generated from `#/paths//api/v1/employees/import/post(importEmployees)`.
     func importEmployees(_ input: Operations.ImportEmployees.Input) async throws -> Operations.ImportEmployees.Output
+    /// Read one branch-scoped equipment master row
+    ///
+    /// Read access (WorkOrderReadAll — all authenticated roles). Non-SUPER_ADMIN principals only receive rows in their own branch scope; a foreign or missing id returns 404 without revealing existence.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/get(getEquipment)`.
+    func getEquipment(_ input: Operations.GetEquipment.Input) async throws -> Operations.GetEquipment.Output
     /// Update fields on one equipment master row
     ///
     /// Admin-gated (EquipmentManage). Only supplied fields are written; nullable fields explicitly set to null are cleared.
@@ -276,6 +305,28 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `DELETE /api/v1/equipment/{id}`.
     /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/delete(deleteEquipment)`.
     func deleteEquipment(_ input: Operations.DeleteEquipment.Input) async throws -> Operations.DeleteEquipment.Output
+    /// Read one equipment lifecycle ribbon and relationship graph
+    ///
+    /// Read-only equipment lens for object-detail pages. Returns real lifecycle events and the customer-site-equipment-work-order graph visible within the caller's branch scope. A foreign or missing equipment id returns 404 without revealing existence.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment/{id}/timeline-graph`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/timeline-graph/get(getEquipmentTimelineGraph)`.
+    func getEquipmentTimelineGraph(_ input: Operations.GetEquipmentTimelineGraph.Input) async throws -> Operations.GetEquipmentTimelineGraph.Output
+    /// Read governed object-action descriptors for one object
+    ///
+    /// Returns typed, UI-renderable action descriptors for a console object. The initial CAP-5 vertical slice supports equipment actions and requires EquipmentManage. Missing or foreign equipment returns 404 through the same branch-scoped object read used by the equipment detail page.
+    ///
+    /// - Remark: HTTP `GET /api/v1/object-actions/catalog`.
+    /// - Remark: Generated from `#/paths//api/v1/object-actions/catalog/get(getObjectActionCatalog)`.
+    func getObjectActionCatalog(_ input: Operations.GetObjectActionCatalog.Input) async throws -> Operations.GetObjectActionCatalog.Output
+    /// Execute a governed audited object action
+    ///
+    /// Executes a typed object write-back action through the server-side action executor. Sensitive actions require a fresh passkey step-up assertion so the append-only audit event binds the write to the human actor. The initial slice supports `equipment.update_profile`.
+    ///
+    /// - Remark: HTTP `POST /api/v1/object-actions/execute`.
+    /// - Remark: Generated from `#/paths//api/v1/object-actions/execute/post(executeObjectAction)`.
+    func executeObjectAction(_ input: Operations.ExecuteObjectAction.Input) async throws -> Operations.ExecuteObjectAction.Output
     /// Replay an idempotent mobile offline-operation batch
     ///
     /// - Remark: HTTP `POST /api/v1/sync`.
@@ -663,6 +714,79 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/reporting/work-diary/confirm`.
     /// - Remark: Generated from `#/paths//api/v1/reporting/work-diary/confirm/post(confirmWorkDiaryDraft)`.
     func confirmWorkDiaryDraft(_ input: Operations.ConfirmWorkDiaryDraft.Input) async throws -> Operations.ConfirmWorkDiaryDraft.Output
+    /// List canonical policy feature catalog for Policy Studio
+    ///
+    /// - Remark: HTTP `GET /api/v1/policy/features`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/features/get(listPolicyFeatures)`.
+    func listPolicyFeatures(_ input: Operations.ListPolicyFeatures.Input) async throws -> Operations.ListPolicyFeatures.Output
+    /// List built-in role templates and tenant custom roles
+    ///
+    /// - Remark: HTTP `GET /api/v1/policy/roles`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/roles/get(listPolicyRoles)`.
+    func listPolicyRoles(_ input: Operations.ListPolicyRoles.Input) async throws -> Operations.ListPolicyRoles.Output
+    /// Create a tenant custom role definition
+    ///
+    /// Creates an audited, tenant-scoped custom role definition. Custom roles never replace built-in users.roles, but ACTIVE assignments can add runtime-effective ordinary feature grants on the next request. Elevated policy-management and scope-widening features are rejected.
+    ///
+    /// - Remark: HTTP `POST /api/v1/policy/roles`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/roles/post(createPolicyRole)`.
+    func createPolicyRole(_ input: Operations.CreatePolicyRole.Input) async throws -> Operations.CreatePolicyRole.Output
+    /// Update a tenant custom role definition
+    ///
+    /// Updates mutable custom-role metadata, permissions, and ABAC/PBAC conditions. The role key and lifecycle status are not changed by this route. This is a sensitive policy-definition action: callers must have RoleManage, pass delegated-scope guardrails, and supply a fresh passkey step-up assertion. ACTIVE assigned custom-role changes become runtime-effective ordinary feature grants on the next request; unsupported ABAC/PBAC conditions and elevated/scope-widening features remain inert.
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/policy/roles/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/patch(updatePolicyRole)`.
+    func updatePolicyRole(_ input: Operations.UpdatePolicyRole.Input) async throws -> Operations.UpdatePolicyRole.Output
+    /// Publish, roll back, or retire a tenant custom role
+    ///
+    /// Changes a custom role lifecycle state. This is a sensitive policy action: callers must have RoleManage and supply a fresh passkey step-up assertion proving the actor, not just the bearer token, performed the change.
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/policy/roles/{id}/status`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/status/patch(updatePolicyRoleStatus)`.
+    func updatePolicyRoleStatus(_ input: Operations.UpdatePolicyRoleStatus.Input) async throws -> Operations.UpdatePolicyRoleStatus.Output
+    /// Preview custom-role lifecycle status impact
+    ///
+    /// Returns a read-only before/after impact summary for publishing, rolling back, or retiring a custom role. This endpoint never mutates policy, does not require a passkey assertion, and reminds callers that the subsequent status update is a sensitive passkey step-up action. Allowed transitions are DRAFT→ACTIVE, ACTIVE→DRAFT, and ACTIVE→RETIRED; RETIRED is terminal.
+    ///
+    /// - Remark: HTTP `POST /api/v1/policy/roles/{id}/status-preview`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/status-preview/post(previewPolicyRoleStatus)`.
+    func previewPolicyRoleStatus(_ input: Operations.PreviewPolicyRoleStatus.Input) async throws -> Operations.PreviewPolicyRoleStatus.Output
+    /// List Policy Studio audit evidence
+    ///
+    /// Returns append-only policy audit events for the current tenant. This is a read-only evidence timeline for RoleManage holders and includes only policy role and planned-assignment events, not unrelated tenant audit rows.
+    ///
+    /// - Remark: HTTP `GET /api/v1/policy/audit-events`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/audit-events/get(listPolicyAuditEvents)`.
+    func listPolicyAuditEvents(_ input: Operations.ListPolicyAuditEvents.Input) async throws -> Operations.ListPolicyAuditEvents.Output
+    /// List safe starter templates for tenant custom roles
+    ///
+    /// Returns built-in starter templates that can be copied into a tenant custom role definition. Templates never grant elevated policy-management features. Templates do not affect runtime authorization until copied into an ACTIVE assigned custom role; unsupported/elevated grants remain inert.
+    ///
+    /// - Remark: HTTP `GET /api/v1/policy/role-templates`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/role-templates/get(listPolicyRoleTemplates)`.
+    func listPolicyRoleTemplates(_ input: Operations.ListPolicyRoleTemplates.Input) async throws -> Operations.ListPolicyRoleTemplates.Output
+    /// List custom-role assignments for one user
+    ///
+    /// Returns custom-role assignments for a visible user. ACTIVE assignments are audited and can add runtime-effective ordinary feature grants on the next request; DRAFT/RETIRED roles remain inert.
+    ///
+    /// - Remark: HTTP `GET /api/v1/policy/assignments`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/assignments/get(listPolicyAssignments)`.
+    func listPolicyAssignments(_ input: Operations.ListPolicyAssignments.Input) async throws -> Operations.ListPolicyAssignments.Output
+    /// Replace one user's custom-role assignments
+    ///
+    /// Replaces custom-role assignments for a visible user and bumps the tenant policy version. This is a sensitive policy action requiring a fresh passkey step-up. ACTIVE assigned roles publish supported ordinary feature grants into runtime authorization on the next request; unsupported conditions/elevated grants remain inert.
+    ///
+    /// - Remark: HTTP `PUT /api/v1/policy/users/{id}/assignments`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/users/{id}/assignments/put(replacePolicyAssignments)`.
+    func replacePolicyAssignments(_ input: Operations.ReplacePolicyAssignments.Input) async throws -> Operations.ReplacePolicyAssignments.Output
+    /// Preview requested custom-role assignment impact for one user
+    ///
+    /// Computes requested-vs-current planned custom-role assignment deltas and feature grants for a visible user. This is an impact-preview surface only: it does not write assignments and does not publish runtime authorization.
+    ///
+    /// - Remark: HTTP `POST /api/v1/policy/users/{id}/assignment-preview`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/users/{id}/assignment-preview/post(previewPolicyAssignments)`.
+    func previewPolicyAssignments(_ input: Operations.PreviewPolicyAssignments.Input) async throws -> Operations.PreviewPolicyAssignments.Output
     /// List users visible within the caller's branch scope
     ///
     /// - Remark: HTTP `GET /api/v1/users`.
@@ -1249,7 +1373,7 @@ extension APIProtocol {
     }
     /// List branch-scoped work orders
     ///
-    /// Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values.
+    /// Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values. `around_work_order_id` searches around a seed work order by returning the seed plus branch/RLS-visible work orders sharing customer, site, or equipment. The response includes a branch/RLS-scoped object-set lens with aggregates, facets, due-date histogram buckets, and customer/site listograms for drill-to-act dashboards.
     ///
     /// - Remark: HTTP `GET /api/v1/work-orders`.
     /// - Remark: Generated from `#/paths//api/v1/work-orders/get(listWorkOrders)`.
@@ -1518,6 +1642,45 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// Read the tenant HR organization chart
+    ///
+    /// Executive/admin/super-admin read model grouped by company, org unit, and position. Source workbook rows remain preserved in the employee directory.
+    ///
+    /// - Remark: HTTP `GET /api/v1/hr/org-chart`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/org-chart/get(getHrOrgChart)`.
+    public func getHrOrgChart(headers: Operations.GetHrOrgChart.Input.Headers = .init()) async throws -> Operations.GetHrOrgChart.Output {
+        try await getHrOrgChart(Operations.GetHrOrgChart.Input(headers: headers))
+    }
+    /// List employee leave-balance rows
+    ///
+    /// Read-only HR leave summary extracted from imported employee workbooks. Payroll and sensitive columns remain preserved in raw import JSON unless explicitly modeled.
+    ///
+    /// - Remark: HTTP `GET /api/v1/hr/leave-balances`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/leave-balances/get(listHrLeaveBalances)`.
+    public func listHrLeaveBalances(
+        query: Operations.ListHrLeaveBalances.Input.Query = .init(),
+        headers: Operations.ListHrLeaveBalances.Input.Headers = .init()
+    ) async throws -> Operations.ListHrLeaveBalances.Output {
+        try await listHrLeaveBalances(Operations.ListHrLeaveBalances.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// List branch-scoped attendance summaries
+    ///
+    /// Read-only summary over durable site attendance events. It exposes business clock-in facts, not raw geolocation pings.
+    ///
+    /// - Remark: HTTP `GET /api/v1/hr/attendance-summary`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-summary/get(listHrAttendanceSummary)`.
+    public func listHrAttendanceSummary(
+        query: Operations.ListHrAttendanceSummary.Input.Query = .init(),
+        headers: Operations.ListHrAttendanceSummary.Input.Headers = .init()
+    ) async throws -> Operations.ListHrAttendanceSummary.Output {
+        try await listHrAttendanceSummary(Operations.ListHrAttendanceSummary.Input(
+            query: query,
+            headers: headers
+        ))
+    }
     /// Import payroll workbook sheets into the employee directory
     ///
     /// Admin/super-admin multipart .xlsx upload. Each worksheet is treated as a company, row 1 as headers, and rows with non-empty 성명 are upserted by deterministic source filename/sheet/row key. Raw row values and source metadata are preserved as JSONB.
@@ -1531,6 +1694,22 @@ extension APIProtocol {
         try await importEmployees(Operations.ImportEmployees.Input(
             headers: headers,
             body: body
+        ))
+    }
+    /// Read one branch-scoped equipment master row
+    ///
+    /// Read access (WorkOrderReadAll — all authenticated roles). Non-SUPER_ADMIN principals only receive rows in their own branch scope; a foreign or missing id returns 404 without revealing existence.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/get(getEquipment)`.
+    public func getEquipment(
+        path: Operations.GetEquipment.Input.Path,
+        headers: Operations.GetEquipment.Input.Headers = .init()
+    ) async throws -> Operations.GetEquipment.Output {
+        try await getEquipment(Operations.GetEquipment.Input(
+            path: path,
+            headers: headers
         ))
     }
     /// Update fields on one equipment master row
@@ -1563,6 +1742,52 @@ extension APIProtocol {
         try await deleteEquipment(Operations.DeleteEquipment.Input(
             path: path,
             headers: headers
+        ))
+    }
+    /// Read one equipment lifecycle ribbon and relationship graph
+    ///
+    /// Read-only equipment lens for object-detail pages. Returns real lifecycle events and the customer-site-equipment-work-order graph visible within the caller's branch scope. A foreign or missing equipment id returns 404 without revealing existence.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment/{id}/timeline-graph`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/timeline-graph/get(getEquipmentTimelineGraph)`.
+    public func getEquipmentTimelineGraph(
+        path: Operations.GetEquipmentTimelineGraph.Input.Path,
+        headers: Operations.GetEquipmentTimelineGraph.Input.Headers = .init()
+    ) async throws -> Operations.GetEquipmentTimelineGraph.Output {
+        try await getEquipmentTimelineGraph(Operations.GetEquipmentTimelineGraph.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// Read governed object-action descriptors for one object
+    ///
+    /// Returns typed, UI-renderable action descriptors for a console object. The initial CAP-5 vertical slice supports equipment actions and requires EquipmentManage. Missing or foreign equipment returns 404 through the same branch-scoped object read used by the equipment detail page.
+    ///
+    /// - Remark: HTTP `GET /api/v1/object-actions/catalog`.
+    /// - Remark: Generated from `#/paths//api/v1/object-actions/catalog/get(getObjectActionCatalog)`.
+    public func getObjectActionCatalog(
+        query: Operations.GetObjectActionCatalog.Input.Query,
+        headers: Operations.GetObjectActionCatalog.Input.Headers = .init()
+    ) async throws -> Operations.GetObjectActionCatalog.Output {
+        try await getObjectActionCatalog(Operations.GetObjectActionCatalog.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Execute a governed audited object action
+    ///
+    /// Executes a typed object write-back action through the server-side action executor. Sensitive actions require a fresh passkey step-up assertion so the append-only audit event binds the write to the human actor. The initial slice supports `equipment.update_profile`.
+    ///
+    /// - Remark: HTTP `POST /api/v1/object-actions/execute`.
+    /// - Remark: Generated from `#/paths//api/v1/object-actions/execute/post(executeObjectAction)`.
+    public func executeObjectAction(
+        headers: Operations.ExecuteObjectAction.Input.Headers = .init(),
+        body: Operations.ExecuteObjectAction.Input.Body
+    ) async throws -> Operations.ExecuteObjectAction.Output {
+        try await executeObjectAction(Operations.ExecuteObjectAction.Input(
+            headers: headers,
+            body: body
         ))
     }
     /// Replay an idempotent mobile offline-operation batch
@@ -2490,6 +2715,159 @@ extension APIProtocol {
         try await confirmWorkDiaryDraft(Operations.ConfirmWorkDiaryDraft.Input(
             query: query,
             headers: headers
+        ))
+    }
+    /// List canonical policy feature catalog for Policy Studio
+    ///
+    /// - Remark: HTTP `GET /api/v1/policy/features`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/features/get(listPolicyFeatures)`.
+    public func listPolicyFeatures(headers: Operations.ListPolicyFeatures.Input.Headers = .init()) async throws -> Operations.ListPolicyFeatures.Output {
+        try await listPolicyFeatures(Operations.ListPolicyFeatures.Input(headers: headers))
+    }
+    /// List built-in role templates and tenant custom roles
+    ///
+    /// - Remark: HTTP `GET /api/v1/policy/roles`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/roles/get(listPolicyRoles)`.
+    public func listPolicyRoles(headers: Operations.ListPolicyRoles.Input.Headers = .init()) async throws -> Operations.ListPolicyRoles.Output {
+        try await listPolicyRoles(Operations.ListPolicyRoles.Input(headers: headers))
+    }
+    /// Create a tenant custom role definition
+    ///
+    /// Creates an audited, tenant-scoped custom role definition. Custom roles never replace built-in users.roles, but ACTIVE assignments can add runtime-effective ordinary feature grants on the next request. Elevated policy-management and scope-widening features are rejected.
+    ///
+    /// - Remark: HTTP `POST /api/v1/policy/roles`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/roles/post(createPolicyRole)`.
+    public func createPolicyRole(
+        headers: Operations.CreatePolicyRole.Input.Headers = .init(),
+        body: Operations.CreatePolicyRole.Input.Body
+    ) async throws -> Operations.CreatePolicyRole.Output {
+        try await createPolicyRole(Operations.CreatePolicyRole.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Update a tenant custom role definition
+    ///
+    /// Updates mutable custom-role metadata, permissions, and ABAC/PBAC conditions. The role key and lifecycle status are not changed by this route. This is a sensitive policy-definition action: callers must have RoleManage, pass delegated-scope guardrails, and supply a fresh passkey step-up assertion. ACTIVE assigned custom-role changes become runtime-effective ordinary feature grants on the next request; unsupported ABAC/PBAC conditions and elevated/scope-widening features remain inert.
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/policy/roles/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/patch(updatePolicyRole)`.
+    public func updatePolicyRole(
+        path: Operations.UpdatePolicyRole.Input.Path,
+        headers: Operations.UpdatePolicyRole.Input.Headers = .init(),
+        body: Operations.UpdatePolicyRole.Input.Body
+    ) async throws -> Operations.UpdatePolicyRole.Output {
+        try await updatePolicyRole(Operations.UpdatePolicyRole.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Publish, roll back, or retire a tenant custom role
+    ///
+    /// Changes a custom role lifecycle state. This is a sensitive policy action: callers must have RoleManage and supply a fresh passkey step-up assertion proving the actor, not just the bearer token, performed the change.
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/policy/roles/{id}/status`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/status/patch(updatePolicyRoleStatus)`.
+    public func updatePolicyRoleStatus(
+        path: Operations.UpdatePolicyRoleStatus.Input.Path,
+        headers: Operations.UpdatePolicyRoleStatus.Input.Headers = .init(),
+        body: Operations.UpdatePolicyRoleStatus.Input.Body
+    ) async throws -> Operations.UpdatePolicyRoleStatus.Output {
+        try await updatePolicyRoleStatus(Operations.UpdatePolicyRoleStatus.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Preview custom-role lifecycle status impact
+    ///
+    /// Returns a read-only before/after impact summary for publishing, rolling back, or retiring a custom role. This endpoint never mutates policy, does not require a passkey assertion, and reminds callers that the subsequent status update is a sensitive passkey step-up action. Allowed transitions are DRAFT→ACTIVE, ACTIVE→DRAFT, and ACTIVE→RETIRED; RETIRED is terminal.
+    ///
+    /// - Remark: HTTP `POST /api/v1/policy/roles/{id}/status-preview`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/status-preview/post(previewPolicyRoleStatus)`.
+    public func previewPolicyRoleStatus(
+        path: Operations.PreviewPolicyRoleStatus.Input.Path,
+        headers: Operations.PreviewPolicyRoleStatus.Input.Headers = .init(),
+        body: Operations.PreviewPolicyRoleStatus.Input.Body
+    ) async throws -> Operations.PreviewPolicyRoleStatus.Output {
+        try await previewPolicyRoleStatus(Operations.PreviewPolicyRoleStatus.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// List Policy Studio audit evidence
+    ///
+    /// Returns append-only policy audit events for the current tenant. This is a read-only evidence timeline for RoleManage holders and includes only policy role and planned-assignment events, not unrelated tenant audit rows.
+    ///
+    /// - Remark: HTTP `GET /api/v1/policy/audit-events`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/audit-events/get(listPolicyAuditEvents)`.
+    public func listPolicyAuditEvents(
+        query: Operations.ListPolicyAuditEvents.Input.Query = .init(),
+        headers: Operations.ListPolicyAuditEvents.Input.Headers = .init()
+    ) async throws -> Operations.ListPolicyAuditEvents.Output {
+        try await listPolicyAuditEvents(Operations.ListPolicyAuditEvents.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// List safe starter templates for tenant custom roles
+    ///
+    /// Returns built-in starter templates that can be copied into a tenant custom role definition. Templates never grant elevated policy-management features. Templates do not affect runtime authorization until copied into an ACTIVE assigned custom role; unsupported/elevated grants remain inert.
+    ///
+    /// - Remark: HTTP `GET /api/v1/policy/role-templates`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/role-templates/get(listPolicyRoleTemplates)`.
+    public func listPolicyRoleTemplates(headers: Operations.ListPolicyRoleTemplates.Input.Headers = .init()) async throws -> Operations.ListPolicyRoleTemplates.Output {
+        try await listPolicyRoleTemplates(Operations.ListPolicyRoleTemplates.Input(headers: headers))
+    }
+    /// List custom-role assignments for one user
+    ///
+    /// Returns custom-role assignments for a visible user. ACTIVE assignments are audited and can add runtime-effective ordinary feature grants on the next request; DRAFT/RETIRED roles remain inert.
+    ///
+    /// - Remark: HTTP `GET /api/v1/policy/assignments`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/assignments/get(listPolicyAssignments)`.
+    public func listPolicyAssignments(
+        query: Operations.ListPolicyAssignments.Input.Query,
+        headers: Operations.ListPolicyAssignments.Input.Headers = .init()
+    ) async throws -> Operations.ListPolicyAssignments.Output {
+        try await listPolicyAssignments(Operations.ListPolicyAssignments.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// Replace one user's custom-role assignments
+    ///
+    /// Replaces custom-role assignments for a visible user and bumps the tenant policy version. This is a sensitive policy action requiring a fresh passkey step-up. ACTIVE assigned roles publish supported ordinary feature grants into runtime authorization on the next request; unsupported conditions/elevated grants remain inert.
+    ///
+    /// - Remark: HTTP `PUT /api/v1/policy/users/{id}/assignments`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/users/{id}/assignments/put(replacePolicyAssignments)`.
+    public func replacePolicyAssignments(
+        path: Operations.ReplacePolicyAssignments.Input.Path,
+        headers: Operations.ReplacePolicyAssignments.Input.Headers = .init(),
+        body: Operations.ReplacePolicyAssignments.Input.Body
+    ) async throws -> Operations.ReplacePolicyAssignments.Output {
+        try await replacePolicyAssignments(Operations.ReplacePolicyAssignments.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Preview requested custom-role assignment impact for one user
+    ///
+    /// Computes requested-vs-current planned custom-role assignment deltas and feature grants for a visible user. This is an impact-preview surface only: it does not write assignments and does not publish runtime authorization.
+    ///
+    /// - Remark: HTTP `POST /api/v1/policy/users/{id}/assignment-preview`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/users/{id}/assignment-preview/post(previewPolicyAssignments)`.
+    public func previewPolicyAssignments(
+        path: Operations.PreviewPolicyAssignments.Input.Path,
+        headers: Operations.PreviewPolicyAssignments.Input.Headers = .init(),
+        body: Operations.PreviewPolicyAssignments.Input.Body
+    ) async throws -> Operations.PreviewPolicyAssignments.Output {
+        try await previewPolicyAssignments(Operations.PreviewPolicyAssignments.Input(
+            path: path,
+            headers: headers,
+            body: body
         ))
     }
     /// List users visible within the caller's branch scope
@@ -5008,6 +5386,590 @@ public enum Components {
                 case offset
             }
         }
+        /// - Remark: Generated from `#/components/schemas/EquipmentTimelineGraph`.
+        public struct EquipmentTimelineGraph: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EquipmentTimelineGraph/equipment`.
+            public var equipment: Components.Schemas.EquipmentTimelineEquipment
+            /// - Remark: Generated from `#/components/schemas/EquipmentTimelineGraph/lifecycle_events`.
+            public var lifecycleEvents: [Components.Schemas.EquipmentLifecycleEvent]
+            /// - Remark: Generated from `#/components/schemas/EquipmentTimelineGraph/graph`.
+            public var graph: Components.Schemas.EquipmentRelationshipGraph
+            /// - Remark: Generated from `#/components/schemas/EquipmentTimelineGraph/work_order_count`.
+            public var workOrderCount: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/EquipmentTimelineGraph/cost_ledger_total_won`.
+            public var costLedgerTotalWon: Swift.Int64
+            /// Creates a new `EquipmentTimelineGraph`.
+            ///
+            /// - Parameters:
+            ///   - equipment:
+            ///   - lifecycleEvents:
+            ///   - graph:
+            ///   - workOrderCount:
+            ///   - costLedgerTotalWon:
+            public init(
+                equipment: Components.Schemas.EquipmentTimelineEquipment,
+                lifecycleEvents: [Components.Schemas.EquipmentLifecycleEvent],
+                graph: Components.Schemas.EquipmentRelationshipGraph,
+                workOrderCount: Swift.Int64,
+                costLedgerTotalWon: Swift.Int64
+            ) {
+                self.equipment = equipment
+                self.lifecycleEvents = lifecycleEvents
+                self.graph = graph
+                self.workOrderCount = workOrderCount
+                self.costLedgerTotalWon = costLedgerTotalWon
+            }
+            public enum CodingKeys: String, CodingKey {
+                case equipment
+                case lifecycleEvents = "lifecycle_events"
+                case graph
+                case workOrderCount = "work_order_count"
+                case costLedgerTotalWon = "cost_ledger_total_won"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EquipmentTimelineEquipment`.
+        public struct EquipmentTimelineEquipment: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EquipmentTimelineEquipment/equipment_id`.
+            public var equipmentId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EquipmentTimelineEquipment/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EquipmentTimelineEquipment/equipment_no`.
+            public var equipmentNo: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentTimelineEquipment/management_no`.
+            public var managementNo: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EquipmentTimelineEquipment/status`.
+            public var status: Components.Schemas.EquipmentStatus
+            /// - Remark: Generated from `#/components/schemas/EquipmentTimelineEquipment/model`.
+            public var model: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EquipmentTimelineEquipment/maker`.
+            public var maker: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EquipmentTimelineEquipment/customer_id`.
+            public var customerId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EquipmentTimelineEquipment/customer_name`.
+            public var customerName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentTimelineEquipment/site_id`.
+            public var siteId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/EquipmentTimelineEquipment/site_name`.
+            public var siteName: Swift.String
+            /// Creates a new `EquipmentTimelineEquipment`.
+            ///
+            /// - Parameters:
+            ///   - equipmentId:
+            ///   - branchId:
+            ///   - equipmentNo:
+            ///   - managementNo:
+            ///   - status:
+            ///   - model:
+            ///   - maker:
+            ///   - customerId:
+            ///   - customerName:
+            ///   - siteId:
+            ///   - siteName:
+            public init(
+                equipmentId: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid,
+                equipmentNo: Swift.String,
+                managementNo: Swift.String? = nil,
+                status: Components.Schemas.EquipmentStatus,
+                model: Swift.String? = nil,
+                maker: Swift.String? = nil,
+                customerId: Components.Schemas.Uuid,
+                customerName: Swift.String,
+                siteId: Components.Schemas.Uuid,
+                siteName: Swift.String
+            ) {
+                self.equipmentId = equipmentId
+                self.branchId = branchId
+                self.equipmentNo = equipmentNo
+                self.managementNo = managementNo
+                self.status = status
+                self.model = model
+                self.maker = maker
+                self.customerId = customerId
+                self.customerName = customerName
+                self.siteId = siteId
+                self.siteName = siteName
+            }
+            public enum CodingKeys: String, CodingKey {
+                case equipmentId = "equipment_id"
+                case branchId = "branch_id"
+                case equipmentNo = "equipment_no"
+                case managementNo = "management_no"
+                case status
+                case model
+                case maker
+                case customerId = "customer_id"
+                case customerName = "customer_name"
+                case siteId = "site_id"
+                case siteName = "site_name"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EquipmentLifecycleEvent`.
+        public struct EquipmentLifecycleEvent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EquipmentLifecycleEvent/id`.
+            public var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentLifecycleEvent/kind`.
+            public var kind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentLifecycleEvent/label`.
+            public var label: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentLifecycleEvent/description`.
+            public var description: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EquipmentLifecycleEvent/href`.
+            public var href: Swift.String?
+            /// Creates a new `EquipmentLifecycleEvent`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - kind:
+            ///   - label:
+            ///   - description:
+            ///   - href:
+            public init(
+                id: Swift.String,
+                kind: Swift.String,
+                label: Swift.String,
+                description: Swift.String? = nil,
+                href: Swift.String? = nil
+            ) {
+                self.id = id
+                self.kind = kind
+                self.label = label
+                self.description = description
+                self.href = href
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case kind
+                case label
+                case description
+                case href
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EquipmentRelationshipGraph`.
+        public struct EquipmentRelationshipGraph: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EquipmentRelationshipGraph/nodes`.
+            public var nodes: [Components.Schemas.EquipmentGraphNode]
+            /// - Remark: Generated from `#/components/schemas/EquipmentRelationshipGraph/edges`.
+            public var edges: [Components.Schemas.EquipmentGraphEdge]
+            /// Creates a new `EquipmentRelationshipGraph`.
+            ///
+            /// - Parameters:
+            ///   - nodes:
+            ///   - edges:
+            public init(
+                nodes: [Components.Schemas.EquipmentGraphNode],
+                edges: [Components.Schemas.EquipmentGraphEdge]
+            ) {
+                self.nodes = nodes
+                self.edges = edges
+            }
+            public enum CodingKeys: String, CodingKey {
+                case nodes
+                case edges
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EquipmentGraphNode`.
+        public struct EquipmentGraphNode: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EquipmentGraphNode/id`.
+            public var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentGraphNode/node_type`.
+            public var nodeType: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentGraphNode/label`.
+            public var label: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentGraphNode/subtitle`.
+            public var subtitle: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EquipmentGraphNode/href`.
+            public var href: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/EquipmentGraphNode/current`.
+            public var current: Swift.Bool
+            /// Creates a new `EquipmentGraphNode`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - nodeType:
+            ///   - label:
+            ///   - subtitle:
+            ///   - href:
+            ///   - current:
+            public init(
+                id: Swift.String,
+                nodeType: Swift.String,
+                label: Swift.String,
+                subtitle: Swift.String? = nil,
+                href: Swift.String? = nil,
+                current: Swift.Bool
+            ) {
+                self.id = id
+                self.nodeType = nodeType
+                self.label = label
+                self.subtitle = subtitle
+                self.href = href
+                self.current = current
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case nodeType = "node_type"
+                case label
+                case subtitle
+                case href
+                case current
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/EquipmentGraphEdge`.
+        public struct EquipmentGraphEdge: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EquipmentGraphEdge/from`.
+            public var from: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentGraphEdge/to`.
+            public var to: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentGraphEdge/kind`.
+            public var kind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/EquipmentGraphEdge/label`.
+            public var label: Swift.String
+            /// Creates a new `EquipmentGraphEdge`.
+            ///
+            /// - Parameters:
+            ///   - from:
+            ///   - to:
+            ///   - kind:
+            ///   - label:
+            public init(
+                from: Swift.String,
+                to: Swift.String,
+                kind: Swift.String,
+                label: Swift.String
+            ) {
+                self.from = from
+                self.to = to
+                self.kind = kind
+                self.label = label
+            }
+            public enum CodingKeys: String, CodingKey {
+                case from
+                case to
+                case kind
+                case label
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ObjectActionCatalogResponse`.
+        public struct ObjectActionCatalogResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ObjectActionCatalogResponse/object_type`.
+            public var objectType: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectActionCatalogResponse/object_id`.
+            public var objectId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/ObjectActionCatalogResponse/actions`.
+            public var actions: [Components.Schemas.ObjectActionDescriptor]
+            /// Creates a new `ObjectActionCatalogResponse`.
+            ///
+            /// - Parameters:
+            ///   - objectType:
+            ///   - objectId:
+            ///   - actions:
+            public init(
+                objectType: Swift.String,
+                objectId: Components.Schemas.Uuid,
+                actions: [Components.Schemas.ObjectActionDescriptor]
+            ) {
+                self.objectType = objectType
+                self.objectId = objectId
+                self.actions = actions
+            }
+            public enum CodingKeys: String, CodingKey {
+                case objectType = "object_type"
+                case objectId = "object_id"
+                case actions
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ObjectActionDescriptor`.
+        public struct ObjectActionDescriptor: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ObjectActionDescriptor/action_id`.
+            public var actionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectActionDescriptor/object_type`.
+            public var objectType: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectActionDescriptor/object_id`.
+            public var objectId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/ObjectActionDescriptor/label`.
+            public var label: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectActionDescriptor/description`.
+            public var description: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectActionDescriptor/submit_label`.
+            public var submitLabel: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectActionDescriptor/requires_passkey_step_up`.
+            public var requiresPasskeyStepUp: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/ObjectActionDescriptor/risk_level`.
+            @frozen public enum RiskLevelPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case sensitiveWrite = "sensitive_write"
+            }
+            /// - Remark: Generated from `#/components/schemas/ObjectActionDescriptor/risk_level`.
+            public var riskLevel: Components.Schemas.ObjectActionDescriptor.RiskLevelPayload
+            /// - Remark: Generated from `#/components/schemas/ObjectActionDescriptor/fields`.
+            public var fields: [Components.Schemas.ObjectActionFieldDescriptor]
+            /// Creates a new `ObjectActionDescriptor`.
+            ///
+            /// - Parameters:
+            ///   - actionId:
+            ///   - objectType:
+            ///   - objectId:
+            ///   - label:
+            ///   - description:
+            ///   - submitLabel:
+            ///   - requiresPasskeyStepUp:
+            ///   - riskLevel:
+            ///   - fields:
+            public init(
+                actionId: Swift.String,
+                objectType: Swift.String,
+                objectId: Components.Schemas.Uuid,
+                label: Swift.String,
+                description: Swift.String,
+                submitLabel: Swift.String,
+                requiresPasskeyStepUp: Swift.Bool,
+                riskLevel: Components.Schemas.ObjectActionDescriptor.RiskLevelPayload,
+                fields: [Components.Schemas.ObjectActionFieldDescriptor]
+            ) {
+                self.actionId = actionId
+                self.objectType = objectType
+                self.objectId = objectId
+                self.label = label
+                self.description = description
+                self.submitLabel = submitLabel
+                self.requiresPasskeyStepUp = requiresPasskeyStepUp
+                self.riskLevel = riskLevel
+                self.fields = fields
+            }
+            public enum CodingKeys: String, CodingKey {
+                case actionId = "action_id"
+                case objectType = "object_type"
+                case objectId = "object_id"
+                case label
+                case description
+                case submitLabel = "submit_label"
+                case requiresPasskeyStepUp = "requires_passkey_step_up"
+                case riskLevel = "risk_level"
+                case fields
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ObjectActionFieldDescriptor`.
+        public struct ObjectActionFieldDescriptor: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ObjectActionFieldDescriptor/field_key`.
+            public var fieldKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectActionFieldDescriptor/label`.
+            public var label: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectActionFieldDescriptor/field_type`.
+            @frozen public enum FieldTypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case text = "text"
+                case select = "select"
+            }
+            /// - Remark: Generated from `#/components/schemas/ObjectActionFieldDescriptor/field_type`.
+            public var fieldType: Components.Schemas.ObjectActionFieldDescriptor.FieldTypePayload
+            /// - Remark: Generated from `#/components/schemas/ObjectActionFieldDescriptor/required`.
+            public var required: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/ObjectActionFieldDescriptor/current_value`.
+            public var currentValue: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ObjectActionFieldDescriptor/options`.
+            public var options: [Components.Schemas.ObjectActionFieldOption]
+            /// Creates a new `ObjectActionFieldDescriptor`.
+            ///
+            /// - Parameters:
+            ///   - fieldKey:
+            ///   - label:
+            ///   - fieldType:
+            ///   - required:
+            ///   - currentValue:
+            ///   - options:
+            public init(
+                fieldKey: Swift.String,
+                label: Swift.String,
+                fieldType: Components.Schemas.ObjectActionFieldDescriptor.FieldTypePayload,
+                required: Swift.Bool,
+                currentValue: Swift.String? = nil,
+                options: [Components.Schemas.ObjectActionFieldOption]
+            ) {
+                self.fieldKey = fieldKey
+                self.label = label
+                self.fieldType = fieldType
+                self.required = required
+                self.currentValue = currentValue
+                self.options = options
+            }
+            public enum CodingKeys: String, CodingKey {
+                case fieldKey = "field_key"
+                case label
+                case fieldType = "field_type"
+                case required
+                case currentValue = "current_value"
+                case options
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ObjectActionFieldOption`.
+        public struct ObjectActionFieldOption: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ObjectActionFieldOption/value`.
+            public var value: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectActionFieldOption/label`.
+            public var label: Swift.String
+            /// Creates a new `ObjectActionFieldOption`.
+            ///
+            /// - Parameters:
+            ///   - value:
+            ///   - label:
+            public init(
+                value: Swift.String,
+                label: Swift.String
+            ) {
+                self.value = value
+                self.label = label
+            }
+            public enum CodingKeys: String, CodingKey {
+                case value
+                case label
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ExecuteObjectActionRequest`.
+        public struct ExecuteObjectActionRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ExecuteObjectActionRequest/action_id`.
+            @frozen public enum ActionIdPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case equipment_updateProfile = "equipment.update_profile"
+            }
+            /// - Remark: Generated from `#/components/schemas/ExecuteObjectActionRequest/action_id`.
+            public var actionId: Components.Schemas.ExecuteObjectActionRequest.ActionIdPayload
+            /// - Remark: Generated from `#/components/schemas/ExecuteObjectActionRequest/object_type`.
+            @frozen public enum ObjectTypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case equipment = "equipment"
+            }
+            /// - Remark: Generated from `#/components/schemas/ExecuteObjectActionRequest/object_type`.
+            public var objectType: Components.Schemas.ExecuteObjectActionRequest.ObjectTypePayload
+            /// - Remark: Generated from `#/components/schemas/ExecuteObjectActionRequest/object_id`.
+            public var objectId: Components.Schemas.Uuid
+            /// Typed action payload. For `equipment.update_profile`, this is UpdateEquipmentRequest.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ExecuteObjectActionRequest/input`.
+            @frozen public enum InputPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/ExecuteObjectActionRequest/input/case1`.
+                case UpdateEquipmentRequest(Components.Schemas.UpdateEquipmentRequest)
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self = .UpdateEquipmentRequest(try .init(from: decoder))
+                        return
+                    } catch {
+                        errors.append(error)
+                    }
+                    throw Swift.DecodingError.failedToDecodeOneOfSchema(
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    switch self {
+                    case let .UpdateEquipmentRequest(value):
+                        try value.encode(to: encoder)
+                    }
+                }
+            }
+            /// Typed action payload. For `equipment.update_profile`, this is UpdateEquipmentRequest.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ExecuteObjectActionRequest/input`.
+            public var input: Components.Schemas.ExecuteObjectActionRequest.InputPayload
+            /// - Remark: Generated from `#/components/schemas/ExecuteObjectActionRequest/idempotency_key`.
+            public var idempotencyKey: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ExecuteObjectActionRequest/step_up`.
+            public var stepUp: Components.Schemas.PasskeyStepUpAssertion?
+            /// Creates a new `ExecuteObjectActionRequest`.
+            ///
+            /// - Parameters:
+            ///   - actionId:
+            ///   - objectType:
+            ///   - objectId:
+            ///   - input: Typed action payload. For `equipment.update_profile`, this is UpdateEquipmentRequest.
+            ///   - idempotencyKey:
+            ///   - stepUp:
+            public init(
+                actionId: Components.Schemas.ExecuteObjectActionRequest.ActionIdPayload,
+                objectType: Components.Schemas.ExecuteObjectActionRequest.ObjectTypePayload,
+                objectId: Components.Schemas.Uuid,
+                input: Components.Schemas.ExecuteObjectActionRequest.InputPayload,
+                idempotencyKey: Swift.String? = nil,
+                stepUp: Components.Schemas.PasskeyStepUpAssertion? = nil
+            ) {
+                self.actionId = actionId
+                self.objectType = objectType
+                self.objectId = objectId
+                self.input = input
+                self.idempotencyKey = idempotencyKey
+                self.stepUp = stepUp
+            }
+            public enum CodingKeys: String, CodingKey {
+                case actionId = "action_id"
+                case objectType = "object_type"
+                case objectId = "object_id"
+                case input
+                case idempotencyKey = "idempotency_key"
+                case stepUp = "step_up"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ObjectActionExecutionResponse`.
+        public struct ObjectActionExecutionResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ObjectActionExecutionResponse/execution_id`.
+            public var executionId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/ObjectActionExecutionResponse/action_id`.
+            public var actionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectActionExecutionResponse/object_type`.
+            public var objectType: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectActionExecutionResponse/object_id`.
+            public var objectId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/ObjectActionExecutionResponse/status`.
+            @frozen public enum StatusPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case succeeded = "succeeded"
+            }
+            /// - Remark: Generated from `#/components/schemas/ObjectActionExecutionResponse/status`.
+            public var status: Components.Schemas.ObjectActionExecutionResponse.StatusPayload
+            /// - Remark: Generated from `#/components/schemas/ObjectActionExecutionResponse/audit_event_id`.
+            public var auditEventId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/ObjectActionExecutionResponse/target_href`.
+            public var targetHref: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObjectActionExecutionResponse/message`.
+            public var message: Swift.String
+            /// Creates a new `ObjectActionExecutionResponse`.
+            ///
+            /// - Parameters:
+            ///   - executionId:
+            ///   - actionId:
+            ///   - objectType:
+            ///   - objectId:
+            ///   - status:
+            ///   - auditEventId:
+            ///   - targetHref:
+            ///   - message:
+            public init(
+                executionId: Components.Schemas.Uuid,
+                actionId: Swift.String,
+                objectType: Swift.String,
+                objectId: Components.Schemas.Uuid,
+                status: Components.Schemas.ObjectActionExecutionResponse.StatusPayload,
+                auditEventId: Components.Schemas.Uuid,
+                targetHref: Swift.String,
+                message: Swift.String
+            ) {
+                self.executionId = executionId
+                self.actionId = actionId
+                self.objectType = objectType
+                self.objectId = objectId
+                self.status = status
+                self.auditEventId = auditEventId
+                self.targetHref = targetHref
+                self.message = message
+            }
+            public enum CodingKeys: String, CodingKey {
+                case executionId = "execution_id"
+                case actionId = "action_id"
+                case objectType = "object_type"
+                case objectId = "object_id"
+                case status
+                case auditEventId = "audit_event_id"
+                case targetHref = "target_href"
+                case message
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/Employee`.
         public struct Employee: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/Employee/id`.
@@ -5016,6 +5978,10 @@ public enum Components {
             public var company: Swift.String
             /// - Remark: Generated from `#/components/schemas/Employee/name`.
             public var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/Employee/employee_number`.
+            public var employeeNumber: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/Employee/org_unit`.
+            public var orgUnit: Swift.String?
             /// - Remark: Generated from `#/components/schemas/Employee/worksite_name`.
             public var worksiteName: Swift.String?
             /// - Remark: Generated from `#/components/schemas/Employee/worksite`.
@@ -5030,52 +5996,12 @@ public enum Components {
             public var exitDate: Swift.String?
             /// - Remark: Generated from `#/components/schemas/Employee/status`.
             public var status: Swift.String?
-            /// - Remark: Generated from `#/components/schemas/Employee/source_filename`.
-            public var sourceFilename: Swift.String
-            /// - Remark: Generated from `#/components/schemas/Employee/source_sheet`.
-            public var sourceSheet: Swift.String
-            /// - Remark: Generated from `#/components/schemas/Employee/source_row`.
-            public var sourceRow: Swift.Int32
-            /// - Remark: Generated from `#/components/schemas/Employee/raw_row`.
-            public struct RawRowPayload: Codable, Hashable, Sendable {
-                /// A container of undocumented properties.
-                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
-                /// Creates a new `RawRowPayload`.
-                ///
-                /// - Parameters:
-                ///   - additionalProperties: A container of undocumented properties.
-                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
-                    self.additionalProperties = additionalProperties
-                }
-                public init(from decoder: any Swift.Decoder) throws {
-                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
-                }
-                public func encode(to encoder: any Swift.Encoder) throws {
-                    try encoder.encodeAdditionalProperties(additionalProperties)
-                }
-            }
-            /// - Remark: Generated from `#/components/schemas/Employee/raw_row`.
-            public var rawRow: Components.Schemas.Employee.RawRowPayload
-            /// - Remark: Generated from `#/components/schemas/Employee/source_metadata`.
-            public struct SourceMetadataPayload: Codable, Hashable, Sendable {
-                /// A container of undocumented properties.
-                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
-                /// Creates a new `SourceMetadataPayload`.
-                ///
-                /// - Parameters:
-                ///   - additionalProperties: A container of undocumented properties.
-                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
-                    self.additionalProperties = additionalProperties
-                }
-                public init(from decoder: any Swift.Decoder) throws {
-                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
-                }
-                public func encode(to encoder: any Swift.Encoder) throws {
-                    try encoder.encodeAdditionalProperties(additionalProperties)
-                }
-            }
-            /// - Remark: Generated from `#/components/schemas/Employee/source_metadata`.
-            public var sourceMetadata: Components.Schemas.Employee.SourceMetadataPayload
+            /// - Remark: Generated from `#/components/schemas/Employee/leave_accrued`.
+            public var leaveAccrued: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/Employee/leave_used`.
+            public var leaveUsed: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/Employee/leave_remaining`.
+            public var leaveRemaining: Swift.String?
             /// - Remark: Generated from `#/components/schemas/Employee/created_at`.
             public var createdAt: Components.Schemas.Timestamp
             /// - Remark: Generated from `#/components/schemas/Employee/updated_at`.
@@ -5086,6 +6012,8 @@ public enum Components {
             ///   - id:
             ///   - company:
             ///   - name:
+            ///   - employeeNumber:
+            ///   - orgUnit:
             ///   - worksiteName:
             ///   - worksite:
             ///   - job:
@@ -5093,17 +6021,17 @@ public enum Components {
             ///   - hireDate:
             ///   - exitDate:
             ///   - status:
-            ///   - sourceFilename:
-            ///   - sourceSheet:
-            ///   - sourceRow:
-            ///   - rawRow:
-            ///   - sourceMetadata:
+            ///   - leaveAccrued:
+            ///   - leaveUsed:
+            ///   - leaveRemaining:
             ///   - createdAt:
             ///   - updatedAt:
             public init(
                 id: Components.Schemas.Uuid,
                 company: Swift.String,
                 name: Swift.String,
+                employeeNumber: Swift.String? = nil,
+                orgUnit: Swift.String? = nil,
                 worksiteName: Swift.String? = nil,
                 worksite: Swift.String? = nil,
                 job: Swift.String? = nil,
@@ -5111,17 +6039,17 @@ public enum Components {
                 hireDate: Swift.String? = nil,
                 exitDate: Swift.String? = nil,
                 status: Swift.String? = nil,
-                sourceFilename: Swift.String,
-                sourceSheet: Swift.String,
-                sourceRow: Swift.Int32,
-                rawRow: Components.Schemas.Employee.RawRowPayload,
-                sourceMetadata: Components.Schemas.Employee.SourceMetadataPayload,
+                leaveAccrued: Swift.String? = nil,
+                leaveUsed: Swift.String? = nil,
+                leaveRemaining: Swift.String? = nil,
                 createdAt: Components.Schemas.Timestamp,
                 updatedAt: Components.Schemas.Timestamp
             ) {
                 self.id = id
                 self.company = company
                 self.name = name
+                self.employeeNumber = employeeNumber
+                self.orgUnit = orgUnit
                 self.worksiteName = worksiteName
                 self.worksite = worksite
                 self.job = job
@@ -5129,11 +6057,9 @@ public enum Components {
                 self.hireDate = hireDate
                 self.exitDate = exitDate
                 self.status = status
-                self.sourceFilename = sourceFilename
-                self.sourceSheet = sourceSheet
-                self.sourceRow = sourceRow
-                self.rawRow = rawRow
-                self.sourceMetadata = sourceMetadata
+                self.leaveAccrued = leaveAccrued
+                self.leaveUsed = leaveUsed
+                self.leaveRemaining = leaveRemaining
                 self.createdAt = createdAt
                 self.updatedAt = updatedAt
             }
@@ -5141,6 +6067,8 @@ public enum Components {
                 case id
                 case company
                 case name
+                case employeeNumber = "employee_number"
+                case orgUnit = "org_unit"
                 case worksiteName = "worksite_name"
                 case worksite
                 case job
@@ -5148,11 +6076,9 @@ public enum Components {
                 case hireDate = "hire_date"
                 case exitDate = "exit_date"
                 case status
-                case sourceFilename = "source_filename"
-                case sourceSheet = "source_sheet"
-                case sourceRow = "source_row"
-                case rawRow = "raw_row"
-                case sourceMetadata = "source_metadata"
+                case leaveAccrued = "leave_accrued"
+                case leaveUsed = "leave_used"
+                case leaveRemaining = "leave_remaining"
                 case createdAt = "created_at"
                 case updatedAt = "updated_at"
             }
@@ -5260,6 +6186,384 @@ public enum Components {
                 case inserted
                 case updated
                 case companies
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/HrOrgChartEmployee`.
+        public struct HrOrgChartEmployee: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/HrOrgChartEmployee/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/HrOrgChartEmployee/name`.
+            public var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/HrOrgChartEmployee/employee_number`.
+            public var employeeNumber: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/HrOrgChartEmployee/status`.
+            public var status: Swift.String
+            /// Creates a new `HrOrgChartEmployee`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - name:
+            ///   - employeeNumber:
+            ///   - status:
+            public init(
+                id: Components.Schemas.Uuid,
+                name: Swift.String,
+                employeeNumber: Swift.String? = nil,
+                status: Swift.String
+            ) {
+                self.id = id
+                self.name = name
+                self.employeeNumber = employeeNumber
+                self.status = status
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case name
+                case employeeNumber = "employee_number"
+                case status
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/HrOrgChartPosition`.
+        public struct HrOrgChartPosition: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/HrOrgChartPosition/title`.
+            public var title: Swift.String
+            /// - Remark: Generated from `#/components/schemas/HrOrgChartPosition/total`.
+            public var total: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/HrOrgChartPosition/employees`.
+            public var employees: [Components.Schemas.HrOrgChartEmployee]
+            /// Creates a new `HrOrgChartPosition`.
+            ///
+            /// - Parameters:
+            ///   - title:
+            ///   - total:
+            ///   - employees:
+            public init(
+                title: Swift.String,
+                total: Swift.Int64,
+                employees: [Components.Schemas.HrOrgChartEmployee]
+            ) {
+                self.title = title
+                self.total = total
+                self.employees = employees
+            }
+            public enum CodingKeys: String, CodingKey {
+                case title
+                case total
+                case employees
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/HrOrgChartUnit`.
+        public struct HrOrgChartUnit: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/HrOrgChartUnit/name`.
+            public var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/HrOrgChartUnit/total`.
+            public var total: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/HrOrgChartUnit/positions`.
+            public var positions: [Components.Schemas.HrOrgChartPosition]
+            /// Creates a new `HrOrgChartUnit`.
+            ///
+            /// - Parameters:
+            ///   - name:
+            ///   - total:
+            ///   - positions:
+            public init(
+                name: Swift.String,
+                total: Swift.Int64,
+                positions: [Components.Schemas.HrOrgChartPosition]
+            ) {
+                self.name = name
+                self.total = total
+                self.positions = positions
+            }
+            public enum CodingKeys: String, CodingKey {
+                case name
+                case total
+                case positions
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/HrOrgChartCompany`.
+        public struct HrOrgChartCompany: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/HrOrgChartCompany/company`.
+            public var company: Swift.String
+            /// - Remark: Generated from `#/components/schemas/HrOrgChartCompany/total`.
+            public var total: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/HrOrgChartCompany/active`.
+            public var active: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/HrOrgChartCompany/units`.
+            public var units: [Components.Schemas.HrOrgChartUnit]
+            /// Creates a new `HrOrgChartCompany`.
+            ///
+            /// - Parameters:
+            ///   - company:
+            ///   - total:
+            ///   - active:
+            ///   - units:
+            public init(
+                company: Swift.String,
+                total: Swift.Int64,
+                active: Swift.Int64,
+                units: [Components.Schemas.HrOrgChartUnit]
+            ) {
+                self.company = company
+                self.total = total
+                self.active = active
+                self.units = units
+            }
+            public enum CodingKeys: String, CodingKey {
+                case company
+                case total
+                case active
+                case units
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/HrOrgChartResponse`.
+        public struct HrOrgChartResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/HrOrgChartResponse/companies`.
+            public var companies: [Components.Schemas.HrOrgChartCompany]
+            /// Creates a new `HrOrgChartResponse`.
+            ///
+            /// - Parameters:
+            ///   - companies:
+            public init(companies: [Components.Schemas.HrOrgChartCompany]) {
+                self.companies = companies
+            }
+            public enum CodingKeys: String, CodingKey {
+                case companies
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/LeaveBalanceSummary`.
+        public struct LeaveBalanceSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/LeaveBalanceSummary/accrued`.
+            public var accrued: Swift.String
+            /// - Remark: Generated from `#/components/schemas/LeaveBalanceSummary/used`.
+            public var used: Swift.String
+            /// - Remark: Generated from `#/components/schemas/LeaveBalanceSummary/remaining`.
+            public var remaining: Swift.String
+            /// Creates a new `LeaveBalanceSummary`.
+            ///
+            /// - Parameters:
+            ///   - accrued:
+            ///   - used:
+            ///   - remaining:
+            public init(
+                accrued: Swift.String,
+                used: Swift.String,
+                remaining: Swift.String
+            ) {
+                self.accrued = accrued
+                self.used = used
+                self.remaining = remaining
+            }
+            public enum CodingKeys: String, CodingKey {
+                case accrued
+                case used
+                case remaining
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/LeaveBalanceItem`.
+        public struct LeaveBalanceItem: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/LeaveBalanceItem/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/LeaveBalanceItem/company`.
+            public var company: Swift.String
+            /// - Remark: Generated from `#/components/schemas/LeaveBalanceItem/name`.
+            public var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/LeaveBalanceItem/employee_number`.
+            public var employeeNumber: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/LeaveBalanceItem/org_unit`.
+            public var orgUnit: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/LeaveBalanceItem/position`.
+            public var position: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/LeaveBalanceItem/leave_accrued`.
+            public var leaveAccrued: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/LeaveBalanceItem/leave_used`.
+            public var leaveUsed: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/LeaveBalanceItem/leave_remaining`.
+            public var leaveRemaining: Swift.String?
+            /// Creates a new `LeaveBalanceItem`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - company:
+            ///   - name:
+            ///   - employeeNumber:
+            ///   - orgUnit:
+            ///   - position:
+            ///   - leaveAccrued:
+            ///   - leaveUsed:
+            ///   - leaveRemaining:
+            public init(
+                id: Components.Schemas.Uuid,
+                company: Swift.String,
+                name: Swift.String,
+                employeeNumber: Swift.String? = nil,
+                orgUnit: Swift.String? = nil,
+                position: Swift.String? = nil,
+                leaveAccrued: Swift.String? = nil,
+                leaveUsed: Swift.String? = nil,
+                leaveRemaining: Swift.String? = nil
+            ) {
+                self.id = id
+                self.company = company
+                self.name = name
+                self.employeeNumber = employeeNumber
+                self.orgUnit = orgUnit
+                self.position = position
+                self.leaveAccrued = leaveAccrued
+                self.leaveUsed = leaveUsed
+                self.leaveRemaining = leaveRemaining
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case company
+                case name
+                case employeeNumber = "employee_number"
+                case orgUnit = "org_unit"
+                case position
+                case leaveAccrued = "leave_accrued"
+                case leaveUsed = "leave_used"
+                case leaveRemaining = "leave_remaining"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/LeaveBalancePage`.
+        public struct LeaveBalancePage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/LeaveBalancePage/items`.
+            public var items: [Components.Schemas.LeaveBalanceItem]
+            /// - Remark: Generated from `#/components/schemas/LeaveBalancePage/total`.
+            public var total: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/LeaveBalancePage/limit`.
+            public var limit: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/LeaveBalancePage/offset`.
+            public var offset: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/LeaveBalancePage/summary`.
+            public var summary: Components.Schemas.LeaveBalanceSummary
+            /// Creates a new `LeaveBalancePage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - total:
+            ///   - limit:
+            ///   - offset:
+            ///   - summary:
+            public init(
+                items: [Components.Schemas.LeaveBalanceItem],
+                total: Swift.Int64,
+                limit: Swift.Int64,
+                offset: Swift.Int64,
+                summary: Components.Schemas.LeaveBalanceSummary
+            ) {
+                self.items = items
+                self.total = total
+                self.limit = limit
+                self.offset = offset
+                self.summary = summary
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case total
+                case limit
+                case offset
+                case summary
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AttendanceSummaryItem`.
+        public struct AttendanceSummaryItem: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AttendanceSummaryItem/user_id`.
+            public var userId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/AttendanceSummaryItem/display_name`.
+            public var displayName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AttendanceSummaryItem/arrivals`.
+            public var arrivals: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AttendanceSummaryItem/departures`.
+            public var departures: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AttendanceSummaryItem/last_kind`.
+            public var lastKind: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/AttendanceSummaryItem/last_event_at`.
+            public struct LastEventAtPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/AttendanceSummaryItem/last_event_at/value1`.
+                public var value1: Components.Schemas.Timestamp
+                /// Creates a new `LastEventAtPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                public init(value1: Components.Schemas.Timestamp) {
+                    self.value1 = value1
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    self.value1 = try decoder.decodeFromSingleValueContainer()
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeToSingleValueContainer(self.value1)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/AttendanceSummaryItem/last_event_at`.
+            public var lastEventAt: Components.Schemas.AttendanceSummaryItem.LastEventAtPayload?
+            /// Creates a new `AttendanceSummaryItem`.
+            ///
+            /// - Parameters:
+            ///   - userId:
+            ///   - displayName:
+            ///   - arrivals:
+            ///   - departures:
+            ///   - lastKind:
+            ///   - lastEventAt:
+            public init(
+                userId: Components.Schemas.Uuid,
+                displayName: Swift.String,
+                arrivals: Swift.Int64,
+                departures: Swift.Int64,
+                lastKind: Swift.String? = nil,
+                lastEventAt: Components.Schemas.AttendanceSummaryItem.LastEventAtPayload? = nil
+            ) {
+                self.userId = userId
+                self.displayName = displayName
+                self.arrivals = arrivals
+                self.departures = departures
+                self.lastKind = lastKind
+                self.lastEventAt = lastEventAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case userId = "user_id"
+                case displayName = "display_name"
+                case arrivals
+                case departures
+                case lastKind = "last_kind"
+                case lastEventAt = "last_event_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AttendanceSummaryPage`.
+        public struct AttendanceSummaryPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AttendanceSummaryPage/items`.
+            public var items: [Components.Schemas.AttendanceSummaryItem]
+            /// - Remark: Generated from `#/components/schemas/AttendanceSummaryPage/total`.
+            public var total: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AttendanceSummaryPage/limit`.
+            public var limit: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/AttendanceSummaryPage/offset`.
+            public var offset: Swift.Int64
+            /// Creates a new `AttendanceSummaryPage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - total:
+            ///   - limit:
+            ///   - offset:
+            public init(
+                items: [Components.Schemas.AttendanceSummaryItem],
+                total: Swift.Int64,
+                limit: Swift.Int64,
+                offset: Swift.Int64
+            ) {
+                self.items = items
+                self.total = total
+                self.limit = limit
+                self.offset = offset
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case total
+                case limit
+                case offset
             }
         }
         /// - Remark: Generated from `#/components/schemas/AssignmentSummary`.
@@ -5573,6 +6877,8 @@ public enum Components {
             public var offset: Swift.Int64
             /// - Remark: Generated from `#/components/schemas/WorkOrderListPage/total`.
             public var total: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/WorkOrderListPage/lens`.
+            public var lens: Components.Schemas.WorkOrderObjectSetLens?
             /// Creates a new `WorkOrderListPage`.
             ///
             /// - Parameters:
@@ -5580,22 +6886,314 @@ public enum Components {
             ///   - limit:
             ///   - offset:
             ///   - total:
+            ///   - lens:
             public init(
                 items: [Components.Schemas.WorkOrderListItem],
                 limit: Swift.Int64,
                 offset: Swift.Int64,
-                total: Swift.Int64
+                total: Swift.Int64,
+                lens: Components.Schemas.WorkOrderObjectSetLens? = nil
             ) {
                 self.items = items
                 self.limit = limit
                 self.offset = offset
                 self.total = total
+                self.lens = lens
             }
             public enum CodingKeys: String, CodingKey {
                 case items
                 case limit
                 case offset
                 case total
+                case lens
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkOrderObjectSetLens`.
+        public struct WorkOrderObjectSetLens: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkOrderObjectSetLens/object_type`.
+            @frozen public enum ObjectTypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case workOrder = "work_order"
+            }
+            /// - Remark: Generated from `#/components/schemas/WorkOrderObjectSetLens/object_type`.
+            public var objectType: Components.Schemas.WorkOrderObjectSetLens.ObjectTypePayload
+            /// - Remark: Generated from `#/components/schemas/WorkOrderObjectSetLens/aggregates`.
+            public var aggregates: Components.Schemas.WorkOrderLensAggregates
+            /// - Remark: Generated from `#/components/schemas/WorkOrderObjectSetLens/facets`.
+            public var facets: Components.Schemas.WorkOrderLensFacets
+            /// - Remark: Generated from `#/components/schemas/WorkOrderObjectSetLens/histograms`.
+            public var histograms: Components.Schemas.WorkOrderLensHistograms
+            /// - Remark: Generated from `#/components/schemas/WorkOrderObjectSetLens/listograms`.
+            public var listograms: Components.Schemas.WorkOrderLensListograms
+            /// Creates a new `WorkOrderObjectSetLens`.
+            ///
+            /// - Parameters:
+            ///   - objectType:
+            ///   - aggregates:
+            ///   - facets:
+            ///   - histograms:
+            ///   - listograms:
+            public init(
+                objectType: Components.Schemas.WorkOrderObjectSetLens.ObjectTypePayload,
+                aggregates: Components.Schemas.WorkOrderLensAggregates,
+                facets: Components.Schemas.WorkOrderLensFacets,
+                histograms: Components.Schemas.WorkOrderLensHistograms,
+                listograms: Components.Schemas.WorkOrderLensListograms
+            ) {
+                self.objectType = objectType
+                self.aggregates = aggregates
+                self.facets = facets
+                self.histograms = histograms
+                self.listograms = listograms
+            }
+            public enum CodingKeys: String, CodingKey {
+                case objectType = "object_type"
+                case aggregates
+                case facets
+                case histograms
+                case listograms
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkOrderLensAggregates`.
+        public struct WorkOrderLensAggregates: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkOrderLensAggregates/total_count`.
+            public var totalCount: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/WorkOrderLensAggregates/p1_count`.
+            public var p1Count: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/WorkOrderLensAggregates/overdue_open_count`.
+            public var overdueOpenCount: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/WorkOrderLensAggregates/unassigned_count`.
+            public var unassignedCount: Swift.Int64
+            /// Creates a new `WorkOrderLensAggregates`.
+            ///
+            /// - Parameters:
+            ///   - totalCount:
+            ///   - p1Count:
+            ///   - overdueOpenCount:
+            ///   - unassignedCount:
+            public init(
+                totalCount: Swift.Int64,
+                p1Count: Swift.Int64,
+                overdueOpenCount: Swift.Int64,
+                unassignedCount: Swift.Int64
+            ) {
+                self.totalCount = totalCount
+                self.p1Count = p1Count
+                self.overdueOpenCount = overdueOpenCount
+                self.unassignedCount = unassignedCount
+            }
+            public enum CodingKeys: String, CodingKey {
+                case totalCount = "total_count"
+                case p1Count = "p1_count"
+                case overdueOpenCount = "overdue_open_count"
+                case unassignedCount = "unassigned_count"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkOrderLensFacets`.
+        public struct WorkOrderLensFacets: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkOrderLensFacets/status`.
+            public var status: [Components.Schemas.WorkOrderFacetBucket]
+            /// - Remark: Generated from `#/components/schemas/WorkOrderLensFacets/priority`.
+            public var priority: [Components.Schemas.WorkOrderFacetBucket]
+            /// Creates a new `WorkOrderLensFacets`.
+            ///
+            /// - Parameters:
+            ///   - status:
+            ///   - priority:
+            public init(
+                status: [Components.Schemas.WorkOrderFacetBucket],
+                priority: [Components.Schemas.WorkOrderFacetBucket]
+            ) {
+                self.status = status
+                self.priority = priority
+            }
+            public enum CodingKeys: String, CodingKey {
+                case status
+                case priority
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkOrderFacetBucket`.
+        public struct WorkOrderFacetBucket: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkOrderFacetBucket/value`.
+            public var value: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkOrderFacetBucket/count`.
+            public var count: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/WorkOrderFacetBucket/filters`.
+            public struct FiltersPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: [String: Swift.String]
+                /// Creates a new `FiltersPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: [String: Swift.String] = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/WorkOrderFacetBucket/filters`.
+            public var filters: Components.Schemas.WorkOrderFacetBucket.FiltersPayload
+            /// Creates a new `WorkOrderFacetBucket`.
+            ///
+            /// - Parameters:
+            ///   - value:
+            ///   - count:
+            ///   - filters:
+            public init(
+                value: Swift.String,
+                count: Swift.Int64,
+                filters: Components.Schemas.WorkOrderFacetBucket.FiltersPayload
+            ) {
+                self.value = value
+                self.count = count
+                self.filters = filters
+            }
+            public enum CodingKeys: String, CodingKey {
+                case value
+                case count
+                case filters
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkOrderLensHistograms`.
+        public struct WorkOrderLensHistograms: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkOrderLensHistograms/target_due_date`.
+            public var targetDueDate: [Components.Schemas.WorkOrderHistogramBucket]
+            /// Creates a new `WorkOrderLensHistograms`.
+            ///
+            /// - Parameters:
+            ///   - targetDueDate:
+            public init(targetDueDate: [Components.Schemas.WorkOrderHistogramBucket]) {
+                self.targetDueDate = targetDueDate
+            }
+            public enum CodingKeys: String, CodingKey {
+                case targetDueDate = "target_due_date"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkOrderHistogramBucket`.
+        public struct WorkOrderHistogramBucket: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkOrderHistogramBucket/bucket`.
+            public var bucket: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkOrderHistogramBucket/count`.
+            public var count: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/WorkOrderHistogramBucket/filters`.
+            public struct FiltersPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: [String: Swift.String]
+                /// Creates a new `FiltersPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: [String: Swift.String] = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/WorkOrderHistogramBucket/filters`.
+            public var filters: Components.Schemas.WorkOrderHistogramBucket.FiltersPayload
+            /// Creates a new `WorkOrderHistogramBucket`.
+            ///
+            /// - Parameters:
+            ///   - bucket:
+            ///   - count:
+            ///   - filters:
+            public init(
+                bucket: Swift.String,
+                count: Swift.Int64,
+                filters: Components.Schemas.WorkOrderHistogramBucket.FiltersPayload
+            ) {
+                self.bucket = bucket
+                self.count = count
+                self.filters = filters
+            }
+            public enum CodingKeys: String, CodingKey {
+                case bucket
+                case count
+                case filters
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkOrderLensListograms`.
+        public struct WorkOrderLensListograms: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkOrderLensListograms/customers`.
+            public var customers: [Components.Schemas.WorkOrderNamedBucket]
+            /// - Remark: Generated from `#/components/schemas/WorkOrderLensListograms/sites`.
+            public var sites: [Components.Schemas.WorkOrderNamedBucket]
+            /// Creates a new `WorkOrderLensListograms`.
+            ///
+            /// - Parameters:
+            ///   - customers:
+            ///   - sites:
+            public init(
+                customers: [Components.Schemas.WorkOrderNamedBucket],
+                sites: [Components.Schemas.WorkOrderNamedBucket]
+            ) {
+                self.customers = customers
+                self.sites = sites
+            }
+            public enum CodingKeys: String, CodingKey {
+                case customers
+                case sites
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkOrderNamedBucket`.
+        public struct WorkOrderNamedBucket: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkOrderNamedBucket/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/WorkOrderNamedBucket/name`.
+            public var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkOrderNamedBucket/count`.
+            public var count: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/WorkOrderNamedBucket/filters`.
+            public struct FiltersPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: [String: Swift.String]
+                /// Creates a new `FiltersPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: [String: Swift.String] = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/WorkOrderNamedBucket/filters`.
+            public var filters: Components.Schemas.WorkOrderNamedBucket.FiltersPayload
+            /// Creates a new `WorkOrderNamedBucket`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - name:
+            ///   - count:
+            ///   - filters:
+            public init(
+                id: Components.Schemas.Uuid,
+                name: Swift.String,
+                count: Swift.Int64,
+                filters: Components.Schemas.WorkOrderNamedBucket.FiltersPayload
+            ) {
+                self.id = id
+                self.name = name
+                self.count = count
+                self.filters = filters
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case name
+                case count
+                case filters
             }
         }
         /// - Remark: Generated from `#/components/schemas/ApprovalItemSource`.
@@ -10741,6 +12339,1077 @@ public enum Components {
             case pendingSetup = "PENDING_SETUP"
             case deactivated = "DEACTIVATED"
         }
+        /// - Remark: Generated from `#/components/schemas/PolicyPermissionResponse`.
+        public struct PolicyPermissionResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PolicyPermissionResponse/feature_key`.
+            public var featureKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyPermissionResponse/permission_level`.
+            @frozen public enum PermissionLevelPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case deny = "deny"
+                case requestOnly = "request_only"
+                case limited = "limited"
+                case allow = "allow"
+            }
+            /// - Remark: Generated from `#/components/schemas/PolicyPermissionResponse/permission_level`.
+            public var permissionLevel: Components.Schemas.PolicyPermissionResponse.PermissionLevelPayload
+            /// Creates a new `PolicyPermissionResponse`.
+            ///
+            /// - Parameters:
+            ///   - featureKey:
+            ///   - permissionLevel:
+            public init(
+                featureKey: Swift.String,
+                permissionLevel: Components.Schemas.PolicyPermissionResponse.PermissionLevelPayload
+            ) {
+                self.featureKey = featureKey
+                self.permissionLevel = permissionLevel
+            }
+            public enum CodingKeys: String, CodingKey {
+                case featureKey = "feature_key"
+                case permissionLevel = "permission_level"
+            }
+        }
+        /// ABAC/PBAC condition metadata attached to a custom policy role. These constraints are persisted for audit and preview. Runtime evaluation supports data-backed branch narrowing and team matching; unsupported ABAC/PBAC attributes remain visible but fail closed until implemented.
+        ///
+        /// - Remark: Generated from `#/components/schemas/PolicyConditionResponse`.
+        public struct PolicyConditionResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PolicyConditionResponse/condition_key`.
+            public var conditionKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyConditionResponse/attribute`.
+            @frozen public enum AttributePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case group = "group"
+                case tenant = "tenant"
+                case organization = "organization"
+                case org = "org"
+                case department = "department"
+                case team = "team"
+                case position = "position"
+                case employmentStatus = "employment_status"
+                case assignment = "assignment"
+                case location = "location"
+                case site = "site"
+                case branch = "branch"
+                case devicePosture = "device_posture"
+                case purpose = "purpose"
+                case action = "action"
+                case resource = "resource"
+                case sensitiveAction = "sensitive_action"
+            }
+            /// - Remark: Generated from `#/components/schemas/PolicyConditionResponse/attribute`.
+            public var attribute: Components.Schemas.PolicyConditionResponse.AttributePayload
+            /// - Remark: Generated from `#/components/schemas/PolicyConditionResponse/operator`.
+            @frozen public enum OperatorPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case equals = "equals"
+                case notEquals = "not_equals"
+                case _in = "in"
+            }
+            /// - Remark: Generated from `#/components/schemas/PolicyConditionResponse/operator`.
+            public var _operator: Components.Schemas.PolicyConditionResponse.OperatorPayload
+            /// - Remark: Generated from `#/components/schemas/PolicyConditionResponse/values`.
+            public var values: [Swift.String]
+            /// Creates a new `PolicyConditionResponse`.
+            ///
+            /// - Parameters:
+            ///   - conditionKey:
+            ///   - attribute:
+            ///   - _operator:
+            ///   - values:
+            public init(
+                conditionKey: Swift.String,
+                attribute: Components.Schemas.PolicyConditionResponse.AttributePayload,
+                _operator: Components.Schemas.PolicyConditionResponse.OperatorPayload,
+                values: [Swift.String]
+            ) {
+                self.conditionKey = conditionKey
+                self.attribute = attribute
+                self._operator = _operator
+                self.values = values
+            }
+            public enum CodingKeys: String, CodingKey {
+                case conditionKey = "condition_key"
+                case attribute
+                case _operator = "operator"
+                case values
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PolicyDefaultPermissionResponse`.
+        public struct PolicyDefaultPermissionResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PolicyDefaultPermissionResponse/role_key`.
+            public var roleKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyDefaultPermissionResponse/permission_level`.
+            @frozen public enum PermissionLevelPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case deny = "deny"
+                case requestOnly = "request_only"
+                case limited = "limited"
+                case allow = "allow"
+            }
+            /// - Remark: Generated from `#/components/schemas/PolicyDefaultPermissionResponse/permission_level`.
+            public var permissionLevel: Components.Schemas.PolicyDefaultPermissionResponse.PermissionLevelPayload
+            /// Creates a new `PolicyDefaultPermissionResponse`.
+            ///
+            /// - Parameters:
+            ///   - roleKey:
+            ///   - permissionLevel:
+            public init(
+                roleKey: Swift.String,
+                permissionLevel: Components.Schemas.PolicyDefaultPermissionResponse.PermissionLevelPayload
+            ) {
+                self.roleKey = roleKey
+                self.permissionLevel = permissionLevel
+            }
+            public enum CodingKeys: String, CodingKey {
+                case roleKey = "role_key"
+                case permissionLevel = "permission_level"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PolicyFeatureResponse`.
+        public struct PolicyFeatureResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PolicyFeatureResponse/feature_key`.
+            public var featureKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyFeatureResponse/elevated`.
+            public var elevated: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/PolicyFeatureResponse/default_permissions`.
+            public var defaultPermissions: [Components.Schemas.PolicyDefaultPermissionResponse]
+            /// Creates a new `PolicyFeatureResponse`.
+            ///
+            /// - Parameters:
+            ///   - featureKey:
+            ///   - elevated:
+            ///   - defaultPermissions:
+            public init(
+                featureKey: Swift.String,
+                elevated: Swift.Bool,
+                defaultPermissions: [Components.Schemas.PolicyDefaultPermissionResponse]
+            ) {
+                self.featureKey = featureKey
+                self.elevated = elevated
+                self.defaultPermissions = defaultPermissions
+            }
+            public enum CodingKeys: String, CodingKey {
+                case featureKey = "feature_key"
+                case elevated
+                case defaultPermissions = "default_permissions"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SystemPolicyRoleResponse`.
+        public struct SystemPolicyRoleResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SystemPolicyRoleResponse/role_key`.
+            public var roleKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SystemPolicyRoleResponse/display_name`.
+            public var displayName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SystemPolicyRoleResponse/status`.
+            public var status: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SystemPolicyRoleResponse/is_system`.
+            public var isSystem: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/SystemPolicyRoleResponse/permissions`.
+            public var permissions: [Components.Schemas.PolicyPermissionResponse]
+            /// Creates a new `SystemPolicyRoleResponse`.
+            ///
+            /// - Parameters:
+            ///   - roleKey:
+            ///   - displayName:
+            ///   - status:
+            ///   - isSystem:
+            ///   - permissions:
+            public init(
+                roleKey: Swift.String,
+                displayName: Swift.String,
+                status: Swift.String,
+                isSystem: Swift.Bool,
+                permissions: [Components.Schemas.PolicyPermissionResponse]
+            ) {
+                self.roleKey = roleKey
+                self.displayName = displayName
+                self.status = status
+                self.isSystem = isSystem
+                self.permissions = permissions
+            }
+            public enum CodingKeys: String, CodingKey {
+                case roleKey = "role_key"
+                case displayName = "display_name"
+                case status
+                case isSystem = "is_system"
+                case permissions
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PolicyRoleResponse`.
+        public struct PolicyRoleResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleResponse/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleResponse/role_key`.
+            public var roleKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleResponse/display_name`.
+            public var displayName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleResponse/description`.
+            public var description: Swift.String?
+            /// Requested lifecycle status. Allowed transitions are DRAFT→ACTIVE, ACTIVE→DRAFT, and ACTIVE→RETIRED; RETIRED is terminal.
+            ///
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleResponse/status`.
+            @frozen public enum StatusPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case draft = "DRAFT"
+                case active = "ACTIVE"
+                case retired = "RETIRED"
+            }
+            /// Requested lifecycle status. Allowed transitions are DRAFT→ACTIVE, ACTIVE→DRAFT, and ACTIVE→RETIRED; RETIRED is terminal.
+            ///
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleResponse/status`.
+            public var status: Components.Schemas.PolicyRoleResponse.StatusPayload
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleResponse/is_system`.
+            public var isSystem: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleResponse/permissions`.
+            public var permissions: [Components.Schemas.PolicyPermissionResponse]
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleResponse/conditions`.
+            public var conditions: [Components.Schemas.PolicyConditionResponse]
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleResponse/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleResponse/updated_at`.
+            public var updatedAt: Components.Schemas.Timestamp
+            /// Creates a new `PolicyRoleResponse`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - roleKey:
+            ///   - displayName:
+            ///   - description:
+            ///   - status: Requested lifecycle status. Allowed transitions are DRAFT→ACTIVE, ACTIVE→DRAFT, and ACTIVE→RETIRED; RETIRED is terminal.
+            ///   - isSystem:
+            ///   - permissions:
+            ///   - conditions:
+            ///   - createdAt:
+            ///   - updatedAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                roleKey: Swift.String,
+                displayName: Swift.String,
+                description: Swift.String? = nil,
+                status: Components.Schemas.PolicyRoleResponse.StatusPayload,
+                isSystem: Swift.Bool,
+                permissions: [Components.Schemas.PolicyPermissionResponse],
+                conditions: [Components.Schemas.PolicyConditionResponse],
+                createdAt: Components.Schemas.Timestamp,
+                updatedAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.roleKey = roleKey
+                self.displayName = displayName
+                self.description = description
+                self.status = status
+                self.isSystem = isSystem
+                self.permissions = permissions
+                self.conditions = conditions
+                self.createdAt = createdAt
+                self.updatedAt = updatedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case roleKey = "role_key"
+                case displayName = "display_name"
+                case description
+                case status
+                case isSystem = "is_system"
+                case permissions
+                case conditions
+                case createdAt = "created_at"
+                case updatedAt = "updated_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PolicyRoleCatalogResponse`.
+        public struct PolicyRoleCatalogResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleCatalogResponse/policy_version`.
+            public var policyVersion: Components.Schemas.PolicyVersionResponse
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleCatalogResponse/system_roles`.
+            public var systemRoles: [Components.Schemas.SystemPolicyRoleResponse]
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleCatalogResponse/custom_roles`.
+            public var customRoles: [Components.Schemas.PolicyRoleResponse]
+            /// Creates a new `PolicyRoleCatalogResponse`.
+            ///
+            /// - Parameters:
+            ///   - policyVersion:
+            ///   - systemRoles:
+            ///   - customRoles:
+            public init(
+                policyVersion: Components.Schemas.PolicyVersionResponse,
+                systemRoles: [Components.Schemas.SystemPolicyRoleResponse],
+                customRoles: [Components.Schemas.PolicyRoleResponse]
+            ) {
+                self.policyVersion = policyVersion
+                self.systemRoles = systemRoles
+                self.customRoles = customRoles
+            }
+            public enum CodingKeys: String, CodingKey {
+                case policyVersion = "policy_version"
+                case systemRoles = "system_roles"
+                case customRoles = "custom_roles"
+            }
+        }
+        /// Monotonic tenant policy revision. Version 0 means no custom policy write has occurred yet; every role or custom-role assignment write bumps the stored version for future effective-policy cache invalidation.
+        ///
+        /// - Remark: Generated from `#/components/schemas/PolicyVersionResponse`.
+        public struct PolicyVersionResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PolicyVersionResponse/version`.
+            public var version: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/PolicyVersionResponse/updated_at`.
+            public var updatedAt: Foundation.Date?
+            /// Creates a new `PolicyVersionResponse`.
+            ///
+            /// - Parameters:
+            ///   - version:
+            ///   - updatedAt:
+            public init(
+                version: Swift.Int64,
+                updatedAt: Foundation.Date? = nil
+            ) {
+                self.version = version
+                self.updatedAt = updatedAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case version
+                case updatedAt = "updated_at"
+            }
+        }
+        /// Append-only Policy Studio audit evidence. Console UI should render human-safe summaries and avoid exposing raw target identifiers by default; the identifiers remain in the API for export and traceability.
+        ///
+        /// - Remark: Generated from `#/components/schemas/PolicyAuditEventResponse`.
+        public struct PolicyAuditEventResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PolicyAuditEventResponse/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/PolicyAuditEventResponse/actor`.
+            public var actor: Components.Schemas.Uuid?
+            /// - Remark: Generated from `#/components/schemas/PolicyAuditEventResponse/action`.
+            public var action: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyAuditEventResponse/target_type`.
+            @frozen public enum TargetTypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case policyRole = "policy_role"
+                case policyRoleAssignment = "policy_role_assignment"
+            }
+            /// - Remark: Generated from `#/components/schemas/PolicyAuditEventResponse/target_type`.
+            public var targetType: Components.Schemas.PolicyAuditEventResponse.TargetTypePayload
+            /// - Remark: Generated from `#/components/schemas/PolicyAuditEventResponse/target_id`.
+            public var targetId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyAuditEventResponse/before_snapshot`.
+            public struct BeforeSnapshotPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `BeforeSnapshotPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/PolicyAuditEventResponse/before_snapshot`.
+            public var beforeSnapshot: Components.Schemas.PolicyAuditEventResponse.BeforeSnapshotPayload?
+            /// - Remark: Generated from `#/components/schemas/PolicyAuditEventResponse/after_snapshot`.
+            public struct AfterSnapshotPayload: Codable, Hashable, Sendable {
+                /// A container of undocumented properties.
+                public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer
+                /// Creates a new `AfterSnapshotPayload`.
+                ///
+                /// - Parameters:
+                ///   - additionalProperties: A container of undocumented properties.
+                public init(additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer = .init()) {
+                    self.additionalProperties = additionalProperties
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    additionalProperties = try decoder.decodeAdditionalProperties(knownKeys: [])
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeAdditionalProperties(additionalProperties)
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/PolicyAuditEventResponse/after_snapshot`.
+            public var afterSnapshot: Components.Schemas.PolicyAuditEventResponse.AfterSnapshotPayload?
+            /// - Remark: Generated from `#/components/schemas/PolicyAuditEventResponse/trace_id`.
+            public var traceId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyAuditEventResponse/span_id`.
+            public var spanId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyAuditEventResponse/occurred_at`.
+            public var occurredAt: Components.Schemas.Timestamp
+            /// Creates a new `PolicyAuditEventResponse`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - actor:
+            ///   - action:
+            ///   - targetType:
+            ///   - targetId:
+            ///   - beforeSnapshot:
+            ///   - afterSnapshot:
+            ///   - traceId:
+            ///   - spanId:
+            ///   - occurredAt:
+            public init(
+                id: Components.Schemas.Uuid,
+                actor: Components.Schemas.Uuid? = nil,
+                action: Swift.String,
+                targetType: Components.Schemas.PolicyAuditEventResponse.TargetTypePayload,
+                targetId: Swift.String,
+                beforeSnapshot: Components.Schemas.PolicyAuditEventResponse.BeforeSnapshotPayload? = nil,
+                afterSnapshot: Components.Schemas.PolicyAuditEventResponse.AfterSnapshotPayload? = nil,
+                traceId: Swift.String,
+                spanId: Swift.String,
+                occurredAt: Components.Schemas.Timestamp
+            ) {
+                self.id = id
+                self.actor = actor
+                self.action = action
+                self.targetType = targetType
+                self.targetId = targetId
+                self.beforeSnapshot = beforeSnapshot
+                self.afterSnapshot = afterSnapshot
+                self.traceId = traceId
+                self.spanId = spanId
+                self.occurredAt = occurredAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case actor
+                case action
+                case targetType = "target_type"
+                case targetId = "target_id"
+                case beforeSnapshot = "before_snapshot"
+                case afterSnapshot = "after_snapshot"
+                case traceId = "trace_id"
+                case spanId = "span_id"
+                case occurredAt = "occurred_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CreatePolicyRoleRequest`.
+        public struct CreatePolicyRoleRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CreatePolicyRoleRequest/role_key`.
+            public var roleKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CreatePolicyRoleRequest/display_name`.
+            public var displayName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CreatePolicyRoleRequest/description`.
+            public var description: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreatePolicyRoleRequest/permissions`.
+            public var permissions: [Components.Schemas.PolicyPermissionResponse]
+            /// - Remark: Generated from `#/components/schemas/CreatePolicyRoleRequest/conditions`.
+            public var conditions: [Components.Schemas.PolicyConditionResponse]?
+            /// Creates a new `CreatePolicyRoleRequest`.
+            ///
+            /// - Parameters:
+            ///   - roleKey:
+            ///   - displayName:
+            ///   - description:
+            ///   - permissions:
+            ///   - conditions:
+            public init(
+                roleKey: Swift.String,
+                displayName: Swift.String,
+                description: Swift.String? = nil,
+                permissions: [Components.Schemas.PolicyPermissionResponse],
+                conditions: [Components.Schemas.PolicyConditionResponse]? = nil
+            ) {
+                self.roleKey = roleKey
+                self.displayName = displayName
+                self.description = description
+                self.permissions = permissions
+                self.conditions = conditions
+            }
+            public enum CodingKeys: String, CodingKey {
+                case roleKey = "role_key"
+                case displayName = "display_name"
+                case description
+                case permissions
+                case conditions
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/UpdatePolicyRoleRequest`.
+        public struct UpdatePolicyRoleRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UpdatePolicyRoleRequest/display_name`.
+            public var displayName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/UpdatePolicyRoleRequest/description`.
+            public var description: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/UpdatePolicyRoleRequest/permissions`.
+            public var permissions: [Components.Schemas.PolicyPermissionResponse]
+            /// - Remark: Generated from `#/components/schemas/UpdatePolicyRoleRequest/conditions`.
+            public var conditions: [Components.Schemas.PolicyConditionResponse]?
+            /// - Remark: Generated from `#/components/schemas/UpdatePolicyRoleRequest/step_up`.
+            public var stepUp: Components.Schemas.PasskeyStepUpAssertion
+            /// Creates a new `UpdatePolicyRoleRequest`.
+            ///
+            /// - Parameters:
+            ///   - displayName:
+            ///   - description:
+            ///   - permissions:
+            ///   - conditions:
+            ///   - stepUp:
+            public init(
+                displayName: Swift.String,
+                description: Swift.String? = nil,
+                permissions: [Components.Schemas.PolicyPermissionResponse],
+                conditions: [Components.Schemas.PolicyConditionResponse]? = nil,
+                stepUp: Components.Schemas.PasskeyStepUpAssertion
+            ) {
+                self.displayName = displayName
+                self.description = description
+                self.permissions = permissions
+                self.conditions = conditions
+                self.stepUp = stepUp
+            }
+            public enum CodingKeys: String, CodingKey {
+                case displayName = "display_name"
+                case description
+                case permissions
+                case conditions
+                case stepUp = "step_up"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/UpdatePolicyRoleStatusRequest`.
+        public struct UpdatePolicyRoleStatusRequest: Codable, Hashable, Sendable {
+            /// Requested lifecycle status for read-only impact preview. Allowed transitions are DRAFT→ACTIVE, ACTIVE→DRAFT, and ACTIVE→RETIRED; RETIRED is terminal.
+            ///
+            /// - Remark: Generated from `#/components/schemas/UpdatePolicyRoleStatusRequest/status`.
+            @frozen public enum StatusPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case draft = "DRAFT"
+                case active = "ACTIVE"
+                case retired = "RETIRED"
+            }
+            /// Requested lifecycle status for read-only impact preview. Allowed transitions are DRAFT→ACTIVE, ACTIVE→DRAFT, and ACTIVE→RETIRED; RETIRED is terminal.
+            ///
+            /// - Remark: Generated from `#/components/schemas/UpdatePolicyRoleStatusRequest/status`.
+            public var status: Components.Schemas.UpdatePolicyRoleStatusRequest.StatusPayload
+            /// - Remark: Generated from `#/components/schemas/UpdatePolicyRoleStatusRequest/step_up`.
+            public var stepUp: Components.Schemas.PasskeyStepUpAssertion
+            /// Creates a new `UpdatePolicyRoleStatusRequest`.
+            ///
+            /// - Parameters:
+            ///   - status: Requested lifecycle status for read-only impact preview. Allowed transitions are DRAFT→ACTIVE, ACTIVE→DRAFT, and ACTIVE→RETIRED; RETIRED is terminal.
+            ///   - stepUp:
+            public init(
+                status: Components.Schemas.UpdatePolicyRoleStatusRequest.StatusPayload,
+                stepUp: Components.Schemas.PasskeyStepUpAssertion
+            ) {
+                self.status = status
+                self.stepUp = stepUp
+            }
+            public enum CodingKeys: String, CodingKey {
+                case status
+                case stepUp = "step_up"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PolicyRoleStatusPreviewRequest`.
+        public struct PolicyRoleStatusPreviewRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleStatusPreviewRequest/status`.
+            @frozen public enum StatusPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case draft = "DRAFT"
+                case active = "ACTIVE"
+                case retired = "RETIRED"
+            }
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleStatusPreviewRequest/status`.
+            public var status: Components.Schemas.PolicyRoleStatusPreviewRequest.StatusPayload
+            /// Creates a new `PolicyRoleStatusPreviewRequest`.
+            ///
+            /// - Parameters:
+            ///   - status:
+            public init(status: Components.Schemas.PolicyRoleStatusPreviewRequest.StatusPayload) {
+                self.status = status
+            }
+            public enum CodingKeys: String, CodingKey {
+                case status
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PolicyRoleStatusPreviewResponse`.
+        public struct PolicyRoleStatusPreviewResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleStatusPreviewResponse/role_id`.
+            public var roleId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleStatusPreviewResponse/role_key`.
+            public var roleKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleStatusPreviewResponse/display_name`.
+            public var displayName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleStatusPreviewResponse/current_status`.
+            @frozen public enum CurrentStatusPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case draft = "DRAFT"
+                case active = "ACTIVE"
+                case retired = "RETIRED"
+            }
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleStatusPreviewResponse/current_status`.
+            public var currentStatus: Components.Schemas.PolicyRoleStatusPreviewResponse.CurrentStatusPayload
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleStatusPreviewResponse/requested_status`.
+            @frozen public enum RequestedStatusPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case draft = "DRAFT"
+                case active = "ACTIVE"
+                case retired = "RETIRED"
+            }
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleStatusPreviewResponse/requested_status`.
+            public var requestedStatus: Components.Schemas.PolicyRoleStatusPreviewResponse.RequestedStatusPayload
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleStatusPreviewResponse/permission_count`.
+            public var permissionCount: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleStatusPreviewResponse/condition_count`.
+            public var conditionCount: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleStatusPreviewResponse/planned_assignment_count`.
+            public var plannedAssignmentCount: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleStatusPreviewResponse/requires_passkey_step_up`.
+            public var requiresPasskeyStepUp: Swift.Bool
+            /// True when changing this role status would make existing assignments gain or lose runtime-effective custom-role grants on the next request.
+            ///
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleStatusPreviewResponse/effective_runtime_change`.
+            public var effectiveRuntimeChange: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleStatusPreviewResponse/WarningsPayload`.
+            @frozen public enum WarningsPayloadPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case passkeyStepUpRequired = "passkey_step_up_required"
+                case noStatusChange = "no_status_change"
+                case assignedUsersMayGainOrLoseRuntimePermissions = "assigned_users_may_gain_or_lose_runtime_permissions"
+                case rollbackDisablesAssignedCustomRoleRuntimeGrants = "rollback_disables_assigned_custom_role_runtime_grants"
+                case retireDisablesAssignedCustomRoleRuntimeGrants = "retire_disables_assigned_custom_role_runtime_grants"
+                case publishEnablesAssignedCustomRoleRuntimeGrants = "publish_enables_assigned_custom_role_runtime_grants"
+            }
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleStatusPreviewResponse/warnings`.
+            public typealias WarningsPayload = [Components.Schemas.PolicyRoleStatusPreviewResponse.WarningsPayloadPayload]
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleStatusPreviewResponse/warnings`.
+            public var warnings: Components.Schemas.PolicyRoleStatusPreviewResponse.WarningsPayload
+            /// Creates a new `PolicyRoleStatusPreviewResponse`.
+            ///
+            /// - Parameters:
+            ///   - roleId:
+            ///   - roleKey:
+            ///   - displayName:
+            ///   - currentStatus:
+            ///   - requestedStatus:
+            ///   - permissionCount:
+            ///   - conditionCount:
+            ///   - plannedAssignmentCount:
+            ///   - requiresPasskeyStepUp:
+            ///   - effectiveRuntimeChange: True when changing this role status would make existing assignments gain or lose runtime-effective custom-role grants on the next request.
+            ///   - warnings:
+            public init(
+                roleId: Components.Schemas.Uuid,
+                roleKey: Swift.String,
+                displayName: Swift.String,
+                currentStatus: Components.Schemas.PolicyRoleStatusPreviewResponse.CurrentStatusPayload,
+                requestedStatus: Components.Schemas.PolicyRoleStatusPreviewResponse.RequestedStatusPayload,
+                permissionCount: Swift.Int64,
+                conditionCount: Swift.Int64,
+                plannedAssignmentCount: Swift.Int64,
+                requiresPasskeyStepUp: Swift.Bool,
+                effectiveRuntimeChange: Swift.Bool,
+                warnings: Components.Schemas.PolicyRoleStatusPreviewResponse.WarningsPayload
+            ) {
+                self.roleId = roleId
+                self.roleKey = roleKey
+                self.displayName = displayName
+                self.currentStatus = currentStatus
+                self.requestedStatus = requestedStatus
+                self.permissionCount = permissionCount
+                self.conditionCount = conditionCount
+                self.plannedAssignmentCount = plannedAssignmentCount
+                self.requiresPasskeyStepUp = requiresPasskeyStepUp
+                self.effectiveRuntimeChange = effectiveRuntimeChange
+                self.warnings = warnings
+            }
+            public enum CodingKeys: String, CodingKey {
+                case roleId = "role_id"
+                case roleKey = "role_key"
+                case displayName = "display_name"
+                case currentStatus = "current_status"
+                case requestedStatus = "requested_status"
+                case permissionCount = "permission_count"
+                case conditionCount = "condition_count"
+                case plannedAssignmentCount = "planned_assignment_count"
+                case requiresPasskeyStepUp = "requires_passkey_step_up"
+                case effectiveRuntimeChange = "effective_runtime_change"
+                case warnings
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PolicyRoleTemplateResponse`.
+        public struct PolicyRoleTemplateResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleTemplateResponse/template_key`.
+            public var templateKey: Swift.String
+            /// Suggested custom role key to copy into CreatePolicyRoleRequest.
+            ///
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleTemplateResponse/role_key`.
+            public var roleKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleTemplateResponse/display_name`.
+            public var displayName: Swift.String
+            /// Stable grouping key for UI sections.
+            ///
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleTemplateResponse/category`.
+            public var category: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleTemplateResponse/description`.
+            public var description: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleTemplateResponse/permissions`.
+            public var permissions: [Components.Schemas.PolicyPermissionResponse]
+            /// Creates a new `PolicyRoleTemplateResponse`.
+            ///
+            /// - Parameters:
+            ///   - templateKey:
+            ///   - roleKey: Suggested custom role key to copy into CreatePolicyRoleRequest.
+            ///   - displayName:
+            ///   - category: Stable grouping key for UI sections.
+            ///   - description:
+            ///   - permissions:
+            public init(
+                templateKey: Swift.String,
+                roleKey: Swift.String,
+                displayName: Swift.String,
+                category: Swift.String,
+                description: Swift.String,
+                permissions: [Components.Schemas.PolicyPermissionResponse]
+            ) {
+                self.templateKey = templateKey
+                self.roleKey = roleKey
+                self.displayName = displayName
+                self.category = category
+                self.description = description
+                self.permissions = permissions
+            }
+            public enum CodingKeys: String, CodingKey {
+                case templateKey = "template_key"
+                case roleKey = "role_key"
+                case displayName = "display_name"
+                case category
+                case description
+                case permissions
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PolicyRoleAssignmentResponse`.
+        public struct PolicyRoleAssignmentResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleAssignmentResponse/user_id`.
+            public var userId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleAssignmentResponse/role_id`.
+            public var roleId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleAssignmentResponse/role_key`.
+            public var roleKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleAssignmentResponse/display_name`.
+            public var displayName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleAssignmentResponse/status`.
+            @frozen public enum StatusPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case draft = "DRAFT"
+                case active = "ACTIVE"
+                case retired = "RETIRED"
+            }
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleAssignmentResponse/status`.
+            public var status: Components.Schemas.PolicyRoleAssignmentResponse.StatusPayload
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleAssignmentResponse/assigned_by`.
+            public var assignedBy: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleAssignmentResponse/created_at`.
+            public var createdAt: Components.Schemas.Timestamp
+            /// Creates a new `PolicyRoleAssignmentResponse`.
+            ///
+            /// - Parameters:
+            ///   - userId:
+            ///   - roleId:
+            ///   - roleKey:
+            ///   - displayName:
+            ///   - status:
+            ///   - assignedBy:
+            ///   - createdAt:
+            public init(
+                userId: Components.Schemas.Uuid,
+                roleId: Components.Schemas.Uuid,
+                roleKey: Swift.String,
+                displayName: Swift.String,
+                status: Components.Schemas.PolicyRoleAssignmentResponse.StatusPayload,
+                assignedBy: Swift.String? = nil,
+                createdAt: Components.Schemas.Timestamp
+            ) {
+                self.userId = userId
+                self.roleId = roleId
+                self.roleKey = roleKey
+                self.displayName = displayName
+                self.status = status
+                self.assignedBy = assignedBy
+                self.createdAt = createdAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case userId = "user_id"
+                case roleId = "role_id"
+                case roleKey = "role_key"
+                case displayName = "display_name"
+                case status
+                case assignedBy = "assigned_by"
+                case createdAt = "created_at"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PolicyRoleAssignmentDeltaResponse`.
+        public struct PolicyRoleAssignmentDeltaResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleAssignmentDeltaResponse/added_role_ids`.
+            public var addedRoleIds: [Components.Schemas.Uuid]
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleAssignmentDeltaResponse/removed_role_ids`.
+            public var removedRoleIds: [Components.Schemas.Uuid]
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleAssignmentDeltaResponse/unchanged_role_ids`.
+            public var unchangedRoleIds: [Components.Schemas.Uuid]
+            /// Creates a new `PolicyRoleAssignmentDeltaResponse`.
+            ///
+            /// - Parameters:
+            ///   - addedRoleIds:
+            ///   - removedRoleIds:
+            ///   - unchangedRoleIds:
+            public init(
+                addedRoleIds: [Components.Schemas.Uuid],
+                removedRoleIds: [Components.Schemas.Uuid],
+                unchangedRoleIds: [Components.Schemas.Uuid]
+            ) {
+                self.addedRoleIds = addedRoleIds
+                self.removedRoleIds = removedRoleIds
+                self.unchangedRoleIds = unchangedRoleIds
+            }
+            public enum CodingKeys: String, CodingKey {
+                case addedRoleIds = "added_role_ids"
+                case removedRoleIds = "removed_role_ids"
+                case unchangedRoleIds = "unchanged_role_ids"
+            }
+        }
+        /// Per-custom-role impact row for assignment preview. Runtime fields are computed by the same fail-closed evaluator used for the top-level preview: only ACTIVE roles whose supported conditions (branch and team) match the target user's live attributes/scope and whose permissions are supported can expose runtime grants.
+        ///
+        /// - Remark: Generated from `#/components/schemas/PolicyRoleImpactResponse`.
+        public struct PolicyRoleImpactResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleImpactResponse/role_id`.
+            public var roleId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleImpactResponse/role_key`.
+            public var roleKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleImpactResponse/display_name`.
+            public var displayName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleImpactResponse/status`.
+            @frozen public enum StatusPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case draft = "DRAFT"
+                case active = "ACTIVE"
+                case retired = "RETIRED"
+            }
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleImpactResponse/status`.
+            public var status: Components.Schemas.PolicyRoleImpactResponse.StatusPayload
+            /// True only when this custom role will produce supported runtime feature grants for the target user after the assignment is saved.
+            ///
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleImpactResponse/runtime_effective`.
+            public var runtimeEffective: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleImpactResponse/RuntimeWarningsPayload`.
+            @frozen public enum RuntimeWarningsPayloadPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case customRoleStatusNotActive = "custom_role_status_not_active"
+                case customRoleConditionUnsupportedByRuntimeEvaluator = "custom_role_condition_unsupported_by_runtime_evaluator"
+                case customRoleConditionInvalidBranchValue = "custom_role_condition_invalid_branch_value"
+                case customRoleConditionOutsideTargetBranchScope = "custom_role_condition_outside_target_branch_scope"
+                case customRoleConditionOutsideTargetAttributes = "custom_role_condition_outside_target_attributes"
+                case customRoleNoRuntimeAllowedPermissions = "custom_role_no_runtime_allowed_permissions"
+            }
+            /// Deterministic fail-closed reasons explaining why this role is planning/audit-only for the target user.
+            ///
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleImpactResponse/runtime_warnings`.
+            public typealias RuntimeWarningsPayload = [Components.Schemas.PolicyRoleImpactResponse.RuntimeWarningsPayloadPayload]
+            /// Deterministic fail-closed reasons explaining why this role is planning/audit-only for the target user.
+            ///
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleImpactResponse/runtime_warnings`.
+            public var runtimeWarnings: Components.Schemas.PolicyRoleImpactResponse.RuntimeWarningsPayload
+            /// - Remark: Generated from `#/components/schemas/PolicyRoleImpactResponse/conditions`.
+            public var conditions: [Components.Schemas.PolicyConditionResponse]
+            /// Creates a new `PolicyRoleImpactResponse`.
+            ///
+            /// - Parameters:
+            ///   - roleId:
+            ///   - roleKey:
+            ///   - displayName:
+            ///   - status:
+            ///   - runtimeEffective: True only when this custom role will produce supported runtime feature grants for the target user after the assignment is saved.
+            ///   - runtimeWarnings: Deterministic fail-closed reasons explaining why this role is planning/audit-only for the target user.
+            ///   - conditions:
+            public init(
+                roleId: Components.Schemas.Uuid,
+                roleKey: Swift.String,
+                displayName: Swift.String,
+                status: Components.Schemas.PolicyRoleImpactResponse.StatusPayload,
+                runtimeEffective: Swift.Bool,
+                runtimeWarnings: Components.Schemas.PolicyRoleImpactResponse.RuntimeWarningsPayload,
+                conditions: [Components.Schemas.PolicyConditionResponse]
+            ) {
+                self.roleId = roleId
+                self.roleKey = roleKey
+                self.displayName = displayName
+                self.status = status
+                self.runtimeEffective = runtimeEffective
+                self.runtimeWarnings = runtimeWarnings
+                self.conditions = conditions
+            }
+            public enum CodingKeys: String, CodingKey {
+                case roleId = "role_id"
+                case roleKey = "role_key"
+                case displayName = "display_name"
+                case status
+                case runtimeEffective = "runtime_effective"
+                case runtimeWarnings = "runtime_warnings"
+                case conditions
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PolicyFeatureGrantPreviewResponse`.
+        public struct PolicyFeatureGrantPreviewResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PolicyFeatureGrantPreviewResponse/feature_key`.
+            public var featureKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyFeatureGrantPreviewResponse/permission_level`.
+            @frozen public enum PermissionLevelPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case requestOnly = "request_only"
+                case limited = "limited"
+                case allow = "allow"
+            }
+            /// - Remark: Generated from `#/components/schemas/PolicyFeatureGrantPreviewResponse/permission_level`.
+            public var permissionLevel: Components.Schemas.PolicyFeatureGrantPreviewResponse.PermissionLevelPayload
+            /// - Remark: Generated from `#/components/schemas/PolicyFeatureGrantPreviewResponse/source_type`.
+            @frozen public enum SourceTypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case systemRole = "system_role"
+                case customRole = "custom_role"
+            }
+            /// - Remark: Generated from `#/components/schemas/PolicyFeatureGrantPreviewResponse/source_type`.
+            public var sourceType: Components.Schemas.PolicyFeatureGrantPreviewResponse.SourceTypePayload
+            /// - Remark: Generated from `#/components/schemas/PolicyFeatureGrantPreviewResponse/source_key`.
+            public var sourceKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PolicyFeatureGrantPreviewResponse/source_label`.
+            public var sourceLabel: Swift.String
+            /// Creates a new `PolicyFeatureGrantPreviewResponse`.
+            ///
+            /// - Parameters:
+            ///   - featureKey:
+            ///   - permissionLevel:
+            ///   - sourceType:
+            ///   - sourceKey:
+            ///   - sourceLabel:
+            public init(
+                featureKey: Swift.String,
+                permissionLevel: Components.Schemas.PolicyFeatureGrantPreviewResponse.PermissionLevelPayload,
+                sourceType: Components.Schemas.PolicyFeatureGrantPreviewResponse.SourceTypePayload,
+                sourceKey: Swift.String,
+                sourceLabel: Swift.String
+            ) {
+                self.featureKey = featureKey
+                self.permissionLevel = permissionLevel
+                self.sourceType = sourceType
+                self.sourceKey = sourceKey
+                self.sourceLabel = sourceLabel
+            }
+            public enum CodingKeys: String, CodingKey {
+                case featureKey = "feature_key"
+                case permissionLevel = "permission_level"
+                case sourceType = "source_type"
+                case sourceKey = "source_key"
+                case sourceLabel = "source_label"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PolicyAssignmentPreviewResponse`.
+        public struct PolicyAssignmentPreviewResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PolicyAssignmentPreviewResponse/user_id`.
+            public var userId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/PolicyAssignmentPreviewResponse/preview_receipt_id`.
+            public var previewReceiptId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/PolicyAssignmentPreviewResponse/preview_receipt_expires_at`.
+            public var previewReceiptExpiresAt: Components.Schemas.Timestamp
+            /// True when the requested saved assignment set contains at least one ACTIVE custom role that will produce runtime-effective feature grants for the target user's live branch scope. DRAFT/RETIRED roles, unsupported conditions, invalid branch values, and reserved elevated/scope-widening features remain fail-closed.
+            ///
+            /// - Remark: Generated from `#/components/schemas/PolicyAssignmentPreviewResponse/effective`.
+            public var effective: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/PolicyAssignmentPreviewResponse/system_roles`.
+            public var systemRoles: [Swift.String]
+            /// - Remark: Generated from `#/components/schemas/PolicyAssignmentPreviewResponse/current_role_ids`.
+            public var currentRoleIds: [Components.Schemas.Uuid]
+            /// - Remark: Generated from `#/components/schemas/PolicyAssignmentPreviewResponse/requested_role_ids`.
+            public var requestedRoleIds: [Components.Schemas.Uuid]
+            /// - Remark: Generated from `#/components/schemas/PolicyAssignmentPreviewResponse/delta`.
+            public var delta: Components.Schemas.PolicyRoleAssignmentDeltaResponse
+            /// - Remark: Generated from `#/components/schemas/PolicyAssignmentPreviewResponse/custom_roles`.
+            public var customRoles: [Components.Schemas.PolicyRoleImpactResponse]
+            /// Effective runtime grant preview. Custom-role rows are included only for runtime_effective custom roles; DRAFT roles, unsupported conditions, branch/team mismatches, and unsupported permissions are reported through custom_roles[].runtime_warnings instead of being shown as grants.
+            ///
+            /// - Remark: Generated from `#/components/schemas/PolicyAssignmentPreviewResponse/feature_grants`.
+            public var featureGrants: [Components.Schemas.PolicyFeatureGrantPreviewResponse]
+            /// Preview-level warnings. Includes deterministic custom-role runtime warning codes when any requested role is planning/audit-only.
+            ///
+            /// - Remark: Generated from `#/components/schemas/PolicyAssignmentPreviewResponse/warnings`.
+            public var warnings: [Swift.String]
+            /// Creates a new `PolicyAssignmentPreviewResponse`.
+            ///
+            /// - Parameters:
+            ///   - userId:
+            ///   - previewReceiptId:
+            ///   - previewReceiptExpiresAt:
+            ///   - effective: True when the requested saved assignment set contains at least one ACTIVE custom role that will produce runtime-effective feature grants for the target user's live branch scope. DRAFT/RETIRED roles, unsupported conditions, invalid branch values, and reserved elevated/scope-widening features remain fail-closed.
+            ///   - systemRoles:
+            ///   - currentRoleIds:
+            ///   - requestedRoleIds:
+            ///   - delta:
+            ///   - customRoles:
+            ///   - featureGrants: Effective runtime grant preview. Custom-role rows are included only for runtime_effective custom roles; DRAFT roles, unsupported conditions, branch/team mismatches, and unsupported permissions are reported through custom_roles[].runtime_warnings instead of being shown as grants.
+            ///   - warnings: Preview-level warnings. Includes deterministic custom-role runtime warning codes when any requested role is planning/audit-only.
+            public init(
+                userId: Components.Schemas.Uuid,
+                previewReceiptId: Components.Schemas.Uuid,
+                previewReceiptExpiresAt: Components.Schemas.Timestamp,
+                effective: Swift.Bool,
+                systemRoles: [Swift.String],
+                currentRoleIds: [Components.Schemas.Uuid],
+                requestedRoleIds: [Components.Schemas.Uuid],
+                delta: Components.Schemas.PolicyRoleAssignmentDeltaResponse,
+                customRoles: [Components.Schemas.PolicyRoleImpactResponse],
+                featureGrants: [Components.Schemas.PolicyFeatureGrantPreviewResponse],
+                warnings: [Swift.String]
+            ) {
+                self.userId = userId
+                self.previewReceiptId = previewReceiptId
+                self.previewReceiptExpiresAt = previewReceiptExpiresAt
+                self.effective = effective
+                self.systemRoles = systemRoles
+                self.currentRoleIds = currentRoleIds
+                self.requestedRoleIds = requestedRoleIds
+                self.delta = delta
+                self.customRoles = customRoles
+                self.featureGrants = featureGrants
+                self.warnings = warnings
+            }
+            public enum CodingKeys: String, CodingKey {
+                case userId = "user_id"
+                case previewReceiptId = "preview_receipt_id"
+                case previewReceiptExpiresAt = "preview_receipt_expires_at"
+                case effective
+                case systemRoles = "system_roles"
+                case currentRoleIds = "current_role_ids"
+                case requestedRoleIds = "requested_role_ids"
+                case delta
+                case customRoles = "custom_roles"
+                case featureGrants = "feature_grants"
+                case warnings
+            }
+        }
+        /// Custom-role assignment replacement. The preview endpoint accepts `role_ids` only. The mutating replacement endpoint also requires `preview_acknowledged: true`, the server-issued `preview_receipt_id` from a current impact preview for the same actor/user/role set, plus a fresh passkey `step_up` assertion server-side so the audit trail binds the sensitive policy write to the human actor. ACTIVE custom-role assignments become runtime-effective on the next request when their grants and conditions pass the fail-closed runtime evaluator.
+        ///
+        /// - Remark: Generated from `#/components/schemas/ReplacePolicyRoleAssignmentsRequest`.
+        public struct ReplacePolicyRoleAssignmentsRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ReplacePolicyRoleAssignmentsRequest/role_ids`.
+            public var roleIds: [Components.Schemas.Uuid]?
+            /// Must be true for the mutating replacement endpoint after the caller reviewed the assignment impact preview. The preview endpoint ignores this field. Omitted values are treated as false by the server.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ReplacePolicyRoleAssignmentsRequest/preview_acknowledged`.
+            public var previewAcknowledged: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ReplacePolicyRoleAssignmentsRequest/preview_receipt_id`.
+            public var previewReceiptId: Components.Schemas.Uuid?
+            /// - Remark: Generated from `#/components/schemas/ReplacePolicyRoleAssignmentsRequest/step_up`.
+            public var stepUp: Components.Schemas.PasskeyStepUpAssertion?
+            /// Creates a new `ReplacePolicyRoleAssignmentsRequest`.
+            ///
+            /// - Parameters:
+            ///   - roleIds:
+            ///   - previewAcknowledged: Must be true for the mutating replacement endpoint after the caller reviewed the assignment impact preview. The preview endpoint ignores this field. Omitted values are treated as false by the server.
+            ///   - previewReceiptId:
+            ///   - stepUp:
+            public init(
+                roleIds: [Components.Schemas.Uuid]? = nil,
+                previewAcknowledged: Swift.Bool? = nil,
+                previewReceiptId: Components.Schemas.Uuid? = nil,
+                stepUp: Components.Schemas.PasskeyStepUpAssertion? = nil
+            ) {
+                self.roleIds = roleIds
+                self.previewAcknowledged = previewAcknowledged
+                self.previewReceiptId = previewReceiptId
+                self.stepUp = stepUp
+            }
+            public enum CodingKeys: String, CodingKey {
+                case roleIds = "role_ids"
+                case previewAcknowledged = "preview_acknowledged"
+                case previewReceiptId = "preview_receipt_id"
+                case stepUp = "step_up"
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/UserSummary`.
         public struct UserSummary: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/UserSummary/id`.
@@ -13849,6 +16518,29 @@ public enum Operations {
                     }
                 }
             }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/work-orders/post(createWorkOrder)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
             /// Request failed validation.
             ///
             /// - Remark: Generated from `#/paths//api/work-orders/post(createWorkOrder)/responses/422`.
@@ -16437,7 +19129,7 @@ public enum Operations {
     }
     /// List branch-scoped work orders
     ///
-    /// Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values.
+    /// Returns branch-scoped work orders sorted by priority and target due date. The server accepts repeated `status`, `status[]`, `priority`, and `priority[]` query keys, plus comma-separated values. `around_work_order_id` searches around a seed work order by returning the seed plus branch/RLS-visible work orders sharing customer, site, or equipment. The response includes a branch/RLS-scoped object-set lens with aggregates, facets, due-date histogram buckets, and customer/site listograms for drill-to-act dashboards.
     ///
     /// - Remark: HTTP `GET /api/v1/work-orders`.
     /// - Remark: Generated from `#/paths//api/v1/work-orders/get(listWorkOrders)`.
@@ -16458,6 +19150,10 @@ public enum Operations {
                 public var customerId: Components.Schemas.Uuid?
                 /// - Remark: Generated from `#/paths/api/v1/work-orders/GET/query/site_id`.
                 public var siteId: Components.Schemas.Uuid?
+                /// Search around this seed work order; returns branch/RLS-visible orders sharing the seed's customer, site, or equipment, including the seed.
+                ///
+                /// - Remark: Generated from `#/paths/api/v1/work-orders/GET/query/around_work_order_id`.
+                public var aroundWorkOrderId: Components.Schemas.Uuid?
                 /// - Remark: Generated from `#/paths/api/v1/work-orders/GET/query/target_due_from`.
                 public var targetDueFrom: Components.Schemas.Timestamp?
                 /// - Remark: Generated from `#/paths/api/v1/work-orders/GET/query/target_due_to`.
@@ -16474,6 +19170,7 @@ public enum Operations {
                 ///   - assignedTo: Use `me` for the authenticated user or a user UUID.
                 ///   - customerId:
                 ///   - siteId:
+                ///   - aroundWorkOrderId: Search around this seed work order; returns branch/RLS-visible orders sharing the seed's customer, site, or equipment, including the seed.
                 ///   - targetDueFrom:
                 ///   - targetDueTo:
                 ///   - limit:
@@ -16484,6 +19181,7 @@ public enum Operations {
                     assignedTo: Swift.String? = nil,
                     customerId: Components.Schemas.Uuid? = nil,
                     siteId: Components.Schemas.Uuid? = nil,
+                    aroundWorkOrderId: Components.Schemas.Uuid? = nil,
                     targetDueFrom: Components.Schemas.Timestamp? = nil,
                     targetDueTo: Components.Schemas.Timestamp? = nil,
                     limit: Swift.Int64? = nil,
@@ -16494,6 +19192,7 @@ public enum Operations {
                     self.assignedTo = assignedTo
                     self.customerId = customerId
                     self.siteId = siteId
+                    self.aroundWorkOrderId = aroundWorkOrderId
                     self.targetDueFrom = targetDueFrom
                     self.targetDueTo = targetDueTo
                     self.limit = limit
@@ -21226,6 +23925,530 @@ public enum Operations {
             }
         }
     }
+    /// Read the tenant HR organization chart
+    ///
+    /// Executive/admin/super-admin read model grouped by company, org unit, and position. Source workbook rows remain preserved in the employee directory.
+    ///
+    /// - Remark: HTTP `GET /api/v1/hr/org-chart`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/org-chart/get(getHrOrgChart)`.
+    public enum GetHrOrgChart {
+        public static let id: Swift.String = "getHrOrgChart"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/hr/org-chart/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetHrOrgChart.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetHrOrgChart.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetHrOrgChart.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.GetHrOrgChart.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/hr/org-chart/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/hr/org-chart/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.HrOrgChartResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.HrOrgChartResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetHrOrgChart.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetHrOrgChart.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Organization chart grouped from imported employee rows.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/org-chart/get(getHrOrgChart)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetHrOrgChart.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetHrOrgChart.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/org-chart/get(getHrOrgChart)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/org-chart/get(getHrOrgChart)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List employee leave-balance rows
+    ///
+    /// Read-only HR leave summary extracted from imported employee workbooks. Payroll and sensitive columns remain preserved in raw import JSON unless explicitly modeled.
+    ///
+    /// - Remark: HTTP `GET /api/v1/hr/leave-balances`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/leave-balances/get(listHrLeaveBalances)`.
+    public enum ListHrLeaveBalances {
+        public static let id: Swift.String = "listHrLeaveBalances"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/hr/leave-balances/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/hr/leave-balances/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// - Remark: Generated from `#/paths/api/v1/hr/leave-balances/GET/query/offset`.
+                public var offset: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - limit:
+                ///   - offset:
+                public init(
+                    limit: Swift.Int64? = nil,
+                    offset: Swift.Int64? = nil
+                ) {
+                    self.limit = limit
+                    self.offset = offset
+                }
+            }
+            public var query: Operations.ListHrLeaveBalances.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/hr/leave-balances/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListHrLeaveBalances.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListHrLeaveBalances.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListHrLeaveBalances.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListHrLeaveBalances.Input.Query = .init(),
+                headers: Operations.ListHrLeaveBalances.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/hr/leave-balances/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/hr/leave-balances/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.LeaveBalancePage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.LeaveBalancePage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListHrLeaveBalances.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListHrLeaveBalances.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Leave-balance rows and aggregate totals.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/leave-balances/get(listHrLeaveBalances)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListHrLeaveBalances.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListHrLeaveBalances.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/leave-balances/get(listHrLeaveBalances)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/leave-balances/get(listHrLeaveBalances)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List branch-scoped attendance summaries
+    ///
+    /// Read-only summary over durable site attendance events. It exposes business clock-in facts, not raw geolocation pings.
+    ///
+    /// - Remark: HTTP `GET /api/v1/hr/attendance-summary`.
+    /// - Remark: Generated from `#/paths//api/v1/hr/attendance-summary/get(listHrAttendanceSummary)`.
+    public enum ListHrAttendanceSummary {
+        public static let id: Swift.String = "listHrAttendanceSummary"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/hr/attendance-summary/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-summary/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-summary/GET/query/offset`.
+                public var offset: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - limit:
+                ///   - offset:
+                public init(
+                    limit: Swift.Int64? = nil,
+                    offset: Swift.Int64? = nil
+                ) {
+                    self.limit = limit
+                    self.offset = offset
+                }
+            }
+            public var query: Operations.ListHrAttendanceSummary.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/hr/attendance-summary/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListHrAttendanceSummary.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListHrAttendanceSummary.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListHrAttendanceSummary.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListHrAttendanceSummary.Input.Query = .init(),
+                headers: Operations.ListHrAttendanceSummary.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/hr/attendance-summary/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/hr/attendance-summary/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.AttendanceSummaryPage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.AttendanceSummaryPage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListHrAttendanceSummary.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListHrAttendanceSummary.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Attendance summaries for users within the caller's branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-summary/get(listHrAttendanceSummary)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListHrAttendanceSummary.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListHrAttendanceSummary.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-summary/get(listHrAttendanceSummary)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/hr/attendance-summary/get(listHrAttendanceSummary)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// Import payroll workbook sheets into the employee directory
     ///
     /// Admin/super-admin multipart .xlsx upload. Each worksheet is treated as a company, row 1 as headers, and rows with non-empty 성명 are upserted by deterministic source filename/sheet/row key. Raw row values and source metadata are preserved as JSONB.
@@ -21398,6 +24621,241 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Read one branch-scoped equipment master row
+    ///
+    /// Read access (WorkOrderReadAll — all authenticated roles). Non-SUPER_ADMIN principals only receive rows in their own branch scope; a foreign or missing id returns 404 without revealing existence.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/get(getEquipment)`.
+    public enum GetEquipment {
+        public static let id: Swift.String = "getEquipment"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/GET/path/id`.
+                public var id: Components.Parameters.EquipmentId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Parameters.EquipmentId) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.GetEquipment.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetEquipment.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetEquipment.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetEquipment.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.GetEquipment.Input.Path,
+                headers: Operations.GetEquipment.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.EquipmentListItem)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.EquipmentListItem {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetEquipment.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetEquipment.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Equipment master row.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/get(getEquipment)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetEquipment.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetEquipment.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/get(getEquipment)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/get(getEquipment)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/get(getEquipment)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/get(getEquipment)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetEquipment.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/get(getEquipment)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.GetEquipment.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
                             response: self
                         )
                     }
@@ -21882,6 +25340,810 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.serviceUnavailable`.
             /// - SeeAlso: `.serviceUnavailable`.
             public var serviceUnavailable: Operations.DeleteEquipment.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Read one equipment lifecycle ribbon and relationship graph
+    ///
+    /// Read-only equipment lens for object-detail pages. Returns real lifecycle events and the customer-site-equipment-work-order graph visible within the caller's branch scope. A foreign or missing equipment id returns 404 without revealing existence.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/v1/equipment/{id}/timeline-graph`.
+    /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/timeline-graph/get(getEquipmentTimelineGraph)`.
+    public enum GetEquipmentTimelineGraph {
+        public static let id: Swift.String = "getEquipmentTimelineGraph"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/timeline-graph/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/timeline-graph/GET/path/id`.
+                public var id: Components.Parameters.EquipmentId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Parameters.EquipmentId) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.GetEquipmentTimelineGraph.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/timeline-graph/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetEquipmentTimelineGraph.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetEquipmentTimelineGraph.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetEquipmentTimelineGraph.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.GetEquipmentTimelineGraph.Input.Path,
+                headers: Operations.GetEquipmentTimelineGraph.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/timeline-graph/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/equipment/{id}/timeline-graph/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.EquipmentTimelineGraph)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.EquipmentTimelineGraph {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetEquipmentTimelineGraph.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetEquipmentTimelineGraph.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Equipment lifecycle and relationship graph lens.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/timeline-graph/get(getEquipmentTimelineGraph)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetEquipmentTimelineGraph.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetEquipmentTimelineGraph.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/timeline-graph/get(getEquipmentTimelineGraph)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/timeline-graph/get(getEquipmentTimelineGraph)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/timeline-graph/get(getEquipmentTimelineGraph)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/timeline-graph/get(getEquipmentTimelineGraph)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetEquipmentTimelineGraph.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/equipment/{id}/timeline-graph/get(getEquipmentTimelineGraph)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.GetEquipmentTimelineGraph.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Read governed object-action descriptors for one object
+    ///
+    /// Returns typed, UI-renderable action descriptors for a console object. The initial CAP-5 vertical slice supports equipment actions and requires EquipmentManage. Missing or foreign equipment returns 404 through the same branch-scoped object read used by the equipment detail page.
+    ///
+    /// - Remark: HTTP `GET /api/v1/object-actions/catalog`.
+    /// - Remark: Generated from `#/paths//api/v1/object-actions/catalog/get(getObjectActionCatalog)`.
+    public enum GetObjectActionCatalog {
+        public static let id: Swift.String = "getObjectActionCatalog"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/object-actions/catalog/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/object-actions/catalog/GET/query/object_type`.
+                @frozen public enum ObjectTypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case equipment = "equipment"
+                }
+                /// - Remark: Generated from `#/paths/api/v1/object-actions/catalog/GET/query/object_type`.
+                public var objectType: Operations.GetObjectActionCatalog.Input.Query.ObjectTypePayload
+                /// - Remark: Generated from `#/paths/api/v1/object-actions/catalog/GET/query/object_id`.
+                public var objectId: Components.Schemas.Uuid
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - objectType:
+                ///   - objectId:
+                public init(
+                    objectType: Operations.GetObjectActionCatalog.Input.Query.ObjectTypePayload,
+                    objectId: Components.Schemas.Uuid
+                ) {
+                    self.objectType = objectType
+                    self.objectId = objectId
+                }
+            }
+            public var query: Operations.GetObjectActionCatalog.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/object-actions/catalog/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetObjectActionCatalog.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetObjectActionCatalog.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetObjectActionCatalog.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.GetObjectActionCatalog.Input.Query,
+                headers: Operations.GetObjectActionCatalog.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/object-actions/catalog/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/object-actions/catalog/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ObjectActionCatalogResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ObjectActionCatalogResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetObjectActionCatalog.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetObjectActionCatalog.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Governed action descriptors for the object.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-actions/catalog/get(getObjectActionCatalog)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetObjectActionCatalog.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetObjectActionCatalog.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-actions/catalog/get(getObjectActionCatalog)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-actions/catalog/get(getObjectActionCatalog)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-actions/catalog/get(getObjectActionCatalog)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-actions/catalog/get(getObjectActionCatalog)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-actions/catalog/get(getObjectActionCatalog)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.GetObjectActionCatalog.Output.ServiceUnavailable)
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-actions/catalog/get(getObjectActionCatalog)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.GetObjectActionCatalog.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Execute a governed audited object action
+    ///
+    /// Executes a typed object write-back action through the server-side action executor. Sensitive actions require a fresh passkey step-up assertion so the append-only audit event binds the write to the human actor. The initial slice supports `equipment.update_profile`.
+    ///
+    /// - Remark: HTTP `POST /api/v1/object-actions/execute`.
+    /// - Remark: Generated from `#/paths//api/v1/object-actions/execute/post(executeObjectAction)`.
+    public enum ExecuteObjectAction {
+        public static let id: Swift.String = "executeObjectAction"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/object-actions/execute/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ExecuteObjectAction.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ExecuteObjectAction.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ExecuteObjectAction.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/object-actions/execute/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/object-actions/execute/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.ExecuteObjectActionRequest)
+            }
+            public var body: Operations.ExecuteObjectAction.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.ExecuteObjectAction.Input.Headers = .init(),
+                body: Operations.ExecuteObjectAction.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/object-actions/execute/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/object-actions/execute/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ObjectActionExecutionResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ObjectActionExecutionResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ExecuteObjectAction.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ExecuteObjectAction.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Object action execution receipt with audit provenance.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-actions/execute/post(executeObjectAction)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ExecuteObjectAction.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ExecuteObjectAction.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-actions/execute/post(executeObjectAction)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-actions/execute/post(executeObjectAction)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-actions/execute/post(executeObjectAction)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-actions/execute/post(executeObjectAction)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct PreconditionRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/object-actions/execute/POST/responses/428/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/object-actions/execute/POST/responses/428/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ExecuteObjectAction.Output.PreconditionRequired.Body
+                /// Creates a new `PreconditionRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ExecuteObjectAction.Output.PreconditionRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Fresh passkey step-up is required.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-actions/execute/post(executeObjectAction)/responses/428`.
+            ///
+            /// HTTP response code: `428 preconditionRequired`.
+            case preconditionRequired(Operations.ExecuteObjectAction.Output.PreconditionRequired)
+            /// The associated value of the enum case if `self` is `.preconditionRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.preconditionRequired`.
+            /// - SeeAlso: `.preconditionRequired`.
+            public var preconditionRequired: Operations.ExecuteObjectAction.Output.PreconditionRequired {
+                get throws {
+                    switch self {
+                    case let .preconditionRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "preconditionRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// Creates a new `ServiceUnavailable`.
+                public init() {}
+            }
+            /// JWT or passkey step-up verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-actions/execute/post(executeObjectAction)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ExecuteObjectAction.Output.ServiceUnavailable)
+            /// JWT or passkey step-up verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/object-actions/execute/post(executeObjectAction)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            public static var serviceUnavailable: Self {
+                .serviceUnavailable(.init())
+            }
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ExecuteObjectAction.Output.ServiceUnavailable {
                 get throws {
                     switch self {
                     case let .serviceUnavailable(response):
@@ -36113,6 +40375,2958 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List canonical policy feature catalog for Policy Studio
+    ///
+    /// - Remark: HTTP `GET /api/v1/policy/features`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/features/get(listPolicyFeatures)`.
+    public enum ListPolicyFeatures {
+        public static let id: Swift.String = "listPolicyFeatures"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/policy/features/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListPolicyFeatures.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListPolicyFeatures.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListPolicyFeatures.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.ListPolicyFeatures.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/features/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/features/GET/responses/200/content/application\/json`.
+                    case json([Components.Schemas.PolicyFeatureResponse])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.PolicyFeatureResponse] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListPolicyFeatures.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListPolicyFeatures.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Canonical features and built-in matrix defaults.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/features/get(listPolicyFeatures)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListPolicyFeatures.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListPolicyFeatures.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/features/get(listPolicyFeatures)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/features/get(listPolicyFeatures)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/features/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/features/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListPolicyFeatures.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListPolicyFeatures.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/features/get(listPolicyFeatures)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ListPolicyFeatures.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ListPolicyFeatures.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List built-in role templates and tenant custom roles
+    ///
+    /// - Remark: HTTP `GET /api/v1/policy/roles`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/roles/get(listPolicyRoles)`.
+    public enum ListPolicyRoles {
+        public static let id: Swift.String = "listPolicyRoles"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/policy/roles/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListPolicyRoles.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListPolicyRoles.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListPolicyRoles.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.ListPolicyRoles.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/roles/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/roles/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PolicyRoleCatalogResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PolicyRoleCatalogResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListPolicyRoles.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListPolicyRoles.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Built-in system role templates and tenant custom role definitions.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/get(listPolicyRoles)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListPolicyRoles.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListPolicyRoles.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/get(listPolicyRoles)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/get(listPolicyRoles)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/roles/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/roles/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListPolicyRoles.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListPolicyRoles.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/get(listPolicyRoles)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ListPolicyRoles.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ListPolicyRoles.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Create a tenant custom role definition
+    ///
+    /// Creates an audited, tenant-scoped custom role definition. Custom roles never replace built-in users.roles, but ACTIVE assignments can add runtime-effective ordinary feature grants on the next request. Elevated policy-management and scope-widening features are rejected.
+    ///
+    /// - Remark: HTTP `POST /api/v1/policy/roles`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/roles/post(createPolicyRole)`.
+    public enum CreatePolicyRole {
+        public static let id: Swift.String = "createPolicyRole"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/policy/roles/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreatePolicyRole.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreatePolicyRole.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CreatePolicyRole.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/policy/roles/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/roles/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.CreatePolicyRoleRequest)
+            }
+            public var body: Operations.CreatePolicyRole.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.CreatePolicyRole.Input.Headers = .init(),
+                body: Operations.CreatePolicyRole.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/roles/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/roles/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.PolicyRoleResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PolicyRoleResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreatePolicyRole.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreatePolicyRole.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Custom role definition created.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/post(createPolicyRole)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.CreatePolicyRole.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.CreatePolicyRole.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/post(createPolicyRole)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/post(createPolicyRole)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// State conflict or illegal transition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/post(createPolicyRole)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Components.Responses.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Components.Responses.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/post(createPolicyRole)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/roles/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/roles/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreatePolicyRole.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreatePolicyRole.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/post(createPolicyRole)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.CreatePolicyRole.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.CreatePolicyRole.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Update a tenant custom role definition
+    ///
+    /// Updates mutable custom-role metadata, permissions, and ABAC/PBAC conditions. The role key and lifecycle status are not changed by this route. This is a sensitive policy-definition action: callers must have RoleManage, pass delegated-scope guardrails, and supply a fresh passkey step-up assertion. ACTIVE assigned custom-role changes become runtime-effective ordinary feature grants on the next request; unsupported ABAC/PBAC conditions and elevated/scope-widening features remain inert.
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/policy/roles/{id}`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/patch(updatePolicyRole)`.
+    public enum UpdatePolicyRole {
+        public static let id: Swift.String = "updatePolicyRole"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/PATCH/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/PATCH/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.UpdatePolicyRole.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/PATCH/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdatePolicyRole.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdatePolicyRole.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.UpdatePolicyRole.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/PATCH/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/PATCH/requestBody/content/application\/json`.
+                case json(Components.Schemas.UpdatePolicyRoleRequest)
+            }
+            public var body: Operations.UpdatePolicyRole.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.UpdatePolicyRole.Input.Path,
+                headers: Operations.UpdatePolicyRole.Input.Headers = .init(),
+                body: Operations.UpdatePolicyRole.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/PATCH/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/PATCH/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PolicyRoleResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PolicyRoleResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.UpdatePolicyRole.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.UpdatePolicyRole.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Updated custom role definition.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/patch(updatePolicyRole)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.UpdatePolicyRole.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.UpdatePolicyRole.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/patch(updatePolicyRole)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/patch(updatePolicyRole)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/patch(updatePolicyRole)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/patch(updatePolicyRole)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct PreconditionRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/PATCH/responses/428/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/PATCH/responses/428/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.UpdatePolicyRole.Output.PreconditionRequired.Body
+                /// Creates a new `PreconditionRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.UpdatePolicyRole.Output.PreconditionRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Fresh passkey step-up is required.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/patch(updatePolicyRole)/responses/428`.
+            ///
+            /// HTTP response code: `428 preconditionRequired`.
+            case preconditionRequired(Operations.UpdatePolicyRole.Output.PreconditionRequired)
+            /// The associated value of the enum case if `self` is `.preconditionRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.preconditionRequired`.
+            /// - SeeAlso: `.preconditionRequired`.
+            public var preconditionRequired: Operations.UpdatePolicyRole.Output.PreconditionRequired {
+                get throws {
+                    switch self {
+                    case let .preconditionRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "preconditionRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/PATCH/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/PATCH/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.UpdatePolicyRole.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.UpdatePolicyRole.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT or passkey step-up verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/patch(updatePolicyRole)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.UpdatePolicyRole.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.UpdatePolicyRole.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Publish, roll back, or retire a tenant custom role
+    ///
+    /// Changes a custom role lifecycle state. This is a sensitive policy action: callers must have RoleManage and supply a fresh passkey step-up assertion proving the actor, not just the bearer token, performed the change.
+    ///
+    /// - Remark: HTTP `PATCH /api/v1/policy/roles/{id}/status`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/status/patch(updatePolicyRoleStatus)`.
+    public enum UpdatePolicyRoleStatus {
+        public static let id: Swift.String = "updatePolicyRoleStatus"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status/PATCH/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status/PATCH/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.UpdatePolicyRoleStatus.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status/PATCH/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdatePolicyRoleStatus.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdatePolicyRoleStatus.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.UpdatePolicyRoleStatus.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status/PATCH/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status/PATCH/requestBody/content/application\/json`.
+                case json(Components.Schemas.UpdatePolicyRoleStatusRequest)
+            }
+            public var body: Operations.UpdatePolicyRoleStatus.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.UpdatePolicyRoleStatus.Input.Path,
+                headers: Operations.UpdatePolicyRoleStatus.Input.Headers = .init(),
+                body: Operations.UpdatePolicyRoleStatus.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status/PATCH/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status/PATCH/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PolicyRoleResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PolicyRoleResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.UpdatePolicyRoleStatus.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.UpdatePolicyRoleStatus.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Updated custom role.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/status/patch(updatePolicyRoleStatus)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.UpdatePolicyRoleStatus.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.UpdatePolicyRoleStatus.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/status/patch(updatePolicyRoleStatus)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/status/patch(updatePolicyRoleStatus)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/status/patch(updatePolicyRoleStatus)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/status/patch(updatePolicyRoleStatus)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct PreconditionRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status/PATCH/responses/428/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status/PATCH/responses/428/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.UpdatePolicyRoleStatus.Output.PreconditionRequired.Body
+                /// Creates a new `PreconditionRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.UpdatePolicyRoleStatus.Output.PreconditionRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Fresh passkey step-up is required.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/status/patch(updatePolicyRoleStatus)/responses/428`.
+            ///
+            /// HTTP response code: `428 preconditionRequired`.
+            case preconditionRequired(Operations.UpdatePolicyRoleStatus.Output.PreconditionRequired)
+            /// The associated value of the enum case if `self` is `.preconditionRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.preconditionRequired`.
+            /// - SeeAlso: `.preconditionRequired`.
+            public var preconditionRequired: Operations.UpdatePolicyRoleStatus.Output.PreconditionRequired {
+                get throws {
+                    switch self {
+                    case let .preconditionRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "preconditionRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status/PATCH/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status/PATCH/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.UpdatePolicyRoleStatus.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.UpdatePolicyRoleStatus.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT or passkey step-up verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/status/patch(updatePolicyRoleStatus)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.UpdatePolicyRoleStatus.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.UpdatePolicyRoleStatus.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Preview custom-role lifecycle status impact
+    ///
+    /// Returns a read-only before/after impact summary for publishing, rolling back, or retiring a custom role. This endpoint never mutates policy, does not require a passkey assertion, and reminds callers that the subsequent status update is a sensitive passkey step-up action. Allowed transitions are DRAFT→ACTIVE, ACTIVE→DRAFT, and ACTIVE→RETIRED; RETIRED is terminal.
+    ///
+    /// - Remark: HTTP `POST /api/v1/policy/roles/{id}/status-preview`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/status-preview/post(previewPolicyRoleStatus)`.
+    public enum PreviewPolicyRoleStatus {
+        public static let id: Swift.String = "previewPolicyRoleStatus"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status-preview/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status-preview/POST/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.PreviewPolicyRoleStatus.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status-preview/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PreviewPolicyRoleStatus.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PreviewPolicyRoleStatus.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.PreviewPolicyRoleStatus.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status-preview/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status-preview/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.PolicyRoleStatusPreviewRequest)
+            }
+            public var body: Operations.PreviewPolicyRoleStatus.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.PreviewPolicyRoleStatus.Input.Path,
+                headers: Operations.PreviewPolicyRoleStatus.Input.Headers = .init(),
+                body: Operations.PreviewPolicyRoleStatus.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status-preview/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status-preview/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PolicyRoleStatusPreviewResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PolicyRoleStatusPreviewResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PreviewPolicyRoleStatus.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PreviewPolicyRoleStatus.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Read-only status impact preview.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/status-preview/post(previewPolicyRoleStatus)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.PreviewPolicyRoleStatus.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.PreviewPolicyRoleStatus.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/status-preview/post(previewPolicyRoleStatus)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/status-preview/post(previewPolicyRoleStatus)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/status-preview/post(previewPolicyRoleStatus)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/status-preview/post(previewPolicyRoleStatus)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status-preview/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/roles/{id}/status-preview/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PreviewPolicyRoleStatus.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PreviewPolicyRoleStatus.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/roles/{id}/status-preview/post(previewPolicyRoleStatus)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.PreviewPolicyRoleStatus.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.PreviewPolicyRoleStatus.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List Policy Studio audit evidence
+    ///
+    /// Returns append-only policy audit events for the current tenant. This is a read-only evidence timeline for RoleManage holders and includes only policy role and planned-assignment events, not unrelated tenant audit rows.
+    ///
+    /// - Remark: HTTP `GET /api/v1/policy/audit-events`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/audit-events/get(listPolicyAuditEvents)`.
+    public enum ListPolicyAuditEvents {
+        public static let id: Swift.String = "listPolicyAuditEvents"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/policy/audit-events/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/audit-events/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - limit:
+                public init(limit: Swift.Int64? = nil) {
+                    self.limit = limit
+                }
+            }
+            public var query: Operations.ListPolicyAuditEvents.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/policy/audit-events/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListPolicyAuditEvents.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListPolicyAuditEvents.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListPolicyAuditEvents.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListPolicyAuditEvents.Input.Query = .init(),
+                headers: Operations.ListPolicyAuditEvents.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/audit-events/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/audit-events/GET/responses/200/content/application\/json`.
+                    case json([Components.Schemas.PolicyAuditEventResponse])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.PolicyAuditEventResponse] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListPolicyAuditEvents.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListPolicyAuditEvents.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Recent policy audit evidence rows.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/audit-events/get(listPolicyAuditEvents)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListPolicyAuditEvents.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListPolicyAuditEvents.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/audit-events/get(listPolicyAuditEvents)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/audit-events/get(listPolicyAuditEvents)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/audit-events/get(listPolicyAuditEvents)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/audit-events/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/audit-events/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListPolicyAuditEvents.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListPolicyAuditEvents.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/audit-events/get(listPolicyAuditEvents)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ListPolicyAuditEvents.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ListPolicyAuditEvents.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List safe starter templates for tenant custom roles
+    ///
+    /// Returns built-in starter templates that can be copied into a tenant custom role definition. Templates never grant elevated policy-management features. Templates do not affect runtime authorization until copied into an ACTIVE assigned custom role; unsupported/elevated grants remain inert.
+    ///
+    /// - Remark: HTTP `GET /api/v1/policy/role-templates`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/role-templates/get(listPolicyRoleTemplates)`.
+    public enum ListPolicyRoleTemplates {
+        public static let id: Swift.String = "listPolicyRoleTemplates"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/policy/role-templates/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListPolicyRoleTemplates.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListPolicyRoleTemplates.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListPolicyRoleTemplates.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.ListPolicyRoleTemplates.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/role-templates/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/role-templates/GET/responses/200/content/application\/json`.
+                    case json([Components.Schemas.PolicyRoleTemplateResponse])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.PolicyRoleTemplateResponse] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListPolicyRoleTemplates.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListPolicyRoleTemplates.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Safe custom-role starter templates.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/role-templates/get(listPolicyRoleTemplates)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListPolicyRoleTemplates.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListPolicyRoleTemplates.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/role-templates/get(listPolicyRoleTemplates)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/role-templates/get(listPolicyRoleTemplates)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/role-templates/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/role-templates/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListPolicyRoleTemplates.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListPolicyRoleTemplates.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/role-templates/get(listPolicyRoleTemplates)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ListPolicyRoleTemplates.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ListPolicyRoleTemplates.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List custom-role assignments for one user
+    ///
+    /// Returns custom-role assignments for a visible user. ACTIVE assignments are audited and can add runtime-effective ordinary feature grants on the next request; DRAFT/RETIRED roles remain inert.
+    ///
+    /// - Remark: HTTP `GET /api/v1/policy/assignments`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/assignments/get(listPolicyAssignments)`.
+    public enum ListPolicyAssignments {
+        public static let id: Swift.String = "listPolicyAssignments"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/policy/assignments/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/assignments/GET/query/user_id`.
+                public var userId: Components.Schemas.Uuid
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - userId:
+                public init(userId: Components.Schemas.Uuid) {
+                    self.userId = userId
+                }
+            }
+            public var query: Operations.ListPolicyAssignments.Input.Query
+            /// - Remark: Generated from `#/paths/api/v1/policy/assignments/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListPolicyAssignments.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListPolicyAssignments.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListPolicyAssignments.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListPolicyAssignments.Input.Query,
+                headers: Operations.ListPolicyAssignments.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/assignments/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/assignments/GET/responses/200/content/application\/json`.
+                    case json([Components.Schemas.PolicyRoleAssignmentResponse])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.PolicyRoleAssignmentResponse] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListPolicyAssignments.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListPolicyAssignments.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Planned custom-role assignments for the requested user.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/assignments/get(listPolicyAssignments)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListPolicyAssignments.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListPolicyAssignments.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/assignments/get(listPolicyAssignments)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/assignments/get(listPolicyAssignments)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/assignments/get(listPolicyAssignments)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/assignments/GET/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/assignments/GET/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListPolicyAssignments.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListPolicyAssignments.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/assignments/get(listPolicyAssignments)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ListPolicyAssignments.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ListPolicyAssignments.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Replace one user's custom-role assignments
+    ///
+    /// Replaces custom-role assignments for a visible user and bumps the tenant policy version. This is a sensitive policy action requiring a fresh passkey step-up. ACTIVE assigned roles publish supported ordinary feature grants into runtime authorization on the next request; unsupported conditions/elevated grants remain inert.
+    ///
+    /// - Remark: HTTP `PUT /api/v1/policy/users/{id}/assignments`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/users/{id}/assignments/put(replacePolicyAssignments)`.
+    public enum ReplacePolicyAssignments {
+        public static let id: Swift.String = "replacePolicyAssignments"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignments/PUT/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignments/PUT/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.ReplacePolicyAssignments.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignments/PUT/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ReplacePolicyAssignments.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ReplacePolicyAssignments.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ReplacePolicyAssignments.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignments/PUT/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignments/PUT/requestBody/content/application\/json`.
+                case json(Components.Schemas.ReplacePolicyRoleAssignmentsRequest)
+            }
+            public var body: Operations.ReplacePolicyAssignments.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.ReplacePolicyAssignments.Input.Path,
+                headers: Operations.ReplacePolicyAssignments.Input.Headers = .init(),
+                body: Operations.ReplacePolicyAssignments.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignments/PUT/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignments/PUT/responses/200/content/application\/json`.
+                    case json([Components.Schemas.PolicyRoleAssignmentResponse])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.PolicyRoleAssignmentResponse] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ReplacePolicyAssignments.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ReplacePolicyAssignments.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Planned assignments after replacement.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/users/{id}/assignments/put(replacePolicyAssignments)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ReplacePolicyAssignments.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ReplacePolicyAssignments.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/users/{id}/assignments/put(replacePolicyAssignments)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/users/{id}/assignments/put(replacePolicyAssignments)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/users/{id}/assignments/put(replacePolicyAssignments)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/users/{id}/assignments/put(replacePolicyAssignments)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct PreconditionRequired: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignments/PUT/responses/428/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignments/PUT/responses/428/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ReplacePolicyAssignments.Output.PreconditionRequired.Body
+                /// Creates a new `PreconditionRequired`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ReplacePolicyAssignments.Output.PreconditionRequired.Body) {
+                    self.body = body
+                }
+            }
+            /// Fresh passkey step-up is required.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/users/{id}/assignments/put(replacePolicyAssignments)/responses/428`.
+            ///
+            /// HTTP response code: `428 preconditionRequired`.
+            case preconditionRequired(Operations.ReplacePolicyAssignments.Output.PreconditionRequired)
+            /// The associated value of the enum case if `self` is `.preconditionRequired`.
+            ///
+            /// - Throws: An error if `self` is not `.preconditionRequired`.
+            /// - SeeAlso: `.preconditionRequired`.
+            public var preconditionRequired: Operations.ReplacePolicyAssignments.Output.PreconditionRequired {
+                get throws {
+                    switch self {
+                    case let .preconditionRequired(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "preconditionRequired",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignments/PUT/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignments/PUT/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ReplacePolicyAssignments.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ReplacePolicyAssignments.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT or passkey step-up verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/users/{id}/assignments/put(replacePolicyAssignments)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ReplacePolicyAssignments.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.ReplacePolicyAssignments.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Preview requested custom-role assignment impact for one user
+    ///
+    /// Computes requested-vs-current planned custom-role assignment deltas and feature grants for a visible user. This is an impact-preview surface only: it does not write assignments and does not publish runtime authorization.
+    ///
+    /// - Remark: HTTP `POST /api/v1/policy/users/{id}/assignment-preview`.
+    /// - Remark: Generated from `#/paths//api/v1/policy/users/{id}/assignment-preview/post(previewPolicyAssignments)`.
+    public enum PreviewPolicyAssignments {
+        public static let id: Swift.String = "previewPolicyAssignments"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignment-preview/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignment-preview/POST/path/id`.
+                public var id: Components.Schemas.Uuid
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Components.Schemas.Uuid) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.PreviewPolicyAssignments.Input.Path
+            /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignment-preview/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PreviewPolicyAssignments.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.PreviewPolicyAssignments.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.PreviewPolicyAssignments.Input.Headers
+            /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignment-preview/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignment-preview/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.ReplacePolicyRoleAssignmentsRequest)
+            }
+            public var body: Operations.PreviewPolicyAssignments.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.PreviewPolicyAssignments.Input.Path,
+                headers: Operations.PreviewPolicyAssignments.Input.Headers = .init(),
+                body: Operations.PreviewPolicyAssignments.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignment-preview/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignment-preview/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.PolicyAssignmentPreviewResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.PolicyAssignmentPreviewResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PreviewPolicyAssignments.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PreviewPolicyAssignments.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Preview of assignment delta and resulting grants.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/users/{id}/assignment-preview/post(previewPolicyAssignments)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.PreviewPolicyAssignments.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.PreviewPolicyAssignments.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/users/{id}/assignment-preview/post(previewPolicyAssignments)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/users/{id}/assignment-preview/post(previewPolicyAssignments)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Resource was not found in branch scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/users/{id}/assignment-preview/post(previewPolicyAssignments)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/users/{id}/assignment-preview/post(previewPolicyAssignments)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignment-preview/POST/responses/503/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/v1/policy/users/{id}/assignment-preview/POST/responses/503/content/application\/json`.
+                    case json(Components.Schemas.ErrorBody)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorBody {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.PreviewPolicyAssignments.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.PreviewPolicyAssignments.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// JWT verification is not configured.
+            ///
+            /// - Remark: Generated from `#/paths//api/v1/policy/users/{id}/assignment-preview/post(previewPolicyAssignments)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.PreviewPolicyAssignments.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            public var serviceUnavailable: Operations.PreviewPolicyAssignments.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
                             response: self
                         )
                     }

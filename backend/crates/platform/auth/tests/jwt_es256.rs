@@ -1,13 +1,15 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use mnt_kernel_core::{AccessScope, AccessScopeLevel, BranchId, OrgId, ScopeNodeId, UserId};
-use mnt_platform_auth::{AccessClaims, AccessTokenInput, JwtIssuer, JwtSettings};
+use mnt_platform_auth::{
+    AccessClaims, AccessTokenInput, JwtIssuer, JwtSettings, TenantAccessContext,
+};
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
 use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use time::{Duration, OffsetDateTime};
 
-fn es256_issuer() -> JwtIssuer {
+fn es256_material() -> (JwtIssuer, String, String) {
     let signing_key = SigningKey::random(&mut OsRng);
     let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
     let public_pem = signing_key
@@ -15,7 +17,7 @@ fn es256_issuer() -> JwtIssuer {
         .to_public_key_pem(LineEnding::LF)
         .unwrap();
 
-    JwtIssuer::from_es256_pem(
+    let issuer = JwtIssuer::from_es256_pem(
         JwtSettings {
             issuer: "mnt-platform-auth".to_owned(),
             audience: "mnt-api".to_owned(),
@@ -24,7 +26,13 @@ fn es256_issuer() -> JwtIssuer {
         private_pem.as_bytes(),
         public_pem.as_bytes(),
     )
-    .unwrap()
+    .unwrap();
+
+    (issuer, private_pem.to_string(), public_pem)
+}
+
+fn es256_issuer() -> JwtIssuer {
+    es256_material().0
 }
 
 #[test]
@@ -45,6 +53,7 @@ fn es256_access_token_round_trips_with_expected_claims() {
             view_as: false,
             read_only: false,
             display_name: None,
+            feature_grants: Vec::new(),
             issued_at: now,
         })
         .unwrap();
@@ -67,6 +76,30 @@ fn es256_access_token_round_trips_with_expected_claims() {
         AccessScope::legacy_org(OrgId::knl())
     );
     assert!(claims.group_roles.is_empty());
+    assert!(claims.feature_grants.is_empty());
+}
+
+#[test]
+fn es256_access_token_carries_feature_grant_ui_hints() {
+    let issuer = es256_issuer();
+
+    let token = issuer
+        .issue_access_token(AccessTokenInput {
+            subject: UserId::new(),
+            org_id: OrgId::knl(),
+            roles: vec!["MEMBER".to_owned()],
+            branches: vec![],
+            platform: false,
+            view_as: false,
+            read_only: false,
+            display_name: None,
+            feature_grants: vec!["mail_use".to_owned(), "role_manage".to_owned()],
+            issued_at: OffsetDateTime::now_utc(),
+        })
+        .unwrap();
+
+    let claims = issuer.verify_access_token(&token).unwrap();
+    assert_eq!(claims.feature_grants, vec!["mail_use", "role_manage"]);
 }
 
 #[test]
@@ -83,6 +116,7 @@ fn es256_access_token_carries_optional_display_name_claim() {
             view_as: false,
             read_only: false,
             display_name: Some("홍길동".to_owned()),
+            feature_grants: Vec::new(),
             issued_at: OffsetDateTime::now_utc(),
         })
         .unwrap();
@@ -111,6 +145,7 @@ fn es256_access_token_can_carry_group_roles_without_widening_scope() {
                 view_as: false,
                 read_only: false,
                 display_name: None,
+                feature_grants: Vec::new(),
                 issued_at: OffsetDateTime::now_utc(),
             },
             vec!["GROUP_ADMIN".to_owned()],
@@ -124,6 +159,64 @@ fn es256_access_token_can_carry_group_roles_without_widening_scope() {
         AccessScope::legacy_org(org_id),
         "group-role claims are UI hints; backend endpoints re-resolve live grants",
     );
+}
+
+#[test]
+fn group_admin_tenant_context_token_is_bounded_and_distinct_from_super_admin() {
+    let issuer = es256_issuer();
+    let group_id = uuid::Uuid::new_v4();
+
+    let token = issuer
+        .issue_group_admin_tenant_context_access_token(
+            AccessTokenInput {
+                subject: UserId::new(),
+                org_id: OrgId::knl(),
+                roles: vec!["ADMIN".to_owned()],
+                branches: vec![],
+                platform: false,
+                view_as: false,
+                read_only: false,
+                display_name: None,
+                feature_grants: Vec::new(),
+                issued_at: OffsetDateTime::now_utc(),
+            },
+            group_id,
+            Duration::minutes(15),
+        )
+        .unwrap();
+
+    let claims = issuer.verify_access_token(&token).unwrap();
+    assert_eq!(claims.roles, vec!["ADMIN"]);
+    assert!(!claims.roles.iter().any(|role| role == "SUPER_ADMIN"));
+    assert_eq!(claims.group_roles, vec!["GROUP_ADMIN"]);
+    assert_eq!(claims.tenant_context, Some(TenantAccessContext::GroupAdmin));
+    assert_eq!(claims.group_context_id, Some(group_id.to_string()));
+}
+
+#[test]
+fn group_admin_tenant_context_token_rejects_super_admin_role() {
+    let issuer = es256_issuer();
+
+    let err = issuer
+        .issue_group_admin_tenant_context_access_token(
+            AccessTokenInput {
+                subject: UserId::new(),
+                org_id: OrgId::knl(),
+                roles: vec!["SUPER_ADMIN".to_owned()],
+                branches: vec![],
+                platform: false,
+                view_as: false,
+                read_only: false,
+                display_name: None,
+                feature_grants: Vec::new(),
+                issued_at: OffsetDateTime::now_utc(),
+            },
+            uuid::Uuid::new_v4(),
+            Duration::minutes(15),
+        )
+        .unwrap_err();
+
+    assert!(err.to_string().contains("cannot carry SUPER_ADMIN"));
 }
 
 #[test]
@@ -145,10 +238,11 @@ fn es256_access_token_round_trips_explicit_access_scope_claims() {
                 view_as: false,
                 read_only: false,
                 display_name: None,
+                feature_grants: Vec::new(),
                 issued_at: OffsetDateTime::now_utc(),
             },
             scope,
-            vec!["group_admin".to_owned()],
+            vec!["GROUP_ADMIN".to_owned()],
         )
         .unwrap();
 
@@ -156,7 +250,71 @@ fn es256_access_token_round_trips_explicit_access_scope_claims() {
     assert_eq!(claims.scope_level, Some(AccessScopeLevel::Group));
     assert_eq!(claims.scope_node, Some(scope.node_id));
     assert_eq!(claims.access_scope().unwrap(), scope);
-    assert_eq!(claims.group_roles, vec!["group_admin"]);
+    assert_eq!(claims.group_roles, vec!["GROUP_ADMIN"]);
+}
+
+#[test]
+fn es256_scoped_token_rejects_unknown_group_role_on_issue() {
+    let issuer = es256_issuer();
+
+    let err = issuer
+        .issue_scoped_access_token(
+            AccessTokenInput {
+                subject: UserId::new(),
+                org_id: OrgId::knl(),
+                roles: vec!["ADMIN".to_owned()],
+                branches: Vec::new(),
+                platform: false,
+                view_as: false,
+                read_only: false,
+                display_name: None,
+                feature_grants: Vec::new(),
+                issued_at: OffsetDateTime::now_utc(),
+            },
+            AccessScope::legacy_org(OrgId::knl()),
+            vec!["group_admin".to_owned()],
+        )
+        .unwrap_err();
+
+    assert!(err.to_string().contains("unknown group role code"));
+}
+
+#[test]
+fn es256_scoped_token_rejects_unknown_group_role_on_verify() {
+    let (issuer, private_pem, _) = es256_material();
+    let now = OffsetDateTime::now_utc();
+    let claims = AccessClaims {
+        iss: "mnt-platform-auth".to_owned(),
+        aud: "mnt-api".to_owned(),
+        sub: UserId::new().to_string(),
+        iat: now.unix_timestamp(),
+        nbf: now.unix_timestamp(),
+        exp: (now + Duration::minutes(15)).unix_timestamp(),
+        jti: uuid::Uuid::new_v4().to_string(),
+        org: OrgId::knl().to_string(),
+        roles: vec!["ADMIN".to_owned()],
+        branches: Vec::new(),
+        platform: false,
+        view_as: false,
+        read_only: false,
+        name: None,
+        scope_level: Some(AccessScopeLevel::Group),
+        scope_node: Some(ScopeNodeId::from_uuid(uuid::Uuid::new_v4())),
+        group_roles: vec!["GROUP_OWNER".to_owned()],
+        tenant_context: None,
+        group_context_id: None,
+        feature_grants: Vec::new(),
+        alg: "ES256".to_owned(),
+    };
+    let token = jsonwebtoken::encode(
+        &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::ES256),
+        &claims,
+        &jsonwebtoken::EncodingKey::from_ec_pem(private_pem.as_bytes()).unwrap(),
+    )
+    .unwrap();
+
+    let err = issuer.verify_access_token(&token).unwrap_err();
+    assert!(err.to_string().contains("unknown group role code"));
 }
 
 #[test]
@@ -174,10 +332,11 @@ fn es256_view_as_token_refuses_group_roles() {
                 view_as: true,
                 read_only: true,
                 display_name: None,
+                feature_grants: Vec::new(),
                 issued_at: OffsetDateTime::now_utc(),
             },
             AccessScope::legacy_org(OrgId::knl()),
-            vec!["group_admin".to_owned()],
+            vec!["GROUP_ADMIN".to_owned()],
         )
         .unwrap_err();
 
@@ -207,6 +366,9 @@ fn access_scope_claims_must_be_a_complete_pair() {
         scope_level: Some(AccessScopeLevel::Org),
         scope_node: None,
         group_roles: Vec::new(),
+        tenant_context: None,
+        group_context_id: None,
+        feature_grants: Vec::new(),
         alg: "ES256".to_owned(),
     };
 

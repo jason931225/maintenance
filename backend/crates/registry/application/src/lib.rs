@@ -6,7 +6,7 @@
 
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, CustomerId, EquipmentId,
-    EquipmentSubstitutionId, KernelError, SiteId, Timestamp, TraceContext, UserId,
+    EquipmentSubstitutionId, KernelError, SiteId, Timestamp, TraceContext, UserId, WorkOrderId,
 };
 use mnt_registry_domain::{EquipmentNo, EquipmentStatus, MoneyWon, SubstituteMatchKind, Ton};
 use time::{Date, OffsetDateTime};
@@ -409,6 +409,133 @@ pub struct EquipmentListPage {
     pub total: i64,
     pub limit: i64,
     pub offset: i64,
+}
+
+/// Branch-scoped read of one equipment row by id.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EquipmentReadQuery {
+    /// Principal-resolved branch scope. Never caller-supplied.
+    pub branch_scope: BranchScope,
+    /// Equipment id from the route path.
+    pub equipment_id: EquipmentId,
+}
+
+/// Branch-scoped read of one equipment object's lifecycle ribbon and
+/// customer→site→equipment→work-order relationship graph.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EquipmentTimelineGraphQuery {
+    /// Principal-resolved branch scope. Never caller-supplied.
+    pub branch_scope: BranchScope,
+    /// Equipment id from the route path.
+    pub equipment_id: EquipmentId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EquipmentTimelineGraph {
+    pub equipment: EquipmentTimelineEquipment,
+    pub lifecycle_events: Vec<EquipmentLifecycleEvent>,
+    pub graph: EquipmentRelationshipGraph,
+    pub work_order_count: i64,
+    pub cost_ledger_total_won: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EquipmentTimelineEquipment {
+    pub equipment_id: EquipmentId,
+    pub branch_id: BranchId,
+    pub equipment_no: String,
+    pub management_no: Option<String>,
+    pub status: EquipmentStatus,
+    pub model: Option<String>,
+    pub maker: Option<String>,
+    pub customer_id: CustomerId,
+    pub customer_name: String,
+    pub site_id: SiteId,
+    pub site_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EquipmentLifecycleEvent {
+    pub id: String,
+    pub kind: String,
+    pub label: String,
+    pub description: Option<String>,
+    pub event_date: Option<Date>,
+    pub occurred_at: Option<OffsetDateTime>,
+    pub href: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EquipmentRelationshipGraph {
+    pub nodes: Vec<EquipmentGraphNode>,
+    pub edges: Vec<EquipmentGraphEdge>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EquipmentGraphNode {
+    pub id: String,
+    pub node_type: String,
+    pub label: String,
+    pub subtitle: Option<String>,
+    pub href: Option<String>,
+    pub current: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EquipmentGraphEdge {
+    pub from: String,
+    pub to: String,
+    pub kind: String,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EquipmentTimelineBase {
+    pub equipment_id: EquipmentId,
+    pub branch_id: BranchId,
+    pub equipment_no: String,
+    pub management_no: Option<String>,
+    pub status: EquipmentStatus,
+    pub model: Option<String>,
+    pub maker: Option<String>,
+    pub customer_id: CustomerId,
+    pub customer_name: String,
+    pub site_id: SiteId,
+    pub site_name: String,
+    pub asset_registered_on: Option<Date>,
+    pub rental_started_on: Option<Date>,
+    pub acquisition_date: Option<Date>,
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EquipmentTimelineWorkOrder {
+    pub id: WorkOrderId,
+    pub request_no: String,
+    pub status: String,
+    pub priority: String,
+    pub symptom: String,
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+    pub target_due_at: Option<OffsetDateTime>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EquipmentTimelineSubstitution {
+    pub id: EquipmentSubstitutionId,
+    pub source_equipment_id: EquipmentId,
+    pub substitute_equipment_id: EquipmentId,
+    pub assignment_location: String,
+    pub assigned_at: OffsetDateTime,
+    pub returned_at: Option<OffsetDateTime>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EquipmentCostLedgerSummary {
+    pub entry_count: i64,
+    pub total_won: i64,
+    pub latest_entry_at: Option<OffsetDateTime>,
 }
 
 /// Branch-scoped read of the dispatch map's per-site equipment aggregation.

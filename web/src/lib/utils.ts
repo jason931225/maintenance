@@ -3,6 +3,7 @@ import { twMerge } from "tailwind-merge";
 
 import type { WorkOrderListItem } from "../api/types";
 import { ko } from "../i18n/ko";
+import { toneBadgeClass } from "./semantic";
 
 /** Work-order priority codes (`P1`/`P2`/`P3`/`OUTSOURCE`/`UNSET`). */
 type Priority = WorkOrderListItem["priority"];
@@ -116,14 +117,14 @@ export function priorityLabel(priority: Priority): string {
 export function priorityClass(priority: Priority): string {
   switch (priority) {
     case "P1":
-      return "border-red-300 bg-red-50 text-red-800";
+      return toneBadgeClass("danger");
     case "P2":
-      return "border-amber-300 bg-amber-50 text-amber-900";
+      return toneBadgeClass("warning");
     case "P3":
-      return "border-brand-teal/30 bg-brand-teal/10 text-brand-teal";
+      return toneBadgeClass("success");
     case "OUTSOURCE":
-      return "border-sky-300 bg-sky-50 text-sky-800";
+      return toneBadgeClass("info");
     case "UNSET":
-      return "border-line bg-muted-panel text-steel";
+      return toneBadgeClass("neutral");
   }
 }

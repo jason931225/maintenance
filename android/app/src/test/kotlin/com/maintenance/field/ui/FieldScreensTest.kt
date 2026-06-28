@@ -147,6 +147,58 @@ class FieldScreensTest {
         assertEquals(FieldFixtures.urgentWorkOrder, selected)
     }
 
+
+    // --- WorkHubScreen ---------------------------------------------------------------
+
+    @Test
+    fun workHubScreen_rendersPolicyAwareCollaborationSummary() {
+        composeTestRule.enableAccessibilityChecks()
+        composeTestRule.setContent {
+            FieldTheme {
+                WorkHubScreen(
+                    summary = WorkHubSummary.build(
+                        today = FieldFixtures.todayOrders,
+                        messengerState = FieldFixtures.populatedMessengerState(),
+                        gpsMayCollect = true,
+                    ),
+                    busy = false,
+                    onRefresh = {},
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithText("업무 허브").assertIsDisplayed()
+        composeTestRule.onNodeWithText("오늘 작업 2건").assertIsDisplayed()
+        composeTestRule.onNodeWithText("긴급 작업 1건").assertIsDisplayed()
+        composeTestRule.onNodeWithText("목표일 있는 작업 1건").assertIsDisplayed()
+        composeTestRule.onNodeWithText("민감한 승인·서명은 패스키 확인 후 처리").assertIsDisplayed()
+        composeTestRule.onNode(hasScrollAction()).performScrollToNode(hasText("메신저 대화방 1개"))
+        composeTestRule.onNodeWithText("메신저 대화방 1개").assertIsDisplayed()
+        composeTestRule.onNode(hasScrollAction()).performScrollToNode(hasText("회사 메일은 MailUse 권한과 기기 보안 상태가 확인된 뒤 모바일 수신함으로 표시합니다."))
+        composeTestRule.onNodeWithText("회사 메일은 MailUse 권한과 기기 보안 상태가 확인된 뒤 모바일 수신함으로 표시합니다.").assertIsDisplayed()
+        composeTestRule.onNode(hasScrollAction()).performScrollToNode(hasText("폴·서베이는 대상 범위, 익명성, 마감, 감사 정책이 정해진 경우에만 발행합니다."))
+        composeTestRule.onNodeWithText("폴·서베이는 대상 범위, 익명성, 마감, 감사 정책이 정해진 경우에만 발행합니다.").assertIsDisplayed()
+    }
+
+    @Test
+    fun workHubSummary_capturesVisibleNativeWorkContextOnly() {
+        val approvalOrder = FieldFixtures.urgentWorkOrder.copy(
+            status = com.maintenance.api.client.model.WorkOrderStatus.ADMIN_REVIEW,
+        )
+        val summary = WorkHubSummary.build(
+            today = listOf(approvalOrder, FieldFixtures.pendingWorkOrder),
+            messengerState = FieldFixtures.populatedMessengerState(),
+            gpsMayCollect = true,
+        )
+
+        assertEquals(2, summary.todayWorkCount)
+        assertEquals(1, summary.urgentWorkCount)
+        assertEquals(1, summary.approvalRelatedCount)
+        assertEquals(1, summary.pendingSyncCount)
+        assertEquals(1, summary.messengerThreadCount)
+        assertEquals(1, summary.targetDueWorkCount)
+    }
+
     // --- LoginScreen ------------------------------------------------------------------
 
     @Test

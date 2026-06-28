@@ -269,6 +269,34 @@ async fn create_equipment_rejects_non_admin(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn equipment_get_by_id_returns_master_detail_without_page_scan(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let harness = Harness::new(&pool, "SUPER_ADMIN").await;
+        let equipment_id = create_equipment(&harness, "CFO25-7790", "779").await;
+
+        let (status, body) = harness
+            .send("GET", &format!("/api/v1/equipment/{equipment_id}"), None)
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body:?}");
+        assert_eq!(body["equipment_id"].as_str(), Some(equipment_id.as_str()));
+        assert_eq!(body["equipment_no"].as_str(), Some("CFO25-7790"));
+        assert_eq!(body["management_no"].as_str(), Some("779"));
+        assert_eq!(body["customer_name"].as_str(), Some("K&L"));
+        assert_eq!(body["site_name"].as_str(), Some("케이앤엘"));
+
+        let (status, _) = harness
+            .send(
+                "GET",
+                "/api/v1/equipment/00000000-0000-4000-8000-000000000090",
+                None,
+            )
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn substitute_assign_and_return_are_audited(pool: PgPool) {
     mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
         let harness = Harness::new(&pool, "ADMIN").await;
@@ -656,6 +684,7 @@ fn issue_token(
             view_as: false,
             read_only: false,
             display_name: None,
+            feature_grants: Vec::new(),
             issued_at: OffsetDateTime::now_utc(),
         })
         .unwrap()

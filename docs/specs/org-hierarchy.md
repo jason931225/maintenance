@@ -1,7 +1,7 @@
 # Sub-Spec: ORG-HIERARCHY — Conglomerate Group → 법인 → Region → Branch → Worksite
 
 **Story:** G002 (Track B0) · **Status:** P0 schema/resolvers IMPLEMENTED (`6c7d121`); P1 AccessScope
-kernel bridge IMPLEMENTED; P2 JWT claims + principal legacy-default resolution IMPLEMENTED; P3
+kernel bridge IMPLEMENTED; P2 JWT claims + principal legacy-default + tenant-route enforcement IMPLEMENTED; P3
 consolidated-read helper IMPLEMENTED; P4a platform-operator bridge LOCAL/UNRELEASED; P4b+ tenant-tier
 group authz/API/UI/security-review scope remains open · **RLS posture:** the per-법인 `app.current_org`
 boundary is **UNCHANGED**. This spec adds a *controlled cross-entity scope above* that boundary; it never
@@ -183,6 +183,13 @@ Group id** — the `org` claim (validated as a real-tenant UUID at verify) stays
 a Group-scoped token still carries `org`=the member currently being viewed (the scope selector, §5), so
 the tenant middleware arms exactly one real org per request.
 
+Implementation hardening now applied: every tenant REST/WS principal extractor calls the shared
+`mnt_platform_request_context` resolver (or its bearer-token variant for WebSocket subprotocol auth). The
+resolver re-reads live `user_branches`, intersects that live membership with the JWT `AccessScope`, and
+rejects `AccessScope::Group` on ordinary tenant routes; group scope must use the §4 fan-out helper instead.
+`group_roles` are canonical uppercase codes only (`GROUP_ADMIN`, `GROUP_VIEWER`, `GROUP_FINANCE`) and are
+validated on issuance and verification.
+
 ## 4. THE KEYSTONE — RLS-preserving consolidated reads
 > A group-admin "one screen" view is an AGGREGATION over per-member ARMED reads. The helper iterates the
 > group's members; for EACH it opens a tenant-scoped tx, arms `app.current_org` to THAT member, runs the
@@ -274,8 +281,8 @@ tenant-isolation: only `groups` is added to the GLOBAL allowlist with a rational
 
 ## 12. Phased Implementation (each ≤~5 files, mnt_rt tests, separate review pass)
 P0 schema + identity resolver (0060, done) → P1 AccessScope kernel type + BranchScope bridge (pure-logic,
-done in `mnt-kernel-core`) → P2 claims + login resolution + legacy default (done in `mnt-platform-auth` /
-principal adapters) → P3 consolidated-read helper (`platform/group`, done) → P4a platform-operator bridge
+done in `mnt-kernel-core`) → P2 claims + login resolution + live branch-scope intersection + legacy default
+(done in `mnt-platform-auth` / shared principal resolver / tenant REST+WS adapters) → P3 consolidated-read helper (`platform/group`, done) → P4a platform-operator bridge
 (local/unreleased: audited single-tenant management context + platform group/org scope filters) → P4b
 tenant-tier group authz + group-role principal extension + conjunctive marking → P5 REST
 consolidated/switch-context/cross-entity + audited grant endpoint → P6 tenant group scope selector and org

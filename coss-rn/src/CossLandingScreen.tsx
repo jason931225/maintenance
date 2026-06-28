@@ -19,6 +19,7 @@ import {
   useWindowDimensions,
   View,
   type ImageSourcePropType,
+  type TextStyle,
 } from 'react-native';
 
 import footerLogoAsset from './assets/footer-logo.png';
@@ -31,14 +32,28 @@ import businessFactoryAsset from './assets/source/business-factory.jpg';
 import businessLogisticsAsset from './assets/source/business-logistics.jpg';
 import businessProductionAsset from './assets/source/business-production.jpg';
 import contactPhotoAsset from './assets/source/contact.jpg';
-import contactLogo1Asset from './assets/source/contact-logo-1.png';
-import contactLogo2Asset from './assets/source/contact-logo-2.png';
-import contactLogo3Asset from './assets/source/contact-logo-3.jpg';
-import contactLogo4Asset from './assets/source/contact-logo-4.png';
-import contactLogo5Asset from './assets/source/contact-logo-5.png';
-import contactLogo6Asset from './assets/source/contact-logo-6.png';
-import contactLogo7Asset from './assets/source/contact-logo-7.png';
-import contactLogo8Asset from './assets/source/contact-logo-8.png';
+import contactLogoSource01Asset from './assets/source/contact-logo-source-01.png';
+import contactLogoSource02Asset from './assets/source/contact-logo-source-02.png';
+import contactLogoSource03Asset from './assets/source/contact-logo-source-03.jpg';
+import contactLogoSource04Asset from './assets/source/contact-logo-source-04.png';
+import contactLogoSource05Asset from './assets/source/contact-logo-source-05.png';
+import contactLogoSource06Asset from './assets/source/contact-logo-source-06.png';
+import contactLogoSource07Asset from './assets/source/contact-logo-source-07.png';
+import contactLogoSource08Asset from './assets/source/contact-logo-source-08.png';
+import contactLogoSource09Asset from './assets/source/contact-logo-source-09.png';
+import contactLogoSource10Asset from './assets/source/contact-logo-source-10.png';
+import contactLogoSource11Asset from './assets/source/contact-logo-source-11.png';
+import contactLogoSource12Asset from './assets/source/contact-logo-source-12.png';
+import contactLogoSource13Asset from './assets/source/contact-logo-source-13.png';
+import contactLogoSource14Asset from './assets/source/contact-logo-source-14.png';
+import contactLogoSource15Asset from './assets/source/contact-logo-source-15.jpg';
+import contactLogoSource16Asset from './assets/source/contact-logo-source-16.jpg';
+import contactLogoSource17Asset from './assets/source/contact-logo-source-17.jpg';
+import contactLogoSource18Asset from './assets/source/contact-logo-source-18.jpg';
+import contactLogoSource19Asset from './assets/source/contact-logo-source-19.jpg';
+import contactLogoSource20Asset from './assets/source/contact-logo-source-20.jpg';
+import contactLogoSource21Asset from './assets/source/contact-logo-source-21.jpg';
+import sustainabilityBgAsset from './assets/source/sustainability-bg.jpg';
 import sustainLeft1Asset from './assets/source/sustain-left-1.jpg';
 import sustainLeft2Asset from './assets/source/sustain-left-2.jpg';
 import sustainLeft3Asset from './assets/source/sustain-left-3.jpg';
@@ -71,6 +86,14 @@ const colors = {
   line: '#d8dde4',
 };
 
+const webOutlineTextStyle =
+  Platform.OS === 'web'
+    ? ({
+        WebkitTextStroke: '1.25px rgba(255,255,255,0.58)',
+        color: 'transparent',
+      } as unknown as TextStyle)
+    : null;
+
 const images = {
   logo: imageSource(logoAsset),
   footerLogo: imageSource(footerLogoAsset),
@@ -88,14 +111,28 @@ const images = {
   sustainRight2: imageSource(sustainRight2Asset),
   sustainRight3: imageSource(sustainRight3Asset),
   contact: imageSource(contactPhotoAsset),
-  contactLogo1: imageSource(contactLogo1Asset),
-  contactLogo2: imageSource(contactLogo2Asset),
-  contactLogo3: imageSource(contactLogo3Asset),
-  contactLogo4: imageSource(contactLogo4Asset),
-  contactLogo5: imageSource(contactLogo5Asset),
-  contactLogo6: imageSource(contactLogo6Asset),
-  contactLogo7: imageSource(contactLogo7Asset),
-  contactLogo8: imageSource(contactLogo8Asset),
+  sustainabilityBg: imageSource(sustainabilityBgAsset),
+  contactLogo01: imageSource(contactLogoSource01Asset),
+  contactLogo02: imageSource(contactLogoSource02Asset),
+  contactLogo03: imageSource(contactLogoSource03Asset),
+  contactLogo04: imageSource(contactLogoSource04Asset),
+  contactLogo05: imageSource(contactLogoSource05Asset),
+  contactLogo06: imageSource(contactLogoSource06Asset),
+  contactLogo07: imageSource(contactLogoSource07Asset),
+  contactLogo08: imageSource(contactLogoSource08Asset),
+  contactLogo09: imageSource(contactLogoSource09Asset),
+  contactLogo10: imageSource(contactLogoSource10Asset),
+  contactLogo11: imageSource(contactLogoSource11Asset),
+  contactLogo12: imageSource(contactLogoSource12Asset),
+  contactLogo13: imageSource(contactLogoSource13Asset),
+  contactLogo14: imageSource(contactLogoSource14Asset),
+  contactLogo15: imageSource(contactLogoSource15Asset),
+  contactLogo16: imageSource(contactLogoSource16Asset),
+  contactLogo17: imageSource(contactLogoSource17Asset),
+  contactLogo18: imageSource(contactLogoSource18Asset),
+  contactLogo19: imageSource(contactLogoSource19Asset),
+  contactLogo20: imageSource(contactLogoSource20Asset),
+  contactLogo21: imageSource(contactLogoSource21Asset),
 };
 
 const navItems: readonly Extract<
@@ -247,14 +284,27 @@ const sustainabilityRightImages = [
 ] as const;
 
 const contactLogoImages = [
-  images.contactLogo1,
-  images.contactLogo2,
-  images.contactLogo3,
-  images.contactLogo4,
-  images.contactLogo5,
-  images.contactLogo6,
-  images.contactLogo7,
-  images.contactLogo8,
+  images.contactLogo07,
+  images.contactLogo08,
+  images.contactLogo09,
+  images.contactLogo10,
+  images.contactLogo11,
+  images.contactLogo12,
+  images.contactLogo13,
+  images.contactLogo14,
+  images.contactLogo01,
+  images.contactLogo02,
+  images.contactLogo03,
+  images.contactLogo04,
+  images.contactLogo05,
+  images.contactLogo06,
+  images.contactLogo15,
+  images.contactLogo16,
+  images.contactLogo17,
+  images.contactLogo18,
+  images.contactLogo19,
+  images.contactLogo20,
+  images.contactLogo21,
 ] as const;
 
 const footerGroups = [
@@ -278,6 +328,7 @@ const footerGroups = [
     '사이트맵',
   ],
 ] as const;
+const footerPrimaryGroups = footerGroups.slice(0, 4);
 
 const fullpageAnchors = [
   '',
@@ -724,6 +775,7 @@ export function CossLandingScreen() {
 
   const activeHero = heroSlides[activeHeroIndex];
   const activeBusiness = businessItems[activeBusinessIndex];
+  const heroVideoUri = isWeb ? cossHeroVideo.publicUri : cossHeroVideo.legacyUri;
   const visibleRecruitItems = useMemo(
     () => [
       recruitItems[shiftedIndex(activeRecruitIndex, -1, recruitItems.length)],
@@ -732,6 +784,12 @@ export function CossLandingScreen() {
     ],
     [activeRecruitIndex],
   );
+  const visibleBusinessItems = useMemo(
+    () => (isWide ? [...businessItems.slice(1), businessItems[0]] : businessItems),
+    [isWide],
+  );
+  const isLightHeaderFrame =
+    activeFrameIndex === 1 || activeFrameIndex === 3 || activeFrameIndex === 4;
 
   const heroRevealStyle = {
     opacity: heroReveal,
@@ -875,7 +933,7 @@ export function CossLandingScreen() {
                 paused={false}
                 repeat
                 resizeMode="cover"
-                source={{ uri: cossHeroVideo.legacyUri }}
+                source={{ uri: heroVideoUri }}
                 style={styles.heroVideo}
               />
             </Animated.View>
@@ -903,6 +961,7 @@ export function CossLandingScreen() {
                       style={[
                         styles.ghostTitle,
                         isWide && styles.ghostTitleWide,
+                        webOutlineTextStyle,
                       ]}
                     >
                       {activeHero.outlineTitle}
@@ -1116,12 +1175,17 @@ export function CossLandingScreen() {
                   isWide && styles.businessGridWide,
                 ]}
               >
-                {businessItems.map((item, index) => (
+                {visibleBusinessItems.map(item => {
+                  const sourceIndex = businessItems.findIndex(
+                    businessItem => businessItem.no === item.no,
+                  );
+
+                  return (
                   <Pressable
                     key={item.no}
                     accessibilityRole="button"
                     accessibilityLabel={`Business route ${item.no}: ${item.title}`}
-                    onPress={() => setActiveBusinessIndex(index)}
+                    onPress={() => setActiveBusinessIndex(sourceIndex)}
                     style={({ pressed }) => [
                       styles.businessPressable,
                       pressed && styles.pressed,
@@ -1145,7 +1209,7 @@ export function CossLandingScreen() {
                         style={[
                           styles.businessCard,
                           isWide && styles.businessCardWide,
-                          index === activeBusinessIndex &&
+                          sourceIndex === activeBusinessIndex &&
                             styles.businessCardActive,
                         ]}
                         imageStyle={[
@@ -1168,8 +1232,10 @@ export function CossLandingScreen() {
                       </ImageBackground>
                     </View>
                   </Pressable>
-                ))}
+                  );
+                })}
               </ScrollView>
+              {isWide ? <View style={styles.businessRailLine} /> : null}
             </Animated.View>
           </View>
 
@@ -1182,10 +1248,16 @@ export function CossLandingScreen() {
             ]}
           >
             {isWide ? (
+              <Image
+                source={images.sustainabilityBg}
+                resizeMode="cover"
+                style={styles.sustainabilityBackdrop}
+              />
+            ) : null}
+            {isWide ? (
               <>
                 <View
-                  pointerEvents="none"
-                  style={[
+                    style={[
                     styles.sustainabilityColumn,
                     styles.sustainabilityColumnLeft,
                   ]}
@@ -1200,8 +1272,7 @@ export function CossLandingScreen() {
                   ))}
                 </View>
                 <View
-                  pointerEvents="none"
-                  style={[
+                    style={[
                     styles.sustainabilityColumn,
                     styles.sustainabilityColumnRight,
                   ]}
@@ -1217,7 +1288,12 @@ export function CossLandingScreen() {
                 </View>
               </>
             ) : null}
-            <View style={styles.sustainabilityCenterPanel}>
+            <View
+              style={[
+                styles.sustainabilityCenterPanel,
+                isWide && styles.sustainabilityCenterPanelWide,
+              ]}
+            >
               <Text style={styles.sustainabilityEyebrow}>SUSTAINABILITY</Text>
               <Text style={styles.sustainabilityTitle}>
                 행동과 혁신으로 더 나은 세상을 만듭니다
@@ -1271,30 +1347,45 @@ export function CossLandingScreen() {
                   문의사항을 남겨주시면 담당자가 영업일 1일 이내로
                   연락드리겠습니다.
                 </Text>
-                <LinkButton url="mailto:cossok@cosskorea.com" variant="blue">
-                  사업 문의하기
-                </LinkButton>
+                <Pressable
+                  accessibilityRole="link"
+                  accessibilityLabel="사업 문의하기"
+                  onPress={() => openExternal('mailto:cossok@cosskorea.com')}
+                  style={({ pressed }) => [
+                    styles.contactMoreButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.contactMoreButtonText}>사업 문의하기</Text>
+                  <Text style={styles.contactMoreDot}>•</Text>
+                </Pressable>
               </View>
             </ImageBackground>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.contactLogoBand}
-            >
-              {[...contactLogoImages, ...contactLogoImages].map(
-                (source, index) => (
-                  <View key={`logo-${index}`} style={styles.contactLogoCard}>
-                    <Image
-                      source={source}
-                      resizeMode="contain"
-                      style={styles.contactLogoImage}
-                    />
-                  </View>
-                ),
-              )}
-            </ScrollView>
+            <View style={styles.contactLogoViewport}>
+              <View
+                style={[
+                  styles.contactLogoBand,
+                  isWide &&
+                    (activeFrameIndex >= 4
+                      ? styles.contactLogoBandFooterFrame
+                      : styles.contactLogoBandContactFrame),
+                ]}
+              >
+                {[...contactLogoImages, ...contactLogoImages].map(
+                  (source, index) => (
+                    <View key={`logo-${index}`} style={styles.contactLogoCard}>
+                      <Image
+                        source={source}
+                        resizeMode="contain"
+                        style={styles.contactLogoImage}
+                      />
+                    </View>
+                  ),
+                )}
+              </View>
+            </View>
             <Text pointerEvents="none" style={styles.contactGhostWord}>
-              COSS
+              CONTACT US
             </Text>
           </View>
 
@@ -1303,23 +1394,11 @@ export function CossLandingScreen() {
             style={[
               styles.footer,
               isWide && styles.footerWide,
-              { minHeight: footerFrameHeight },
+              { height: footerFrameHeight },
             ]}
           >
-            <Image
-              source={images.footerLogo}
-              resizeMode="contain"
-              style={styles.footerLogo}
-              accessibilityLabel="coss"
-            />
-            <Text style={styles.footerInfo}>
-              (주)코스 (COSS){`\n`}회사명 : (주)코스{`\n`}대표자 : 고광민{`\n`}
-              주소 : 경남 창원시 의창구 의창대로 54번길 1 (금복빌딩 7층){`\n`}
-              TEL : 055-253-2720 FAX : 055-294-0156{`\n`}E-mail :
-              cossok@cosskorea.com
-            </Text>
             <View style={styles.footerGroups}>
-              {footerGroups.map(([title, ...links]) => (
+              {footerPrimaryGroups.map(([title, ...links]) => (
                 <View key={title} style={styles.footerGroup}>
                   <Text style={styles.footerGroupTitle}>{title}</Text>
                   {links.map(link => (
@@ -1330,6 +1409,30 @@ export function CossLandingScreen() {
                 </View>
               ))}
             </View>
+            <View style={styles.footerLegal}>
+              <View style={styles.footerBrandColumn}>
+                <Image
+                  source={images.footerLogo}
+                  resizeMode="contain"
+                  style={styles.footerLogo}
+                  accessibilityLabel="coss"
+                />
+                <Text style={styles.copyright}>
+                  COPYRIGHT © 2024 coss. ALL RIGHTS RESERVED.
+                </Text>
+                <Text style={styles.footerDomainText}>
+                  (주)코스 (COSS)  |  www.cosskorea.com
+                </Text>
+              </View>
+              <Text style={styles.footerInfo}>
+                회사명 : (주)코스     |     주소 : 경남창원시 의창구 의창대로
+                54번길 1 (금복빌딩 7층){`
+`}
+                TEL : 055-253-2720     |     FAX : 055-294-0156     |     E-mail :
+                cossok@cosskorea.com
+              </Text>
+              <Text style={styles.privacyLink}>개인정보취급방침</Text>
+            </View>
             <View style={styles.footerSiteTools}>
               <PageSelector
                 selectedPage={selectedPage}
@@ -1338,9 +1441,6 @@ export function CossLandingScreen() {
               <PageDetail page={selectedPage} />
               <MigrationMap />
             </View>
-            <Text style={styles.copyright}>
-              COPYRIGHT © 2024 coss. ALL RIGHTS RESERVED.
-            </Text>
             <View style={styles.domainRow}>
               <LinkButton url="https://www.cosskorea.com/">
                 www.cosskorea.com
@@ -1357,6 +1457,7 @@ export function CossLandingScreen() {
           styles.headerBar,
           styles.headerBarFixed,
           isWide && styles.headerBarWide,
+          activeFrameIndex === 4 && styles.headerBarWhiteFrame,
         ]}
       >
         <Image
@@ -1365,15 +1466,17 @@ export function CossLandingScreen() {
           style={[
             styles.logo,
             isWide && styles.logoWide,
-            activeFrameIndex === 1 ||
-            activeFrameIndex === 3 ||
-            activeFrameIndex === 4
-              ? styles.logoLightFrame
-              : styles.logoDarkFrame,
+            isLightHeaderFrame ? styles.logoLightFrame : styles.logoDarkFrame,
           ]}
           accessibilityLabel="coss"
         />
-        <View style={[styles.navRow, isWide && styles.navRowWide]}>
+        <View
+          style={[
+            styles.navRow,
+            isWide && styles.navRowWide,
+            activeFrameIndex === 2 && styles.navRowHiddenFrame,
+          ]}
+        >
           {navItems.map(item => (
             <Pressable
               key={item}
@@ -1390,10 +1493,7 @@ export function CossLandingScreen() {
               <Text
                 style={[
                   styles.navText,
-                  (activeFrameIndex === 1 ||
-                    activeFrameIndex === 3 ||
-                    activeFrameIndex === 4) &&
-                    styles.navTextLightFrame,
+                  isLightHeaderFrame && styles.navTextLightFrame,
                 ]}
               >
                 {item}
@@ -1411,33 +1511,29 @@ export function CossLandingScreen() {
             <Text
               style={[
                 styles.languageText,
-                (activeFrameIndex === 1 ||
-                  activeFrameIndex === 3 ||
-                  activeFrameIndex === 4) &&
-                  styles.languageTextLightFrame,
+                isLightHeaderFrame && styles.languageTextLightFrame,
               ]}
             >
               ◎⌄
             </Text>
           </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Open COSS mobile menu"
-            onPress={() => setMobileMenuOpen(true)}
-            style={styles.mobileMenuButton}
-          >
-            <Text
-              style={[
-                styles.mobileMenuButtonText,
-                (activeFrameIndex === 1 ||
-                  activeFrameIndex === 3 ||
-                  activeFrameIndex === 4) &&
-                  styles.mobileMenuButtonTextLightFrame,
-              ]}
+          {!isWide ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open COSS mobile menu"
+              onPress={() => setMobileMenuOpen(true)}
+              style={styles.mobileMenuButton}
             >
-              ☰
-            </Text>
-          </Pressable>
+              <Text
+                style={[
+                  styles.mobileMenuButtonText,
+                  isLightHeaderFrame && styles.mobileMenuButtonTextLightFrame,
+                ]}
+              >
+                ☰
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
 
@@ -1491,7 +1587,7 @@ const styles = StyleSheet.create({
   },
   heroImage: { opacity: 0.02 },
   fixedVideoLayer: { ...StyleSheet.absoluteFill },
-  heroVideo: { ...StyleSheet.absoluteFill, opacity: 1 },
+  heroVideo: { ...StyleSheet.absoluteFill, opacity: 1.08 },
   heroVideoAtmosphere: {
     position: 'absolute',
     top: 150,
@@ -1503,7 +1599,7 @@ const styles = StyleSheet.create({
   },
   heroScrim: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(0,0,0,0.16)',
+    backgroundColor: 'rgba(0,0,0,0.08)',
   },
   headerBar: {
     minHeight: 60,
@@ -1516,16 +1612,19 @@ const styles = StyleSheet.create({
   },
   headerBarWide: { minHeight: 100, paddingHorizontal: 24, paddingVertical: 26 },
   headerBarFixed: { position: 'absolute', top: 0, left: 0, right: 0 },
+  headerBarWhiteFrame: { backgroundColor: colors.white },
   logo: { width: 72, height: 24 },
   logoDarkFrame: { tintColor: colors.white },
-  logoLightFrame: { tintColor: '#1258b8' },
+  logoLightFrame: { tintColor: '#17306f' },
   logoWide: { width: 142, height: 44 },
   navRow: { display: 'none' },
+  navRowHiddenFrame: { opacity: 0 },
   navRowWide: {
     display: 'flex',
     flexDirection: 'row',
     gap: 58,
     alignItems: 'center',
+    transform: [{ translateX: -38 }],
   },
   navButton: { minHeight: 36, justifyContent: 'center' },
   navText: { color: colors.white, fontSize: 17, fontWeight: '900' },
@@ -1605,14 +1704,14 @@ const styles = StyleSheet.create({
   heroBody: { paddingHorizontal: 20, paddingTop: 514 },
   heroBodyWide: { paddingHorizontal: 74, paddingTop: 468 },
   ghostTitle: {
-    color: 'rgba(255,255,255,0.08)',
+    color: 'rgba(255,255,255,0.004)',
     fontSize: 30,
     lineHeight: 33,
     fontWeight: '900',
     letterSpacing: -1.6,
-    textShadowColor: 'rgba(255,255,255,0.72)',
+    textShadowColor: 'rgba(255,255,255,0.08)',
     textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 1,
+    textShadowRadius: 0,
   },
   ghostTitleWide: { fontSize: 76, lineHeight: 82, letterSpacing: -4.8 },
   partnerTitle: {
@@ -1648,6 +1747,7 @@ const styles = StyleSheet.create({
     bottom: 330,
     gap: 16,
     maxWidth: 520,
+    opacity: 0,
   },
   progressItem: { flex: 1, minHeight: 30, justifyContent: 'flex-end' },
   progressNumber: {
@@ -1804,7 +1904,7 @@ const styles = StyleSheet.create({
   section: {
     paddingHorizontal: 22,
     paddingVertical: 76,
-    backgroundColor: colors.white,
+    backgroundColor: '#f4f4f7',
   },
   sectionWide: {
     flexDirection: 'row',
@@ -1880,12 +1980,20 @@ const styles = StyleSheet.create({
     fontWeight: '300',
   },
   businessMotion: { marginTop: 34 },
-  businessMotionWide: { flex: 1, marginTop: 0 },
+  businessMotionWide: { flex: 1, marginTop: 0, position: 'relative' },
   businessMotionSourceOffset: {
-    transform: [{ translateX: -304 }, { translateY: -74 }],
+    transform: [{ translateX: 0 }, { translateY: -74 }],
   },
   businessGrid: { gap: 16, paddingRight: 22 },
   businessGridWide: { gap: 28, paddingRight: 56 },
+  businessRailLine: {
+    position: 'absolute',
+    left: 0,
+    bottom: -68,
+    width: 265,
+    height: 1,
+    backgroundColor: 'rgba(17,20,23,0.38)',
+  },
   businessPressable: { borderRadius: 30 },
   businessCardShell: { width: 238 },
   businessCardShellWide: { width: 265, height: 411 },
@@ -2111,21 +2219,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     paddingVertical: 0,
   },
+  sustainabilityBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: '25%',
+    right: '25%',
+    height: 274,
+  },
   sustainabilityColumn: {
     position: 'absolute',
-    top: -180,
+    top: -312,
     width: 360,
     gap: 12,
   },
   sustainabilityColumnLeft: { left: 0 },
-  sustainabilityColumnRight: { right: 0, top: -88 },
+  sustainabilityColumnRight: { right: 0, top: -335 },
   sustainabilityColumnImage: { width: 360, height: 456 },
   sustainabilityCenterPanel: {
     zIndex: 2,
     alignItems: 'center',
     maxWidth: 560,
     paddingHorizontal: 22,
+    transform: [{ translateY: -38 }],
   },
+  sustainabilityCenterPanelWide: { opacity: 0 },
   sustainabilityEyebrow: {
     color: colors.ink,
     fontSize: 42,
@@ -2211,7 +2328,7 @@ const styles = StyleSheet.create({
   contactPhotoImage: { borderRadius: 26 },
   contactPhotoScrim: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(255,255,255,0.52)',
+    backgroundColor: 'rgba(255,255,255,0.24)',
   },
   contactPhotoContent: {
     width: 690,
@@ -2219,7 +2336,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   contactOverlayTitle: {
-    color: 'rgba(255,255,255,0.58)',
+    color: 'rgba(255,255,255,0.20)',
     fontSize: 56,
     lineHeight: 64,
     fontWeight: '900',
@@ -2227,19 +2344,58 @@ const styles = StyleSheet.create({
   },
   contactOverlayCopy: {
     marginTop: 26,
-    color: 'rgba(255,255,255,0.55)',
+    color: 'rgba(255,255,255,0.28)',
     fontSize: 24,
     lineHeight: 36,
     fontWeight: '900',
     letterSpacing: -0.8,
     textAlign: 'center',
   },
+  contactMoreButton: {
+    marginTop: 42,
+    minWidth: 272,
+    minHeight: 64,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.72)',
+    backgroundColor: 'rgba(255,255,255,0.86)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 26,
+  },
+  contactMoreButtonText: {
+    color: '#276fff',
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '900',
+    letterSpacing: -0.3,
+  },
+  contactMoreDot: {
+    color: '#276fff',
+    fontSize: 24,
+    lineHeight: 25,
+    fontWeight: '900',
+  },
+  contactLogoViewport: {
+    zIndex: 4,
+    width: '100%',
+    height: 138,
+    marginTop: 68,
+    overflow: 'hidden',
+  },
   contactLogoBand: {
     zIndex: 4,
-    marginTop: 68,
+    flexDirection: 'row',
     gap: 30,
     paddingHorizontal: 0,
     paddingRight: 30,
+  },
+  contactLogoBandContactFrame: {
+    transform: [{ translateX: -140 }],
+  },
+  contactLogoBandFooterFrame: {
+    transform: [{ translateX: -265 }],
   },
   contactLogoCard: {
     width: 275,
@@ -2252,10 +2408,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 24,
   },
-  contactLogoImage: { width: '100%', height: 58 },
+  contactLogoImage: { width: 180, height: 70 },
   contactGhostWord: {
     position: 'absolute',
-    left: -42,
+    left: -196,
     bottom: -55,
     zIndex: 1,
     color: 'rgba(47,121,255,0.035)',
@@ -2283,33 +2439,80 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 22,
     paddingVertical: 56,
-    backgroundColor: colors.ink,
+    backgroundColor: colors.white,
+    overflow: 'hidden',
   },
-  footerWide: { paddingHorizontal: 70, paddingVertical: 58 },
-  footerSiteTools: { marginTop: 34, overflow: 'hidden', borderRadius: 28 },
-  footerLogo: { width: 100, height: 30, tintColor: colors.white },
-  footerInfo: {
-    marginTop: 24,
-    color: 'rgba(255,255,255,0.66)',
-    fontSize: 14,
-    lineHeight: 25,
-    fontWeight: '700',
+  footerWide: {
+    paddingHorizontal: 20,
+    paddingTop: 70,
+    paddingBottom: 64,
   },
-  footerGroups: { marginTop: 34, gap: 22 },
-  footerGroup: { gap: 7 },
-  footerGroupTitle: { color: colors.white, fontSize: 14, fontWeight: '900' },
-  footerLink: {
-    color: 'rgba(255,255,255,0.62)',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  copyright: {
+  footerSiteTools: {
     marginTop: 34,
-    color: 'rgba(255,255,255,0.48)',
+    maxHeight: 0,
+    overflow: 'hidden',
+    opacity: 0,
+  },
+  footerLogo: { width: 141, height: 35, tintColor: '#17306f' },
+  footerInfo: {
+    flex: 1,
+    color: '#6d7177',
+    fontSize: 14,
+    lineHeight: 27,
+    fontWeight: '800',
+  },
+  footerGroups: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 34,
+    paddingBottom: 54,
+  },
+  footerGroup: { flex: 1, gap: 14 },
+  footerGroupTitle: {
+    color: '#0754d9',
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '900',
+    letterSpacing: -0.3,
+  },
+  footerLink: {
+    color: '#8a8f96',
+    fontSize: 15,
+    lineHeight: 25,
+    fontWeight: '800',
+  },
+  footerLegal: {
+    minHeight: 132,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#d7dbe1',
+    paddingTop: 31,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 44,
+  },
+  footerBrandColumn: { width: 286 },
+  copyright: {
+    marginTop: 17,
+    color: '#7d8288',
     fontSize: 12,
     fontWeight: '800',
   },
-  domainRow: { marginTop: 18, gap: 10 },
+  footerDomainText: {
+    marginTop: 7,
+    color: '#8f9499',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  privacyLink: {
+    width: 150,
+    color: '#0754d9',
+    fontSize: 15,
+    lineHeight: 25,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
+  domainRow: { height: 0, marginTop: 0, overflow: 'hidden', opacity: 0 },
   mobileMenuOverlay: {
     ...StyleSheet.absoluteFill,
     zIndex: 30,

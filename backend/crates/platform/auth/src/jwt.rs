@@ -51,7 +51,21 @@ pub struct AccessTokenInput {
     /// authorization. `None` omits the claim entirely, which keeps view-as and
     /// any future operator-less mint backward compatible.
     pub display_name: Option<String>,
+    /// Runtime-effective custom-role feature keys resolved at token issuance for
+    /// client-side UI hints only. Backend authorization ignores this claim and
+    /// re-resolves effective custom-role grants from the database on every
+    /// request, so a stale token can hide or reveal UI chrome but cannot grant
+    /// access.
+    pub feature_grants: Vec<String>,
     pub issued_at: time::OffsetDateTime,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TenantAccessContext {
+    /// A short-lived tenant context minted for a live GROUP_ADMIN so they can
+    /// manage one subsidiary without becoming that tenant's SUPER_ADMIN.
+    GroupAdmin,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,6 +117,20 @@ pub struct AccessClaims {
     /// never allowed on read-only platform view-as tokens.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub group_roles: Vec<String>,
+    /// Optional delegated tenant-context marker. Ordinary tenant tokens omit it.
+    /// A `group_admin` token must carry `group_context_id`, must not carry
+    /// `SUPER_ADMIN`, and must be live-revalidated by the request-context layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant_context: Option<TenantAccessContext>,
+    /// Group id associated with a delegated group-admin tenant context.
+    /// Required only when `tenant_context = group_admin`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_context_id: Option<String>,
+    /// Runtime-effective custom-role feature keys for client-side nav/route
+    /// gating hints. These are never consulted by backend authz; request
+    /// principals resolve the live custom policy from the DB on every request.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub feature_grants: Vec<String>,
     pub alg: String,
 }
 
@@ -125,6 +153,73 @@ impl AccessClaims {
             )),
         }
     }
+}
+
+fn validate_group_roles(group_roles: &[String]) -> Result<(), AuthError> {
+    for role in group_roles {
+        match role.as_str() {
+            "GROUP_ADMIN" | "GROUP_VIEWER" | "GROUP_FINANCE" => {}
+            _ => {
+                return Err(AuthError::InvalidStoredData(format!(
+                    "unknown group role code: {role}"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_tenant_context(
+    tenant_context: Option<TenantAccessContext>,
+    group_context_id: Option<&str>,
+    roles: &[String],
+    group_roles: &[String],
+    platform: bool,
+    view_as: bool,
+    read_only: bool,
+) -> Result<(), AuthError> {
+    match tenant_context {
+        None => {
+            if group_context_id.is_some() {
+                return Err(AuthError::InvalidStoredData(
+                    "group_context_id requires tenant_context".to_owned(),
+                ));
+            }
+        }
+        Some(TenantAccessContext::GroupAdmin) => {
+            if platform || view_as || read_only {
+                return Err(AuthError::InvalidStoredData(
+                    "group-admin tenant context must be writable tenant-tier only".to_owned(),
+                ));
+            }
+            let Some(group_context_id) = group_context_id else {
+                return Err(AuthError::InvalidStoredData(
+                    "group-admin tenant context requires group_context_id".to_owned(),
+                ));
+            };
+            Uuid::parse_str(group_context_id).map_err(|_| {
+                AuthError::InvalidStoredData(
+                    "group-admin tenant context group_context_id is not a uuid".to_owned(),
+                )
+            })?;
+            if !group_roles.iter().any(|role| role == "GROUP_ADMIN") {
+                return Err(AuthError::InvalidStoredData(
+                    "group-admin tenant context requires GROUP_ADMIN group role".to_owned(),
+                ));
+            }
+            if roles.iter().any(|role| role == "SUPER_ADMIN") {
+                return Err(AuthError::InvalidStoredData(
+                    "group-admin tenant context cannot carry SUPER_ADMIN".to_owned(),
+                ));
+            }
+            if roles.len() != 1 || roles.first().map(String::as_str) != Some("ADMIN") {
+                return Err(AuthError::InvalidStoredData(
+                    "group-admin tenant context must carry only ADMIN".to_owned(),
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -168,7 +263,14 @@ impl JwtIssuer {
         input: AccessTokenInput,
         group_roles: Vec<String>,
     ) -> Result<String, AuthError> {
-        self.issue_access_token_inner(input, self.settings.access_token_ttl, None, group_roles)
+        self.issue_access_token_inner(
+            input,
+            self.settings.access_token_ttl,
+            None,
+            group_roles,
+            None,
+            None,
+        )
     }
 
     pub fn issue_scoped_access_token(
@@ -182,6 +284,28 @@ impl JwtIssuer {
             self.settings.access_token_ttl,
             Some(access_scope),
             group_roles,
+            None,
+            None,
+        )
+    }
+
+    /// Mint the short-lived tenant token used by a GROUP_ADMIN to manage one
+    /// resolver-authorized subsidiary. This is deliberately NOT a normal
+    /// SUPER_ADMIN token: downstream request context re-checks the live group
+    /// membership on every request and builds a bounded delegated principal.
+    pub fn issue_group_admin_tenant_context_access_token(
+        &self,
+        input: AccessTokenInput,
+        group_id: Uuid,
+        ttl: Duration,
+    ) -> Result<String, AuthError> {
+        self.issue_access_token_inner(
+            input,
+            ttl,
+            None,
+            vec!["GROUP_ADMIN".to_owned()],
+            Some(TenantAccessContext::GroupAdmin),
+            Some(group_id.to_string()),
         )
     }
 
@@ -198,7 +322,7 @@ impl JwtIssuer {
         input: AccessTokenInput,
         ttl: Duration,
     ) -> Result<String, AuthError> {
-        self.issue_access_token_inner(input, ttl, None, Vec::new())
+        self.issue_access_token_inner(input, ttl, None, Vec::new(), None, None)
     }
 
     fn issue_access_token_inner(
@@ -207,12 +331,24 @@ impl JwtIssuer {
         ttl: Duration,
         access_scope: Option<AccessScope>,
         group_roles: Vec<String>,
+        tenant_context: Option<TenantAccessContext>,
+        group_context_id: Option<String>,
     ) -> Result<String, AuthError> {
         if input.view_as && !group_roles.is_empty() {
             return Err(AuthError::InvalidStoredData(
                 "view-as tokens cannot carry group roles".to_owned(),
             ));
         }
+        validate_group_roles(&group_roles)?;
+        validate_tenant_context(
+            tenant_context,
+            group_context_id.as_deref(),
+            &input.roles,
+            &group_roles,
+            input.platform,
+            input.view_as,
+            input.read_only,
+        )?;
         let ttl = if ttl.is_positive() {
             ttl
         } else {
@@ -245,6 +381,9 @@ impl JwtIssuer {
             scope_level,
             scope_node,
             group_roles,
+            tenant_context,
+            group_context_id,
+            feature_grants: input.feature_grants,
             alg: "ES256".to_owned(),
         };
 
@@ -299,5 +438,15 @@ fn verify_access_token(
             "view-as tokens cannot carry group roles".to_owned(),
         ));
     }
+    validate_group_roles(&token.claims.group_roles)?;
+    validate_tenant_context(
+        token.claims.tenant_context,
+        token.claims.group_context_id.as_deref(),
+        &token.claims.roles,
+        &token.claims.group_roles,
+        token.claims.platform,
+        token.claims.view_as,
+        token.claims.read_only,
+    )?;
     Ok(token.claims)
 }

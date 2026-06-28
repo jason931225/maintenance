@@ -8,11 +8,14 @@
 //! when listing branch-scoped rows so missing scope checks are difficult to
 //! express accidentally.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 
-use mnt_kernel_core::{AccessScope, BranchId, BranchScope, KernelError, OrgId, UserId};
-use sqlx::PgPool;
+use mnt_kernel_core::{
+    AccessScope, AccessScopeLevel, BranchId, BranchProjection, BranchScope, KernelError, OrgId,
+    UserId,
+};
+use sqlx::{PgPool, Row};
 
 /// Canonical role codes stored in `users.roles`.
 #[derive(
@@ -88,7 +91,9 @@ impl FromStr for Role {
 }
 
 /// Feature/action rows from the inherited permission matrix.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Feature {
     Login,
@@ -116,6 +121,10 @@ pub enum Feature {
     UserManage,
     SubordinateUserCreate,
     ElevatedRoleGrant,
+    /// Define tenant-owned custom role policies. Initially SUPER_ADMIN-only;
+    /// custom role assignment/effective-policy publication is held behind the
+    /// policy-studio safety gates in docs/specs/rbac-configurable.md.
+    RoleManage,
     /// Create/rename regions (지역) during org setup.
     RegionManage,
     /// Create/rename branches (지점) during org setup.
@@ -169,7 +178,7 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Self; 44] = [
+    pub const ALL: [Self; 45] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -189,6 +198,7 @@ impl Feature {
         Self::UserManage,
         Self::SubordinateUserCreate,
         Self::ElevatedRoleGrant,
+        Self::RoleManage,
         Self::RegionManage,
         Self::BranchManage,
         Self::EquipmentManage,
@@ -215,6 +225,57 @@ impl Feature {
         Self::EmployeeDirectoryRead,
         Self::EmployeeDirectoryManage,
     ];
+
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Login => "login",
+            Self::WorkOrderCreate => "work_order_create",
+            Self::WorkOrderEditIntake => "work_order_edit_intake",
+            Self::WorkOrderReadAll => "work_order_read_all",
+            Self::WorkOrderStart => "work_order_start",
+            Self::WorkReportSubmit => "work_report_submit",
+            Self::EvidenceAttach => "evidence_attach",
+            Self::PriorityManage => "priority_manage",
+            Self::AssigneeManage => "assignee_manage",
+            Self::TargetManage => "target_manage",
+            Self::CompletionReview => "completion_review",
+            Self::DailyPlanRequest => "daily_plan_request",
+            Self::DailyPlanReview => "daily_plan_review",
+            Self::OrgWideQueueTriage => "org_wide_queue_triage",
+            Self::KpiRead => "kpi_read",
+            Self::KpiExclusionManage => "kpi_exclusion_manage",
+            Self::UserManage => "user_manage",
+            Self::SubordinateUserCreate => "subordinate_user_create",
+            Self::ElevatedRoleGrant => "elevated_role_grant",
+            Self::RoleManage => "role_manage",
+            Self::RegionManage => "region_manage",
+            Self::BranchManage => "branch_manage",
+            Self::EquipmentManage => "equipment_manage",
+            Self::MasterListImport => "master_list_import",
+            Self::RentalQuoteManage => "rental_quote_manage",
+            Self::EquipmentCostLedgerRead => "equipment_cost_ledger_read",
+            Self::EquipmentCostLedgerWrite => "equipment_cost_ledger_write",
+            Self::PurchaseRequestCreate => "purchase_request_create",
+            Self::PurchaseRequestRead => "purchase_request_read",
+            Self::PurchaseRequestApprove => "purchase_request_approve",
+            Self::PurchaseFinalApprove => "purchase_final_approve",
+            Self::PurchaseExecute => "purchase_execute",
+            Self::InspectionScheduleManage => "inspection_schedule_manage",
+            Self::InspectionRoundComplete => "inspection_round_complete",
+            Self::AuditLogRead => "audit_log_read",
+            Self::ExcelDownload => "excel_download",
+            Self::OpsDashboardRead => "ops_dashboard_read",
+            Self::SalesManage => "sales_manage",
+            Self::AiAssist => "ai_assist",
+            Self::IntegrityFindingsRead => "integrity_findings_read",
+            Self::IntegrityFindingTriage => "integrity_finding_triage",
+            Self::MailAccountManage => "mail_account_manage",
+            Self::MailUse => "mail_use",
+            Self::EmployeeDirectoryRead => "employee_directory_read",
+            Self::EmployeeDirectoryManage => "employee_directory_manage",
+        }
+    }
 
     const fn matrix_row(self) -> [PermissionLevel; 6] {
         use PermissionLevel::{Allow as A, Deny as D, Limited as L, RequestOnly as R};
@@ -247,6 +308,7 @@ impl Feature {
             Self::UserManage => [D, D, D, A, D, A],
             Self::SubordinateUserCreate => [D, D, D, L, D, A],
             Self::ElevatedRoleGrant => [D, D, D, D, D, A],
+            Self::RoleManage => [D, D, D, D, D, A],
             Self::RegionManage => [D, D, D, A, A, A],
             Self::BranchManage => [D, D, D, A, A, A],
             Self::EquipmentManage => [D, D, D, A, A, A],
@@ -282,6 +344,63 @@ impl Feature {
     }
 }
 
+impl FromStr for Feature {
+    type Err = KernelError;
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        match raw {
+            "login" => Ok(Self::Login),
+            "work_order_create" => Ok(Self::WorkOrderCreate),
+            "work_order_edit_intake" => Ok(Self::WorkOrderEditIntake),
+            "work_order_read_all" => Ok(Self::WorkOrderReadAll),
+            "work_order_start" => Ok(Self::WorkOrderStart),
+            "work_report_submit" => Ok(Self::WorkReportSubmit),
+            "evidence_attach" => Ok(Self::EvidenceAttach),
+            "priority_manage" => Ok(Self::PriorityManage),
+            "assignee_manage" => Ok(Self::AssigneeManage),
+            "target_manage" => Ok(Self::TargetManage),
+            "completion_review" => Ok(Self::CompletionReview),
+            "daily_plan_request" => Ok(Self::DailyPlanRequest),
+            "daily_plan_review" => Ok(Self::DailyPlanReview),
+            "org_wide_queue_triage" => Ok(Self::OrgWideQueueTriage),
+            "kpi_read" => Ok(Self::KpiRead),
+            "kpi_exclusion_manage" => Ok(Self::KpiExclusionManage),
+            "user_manage" => Ok(Self::UserManage),
+            "subordinate_user_create" => Ok(Self::SubordinateUserCreate),
+            "elevated_role_grant" => Ok(Self::ElevatedRoleGrant),
+            "role_manage" => Ok(Self::RoleManage),
+            "region_manage" => Ok(Self::RegionManage),
+            "branch_manage" => Ok(Self::BranchManage),
+            "equipment_manage" => Ok(Self::EquipmentManage),
+            "master_list_import" => Ok(Self::MasterListImport),
+            "rental_quote_manage" => Ok(Self::RentalQuoteManage),
+            "equipment_cost_ledger_read" => Ok(Self::EquipmentCostLedgerRead),
+            "equipment_cost_ledger_write" => Ok(Self::EquipmentCostLedgerWrite),
+            "purchase_request_create" => Ok(Self::PurchaseRequestCreate),
+            "purchase_request_read" => Ok(Self::PurchaseRequestRead),
+            "purchase_request_approve" => Ok(Self::PurchaseRequestApprove),
+            "purchase_final_approve" => Ok(Self::PurchaseFinalApprove),
+            "purchase_execute" => Ok(Self::PurchaseExecute),
+            "inspection_schedule_manage" => Ok(Self::InspectionScheduleManage),
+            "inspection_round_complete" => Ok(Self::InspectionRoundComplete),
+            "audit_log_read" => Ok(Self::AuditLogRead),
+            "excel_download" => Ok(Self::ExcelDownload),
+            "ops_dashboard_read" => Ok(Self::OpsDashboardRead),
+            "sales_manage" => Ok(Self::SalesManage),
+            "ai_assist" => Ok(Self::AiAssist),
+            "integrity_findings_read" => Ok(Self::IntegrityFindingsRead),
+            "integrity_finding_triage" => Ok(Self::IntegrityFindingTriage),
+            "mail_account_manage" => Ok(Self::MailAccountManage),
+            "mail_use" => Ok(Self::MailUse),
+            "employee_directory_read" => Ok(Self::EmployeeDirectoryRead),
+            "employee_directory_manage" => Ok(Self::EmployeeDirectoryManage),
+            _ => Err(KernelError::validation(format!(
+                "unknown feature key: {raw}"
+            ))),
+        }
+    }
+}
+
 /// Permission-cell semantics from the inherited Korean matrix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -293,12 +412,38 @@ pub enum PermissionLevel {
 }
 
 impl PermissionLevel {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Deny => "deny",
+            Self::RequestOnly => "request_only",
+            Self::Limited => "limited",
+            Self::Allow => "allow",
+        }
+    }
+
     const fn satisfies(self, required: Self) -> bool {
         match required {
             Self::Deny => true,
             Self::Allow => matches!(self, Self::Allow),
             Self::Limited => matches!(self, Self::Allow | Self::Limited),
             Self::RequestOnly => matches!(self, Self::Allow | Self::RequestOnly),
+        }
+    }
+}
+
+impl FromStr for PermissionLevel {
+    type Err = KernelError;
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        match raw {
+            "deny" => Ok(Self::Deny),
+            "request_only" => Ok(Self::RequestOnly),
+            "limited" => Ok(Self::Limited),
+            "allow" => Ok(Self::Allow),
+            _ => Err(KernelError::validation(format!(
+                "unknown permission level: {raw}"
+            ))),
         }
     }
 }
@@ -359,6 +504,13 @@ pub struct Principal {
     pub access_scope: AccessScope,
     pub roles: BTreeSet<Role>,
     pub branch_scope: BranchScope,
+    /// Runtime-effective grants resolved from active tenant-owned custom roles.
+    ///
+    /// These are additive to the built-in role matrix and never widen
+    /// [`Self::branch_scope`]. Resolver failures fail closed before a request
+    /// principal is built; unsupported ABAC/PBAC conditions are omitted rather
+    /// than guessed.
+    pub effective_feature_grants: Vec<EffectiveFeatureGrant>,
 }
 
 impl Principal {
@@ -375,6 +527,7 @@ impl Principal {
             access_scope: AccessScope::legacy_org(org_id),
             roles,
             branch_scope,
+            effective_feature_grants: Vec::new(),
         }
     }
 
@@ -382,6 +535,32 @@ impl Principal {
     pub const fn with_access_scope(mut self, access_scope: AccessScope) -> Self {
         self.access_scope = access_scope;
         self
+    }
+
+    #[must_use]
+    pub fn with_effective_feature_grants(mut self, grants: Vec<EffectiveFeatureGrant>) -> Self {
+        self.effective_feature_grants = grants;
+        self
+    }
+}
+
+/// One runtime-effective custom-role grant after tenant/RLS, status, feature,
+/// permission, and supported condition checks have all succeeded.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EffectiveFeatureGrant {
+    pub feature: Feature,
+    pub permission: PermissionLevel,
+    pub branch_scope: BranchScope,
+}
+
+impl EffectiveFeatureGrant {
+    #[must_use]
+    pub fn new(feature: Feature, permission: PermissionLevel, branch_scope: BranchScope) -> Self {
+        Self {
+            feature,
+            permission,
+            branch_scope,
+        }
     }
 }
 
@@ -472,6 +651,34 @@ pub fn permission_for(role: Role, feature: Feature) -> PermissionLevel {
     feature.matrix_row()[role.matrix_index()]
 }
 
+/// Authorize a principal for an org-wide feature read/action with no concrete
+/// resource branch in the request. This is the single source of truth for
+/// branch-omitted org-wide routes: callers must already have `BranchScope::All`,
+/// and custom-role grants must themselves be org-wide (`BranchScope::All`) to
+/// pass this gate. Branch-narrow custom grants may still authorize concrete
+/// branch requests through [`authorize`], but never widen into an all-branch read.
+pub fn authorize_org_wide(principal: &Principal, action: Action) -> Result<(), KernelError> {
+    if principal.branch_scope != BranchScope::All {
+        return Err(KernelError::forbidden(
+            "org-wide access requires all-branch scope",
+        ));
+    }
+
+    let has_feature_permission = principal.roles.iter().any(|role| {
+        permission_for(*role, action.feature()).satisfies(action.required_permission())
+    }) || principal.effective_feature_grants.iter().any(|grant| {
+        grant.feature == action.feature()
+            && grant.permission.satisfies(action.required_permission())
+            && grant.branch_scope == BranchScope::All
+    });
+
+    if !has_feature_permission {
+        return Err(KernelError::forbidden("role is not allowed to use feature"));
+    }
+
+    Ok(())
+}
+
 /// Authorize a principal for a feature against a concrete resource branch.
 ///
 /// This intentionally checks both role permission and branch membership for
@@ -490,6 +697,10 @@ pub fn authorize(
 
     let has_feature_permission = principal.roles.iter().any(|role| {
         permission_for(*role, action.feature()).satisfies(action.required_permission())
+    }) || principal.effective_feature_grants.iter().any(|grant| {
+        grant.feature == action.feature()
+            && grant.permission.satisfies(action.required_permission())
+            && grant.branch_scope.allows(resource_branch)
     });
 
     if !has_feature_permission {
@@ -497,6 +708,241 @@ pub fn authorize(
     }
 
     Ok(())
+}
+
+#[derive(Debug)]
+struct RuntimePolicyPermissionRow {
+    role_id: uuid::Uuid,
+    feature_key: String,
+    permission_level: String,
+}
+
+#[derive(Debug)]
+struct RuntimePolicyConditionRow {
+    role_id: uuid::Uuid,
+    attribute: String,
+    operator: String,
+    condition_values: Vec<String>,
+}
+
+/// Resolve runtime-effective tenant custom-role grants under an explicitly
+/// armed org.
+///
+/// Safety boundary:
+/// * only assignments to `ACTIVE`, non-system roles are effective;
+/// * feature/permission strings are parse-or-deny;
+/// * elevated/scope-widening features stay system-role-only for this slice;
+/// * branch conditions may only narrow the already-live branch scope;
+/// * team conditions must match the target user's live team attribute;
+/// * unsupported ABAC/PBAC conditions fail closed for runtime authorization
+///   while remaining persisted/visible in Policy Studio previews.
+pub async fn resolve_effective_feature_grants_in_org(
+    pool: &PgPool,
+    org: OrgId,
+    user_id: UserId,
+    live_branch_scope: &BranchScope,
+) -> Result<Vec<EffectiveFeatureGrant>, KernelError> {
+    let mut tx = pool.begin().await.map_err(map_effective_policy_error)?;
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(org.as_uuid().to_string())
+        .execute(tx.as_mut())
+        .await
+        .map_err(map_effective_policy_error)?;
+
+    let user_team: Option<String> =
+        sqlx::query_scalar("SELECT team FROM users WHERE org_id = $1 AND id = $2")
+            .bind(*org.as_uuid())
+            .bind(*user_id.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await
+            .map_err(map_effective_policy_error)?
+            .flatten();
+
+    let permission_rows = sqlx::query(
+        r#"
+        SELECT pr.id AS role_id, prp.feature_key, prp.permission_level
+        FROM user_role_assignments AS ura
+        JOIN policy_roles AS pr
+          ON pr.org_id = ura.org_id
+         AND pr.id = ura.role_id
+        JOIN policy_role_permissions AS prp
+          ON prp.org_id = pr.org_id
+         AND prp.role_id = pr.id
+        WHERE ura.org_id = $1
+          AND ura.user_id = $2
+          AND pr.status = 'ACTIVE'
+          AND pr.is_system = false
+        ORDER BY pr.role_key, prp.feature_key
+        "#,
+    )
+    .bind(*org.as_uuid())
+    .bind(*user_id.as_uuid())
+    .fetch_all(tx.as_mut())
+    .await
+    .map_err(map_effective_policy_error)?
+    .into_iter()
+    .map(|row| {
+        Ok(RuntimePolicyPermissionRow {
+            role_id: row.try_get("role_id")?,
+            feature_key: row.try_get("feature_key")?,
+            permission_level: row.try_get("permission_level")?,
+        })
+    })
+    .collect::<Result<Vec<_>, sqlx::Error>>()
+    .map_err(map_effective_policy_error)?;
+
+    let role_ids = permission_rows
+        .iter()
+        .map(|row| row.role_id)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    let condition_rows = if role_ids.is_empty() {
+        Vec::new()
+    } else {
+        sqlx::query(
+            r#"
+            SELECT role_id, attribute, operator, condition_values
+            FROM policy_role_conditions
+            WHERE org_id = $1
+              AND role_id = ANY($2)
+            ORDER BY role_id, condition_key
+            "#,
+        )
+        .bind(*org.as_uuid())
+        .bind(&role_ids)
+        .fetch_all(tx.as_mut())
+        .await
+        .map_err(map_effective_policy_error)?
+        .into_iter()
+        .map(|row| {
+            Ok(RuntimePolicyConditionRow {
+                role_id: row.try_get("role_id")?,
+                attribute: row.try_get("attribute")?,
+                operator: row.try_get("operator")?,
+                condition_values: row.try_get("condition_values")?,
+            })
+        })
+        .collect::<Result<Vec<_>, sqlx::Error>>()
+        .map_err(map_effective_policy_error)?
+    };
+
+    tx.commit().await.map_err(map_effective_policy_error)?;
+
+    let mut conditions_by_role: BTreeMap<uuid::Uuid, Vec<RuntimePolicyConditionRow>> =
+        BTreeMap::new();
+    for condition in condition_rows {
+        conditions_by_role
+            .entry(condition.role_id)
+            .or_default()
+            .push(condition);
+    }
+
+    let mut effective_scopes_by_role = BTreeMap::new();
+    for role_id in role_ids {
+        let Some(scope) = effective_scope_for_custom_role_conditions(
+            live_branch_scope,
+            user_team.as_deref(),
+            conditions_by_role
+                .get(&role_id)
+                .map_or(&[][..], Vec::as_slice),
+        ) else {
+            continue;
+        };
+        if !scope.is_empty() {
+            effective_scopes_by_role.insert(role_id, scope);
+        }
+    }
+
+    let grants = permission_rows
+        .into_iter()
+        .filter_map(|row| {
+            let scope = effective_scopes_by_role.get(&row.role_id)?;
+            let feature = Feature::from_str(&row.feature_key).ok()?;
+            let permission = PermissionLevel::from_str(&row.permission_level).ok()?;
+            if permission == PermissionLevel::Deny || !custom_role_runtime_feature_allowed(feature)
+            {
+                return None;
+            }
+            Some(EffectiveFeatureGrant::new(
+                feature,
+                permission,
+                scope.clone(),
+            ))
+        })
+        .collect();
+
+    Ok(grants)
+}
+
+fn custom_role_runtime_feature_allowed(feature: Feature) -> bool {
+    !matches!(
+        feature,
+        Feature::RoleManage | Feature::ElevatedRoleGrant | Feature::OrgWideQueueTriage
+    )
+}
+
+fn effective_scope_for_custom_role_conditions(
+    live_branch_scope: &BranchScope,
+    user_team: Option<&str>,
+    conditions: &[RuntimePolicyConditionRow],
+) -> Option<BranchScope> {
+    let mut scope = live_branch_scope.clone();
+    for condition in conditions {
+        if !matches!(condition.operator.as_str(), "equals" | "in") {
+            return None;
+        }
+
+        match condition.attribute.as_str() {
+            "branch" => {
+                let mut branches = BTreeSet::new();
+                for value in &condition.condition_values {
+                    let Ok(branch) = BranchId::from_str(value) else {
+                        return None;
+                    };
+                    branches.insert(branch);
+                }
+                scope = scope.intersect(&BranchScope::Branches(branches));
+            }
+            "team" => {
+                if !team_condition_matches(user_team, &condition.condition_values) {
+                    return None;
+                }
+            }
+            _ => return None,
+        }
+    }
+    Some(scope)
+}
+
+fn team_condition_matches(user_team: Option<&str>, values: &[String]) -> bool {
+    let Some(user_team) = user_team.map(str::trim).filter(|team| !team.is_empty()) else {
+        return false;
+    };
+    let Some(accepted) = team_policy_values(user_team) else {
+        return false;
+    };
+    values.iter().any(|value| {
+        let value = value.trim();
+        accepted
+            .iter()
+            .any(|accepted| value == *accepted || value.eq_ignore_ascii_case(accepted))
+    })
+}
+
+fn team_policy_values(user_team: &str) -> Option<[&'static str; 2]> {
+    match user_team {
+        "정비" => Some(["MAINTENANCE", "정비"]),
+        "예방" => Some(["PREVENTION", "예방"]),
+        "관리" => Some(["MANAGEMENT", "관리"]),
+        "접수" => Some(["RECEPTION", "접수"]),
+        _ => None,
+    }
+}
+
+fn map_effective_policy_error(err: sqlx::Error) -> KernelError {
+    KernelError::internal(format!("failed to resolve effective policy: {err}"))
 }
 
 /// Resolve branch scope from `user_branches` under an explicitly-armed tenant.
@@ -546,6 +992,40 @@ pub async fn resolve_branch_scope_in_org(
     Ok(BranchScope::Branches(
         rows.into_iter().map(BranchId::from_uuid).collect(),
     ))
+}
+
+/// Apply a claim-level hierarchy scope to a live DB membership scope for one
+/// ordinary tenant route.
+///
+/// The live scope is authoritative for membership revocation. The access scope
+/// may only narrow that set; it never widens. A `Group` access scope is rejected
+/// here because group-wide reads must use the consolidated group helper, which
+/// first resolves authorized member orgs and then performs N separately armed
+/// per-org reads. Region/worksite projections are not wired yet, so they fail
+/// closed until a DB-backed hierarchy resolver supplies a matching projection.
+pub fn effective_branch_scope_for_tenant(
+    live_scope: BranchScope,
+    access_scope: AccessScope,
+    org_id: OrgId,
+) -> Result<BranchScope, KernelError> {
+    let projected_scope = match access_scope.level {
+        AccessScopeLevel::Group => {
+            return Err(KernelError::forbidden(
+                "group access scope must use a group fan-out resolver",
+            ));
+        }
+        AccessScopeLevel::Org => access_scope.branch_scope_for_org(org_id, None),
+        AccessScopeLevel::Branch => {
+            let branch_id = BranchId::from_uuid(*access_scope.node_id.as_uuid());
+            let projection = BranchProjection::single(access_scope.node_id, org_id, branch_id);
+            access_scope.branch_scope_for_org(org_id, Some(&projection))
+        }
+        AccessScopeLevel::Region | AccessScopeLevel::Worksite => {
+            access_scope.branch_scope_for_org(org_id, None)
+        }
+    };
+
+    Ok(live_scope.intersect(&projected_scope))
 }
 
 /// A validated SQL identifier for a branch column, e.g. `work_orders.branch_id`.
@@ -632,4 +1112,98 @@ fn is_safe_ident(raw: &str) -> bool {
     };
 
     matches!(first, 'a'..='z' | '_') && chars.all(|ch| matches!(ch, 'a'..='z' | '0'..='9' | '_'))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mnt_kernel_core::{ErrorKind, ScopeNodeId};
+
+    #[test]
+    fn effective_scope_preserves_legacy_org_live_scope() -> Result<(), KernelError> {
+        let org = OrgId::new();
+        let branch = BranchId::new();
+        let live_scope = BranchScope::single(branch);
+
+        let effective =
+            effective_branch_scope_for_tenant(live_scope, AccessScope::legacy_org(org), org)?;
+
+        assert_eq!(effective, BranchScope::single(branch));
+        Ok(())
+    }
+
+    #[test]
+    fn effective_scope_fails_closed_on_org_mismatch() -> Result<(), KernelError> {
+        let effective = effective_branch_scope_for_tenant(
+            BranchScope::All,
+            AccessScope::legacy_org(OrgId::new()),
+            OrgId::new(),
+        )?;
+
+        assert_eq!(effective, BranchScope::none());
+        Ok(())
+    }
+
+    #[test]
+    fn effective_scope_branch_claim_narrows_live_all() -> Result<(), KernelError> {
+        let org = OrgId::new();
+        let branch = BranchId::new();
+        let scope = AccessScope::new(
+            AccessScopeLevel::Branch,
+            ScopeNodeId::from_uuid(*branch.as_uuid()),
+        );
+
+        let effective = effective_branch_scope_for_tenant(BranchScope::All, scope, org)?;
+
+        assert_eq!(effective, BranchScope::single(branch));
+        Ok(())
+    }
+
+    #[test]
+    fn effective_scope_branch_claim_intersects_live_memberships() -> Result<(), KernelError> {
+        let org = OrgId::new();
+        let branch = BranchId::new();
+        let other = BranchId::new();
+        let scope = AccessScope::new(
+            AccessScopeLevel::Branch,
+            ScopeNodeId::from_uuid(*branch.as_uuid()),
+        );
+
+        let allowed = effective_branch_scope_for_tenant(BranchScope::single(branch), scope, org)?;
+        let denied = effective_branch_scope_for_tenant(BranchScope::single(other), scope, org)?;
+
+        assert_eq!(allowed, BranchScope::single(branch));
+        assert_eq!(denied, BranchScope::none());
+        Ok(())
+    }
+
+    #[test]
+    fn effective_scope_rejects_group_on_ordinary_tenant_routes() {
+        let err_kind = effective_branch_scope_for_tenant(
+            BranchScope::All,
+            AccessScope::new(
+                AccessScopeLevel::Group,
+                ScopeNodeId::from_uuid(uuid::Uuid::new_v4()),
+            ),
+            OrgId::new(),
+        )
+        .err()
+        .map(|err| err.kind);
+
+        assert_eq!(err_kind, Some(ErrorKind::Forbidden));
+    }
+
+    #[test]
+    fn effective_scope_sub_org_levels_without_projection_fail_closed() -> Result<(), KernelError> {
+        for level in [AccessScopeLevel::Region, AccessScopeLevel::Worksite] {
+            let effective = effective_branch_scope_for_tenant(
+                BranchScope::All,
+                AccessScope::new(level, ScopeNodeId::from_uuid(uuid::Uuid::new_v4())),
+                OrgId::new(),
+            )?;
+
+            assert_eq!(effective, BranchScope::none());
+        }
+        Ok(())
+    }
 }

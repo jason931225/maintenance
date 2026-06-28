@@ -17,8 +17,8 @@ test("AUTH-06 passkey list shows the enrolled credential; last-passkey revoke is
 }) => {
   await redeemOtp(page, TENANT_ADMIN_OTP);
   await enrollPasskey(page);
-  // A tenant admin lands in the tenant app (default /dispatch).
-  await expect(page).toHaveURL(/\/dispatch/, { timeout: 15_000 });
+  // A tenant admin lands on the default authenticated Work Hub.
+  await expect(page).toHaveURL(/\/work-hub/, { timeout: 15_000 });
 
   // Capture the in-memory access token via a cookie refresh.
   const token = await page.evaluate(async () => {

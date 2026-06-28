@@ -270,7 +270,6 @@ describe("DispatchMapPage", () => {
     expect(screen.getAllByRole("link", { name: "길찾기" })).toHaveLength(2);
     expect(screen.getAllByTestId("leaflet-marker")).toHaveLength(2);
   });
-
   it("keeps the map usable when arrival events are outside the operator's branch or permission scope", async () => {
     server.use(
       equipmentByLocationHandler([site]),

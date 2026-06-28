@@ -222,6 +222,59 @@ async fn workorder_read_surface_is_branch_scoped_filterable_and_detailed(pool: P
     assert_eq!(first_page.json["items"].as_array().unwrap().len(), 1);
     assert_eq!(first_page.json["items"][0]["id"], p1.to_string());
     assert_eq!(first_page.json["items"][0]["priority"], "P1");
+    assert_eq!(first_page.json["lens"]["object_type"], "work_order");
+    assert_eq!(first_page.json["lens"]["aggregates"]["total_count"], 2);
+    assert_eq!(first_page.json["lens"]["aggregates"]["p1_count"], 1);
+    assert_eq!(first_page.json["lens"]["aggregates"]["unassigned_count"], 0);
+    assert!(
+        first_page.json["lens"]["facets"]["status"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|bucket| bucket["value"] == "ASSIGNED"
+                && bucket["count"] == 2
+                && bucket["filters"]["status"] == "ASSIGNED"),
+        "status facet should describe the full branch-scoped object set: {:?}",
+        first_page.json["lens"]
+    );
+    assert!(
+        first_page.json["lens"]["facets"]["priority"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|bucket| bucket["value"] == "P1"
+                && bucket["count"] == 1
+                && bucket["filters"]["priority"] == "P1"),
+        "priority facet should expose drill filters: {:?}",
+        first_page.json["lens"]
+    );
+    let due_histogram_total: i64 = first_page.json["lens"]["histograms"]["target_due_date"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|bucket| bucket["count"].as_i64().unwrap())
+        .sum();
+    assert_eq!(due_histogram_total, 2);
+    assert!(
+        first_page.json["lens"]["listograms"]["customers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|bucket| bucket["name"].as_str().unwrap().starts_with("Customer 29")),
+        "customer listogram must stay branch-scoped: {:?}",
+        first_page.json["lens"]["listograms"]["customers"]
+    );
+
+    let around_page = get_json(
+        service.clone(),
+        &format!("/api/v1/work-orders?around_work_order_id={p1}&status=ASSIGNED"),
+        &token,
+    )
+    .await;
+    assert_eq!(around_page.status, StatusCode::OK, "{:?}", around_page.json);
+    assert_eq!(around_page.json["total"], 1);
+    assert_eq!(around_page.json["items"][0]["id"], p1.to_string());
+    assert_eq!(around_page.json["lens"]["aggregates"]["total_count"], 1);
 
     let second_page = get_json(
         service.clone(),
@@ -806,6 +859,7 @@ fn issue_token(
         view_as: false,
         read_only: false,
         display_name: None,
+        feature_grants: Vec::new(),
         issued_at: OffsetDateTime::now_utc(),
     })?)
 }
