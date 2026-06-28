@@ -69,9 +69,9 @@ struct WorkHubTabView: View {
         let summary = viewModel.workHubSummary
         List {
             Section {
-                LabeledContent("work_hub_today_count", value: String(summary.todayWorkCount))
-                LabeledContent("work_hub_urgent_count", value: String(summary.urgentWorkCount))
-                LabeledContent("work_hub_target_due_count", value: String(summary.targetDueWorkCount))
+                Text(workHubCountText("work_hub_today_count_format", summary.todayWorkCount))
+                Text(workHubCountText("work_hub_urgent_count_format", summary.urgentWorkCount))
+                Text(workHubCountText("work_hub_target_due_count_format", summary.targetDueWorkCount))
                 LabeledContent("location_consent_collection", value: localizedString(summary.gpsMayCollect ? "yes" : "no"))
             } header: {
                 Text("work_hub_daily_section")
@@ -86,8 +86,8 @@ struct WorkHubTabView: View {
             }
 
             Section {
-                LabeledContent("work_hub_approval_count", value: String(summary.approvalRelatedCount))
-                LabeledContent("work_hub_pending_sync", value: String(summary.pendingSyncCount))
+                Text(workHubCountText("work_hub_approval_count_format", summary.approvalRelatedCount))
+                Text(workHubCountText("work_hub_pending_sync_format", summary.pendingSyncCount))
                 Label("work_hub_passkey_required", systemImage: "person.badge.key")
                 Text("work_hub_sensitive_note")
             } header: {
@@ -95,7 +95,7 @@ struct WorkHubTabView: View {
             }
 
             Section {
-                LabeledContent("work_hub_messenger_count", value: String(summary.messengerThreadCount))
+                Text(workHubCountText("work_hub_messenger_count_format", summary.messengerThreadCount))
                 Text("work_hub_notifications_note")
                 Text("work_hub_company_mail_note")
                 Text("work_hub_shared_calendar_note")
@@ -125,6 +125,10 @@ struct WorkHubTabView: View {
             }
         }
     }
+}
+
+private func workHubCountText(_ key: String, _ count: Int) -> String {
+    String.localizedStringWithFormat(NSLocalizedString(key, comment: ""), count)
 }
 
 struct LoginView: View {
