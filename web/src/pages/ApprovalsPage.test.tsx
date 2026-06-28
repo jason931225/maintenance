@@ -201,7 +201,7 @@ function installHappyHandlers() {
 }
 
 describe("ApprovalsPage", () => {
-  it("renders a server-federated approval command center across work reports, daily plans, and target-change review", async () => {
+  it("renders an actionable approval queue with source object, policy, and priority context", async () => {
     installHappyHandlers();
 
     renderPage();
@@ -209,14 +209,29 @@ describe("ApprovalsPage", () => {
     expect(
       await screen.findByRole("heading", { name: "승인 대기", level: 1 }),
     ).toBeVisible();
-    expect(await screen.findByText("승인 커맨드 센터")).toBeVisible();
+    expect(screen.queryByText("Workflow + Approval")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "작업 보고, 계획업무, 일정 변경 요청을 원천 업무 객체와 연결해 감사 가능한 승인 흐름으로 처리합니다.",
+      ),
+    ).not.toBeInTheDocument();
+    expect(await screen.findByText("승인 액션 큐")).toBeVisible();
     const commandCenter = screen.getByRole("region", {
-      name: "승인 커맨드 센터",
+      name: "승인 액션 큐",
     });
     expect(commandCenter).toHaveClass("bg-brand-teal/5");
     expect(commandCenter).not.toHaveClass("bg-ink");
     expect(commandCenter).not.toHaveClass("text-white");
-    expect(screen.getByText("작업 보고 승인")).toBeVisible();
+    expect(screen.getByText("다음 결정")).toBeVisible();
+    expect(screen.getAllByText("범위: 지점 범위")[0]).toBeVisible();
+    expect(screen.getByText("액션: 작업 승인")).toBeVisible();
+    expect(screen.queryByText("approve_work_order")).not.toBeInTheDocument();
+    expect(screen.getAllByText("정책: 서버 재검사")[0]).toBeVisible();
+    expect(screen.getByRole("link", { name: /20260612-002 작업 보고 승인 결정하기/ })).toHaveAttribute(
+      "href",
+      expect.stringContaining("/approvals?source=work-order&focus="),
+    );
+    expect(screen.getByRole("link", { name: "작업 승인 큐로 이동" })).toBeVisible();
     expect(screen.getByText("계획업무 검토")).toBeVisible();
     expect(screen.getByText("일정 변경 검토")).toBeVisible();
 
