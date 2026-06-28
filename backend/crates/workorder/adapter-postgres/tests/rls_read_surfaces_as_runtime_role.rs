@@ -45,6 +45,7 @@ use mnt_workorder_application::{
 };
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
+use std::sync::atomic::{AtomicU64, Ordering};
 use time::Date;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -135,11 +136,19 @@ async fn seed_user(owner_pool: &PgPool, org: Uuid, role: &str, branch_id: Branch
 }
 
 /// A unique `equipment_no` matching the `^[A-Z]{3}[A-Z0-9]{2}-[0-9]{4}$` check
-/// constraint (0007_create_registry.sql). The 4-digit suffix is derived from a
-/// fresh UUID so concurrent `sqlx::test` databases never collide.
+/// constraint (0007_create_registry.sql). Keep this deterministic: the DB has
+/// an org-scoped UNIQUE constraint, and random 4-digit suffixes made this test
+/// suite flaky under CI once enough equipment fixtures were inserted.
+static EQUIPMENT_NO_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 fn unique_equipment_no() -> String {
-    let n = Uuid::new_v4().as_u128() % 10_000;
-    format!("ABC12-{n:04}")
+    const BASE36: &[u8; 36] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let seq = EQUIPMENT_NO_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let suffix = seq % 10_000;
+    let prefix = (seq / 10_000) % (36 * 36);
+    let c1 = BASE36[(prefix / 36) as usize] as char;
+    let c2 = BASE36[(prefix % 36) as usize] as char;
+    format!("TST{c1}{c2}-{suffix:04}")
 }
 
 /// Seed a customer + site + one piece of equipment in `org`/`branch_id` with the
