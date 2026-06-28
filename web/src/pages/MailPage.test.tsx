@@ -166,6 +166,97 @@ describe("MailPage", () => {
     expect(await screen.findByText("메일을 보냈습니다.")).toBeVisible();
   });
 
+  it("replies to a selected thread through the threaded reply API", async () => {
+    const user = userEvent.setup();
+    const sent = vi.fn();
+    const detachedSend = vi.fn();
+    mockMailbox();
+    server.use(
+      http.post("*/api/v1/mail/send", async ({ request }) => {
+        detachedSend(await request.json());
+        return HttpResponse.json({ error: { code: "wrong_endpoint" } }, { status: 500 });
+      }),
+      http.post("*/api/v1/mail/reply", async ({ request }) => {
+        sent(await request.json());
+        return HttpResponse.json({
+          message_id: "44444444-4444-4444-8444-444444444444",
+          rfc_message_id: "<reply@example.com>",
+        }, { status: 201 });
+      }),
+    );
+
+    renderPage();
+
+    await screen.findByText("인사팀");
+    await user.click(await screen.findByRole("button", { name: "답장" }));
+
+    const compose = await screen.findByRole("heading", { name: "답장 작성" });
+    const form = compose.closest("section");
+    expect(form).not.toBeNull();
+    if (!form) throw new Error("compose form missing");
+    expect(within(form).getByLabelText("받는 사람")).toHaveValue("hr@example.com");
+    expect(within(form).getByLabelText("제목")).toHaveValue("Re: 급여명세서 확인");
+    await user.type(within(form).getByLabelText("본문"), "확인했습니다.");
+    await user.click(within(form).getByRole("button", { name: "답장 보내기" }));
+
+    await waitFor(() => { expect(sent).toHaveBeenCalledTimes(1); });
+    expect(detachedSend).not.toHaveBeenCalled();
+    expect(sent.mock.calls[0][0]).toEqual({
+      to: [{ address: "hr@example.com" }],
+      subject: "Re: 급여명세서 확인",
+      body_text: expect.stringContaining("확인했습니다."),
+      in_reply_to: "<m1@example.com>",
+      references: ["<m1@example.com>"],
+    });
+    expect(await screen.findByText("답장을 보냈습니다.")).toBeVisible();
+  });
+
+  it("forwards an existing message through the threaded forward API", async () => {
+    const user = userEvent.setup();
+    const sent = vi.fn();
+    const detachedSend = vi.fn();
+    mockMailbox();
+    server.use(
+      http.post("*/api/v1/mail/send", async ({ request }) => {
+        detachedSend(await request.json());
+        return HttpResponse.json({ error: { code: "wrong_endpoint" } }, { status: 500 });
+      }),
+      http.post("*/api/v1/mail/forward", async ({ request }) => {
+        sent(await request.json());
+        return HttpResponse.json({
+          message_id: "44444444-4444-4444-8444-444444444444",
+          rfc_message_id: "<forward@example.com>",
+        }, { status: 201 });
+      }),
+    );
+
+    renderPage();
+
+    await screen.findByText("인사팀");
+    await user.click(await screen.findByRole("button", { name: "전달" }));
+
+    const compose = await screen.findByRole("heading", { name: "전달 작성" });
+    const form = compose.closest("section");
+    expect(form).not.toBeNull();
+    if (!form) throw new Error("compose form missing");
+    expect(within(form).getByLabelText("받는 사람")).toHaveValue("");
+    expect(within(form).getByLabelText("제목")).toHaveValue("Fwd: 급여명세서 확인");
+    await user.type(within(form).getByLabelText("받는 사람"), "manager@example.com");
+    await user.type(within(form).getByLabelText("본문"), "검토 부탁드립니다.");
+    await user.click(within(form).getByRole("button", { name: "전달 보내기" }));
+
+    await waitFor(() => { expect(sent).toHaveBeenCalledTimes(1); });
+    expect(detachedSend).not.toHaveBeenCalled();
+    expect(sent.mock.calls[0][0]).toEqual({
+      to: [{ address: "manager@example.com" }],
+      subject: "Fwd: 급여명세서 확인",
+      body_text: expect.stringContaining("검토 부탁드립니다."),
+      in_reply_to: "<m1@example.com>",
+      references: ["<m1@example.com>"],
+    });
+    expect(await screen.findByText("메일을 전달했습니다.")).toBeVisible();
+  });
+
   it("shows setup guidance instead of a broken mailbox when mail is unavailable", async () => {
     server.use(
       http.get("*/api/v1/mail/folders", () =>
