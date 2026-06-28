@@ -42,12 +42,21 @@ type LoadState = "loading" | "ready" | "empty" | "error" | "unavailable";
 type InquiryLoadState = "idle" | "loading" | "ready" | "error";
 
 interface ComposeForm {
+  mode: "new" | "reply" | "forward";
   to: string;
   subject: string;
   body: string;
+  inReplyTo?: string;
+  references: string[];
 }
 
-const EMPTY_COMPOSE: ComposeForm = { to: "", subject: "", body: "" };
+const EMPTY_COMPOSE: ComposeForm = {
+  mode: "new",
+  to: "",
+  subject: "",
+  body: "",
+  references: [],
+};
 
 const INQUIRY_BADGE: Record<InquiryStatus, string> = {
   NEW: "border-brand-teal bg-brand-teal/10 text-brand-teal",
@@ -65,6 +74,51 @@ function parseRecipients(value: string): SendMailRequest["to"] {
     .map((address) => address.trim())
     .filter(Boolean)
     .map((address) => ({ address }));
+}
+
+function uniqueReferences(values: Array<string | null | undefined>): string[] {
+  return Array.from(
+    new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value))),
+  );
+}
+
+function replyRecipients(message: MailMessageView): string {
+  if (message.direction === "OUT" && message.to.length > 0) {
+    return message.to.map((address) => address.address).join(", ");
+  }
+  return message.from_address;
+}
+
+function replySubject(subject: string): string {
+  const cleanSubject = subject.trim();
+  if (/^re:/i.test(cleanSubject)) return cleanSubject;
+  return `Re: ${cleanSubject}`;
+}
+
+function forwardSubject(subject: string): string {
+  const cleanSubject = subject.trim();
+  if (/^(fwd|fw):/i.test(cleanSubject)) return cleanSubject;
+  return `Fwd: ${cleanSubject}`;
+}
+
+function buildThreadReferences(message: MailMessageView): string[] {
+  return uniqueReferences([message.in_reply_to, message.message_id]);
+}
+
+function originalMessageBlock(message: MailMessageView, c: typeof ko.mailbox): string {
+  const from = message.from_name
+    ? `${message.from_name} <${message.from_address}>`
+    : message.from_address;
+  return [
+    "",
+    "",
+    c.originalMessage,
+    `${c.originalFrom}: ${from}`,
+    `${c.originalAt}: ${formatKoreanDateTime(message.received_at)}`,
+    `${c.originalSubject}: ${message.subject || c.noSubject}`,
+    "",
+    textBody(message),
+  ].join("\n");
 }
 
 function folderLabel(folder: MailFolderView): string {
@@ -268,9 +322,33 @@ export function MailPage() {
     [],
   );
 
+  const startThreadedCompose = useCallback(
+    (mode: "reply" | "forward", message: MailMessageView) => {
+      const parentMessageId = message.message_id?.trim();
+      if (!parentMessageId) {
+        setError(c.threadingUnavailable);
+        return;
+      }
+      setNotice(undefined);
+      setError(undefined);
+      setCompose({
+        mode,
+        to: mode === "reply" ? replyRecipients(message) : "",
+        subject: mode === "reply"
+          ? replySubject(message.subject || selectedThread?.subject || c.noSubject)
+          : forwardSubject(message.subject || selectedThread?.subject || c.noSubject),
+        body: mode === "forward" ? originalMessageBlock(message, c) : "",
+        inReplyTo: parentMessageId,
+        references: buildThreadReferences(message),
+      });
+    },
+    [c, selectedThread?.subject],
+  );
+
   const sendMail = useCallback(async () => {
     setNotice(undefined);
     setError(undefined);
+    const mode = compose.mode;
     const recipients = parseRecipients(compose.to);
     if (recipients.length === 0 || recipients.some((r) => !EMAIL_RE.test(r.address))) {
       setError(c.validation.to);
@@ -284,28 +362,39 @@ export function MailPage() {
       setError(c.validation.body);
       return;
     }
+    if (mode !== "new" && !compose.inReplyTo) {
+      setError(c.threadingUnavailable);
+      return;
+    }
     setSending(true);
     try {
-      const res = await api.POST("/api/v1/mail/send", {
-        body: {
-          to: recipients,
-          subject: compose.subject.trim(),
-          body_text: compose.body.trim(),
-        },
-      });
+      const requestBody: SendMailRequest = {
+        to: recipients,
+        subject: compose.subject.trim(),
+        body_text: compose.body.trim(),
+      };
+      if (mode !== "new") {
+        requestBody.in_reply_to = compose.inReplyTo;
+        requestBody.references = compose.references;
+      }
+      const res = mode === "reply"
+        ? await api.POST("/api/v1/mail/reply", { body: requestBody })
+        : mode === "forward"
+          ? await api.POST("/api/v1/mail/forward", { body: requestBody })
+          : await api.POST("/api/v1/mail/send", { body: requestBody });
       if (!res.data) {
         if (res.response.status === 503) {
           setLoadState("unavailable");
           return;
         }
-        setError(c.sendFailed);
+        setError(mode === "reply" ? c.replyFailed : mode === "forward" ? c.forwardFailed : c.sendFailed);
         return;
       }
       setCompose(EMPTY_COMPOSE);
-      setNotice(c.sent);
+      setNotice(mode === "reply" ? c.replySent : mode === "forward" ? c.forwardSent : c.sent);
       await loadMailbox();
     } catch {
-      setError(c.sendFailed);
+      setError(mode === "reply" ? c.replyFailed : mode === "forward" ? c.forwardFailed : c.sendFailed);
     } finally {
       setSending(false);
     }
@@ -533,6 +622,28 @@ export function MailPage() {
                         </div>
                         <span className="text-xs text-steel">{formatKoreanDateTime(message.received_at)}</span>
                       </div>
+                      <div className="mt-3 flex flex-wrap gap-2" aria-label={c.messageActions}>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          disabled={!message.message_id}
+                          title={!message.message_id ? c.threadingUnavailable : undefined}
+                          onClick={() => { startThreadedCompose("reply", message); }}
+                        >
+                          {c.reply}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={!message.message_id}
+                          title={!message.message_id ? c.threadingUnavailable : undefined}
+                          onClick={() => { startThreadedCompose("forward", message); }}
+                        >
+                          {c.forward}
+                        </Button>
+                      </div>
                       <MailMessageBody message={message} />
                       {message.attachments.length > 0 ? (
                         <div className="mt-3 flex flex-wrap gap-2">
@@ -630,7 +741,30 @@ export function MailPage() {
             ) : null}
 
             <Card>
-              <h2 className="text-base font-semibold text-ink">{c.compose}</h2>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-ink">
+                    {compose.mode === "reply"
+                      ? c.replyCompose
+                      : compose.mode === "forward"
+                        ? c.forwardCompose
+                        : c.compose}
+                  </h2>
+                  {compose.mode !== "new" ? (
+                    <p className="mt-1 text-sm text-steel">{c.threadedComposeHint}</p>
+                  ) : null}
+                </div>
+                {compose.mode !== "new" ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => { setCompose(EMPTY_COMPOSE); }}
+                  >
+                    {c.cancelThreadedCompose}
+                  </Button>
+                ) : null}
+              </div>
               <div className="mt-3 grid gap-3">
                 <label className="grid gap-1 text-sm font-medium text-steel">
                   {c.to}
@@ -662,7 +796,13 @@ export function MailPage() {
                 </label>
                 <Button type="button" onClick={() => { void sendMail(); }} disabled={sending}>
                   <Send size={16} aria-hidden="true" />
-                  {sending ? c.sending : c.send}
+                  {sending
+                    ? c.sending
+                    : compose.mode === "reply"
+                      ? c.replySend
+                      : compose.mode === "forward"
+                        ? c.forwardSend
+                        : c.send}
                 </Button>
               </div>
             </Card>
