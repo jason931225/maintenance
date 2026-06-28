@@ -40,7 +40,7 @@ use uuid::Uuid;
 const DEFAULT_ACCESS_TOKEN_TTL: Duration = Duration::minutes(15);
 const GROUP_ADMIN_TENANT_CONTEXT_TTL: Duration = Duration::minutes(15);
 const GROUP_ADMIN_GROUP_ROLE: &str = "GROUP_ADMIN";
-const GROUP_ADMIN_TENANT_ACTING_ROLE: &str = "SUPER_ADMIN";
+const GROUP_ADMIN_TENANT_ACTING_ROLE: &str = "GROUP_ADMIN_DELEGATED_ADMIN";
 
 /// Request header a WEB client sets to opt into the cookie transport for the
 /// refresh token. Mobile (iOS/Android) clients never send it and keep the
@@ -1693,10 +1693,11 @@ async fn list_group_admin_groups(
     Ok(Json(GroupAdminGroupsResponse { groups }))
 }
 
-/// POST /api/v1/group-admin/tenant-context — mint a short-lived writable tenant
+/// POST /api/v1/group-admin/tenant-context — mint a short-lived bounded tenant
 /// token for one resolver-authorized subsidiary. This is the tenant-side analog
-/// of the platform tenant-context endpoint, but it is strictly GROUP_ADMIN-only
-/// and does not rely on the user's home tenant.
+/// of the platform tenant-context endpoint, but it is strictly GROUP_ADMIN-only,
+/// does not rely on the user's home tenant, and never mints an ordinary
+/// SUPER_ADMIN session.
 async fn start_group_admin_tenant_context(
     State(state): State<AuthRestState>,
     headers: HeaderMap,
@@ -1711,11 +1712,11 @@ async fn start_group_admin_tenant_context(
     let expires_at = now + GROUP_ADMIN_TENANT_CONTEXT_TTL;
     let access_token = services
         .jwt_issuer
-        .issue_access_token_with_ttl(
+        .issue_group_admin_tenant_context_access_token(
             AccessTokenInput {
                 subject: actor,
                 org_id: target.org_id,
-                roles: vec![GROUP_ADMIN_TENANT_ACTING_ROLE.to_owned()],
+                roles: vec!["ADMIN".to_owned()],
                 branches: Vec::new(),
                 platform: false,
                 view_as: false,
@@ -1724,6 +1725,7 @@ async fn start_group_admin_tenant_context(
                 feature_grants: Vec::new(),
                 issued_at: now,
             },
+            group_id,
             GROUP_ADMIN_TENANT_CONTEXT_TTL,
         )
         .map_err(|err| RestError::internal(err.to_string()))?;
@@ -2290,6 +2292,11 @@ fn authenticated_group_actor(
     if claims.view_as {
         return Err(RestError::forbidden(
             "read-only view-as tokens cannot manage group subsidiaries",
+        ));
+    }
+    if claims.tenant_context.is_some() {
+        return Err(RestError::forbidden(
+            "delegated tenant-context tokens cannot manage group subsidiaries",
         ));
     }
     if !has_group_admin_role_hint(&claims.group_roles) {

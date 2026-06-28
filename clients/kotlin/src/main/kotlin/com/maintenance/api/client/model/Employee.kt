@@ -34,9 +34,6 @@ import kotlinx.serialization.Contextual
  * @param id
  * @param company
  * @param name
- * @param sourceFilename
- * @param sourceSheet
- * @param sourceRow
  * @param createdAt
  * @param updatedAt
  * @param employeeNumber
@@ -64,15 +61,6 @@ data class Employee (
 
     @SerialName(value = "name")
     val name: kotlin.String,
-
-    @SerialName(value = "source_filename")
-    val sourceFilename: kotlin.String,
-
-    @SerialName(value = "source_sheet")
-    val sourceSheet: kotlin.String,
-
-    @SerialName(value = "source_row")
-    val sourceRow: kotlin.Int,
 
     @Contextual @SerialName(value = "created_at")
     val createdAt: java.time.OffsetDateTime,

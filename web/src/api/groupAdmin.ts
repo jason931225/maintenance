@@ -25,7 +25,7 @@ export interface GroupTenantContextStartResponse {
   token_type: string;
   acting_org_id: string;
   acting_org_name: string;
-  acting_role: "SUPER_ADMIN";
+  acting_role: "GROUP_ADMIN_DELEGATED_ADMIN";
   expires_at: string;
 }
 

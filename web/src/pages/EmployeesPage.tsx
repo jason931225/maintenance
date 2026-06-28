@@ -447,7 +447,6 @@ function EmployeeTable({ employees }: { employees: EmployeeDirectoryItem[] }) {
             <th className="px-4 py-3">{t.columns.company}</th>
             <th className="px-4 py-3">{t.columns.employeeNumber}</th>
             <th className="px-4 py-3">{t.columns.orgUnit}</th>
-            <th className="px-4 py-3">{t.columns.sourceRow}</th>
             <th className="px-4 py-3">{t.columns.worksite}</th>
             <th className="px-4 py-3">{t.columns.job}</th>
             <th className="px-4 py-3">{t.columns.position}</th>
@@ -469,9 +468,6 @@ function EmployeeTable({ employees }: { employees: EmployeeDirectoryItem[] }) {
               </td>
               <td className="px-4 py-3 text-steel">
                 {text(employee.org_unit)}
-              </td>
-              <td className="px-4 py-3 text-steel">
-                {text(employee.source_row)}
               </td>
               <td className="px-4 py-3 text-steel">
                 {text(employee.worksite_name ?? employee.worksite)}

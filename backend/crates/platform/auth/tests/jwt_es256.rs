@@ -1,7 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use mnt_kernel_core::{AccessScope, AccessScopeLevel, BranchId, OrgId, ScopeNodeId, UserId};
-use mnt_platform_auth::{AccessClaims, AccessTokenInput, JwtIssuer, JwtSettings};
+use mnt_platform_auth::{
+    AccessClaims, AccessTokenInput, JwtIssuer, JwtSettings, TenantAccessContext,
+};
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
 use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
@@ -160,6 +162,64 @@ fn es256_access_token_can_carry_group_roles_without_widening_scope() {
 }
 
 #[test]
+fn group_admin_tenant_context_token_is_bounded_and_distinct_from_super_admin() {
+    let issuer = es256_issuer();
+    let group_id = uuid::Uuid::new_v4();
+
+    let token = issuer
+        .issue_group_admin_tenant_context_access_token(
+            AccessTokenInput {
+                subject: UserId::new(),
+                org_id: OrgId::knl(),
+                roles: vec!["ADMIN".to_owned()],
+                branches: vec![],
+                platform: false,
+                view_as: false,
+                read_only: false,
+                display_name: None,
+                feature_grants: Vec::new(),
+                issued_at: OffsetDateTime::now_utc(),
+            },
+            group_id,
+            Duration::minutes(15),
+        )
+        .unwrap();
+
+    let claims = issuer.verify_access_token(&token).unwrap();
+    assert_eq!(claims.roles, vec!["ADMIN"]);
+    assert!(!claims.roles.iter().any(|role| role == "SUPER_ADMIN"));
+    assert_eq!(claims.group_roles, vec!["GROUP_ADMIN"]);
+    assert_eq!(claims.tenant_context, Some(TenantAccessContext::GroupAdmin));
+    assert_eq!(claims.group_context_id, Some(group_id.to_string()));
+}
+
+#[test]
+fn group_admin_tenant_context_token_rejects_super_admin_role() {
+    let issuer = es256_issuer();
+
+    let err = issuer
+        .issue_group_admin_tenant_context_access_token(
+            AccessTokenInput {
+                subject: UserId::new(),
+                org_id: OrgId::knl(),
+                roles: vec!["SUPER_ADMIN".to_owned()],
+                branches: vec![],
+                platform: false,
+                view_as: false,
+                read_only: false,
+                display_name: None,
+                feature_grants: Vec::new(),
+                issued_at: OffsetDateTime::now_utc(),
+            },
+            uuid::Uuid::new_v4(),
+            Duration::minutes(15),
+        )
+        .unwrap_err();
+
+    assert!(err.to_string().contains("cannot carry SUPER_ADMIN"));
+}
+
+#[test]
 fn es256_access_token_round_trips_explicit_access_scope_claims() {
     let issuer = es256_issuer();
 
@@ -241,6 +301,8 @@ fn es256_scoped_token_rejects_unknown_group_role_on_verify() {
         scope_level: Some(AccessScopeLevel::Group),
         scope_node: Some(ScopeNodeId::from_uuid(uuid::Uuid::new_v4())),
         group_roles: vec!["GROUP_OWNER".to_owned()],
+        tenant_context: None,
+        group_context_id: None,
         feature_grants: Vec::new(),
         alg: "ES256".to_owned(),
     };
@@ -304,6 +366,8 @@ fn access_scope_claims_must_be_a_complete_pair() {
         scope_level: Some(AccessScopeLevel::Org),
         scope_node: None,
         group_roles: Vec::new(),
+        tenant_context: None,
+        group_context_id: None,
         feature_grants: Vec::new(),
         alg: "ES256".to_owned(),
     };

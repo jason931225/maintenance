@@ -10,11 +10,13 @@ publish = false
 mnt-kernel-core = { workspace = true }
 mnt-platform-auth = { path = "../auth" }
 mnt-platform-authz = { path = "../authz" }
+mnt-platform-group = { path = "../group" }
 axum = { workspace = true }
 http = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+uuid = { workspace = true }
 
 [lints]
 workspace = true

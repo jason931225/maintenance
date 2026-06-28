@@ -3141,9 +3141,11 @@ dependencies = [
  "mnt-kernel-core",
  "mnt-platform-auth",
  "mnt-platform-authz",
+ "mnt-platform-group",
  "sqlx 0.9.0",
  "thiserror 2.0.18",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

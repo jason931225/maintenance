@@ -97,7 +97,7 @@ function installHandlers() {
         token_type: "Bearer",
         acting_org_id: "org-coss",
         acting_org_name: "코스",
-        acting_role: "SUPER_ADMIN",
+        acting_role: "GROUP_ADMIN_DELEGATED_ADMIN",
         expires_at: "2026-06-28T12:00:00Z",
       });
     }),
@@ -124,7 +124,7 @@ describe("GroupAdminPage", () => {
         source: "GROUP_ADMIN",
         actingOrgId: "org-coss",
         actingOrgName: "코스",
-        actingRole: "SUPER_ADMIN",
+        actingRole: "GROUP_ADMIN_DELEGATED_ADMIN",
       });
     });
     expect(await screen.findByTestId("location")).toHaveTextContent("/approvals");

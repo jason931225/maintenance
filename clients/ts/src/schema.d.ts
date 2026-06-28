@@ -3715,10 +3715,6 @@ export interface components {
             leave_accrued?: string | null;
             leave_used?: string | null;
             leave_remaining?: string | null;
-            source_filename: string;
-            source_sheet: string;
-            /** Format: int32 */
-            source_row: number;
             created_at: components["schemas"]["Timestamp"];
             updated_at: components["schemas"]["Timestamp"];
         };

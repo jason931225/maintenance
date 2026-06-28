@@ -1227,6 +1227,7 @@ export const ko = {
       },
       roles: {
         SUPER_ADMIN: "최고 관리자",
+        GROUP_ADMIN_DELEGATED_ADMIN: "그룹 위임 관리자",
         ADMIN: "관리자",
         EXECUTIVE: "임원",
         MECHANIC: "정비사",

@@ -67,6 +67,44 @@ pub async fn group_member_orgs(
     Ok(members)
 }
 
+/// Resolve active member orgs visible to `actor` only when the actor still has
+/// a live `GROUP_ADMIN` grant for `group_id`.
+///
+/// Use this for delegated tenant-context request validation. The broader
+/// [`group_member_orgs`] helper intentionally accepts any live group role for
+/// read-only/consolidated group views; a writable delegated tenant principal
+/// must fail closed after a downgrade to `GROUP_VIEWER` or `GROUP_FINANCE`.
+pub async fn group_admin_member_orgs(
+    pool: &PgPool,
+    group_id: uuid::Uuid,
+    actor: UserId,
+) -> Result<Vec<GroupMemberOrg>, DbError> {
+    let has_group_admin_grant: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM group_role_grants_for_user($1) AS grants
+                JOIN groups g ON g.id = grants.group_id
+            WHERE grants.group_id = $2
+              AND grants.group_role = 'GROUP_ADMIN'
+              AND g.status = 'ACTIVE'
+        )
+        "#,
+    )
+    .bind(*actor.as_uuid())
+    .bind(group_id)
+    // rls-arming: ok identity-only SECURITY DEFINER grants resolver + safe groups metadata
+    .fetch_one(pool)
+    .await
+    .map_err(DbError::Sqlx)?;
+
+    if !has_group_admin_grant {
+        return Ok(Vec::new());
+    }
+
+    group_member_orgs(pool, group_id, actor).await
+}
+
 /// Fan out an existing tenant-scoped read across resolver-authorized members.
 ///
 /// The helper opens one `with_org_conn` transaction per member, so the supplied
@@ -161,6 +199,101 @@ mod tests {
         assert_eq!(rows[1].group_id, group_id);
         assert_eq!(rows[1].org_id, second_org);
         assert_eq!(rows[1].value, format!("row-for-{second_org}"));
+    }
+
+    #[sqlx::test(migrations = "../db/migrations")]
+    async fn group_admin_member_orgs_fails_closed_after_role_downgrade(owner_pool: PgPool) {
+        let rt_pool = runtime_role_pool(&owner_pool).await;
+        let org_id = uuid::Uuid::from_u128(0xA067_A067_A067_A067_A067_A067_A067_A067);
+        let group_id = uuid::Uuid::from_u128(0xB067_B067_B067_B067_B067_B067_B067_B067);
+        let actor = UserId::from_uuid(uuid::Uuid::from_u128(
+            0xC067_C067_C067_C067_C067_C067_C067_C067,
+        ));
+
+        let mut tx = owner_pool.begin().await.unwrap();
+        sqlx::query("SET LOCAL row_security = off")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, 'g067-a', 'G067 A')")
+            .bind(org_id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, 'Group Actor', ARRAY['MEMBER'], $2)")
+            .bind(*actor.as_uuid())
+            .bind(org_id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO groups (id, slug, name) VALUES ($1, 'g067', 'G067')")
+            .bind(group_id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO group_memberships (group_id, org_id) VALUES ($1, $2)")
+            .bind(group_id)
+            .bind(org_id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO group_role_grants (group_id, user_id, group_role, granted_by) VALUES ($1, $2, 'GROUP_ADMIN', NULL)")
+            .bind(group_id)
+            .bind(*actor.as_uuid())
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let rows = group_admin_member_orgs(&rt_pool, group_id, actor)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].org_id, OrgId::from_uuid(org_id));
+
+        let mut tx = owner_pool.begin().await.unwrap();
+        sqlx::query("SET LOCAL row_security = off")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query(
+            "DELETE FROM group_role_grants WHERE group_id = $1 AND user_id = $2 AND group_role = 'GROUP_ADMIN'",
+        )
+        .bind(group_id)
+        .bind(*actor.as_uuid())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO group_role_grants (group_id, user_id, group_role, granted_by) VALUES ($1, $2, 'GROUP_VIEWER', NULL)")
+            .bind(group_id)
+            .bind(*actor.as_uuid())
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let rows = group_admin_member_orgs(&rt_pool, group_id, actor)
+            .await
+            .unwrap();
+        assert!(
+            rows.is_empty(),
+            "delegated writable tenant context must fail closed after GROUP_ADMIN downgrade",
+        );
+    }
+
+    async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
+        let options = owner_pool.connect_options().as_ref().clone();
+        PgPoolOptions::new()
+            .max_connections(2)
+            .after_connect(|conn, _meta| {
+                Box::pin(async move {
+                    sqlx::query("SET ROLE mnt_rt").execute(conn).await?;
+                    Ok(())
+                })
+            })
+            .connect_with(options)
+            .await
+            .unwrap()
     }
 
     fn member(org_id: OrgId, slug: &str) -> GroupMemberOrg {

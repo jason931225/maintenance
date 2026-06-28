@@ -6002,12 +6002,6 @@ public enum Components {
             public var leaveUsed: Swift.String?
             /// - Remark: Generated from `#/components/schemas/Employee/leave_remaining`.
             public var leaveRemaining: Swift.String?
-            /// - Remark: Generated from `#/components/schemas/Employee/source_filename`.
-            public var sourceFilename: Swift.String
-            /// - Remark: Generated from `#/components/schemas/Employee/source_sheet`.
-            public var sourceSheet: Swift.String
-            /// - Remark: Generated from `#/components/schemas/Employee/source_row`.
-            public var sourceRow: Swift.Int32
             /// - Remark: Generated from `#/components/schemas/Employee/created_at`.
             public var createdAt: Components.Schemas.Timestamp
             /// - Remark: Generated from `#/components/schemas/Employee/updated_at`.
@@ -6030,9 +6024,6 @@ public enum Components {
             ///   - leaveAccrued:
             ///   - leaveUsed:
             ///   - leaveRemaining:
-            ///   - sourceFilename:
-            ///   - sourceSheet:
-            ///   - sourceRow:
             ///   - createdAt:
             ///   - updatedAt:
             public init(
@@ -6051,9 +6042,6 @@ public enum Components {
                 leaveAccrued: Swift.String? = nil,
                 leaveUsed: Swift.String? = nil,
                 leaveRemaining: Swift.String? = nil,
-                sourceFilename: Swift.String,
-                sourceSheet: Swift.String,
-                sourceRow: Swift.Int32,
                 createdAt: Components.Schemas.Timestamp,
                 updatedAt: Components.Schemas.Timestamp
             ) {
@@ -6072,9 +6060,6 @@ public enum Components {
                 self.leaveAccrued = leaveAccrued
                 self.leaveUsed = leaveUsed
                 self.leaveRemaining = leaveRemaining
-                self.sourceFilename = sourceFilename
-                self.sourceSheet = sourceSheet
-                self.sourceRow = sourceRow
                 self.createdAt = createdAt
                 self.updatedAt = updatedAt
             }
@@ -6094,9 +6079,6 @@ public enum Components {
                 case leaveAccrued = "leave_accrued"
                 case leaveUsed = "leave_used"
                 case leaveRemaining = "leave_remaining"
-                case sourceFilename = "source_filename"
-                case sourceSheet = "source_sheet"
-                case sourceRow = "source_row"
                 case createdAt = "created_at"
                 case updatedAt = "updated_at"
             }

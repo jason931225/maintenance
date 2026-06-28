@@ -180,7 +180,10 @@ describe("EmployeesPage", () => {
     expect(within(row as HTMLElement).getByText("김현장")).toBeVisible();
     expect(within(row as HTMLElement).getByText("대한물류")).toBeVisible();
     expect(within(row as HTMLElement).getByText("물류팀")).toBeVisible();
-    expect(within(row as HTMLElement).getByText("12")).toBeVisible();
+    expect(
+      screen.queryByRole("columnheader", { name: "원본 행" }),
+    ).not.toBeInTheDocument();
+    expect(within(row as HTMLElement).queryByText("12")).not.toBeInTheDocument();
     expect(within(row as HTMLElement).getByText("인천센터")).toBeVisible();
     expect(within(row as HTMLElement).getByText("정비")).toBeVisible();
     expect(within(row as HTMLElement).getByText("대리")).toBeVisible();

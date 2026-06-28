@@ -11,7 +11,9 @@ mod webauthn;
 mod well_known;
 
 pub use error::AuthError;
-pub use jwt::{AccessClaims, AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
+pub use jwt::{
+    AccessClaims, AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier, TenantAccessContext,
+};
 pub use refresh::{RefreshToken, RefreshTokenIssue, RefreshTokenStore, RefreshTokenUseError};
 pub use webauthn::{
     AuthenticationCeremony, AuthenticationOutcome, PasskeyAuthenticationCredential,

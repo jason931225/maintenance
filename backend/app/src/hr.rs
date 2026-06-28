@@ -9,7 +9,7 @@ use axum::{Extension, Json, Router};
 use calamine::{Data, DataType, Reader, Xlsx};
 use mnt_kernel_core::{BranchScope, ErrorKind, KernelError};
 use mnt_platform_auth::JwtVerifier;
-use mnt_platform_authz::{Action, Feature, Principal, authorize};
+use mnt_platform_authz::{Action, Feature, Principal, authorize, authorize_org_wide};
 use mnt_platform_db::{DbError, with_org_conn};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -98,9 +98,6 @@ struct EmployeeResponse {
     leave_used: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     leave_remaining: Option<String>,
-    source_filename: String,
-    source_sheet: String,
-    source_row: i32,
     created_at: time::OffsetDateTime,
     updated_at: time::OffsetDateTime,
 }
@@ -207,7 +204,7 @@ async fn list_employees(
     Extension(principal): Extension<Principal>,
     Query(query): Query<EmployeeListQuery>,
 ) -> Result<Json<EmployeePage>, HrError> {
-    authorize_org_feature(&principal, Feature::EmployeeDirectoryRead)?;
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)?;
     record_hr_read("employees");
     let org = principal.org_id;
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
@@ -227,7 +224,7 @@ async fn list_employees(
             let total: i64 = count.build_query_scalar().fetch_one(tx.as_mut()).await?;
 
             let mut rows = QueryBuilder::<Postgres>::new(
-                "SELECT id, company, name, employee_number, org_unit, job, position, worksite_name, worksite_address, hire_date, exit_date, employment_status, leave_accrued::TEXT AS leave_accrued, leave_used::TEXT AS leave_used, leave_remaining::TEXT AS leave_remaining, source_filename, source_sheet, source_row, created_at, updated_at FROM employees WHERE TRUE",
+                "SELECT id, company, name, employee_number, org_unit, job, position, worksite_name, worksite_address, hire_date, exit_date, employment_status, leave_accrued::TEXT AS leave_accrued, leave_used::TEXT AS leave_used, leave_remaining::TEXT AS leave_remaining, created_at, updated_at FROM employees WHERE TRUE",
             );
             if let Some(company) = company.as_deref() {
                 rows.push(" AND company = ");
@@ -262,7 +259,7 @@ async fn get_hr_org_chart(
     State(state): State<HrState>,
     Extension(principal): Extension<Principal>,
 ) -> Result<Json<HrOrgChartResponse>, HrError> {
-    authorize_org_feature(&principal, Feature::EmployeeDirectoryRead)?;
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)?;
     record_hr_read("org_chart");
     let org = principal.org_id;
 
@@ -327,7 +324,7 @@ async fn list_leave_balances(
     Extension(principal): Extension<Principal>,
     Query(query): Query<HrListQuery>,
 ) -> Result<Json<LeaveBalancePage>, HrError> {
-    authorize_org_feature(&principal, Feature::EmployeeDirectoryRead)?;
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)?;
     record_hr_read("leave_balances");
     let org = principal.org_id;
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
@@ -502,7 +499,7 @@ async fn import_employees(
     Extension(principal): Extension<Principal>,
     multipart: Multipart,
 ) -> Result<Json<EmployeeImportReport>, HrError> {
-    authorize_org_feature(&principal, Feature::EmployeeDirectoryManage)?;
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryManage)?;
     let upload = read_xlsx_upload(multipart).await?;
     let parsed = parse_employee_workbook(&upload.filename, &upload.bytes)?;
     let org = principal.org_id;
@@ -816,9 +813,6 @@ fn employee_from_row(row: sqlx::postgres::PgRow) -> Result<EmployeeResponse, HrE
         leave_accrued: row.try_get("leave_accrued")?,
         leave_used: row.try_get("leave_used")?,
         leave_remaining: row.try_get("leave_remaining")?,
-        source_filename: row.try_get("source_filename")?,
-        source_sheet: row.try_get("source_sheet")?,
-        source_row: row.try_get("source_row")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -947,6 +941,10 @@ fn record_hr_import(inserted: usize, updated: usize) {
         .increment(inserted as u64);
     metrics::counter!("hr_employee_import_rows_total", "outcome" => "updated")
         .increment(updated as u64);
+}
+
+fn authorize_hr_org_wide(principal: &Principal, feature: Feature) -> Result<(), HrError> {
+    authorize_org_wide(principal, Action::new(feature)).map_err(HrError::from_kernel)
 }
 
 fn authorize_org_feature(principal: &Principal, feature: Feature) -> Result<(), HrError> {
@@ -1125,5 +1123,77 @@ mod tests {
         assert_eq!(canonical.exit_date.as_deref(), Some("2026-01-31"));
         assert_eq!(canonical.employment_status, "EXITED");
         assert_eq!(raw["퇴직금 중간정산일"], json!("2025-12-31"));
+    }
+
+    #[test]
+    fn employee_response_serializes_canonical_fields_without_import_provenance() {
+        let body = serde_json::to_value(EmployeeResponse {
+            id: Uuid::nil(),
+            company: "코스".to_owned(),
+            name: "홍길동".to_owned(),
+            employee_number: Some("A-001".to_owned()),
+            org_unit: Some("물류팀".to_owned()),
+            worksite_name: None,
+            worksite: None,
+            job: None,
+            position: Some("대리".to_owned()),
+            hire_date: Some("2024-01-02".to_owned()),
+            exit_date: None,
+            status: Some("ACTIVE".to_owned()),
+            leave_accrued: None,
+            leave_used: None,
+            leave_remaining: None,
+            created_at: time::OffsetDateTime::UNIX_EPOCH,
+            updated_at: time::OffsetDateTime::UNIX_EPOCH,
+        })
+        .expect("employee response serializes");
+
+        for forbidden in [
+            "raw_row",
+            "source_metadata",
+            "source_filename",
+            "source_sheet",
+            "source_row",
+        ] {
+            assert!(
+                body.get(forbidden).is_none(),
+                "public employee response must not expose {forbidden}",
+            );
+        }
+    }
+
+    #[test]
+    fn org_wide_hr_authorization_rejects_branch_scoped_principals() {
+        use mnt_kernel_core::{BranchId, OrgId, UserId};
+        use mnt_platform_authz::Role;
+        use std::collections::BTreeSet;
+
+        let principal = Principal::new(
+            UserId::new(),
+            OrgId::new(),
+            BTreeSet::from([Role::Admin]),
+            BranchScope::single(BranchId::new()),
+        );
+
+        let err = authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)
+            .expect_err("branch-scoped HR read must not authorize org-wide surfaces");
+        assert_eq!(err.status, StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn org_wide_hr_authorization_allows_org_wide_admins() {
+        use mnt_kernel_core::{OrgId, UserId};
+        use mnt_platform_authz::Role;
+        use std::collections::BTreeSet;
+
+        let principal = Principal::new(
+            UserId::new(),
+            OrgId::new(),
+            BTreeSet::from([Role::Admin]),
+            BranchScope::All,
+        );
+
+        authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)
+            .expect("org-wide admin may read HR directory");
     }
 }
