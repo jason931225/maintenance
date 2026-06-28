@@ -32,12 +32,6 @@ async fn messenger_rest_polling_send_read_and_search_are_authorized(pool: PgPool
             .to_public_key_pem(LineEnding::LF)
             .unwrap();
         let branch_id = seed_branch(&pool, "Messenger REST Region", "Messenger REST Branch").await;
-        let other_branch_id = seed_branch(
-            &pool,
-            "Messenger REST Other Region",
-            "Messenger REST Other Branch",
-        )
-        .await;
         let sender = UserId::new();
         let recipient = UserId::new();
         seed_user_with_branch(&pool, sender, "MECHANIC", branch_id).await;
@@ -65,14 +59,6 @@ async fn messenger_rest_polling_send_read_and_search_are_authorized(pool: PgPool
             vec![branch_id],
         )
         .unwrap();
-        let wrong_branch_token = issue_token(
-            private_pem.as_bytes(),
-            public_key_pem.as_bytes(),
-            sender,
-            vec!["MECHANIC".to_owned()],
-            vec![other_branch_id],
-        )
-        .unwrap();
         let verifier = JwtVerifier::from_es256_public_pem(
             JwtSettings {
                 issuer: TEST_ISSUER.to_owned(),
@@ -84,14 +70,16 @@ async fn messenger_rest_polling_send_read_and_search_are_authorized(pool: PgPool
         .unwrap();
         let service = router(MessengerRestState::new(store, Some(verifier)));
 
+        revoke_user_branch(&pool, sender, branch_id).await;
         let denied = post_json(
             service.clone(),
             &format!("/api/messenger/threads/{}/messages", thread.id),
-            &wrong_branch_token,
-            json!({ "body": "wrong scope" }),
+            &token,
+            json!({ "body": "revoked branch should fail closed" }),
         )
         .await;
         assert_eq!(denied.status, StatusCode::FORBIDDEN, "{:?}", denied.json);
+        grant_user_branch(&pool, sender, branch_id).await;
 
         let sent = post_json(
             service.clone(),
@@ -248,6 +236,68 @@ async fn seed_branch(pool: &PgPool, region_name: &str, branch_name: &str) -> Bra
     })
     .await
     .unwrap()
+}
+
+async fn revoke_user_branch(pool: &PgPool, user_id: UserId, branch_id: BranchId) {
+    let event = AuditEvent::new(
+        Some(user_id),
+        AuditAction::new("test.revoke_user_branch").unwrap(),
+        "user_branch",
+        format!("{user_id}:{branch_id}"),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_branch(branch_id)
+    .with_org(OrgId::knl());
+    with_audit(pool, event, |tx| {
+        Box::pin(async move {
+            sqlx::query(
+                "DELETE FROM user_branches WHERE user_id = $1 AND branch_id = $2 AND org_id = $3",
+            )
+            .bind(*user_id.as_uuid())
+            .bind(*branch_id.as_uuid())
+            .bind(*OrgId::knl().as_uuid())
+            .execute(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+            Ok::<(), DbError>(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+async fn grant_user_branch(pool: &PgPool, user_id: UserId, branch_id: BranchId) {
+    let event = AuditEvent::new(
+        Some(user_id),
+        AuditAction::new("test.grant_user_branch").unwrap(),
+        "user_branch",
+        format!("{user_id}:{branch_id}"),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_branch(branch_id)
+    .with_org(OrgId::knl());
+    with_audit(pool, event, |tx| {
+        Box::pin(async move {
+            sqlx::query(
+                r#"
+                INSERT INTO user_branches (user_id, branch_id, org_id)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (user_id, branch_id) DO NOTHING
+                "#,
+            )
+            .bind(*user_id.as_uuid())
+            .bind(*branch_id.as_uuid())
+            .bind(*OrgId::knl().as_uuid())
+            .execute(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+            Ok::<(), DbError>(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 async fn seed_user_with_branch(pool: &PgPool, user_id: UserId, role: &str, branch_id: BranchId) {
