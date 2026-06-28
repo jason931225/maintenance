@@ -182,6 +182,13 @@ function approvalHref(item: ApprovalItem): string {
   return "/approvals";
 }
 
+function approvalActionLabel(item: ApprovalItem): string {
+  if (item.source === "DAILY_PLAN") {
+    return ko.workHub.actions.openDailyPlan;
+  }
+  return ko.workHub.actions.openApprovals;
+}
+
 function buildApprovalItems(items: ApprovalItem[]): HubItem[] {
   return items.map((item) => ({
     id: `approval-${item.id}`,
@@ -190,7 +197,7 @@ function buildApprovalItems(items: ApprovalItem[]): HubItem[] {
     eyebrow: `${ko.workHub.items.approval} · ${approvalSourceLabel(item.source)}`,
     detail: safeLabel(item.summary, item.workflow.workflow_key),
     href: approvalHref(item),
-    action: ko.workHub.actions.openApprovals,
+    action: approvalActionLabel(item),
     dueLabel: item.due_at
       ? ko.workHub.due.target.replace("{time}", formatKoreanDateTime(item.due_at))
       : undefined,

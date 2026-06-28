@@ -284,10 +284,16 @@ describe("WorkHubPage", () => {
     expect(approvalHrefs).toContain(
       "/approvals?source=work-order&focus=77777777-7777-4777-8777-777777777777",
     );
-    expect(approvalHrefs).toContain(`/daily-plan?planId=${requestedPlanId}`);
     expect(approvalHrefs).toContain(
       `/approvals#target-change-${targetChangeId}`,
     );
+    expect(
+      screen
+        .getAllByRole("link", { name: "계획업무 열기" })
+        .some(
+          (link) => link.getAttribute("href") === `/daily-plan?planId=${requestedPlanId}`,
+        ),
+    ).toBe(true);
     expect(screen.getByRole("link", { name: "작업·배차 모듈 열기" })).toHaveAttribute(
       "href",
       "/dispatch",
