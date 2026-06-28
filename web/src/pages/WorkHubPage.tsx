@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import type {
+  ApprovalItem,
   DailyPlanSummary,
   MessengerThreadSummary,
   SupportTicketSummary,
@@ -30,11 +31,6 @@ import { ko } from "../i18n/ko";
 import { formatKoreanDate, formatKoreanDateTime } from "../lib/datetime";
 import { cn, priorityClass, priorityLabel, safeLabel } from "../lib/utils";
 
-const APPROVAL_STATUSES: WorkOrderListItem["status"][] = [
-  "REPORT_SUBMITTED",
-  "ADMIN_REVIEW",
-];
-
 const ADMIN_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN] as const;
 const DAILY_PLAN_ROLES = [ROLES.MECHANIC, ROLES.ADMIN, ROLES.SUPER_ADMIN] as const;
 const TEAM_QUEUE_ROLES = [
@@ -51,7 +47,7 @@ type ReadState = "loading" | "idle" | "error";
 
 interface WorkHubData {
   workOrders: WorkOrderListItem[];
-  approvalWorkOrders: WorkOrderListItem[];
+  approvalItems: ApprovalItem[];
   dailyPlans: DailyPlanSummary[];
   threads: MessengerThreadSummary[];
   tickets: SupportTicketSummary[];
@@ -85,7 +81,7 @@ interface HubItem {
 
 const emptyData: WorkHubData = {
   workOrders: [],
-  approvalWorkOrders: [],
+  approvalItems: [],
   dailyPlans: [],
   threads: [],
   tickets: [],
@@ -154,22 +150,54 @@ function buildWorkItems(workOrders: WorkOrderListItem[]): HubItem[] {
   });
 }
 
-function buildApprovalItems(workOrders: WorkOrderListItem[]): HubItem[] {
-  return workOrders.map((workOrder) => ({
-    id: `approval-${workOrder.id}`,
+function approvalSourceLabel(source: ApprovalItem["source"]): string {
+  switch (source) {
+    case "WORK_ORDER":
+      return ko.approvals.sources.workOrders;
+    case "DAILY_PLAN":
+      return ko.approvals.sources.dailyPlans;
+    case "TARGET_CHANGE":
+      return ko.approvals.sources.targetChanges;
+  }
+}
+
+function approvalStatusLabel(item: ApprovalItem): string {
+  if (item.source === "WORK_ORDER") {
+    return labelFromMap(ko.status, item.status);
+  }
+  if (item.source === "DAILY_PLAN") {
+    return labelFromMap(ko.workHub.dailyPlanStatus, item.status);
+  }
+  return labelFromMap(ko.approvals.targetChange.statuses, item.status);
+}
+
+function approvalHref(item: ApprovalItem): string {
+  const href = item.href.trim();
+  if (href.startsWith("#")) {
+    return `/approvals${href}`;
+  }
+  if (href.startsWith("/")) {
+    return href;
+  }
+  return "/approvals";
+}
+
+function buildApprovalItems(items: ApprovalItem[]): HubItem[] {
+  return items.map((item) => ({
+    id: `approval-${item.id}`,
     filter: "approval",
-    title: ko.workHub.items.approvalTitle.replace("{requestNo}", workOrder.request_no),
-    eyebrow: ko.workHub.items.approval,
-    detail: workOrderDetail(workOrder),
-    href: `/approvals?source=work-order&focus=${workOrder.id}`,
+    title: safeLabel(item.title),
+    eyebrow: `${ko.workHub.items.approval} · ${approvalSourceLabel(item.source)}`,
+    detail: safeLabel(item.summary, item.workflow.workflow_key),
+    href: approvalHref(item),
     action: ko.workHub.actions.openApprovals,
-    dueLabel: workOrder.target_due_at
-      ? ko.workHub.due.target.replace("{time}", formatKoreanDateTime(workOrder.target_due_at))
+    dueLabel: item.due_at
+      ? ko.workHub.due.target.replace("{time}", formatKoreanDateTime(item.due_at))
       : undefined,
-    badge: labelFromMap(ko.status, workOrder.status),
+    badge: approvalStatusLabel(item),
     badgeClass: "border-amber-300 bg-amber-50 text-amber-900",
     tone: "approval",
-    sortTime: timeValue(workOrder.updated_at),
+    sortTime: timeValue(item.due_at || item.requested_at),
   }));
 }
 
@@ -261,7 +289,7 @@ function isActionableSupportTicket(ticket: SupportTicketSummary): boolean {
 
 function buildInboxItems(data: WorkHubData): HubItem[] {
   return [
-    ...buildApprovalItems(data.approvalWorkOrders),
+    ...buildApprovalItems(data.approvalItems),
     ...buildWorkItems(data.workOrders),
     ...buildDailyItems(data.dailyPlans),
     ...buildConversationItems(data.threads),
@@ -306,9 +334,7 @@ export function WorkHubPage() {
       canApprove
         ? capture(
             "approvals",
-            api.GET("/api/v1/work-orders", {
-              params: { query: { status: APPROVAL_STATUSES, limit: 50, offset: 0 } },
-            }),
+            api.GET("/api/approval-items", { params: { query: { limit: 50, offset: 0 } } }),
           )
         : skippedSource("approvals"),
       canUseDailyPlan
@@ -324,7 +350,7 @@ export function WorkHubPage() {
 
     const nextData: WorkHubData = {
       workOrders: (results.find((r) => r.key === "workOrders")?.data as { items?: WorkOrderListItem[] } | undefined)?.items ?? [],
-      approvalWorkOrders: (results.find((r) => r.key === "approvals")?.data as { items?: WorkOrderListItem[] } | undefined)?.items ?? [],
+      approvalItems: (results.find((r) => r.key === "approvals")?.data as { items?: ApprovalItem[] } | undefined)?.items ?? [],
       dailyPlans: (results.find((r) => r.key === "dailyPlans")?.data as { items?: DailyPlanSummary[] } | undefined)?.items ?? [],
       threads: (results.find((r) => r.key === "messenger")?.data as { items?: MessengerThreadSummary[] } | undefined)?.items ?? [],
       tickets: ((results.find((r) => r.key === "support")?.data as { items?: SupportTicketSummary[] } | undefined)?.items ?? []).filter(isActionableSupportTicket),
@@ -353,8 +379,8 @@ export function WorkHubPage() {
       {
         key: "approval" as const,
         label: ko.workHub.stats.approvals,
-        value: data.approvalWorkOrders.length,
-        href: "/approvals?source=work-order",
+        value: data.approvalItems.length,
+        href: "/approvals",
         Icon: CheckSquare,
         disabled: !canApprove,
       },

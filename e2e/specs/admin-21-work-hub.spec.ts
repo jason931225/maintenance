@@ -15,14 +15,26 @@ test("ADMIN-21 admin opens the Work Hub action inbox", async ({
   const consoleGuard = attachConsoleGuard(page);
   await loginAs("ADMIN");
 
+  const federatedApprovals = page.waitForResponse((response) =>
+    response.url().includes("/api/approval-items") &&
+    response.request().method() === "GET" &&
+    response.status() === 200,
+  );
   await page.goto("/work-hub");
+  await federatedApprovals;
   await expect(
     page.getByRole("heading", { name: "업무 허브", level: 1 }),
   ).toBeVisible({ timeout: 8_000 });
   await expect(page.getByText("업무 객체 중심 실행 흐름")).toBeVisible();
   await expect(page.getByRole("button", { name: "승인" })).toBeVisible();
   await expect(page.getByRole("link", { name: "작업·배차 모듈 열기" })).toBeVisible();
-  const approvalLink = page.getByRole("link", { name: "승인센터에서 검토" }).first();
+  await expect(
+    page.locator('a[href^="/approvals#target-change-"]').first(),
+  ).toBeVisible();
+  const approvalLink = page
+    .locator('a[href^="/approvals?source=work-order&focus="]')
+    .filter({ hasText: "승인센터에서 검토" })
+    .first();
   await expect(approvalLink).toHaveAttribute(
     "href",
     /\/approvals\?source=work-order&focus=/,
