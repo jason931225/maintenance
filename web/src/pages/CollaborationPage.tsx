@@ -9,10 +9,17 @@ import {
   ShieldCheck,
   Users,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link } from "react-router-dom";
 
 import type {
+  ApprovalItem,
   DailyPlanSummary,
   MailThreadView,
   MessengerThreadSummary,
@@ -36,12 +43,12 @@ const WORK_QUEUE_STATUSES: WorkOrderListItem["status"][] = [
   "ASSIGNED",
   "IN_PROGRESS",
 ];
-const APPROVAL_STATUSES: WorkOrderListItem["status"][] = [
-  "REPORT_SUBMITTED",
-  "ADMIN_REVIEW",
-];
 const ADMIN_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN] as const;
-const DAILY_PLAN_ROLES = [ROLES.MECHANIC, ROLES.ADMIN, ROLES.SUPER_ADMIN] as const;
+const DAILY_PLAN_ROLES = [
+  ROLES.MECHANIC,
+  ROLES.ADMIN,
+  ROLES.SUPER_ADMIN,
+] as const;
 const MAIL_USE_ROLES = [
   ROLES.RECEPTIONIST,
   ROLES.ADMIN,
@@ -54,7 +61,7 @@ type MailReadState = "allowed" | "forbidden" | "unavailable";
 
 interface CollaborationData {
   workOrders: WorkOrderListItem[];
-  approvals: WorkOrderListItem[];
+  approvals: ApprovalItem[];
   dailyPlans: DailyPlanSummary[];
   supportTickets: SupportTicketSummary[];
   messengerThreads: MessengerThreadSummary[];
@@ -94,6 +101,36 @@ function upcomingPlans(
   });
 }
 
+function approvalSourceLabel(source: ApprovalItem["source"]): string {
+  switch (source) {
+    case "WORK_ORDER":
+      return ko.approvals.sources.workOrders;
+    case "DAILY_PLAN":
+      return ko.approvals.sources.dailyPlans;
+    case "TARGET_CHANGE":
+      return ko.approvals.sources.targetChanges;
+  }
+}
+
+function approvalFallbackHref(source: ApprovalItem["source"]): string {
+  return source === "DAILY_PLAN" ? "/daily-plan" : "/approvals";
+}
+
+function approvalHref(item: ApprovalItem): string {
+  const href = item.href.trim();
+  if (href.startsWith("#")) {
+    return `/approvals${href}`;
+  }
+  if (!href.startsWith("/") || href.startsWith("//")) {
+    return approvalFallbackHref(item.source);
+  }
+  const path = href.split(/[?#]/, 1)[0];
+  if (path === "/approvals" || path === "/daily-plan") {
+    return href;
+  }
+  return approvalFallbackHref(item.source);
+}
+
 function calendarEntries(
   data: CollaborationData,
   today: string,
@@ -114,28 +151,39 @@ function calendarEntries(
     })
     .map((workOrder) => ({
       id: `wo-${workOrder.id}`,
-      dateLabel: workOrder.target_due_at ? formatKoreanDateTime(workOrder.target_due_at) : ko.common.notSet,
+      dateLabel: workOrder.target_due_at
+        ? formatKoreanDateTime(workOrder.target_due_at)
+        : ko.common.notSet,
       title: workOrder.request_no,
       meta: `${workOrder.customer.name} · ${workOrder.site.name}`,
       kind: "work" as const,
       href: `/work-orders/${workOrder.id}`,
     }));
-  const approvals = data.approvals.slice(0, 5).map((workOrder) => ({
-    id: `approval-${workOrder.id}`,
-    dateLabel: formatKoreanDateTime(workOrder.updated_at),
-    title: ko.collaboration.calendar.approvalTitle(workOrder.request_no),
-    meta: `${workOrder.customer.name} · ${workOrder.site.name}`,
+  const approvals = data.approvals.slice(0, 5).map((item) => ({
+    id: `approval-${item.id}`,
+    dateLabel: item.due_at
+      ? formatKoreanDateTime(item.due_at)
+      : item.requested_at
+        ? formatKoreanDateTime(item.requested_at)
+        : ko.common.notSet,
+    title: ko.collaboration.calendar.approvalTitle(item.title),
+    meta: `${approvalSourceLabel(item.source)} · ${item.summary}`,
     kind: "approval" as const,
-    href: "/approvals",
+    href: approvalHref(item),
   }));
   const support = data.supportTickets
     .filter((ticket) => ticket.status !== "CLOSED" && !ticket.closed_at)
     .slice(0, 5)
     .map((ticket) => ({
       id: `support-${ticket.id}`,
-      dateLabel: ticket.due_at ? formatKoreanDateTime(ticket.due_at) : formatKoreanDateTime(ticket.updated_at),
+      dateLabel: ticket.due_at
+        ? formatKoreanDateTime(ticket.due_at)
+        : formatKoreanDateTime(ticket.updated_at),
       title: ticket.title,
-      meta: ticket.assignee_name ?? ticket.requester_name ?? ko.collaboration.unassigned,
+      meta:
+        ticket.assignee_name ??
+        ticket.requester_name ??
+        ko.collaboration.unassigned,
       kind: "support" as const,
       href: "/support",
     }));
@@ -157,9 +205,13 @@ function MetricCard({
     <Card className="grid gap-2">
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm font-semibold text-steel">{title}</span>
-        <span className="rounded-lg bg-brand-teal/10 p-2 text-brand-teal">{icon}</span>
+        <span className="rounded-lg bg-brand-teal/10 p-2 text-brand-teal">
+          {icon}
+        </span>
       </div>
-      <strong className="text-3xl font-black tabular-nums text-ink">{value}</strong>
+      <strong className="text-3xl font-black tabular-nums text-ink">
+        {value}
+      </strong>
       <p className="text-sm text-steel">{description}</p>
     </Card>
   );
@@ -219,11 +271,13 @@ export function CollaborationPage() {
         mailRes,
       ] = await Promise.all([
         api.GET("/api/v1/work-orders", {
-          params: { query: { status: WORK_QUEUE_STATUSES, limit: 20, offset: 0 } },
+          params: {
+            query: { status: WORK_QUEUE_STATUSES, limit: 20, offset: 0 },
+          },
         }),
         canApprove
-          ? api.GET("/api/v1/work-orders", {
-              params: { query: { status: APPROVAL_STATUSES, limit: 20, offset: 0 } },
+          ? api.GET("/api/approval-items", {
+              params: { query: { limit: 20, offset: 0 } },
             })
           : Promise.resolve(undefined),
         canDailyPlan
@@ -260,7 +314,8 @@ export function CollaborationPage() {
         : mailRes?.response.status === 503
           ? "unavailable"
           : "allowed";
-      const mailThreads = mailState === "allowed" && mailRes?.data ? mailRes.data : [];
+      const mailThreads =
+        mailState === "allowed" && mailRes?.data ? mailRes.data : [];
 
       setData({
         workOrders: workOrderRes.data.items,
@@ -301,7 +356,13 @@ export function CollaborationPage() {
         title={ko.collaboration.title}
         description={ko.collaboration.description}
         actions={
-          <Button type="button" variant="secondary" onClick={() => { void loadCollaboration(); }}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              void loadCollaboration();
+            }}
+          >
             <RefreshCw size={16} aria-hidden="true" />
             {ko.page.refresh}
           </Button>
@@ -310,10 +371,18 @@ export function CollaborationPage() {
       {readState === "loading" ? (
         <SkeletonCards count={4} lines={3} />
       ) : readState === "error" ? (
-        <PageError message={ko.collaboration.loadFailed} onRetry={() => { void loadCollaboration(); }} />
+        <PageError
+          message={ko.collaboration.loadFailed}
+          onRetry={() => {
+            void loadCollaboration();
+          }}
+        />
       ) : (
         <div className="grid gap-5">
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" aria-label={ko.collaboration.metricsLabel}>
+          <section
+            className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"
+            aria-label={ko.collaboration.metricsLabel}
+          >
             <MetricCard
               title={ko.collaboration.metrics.messages}
               value={data.messengerThreads.length}
@@ -351,9 +420,15 @@ export function CollaborationPage() {
               title={ko.collaboration.calendar.title}
               description={ko.collaboration.calendar.description}
               action={
-                <div className="flex flex-wrap gap-2" aria-label={ko.collaboration.calendar.scopesLabel}>
+                <div
+                  className="flex flex-wrap gap-2"
+                  aria-label={ko.collaboration.calendar.scopesLabel}
+                >
                   {ko.collaboration.calendar.scopes.map((scope) => (
-                    <Badge key={scope} className="border-brand-teal/30 bg-brand-teal/10 text-brand-teal">
+                    <Badge
+                      key={scope}
+                      className="border-brand-teal/30 bg-brand-teal/10 text-brand-teal"
+                    >
                       {scope}
                     </Badge>
                   ))}
@@ -365,7 +440,11 @@ export function CollaborationPage() {
                   {ko.collaboration.calendar.empty}
                 </p>
               ) : (
-                <div className="grid gap-2" role="list" aria-label={ko.collaboration.calendar.listLabel}>
+                <div
+                  className="grid gap-2"
+                  role="list"
+                  aria-label={ko.collaboration.calendar.listLabel}
+                >
                   {entries.map((entry) => (
                     <Link
                       key={entry.id}
@@ -373,12 +452,18 @@ export function CollaborationPage() {
                       role="listitem"
                       className="grid gap-2 rounded-lg border border-line bg-white p-3 transition hover:border-brand-teal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-teal sm:grid-cols-[8rem_1fr_auto]"
                     >
-                      <time className="text-sm font-semibold text-steel">{entry.dateLabel}</time>
+                      <time className="text-sm font-semibold text-steel">
+                        {entry.dateLabel}
+                      </time>
                       <span>
-                        <span className="block font-semibold text-ink">{entry.title}</span>
+                        <span className="block font-semibold text-ink">
+                          {entry.title}
+                        </span>
                         <span className="text-sm text-steel">{entry.meta}</span>
                       </span>
-                      <Badge>{ko.collaboration.calendar.kinds[entry.kind]}</Badge>
+                      <Badge>
+                        {ko.collaboration.calendar.kinds[entry.kind]}
+                      </Badge>
                     </Link>
                   ))}
                 </div>
@@ -391,7 +476,9 @@ export function CollaborationPage() {
                 description={ko.collaboration.messenger.description}
                 action={
                   <Button asChild type="button" variant="secondary" size="sm">
-                    <Link to="/messenger">{ko.collaboration.openMessenger}</Link>
+                    <Link to="/messenger">
+                      {ko.collaboration.openMessenger}
+                    </Link>
                   </Button>
                 }
               >
@@ -402,15 +489,21 @@ export function CollaborationPage() {
                     </p>
                   ) : (
                     data.messengerThreads.slice(0, 4).map((thread) => (
-                      <div key={thread.id} className="rounded-lg border border-line p-3">
+                      <div
+                        key={thread.id}
+                        className="rounded-lg border border-line p-3"
+                      >
                         <div className="flex items-center justify-between gap-2">
                           <strong className="text-sm text-ink">
-                            {thread.title?.trim() || ko.messenger.untitled[thread.kind]}
+                            {thread.title?.trim() ||
+                              ko.messenger.untitled[thread.kind]}
                           </strong>
                           <Badge>{ko.messenger.kinds[thread.kind]}</Badge>
                         </div>
                         <p className="mt-1 text-xs text-steel">
-                          {ko.collaboration.messenger.memberCount(thread.member_count)}
+                          {ko.collaboration.messenger.memberCount(
+                            thread.member_count,
+                          )}
                         </p>
                       </div>
                     ))
@@ -444,13 +537,18 @@ export function CollaborationPage() {
                     </p>
                   ) : (
                     data.mailThreads.slice(0, 4).map((thread) => (
-                      <div key={thread.id} className="rounded-lg border border-line p-3">
+                      <div
+                        key={thread.id}
+                        className="rounded-lg border border-line p-3"
+                      >
                         <div className="flex items-center justify-between gap-2">
                           <strong className="text-sm text-ink">
                             {thread.subject || ko.mailbox.noSubject}
                           </strong>
                           {thread.unread_count > 0 ? (
-                            <Badge>{ko.mailbox.unreadCount(thread.unread_count)}</Badge>
+                            <Badge>
+                              {ko.mailbox.unreadCount(thread.unread_count)}
+                            </Badge>
                           ) : null}
                         </div>
                         <p className="mt-1 text-xs text-steel">
@@ -475,7 +573,10 @@ export function CollaborationPage() {
           >
             <div className="grid gap-3 md:grid-cols-3">
               {ko.collaboration.polls.controls.map((control) => (
-                <div key={control.title} className="rounded-lg border border-line bg-white p-3">
+                <div
+                  key={control.title}
+                  className="rounded-lg border border-line bg-white p-3"
+                >
                   <div className="flex items-center gap-2">
                     <span className="rounded-md bg-muted-panel p-2 text-ink">
                       {control.icon === "audience" ? (
@@ -488,16 +589,26 @@ export function CollaborationPage() {
                     </span>
                     <h3 className="font-semibold text-ink">{control.title}</h3>
                   </div>
-                  <p className="mt-2 text-sm text-steel">{control.description}</p>
+                  <p className="mt-2 text-sm text-steel">
+                    {control.description}
+                  </p>
                 </div>
               ))}
             </div>
             <div className="rounded-lg border border-brand-teal/20 bg-brand-teal/5 p-4">
               <div className="flex items-start gap-3">
-                <Inbox className="mt-0.5 text-brand-teal" size={18} aria-hidden="true" />
+                <Inbox
+                  className="mt-0.5 text-brand-teal"
+                  size={18}
+                  aria-hidden="true"
+                />
                 <div>
-                  <h3 className="font-semibold text-ink">{ko.collaboration.workflow.title}</h3>
-                  <p className="mt-1 text-sm text-steel">{ko.collaboration.workflow.description}</p>
+                  <h3 className="font-semibold text-ink">
+                    {ko.collaboration.workflow.title}
+                  </h3>
+                  <p className="mt-1 text-sm text-steel">
+                    {ko.collaboration.workflow.description}
+                  </p>
                 </div>
               </div>
             </div>
