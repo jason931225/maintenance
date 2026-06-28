@@ -161,7 +161,7 @@ function buildApprovalItems(workOrders: WorkOrderListItem[]): HubItem[] {
     title: ko.workHub.items.approvalTitle.replace("{requestNo}", workOrder.request_no),
     eyebrow: ko.workHub.items.approval,
     detail: workOrderDetail(workOrder),
-    href: "/approvals",
+    href: `/approvals?source=work-order&focus=${workOrder.id}`,
     action: ko.workHub.actions.openApprovals,
     dueLabel: workOrder.target_due_at
       ? ko.workHub.due.target.replace("{time}", formatKoreanDateTime(workOrder.target_due_at))
@@ -350,7 +350,7 @@ export function WorkHubPage() {
         key: "approval" as const,
         label: ko.workHub.stats.approvals,
         value: data.approvalWorkOrders.length,
-        href: "/approvals",
+        href: "/approvals?source=work-order",
         Icon: CheckSquare,
         disabled: !canApprove,
       },

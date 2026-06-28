@@ -145,7 +145,7 @@ describe("WorkHubPage", () => {
     expect(screen.getByText("부품 입고 확인")).toBeVisible();
     expect(screen.getByRole("link", { name: "승인센터에서 검토" })).toHaveAttribute(
       "href",
-      "/approvals",
+      "/approvals?source=work-order&focus=77777777-7777-4777-8777-777777777777",
     );
     expect(screen.getByRole("link", { name: "작업·배차 모듈 열기" })).toHaveAttribute(
       "href",

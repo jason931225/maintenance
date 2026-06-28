@@ -103,3 +103,27 @@ The page is role-aware:
 4. Universal object activity rail: comments, messages, mail, files/evidence, approvals, and status history side-by-side on work order, support, HR/payroll, and asset objects.
 5. Policy UI: manager-editable PBAC/RBAC/ABAC policy surfaces with passkey step-up for sensitive actions.
 6. E2E user-story coverage: mechanic day-start, admin approval, manager handoff, HR/payroll mail receipt, and platform audit scenarios.
+
+## Second shipped slice in this branch
+
+This slice upgrades `/approvals` into an Approval Command Center while staying on real production APIs.
+
+It now aggregates:
+
+- Work-order report approvals from `/api/v1/work-orders?status=REPORT_SUBMITTED&status=ADMIN_REVIEW`.
+- Daily-plan approval work from `/api/daily-work-plans`, counting only `REQUESTED` plans as pending and deep-linking to `/daily-plan?planId=...` for review in the source object.
+- Target due-date change review through the existing `/api/target-change-requests/{requestId}/review` review-by-code surface.
+
+Quality and architecture notes:
+
+- Partial source failures are non-blank: if daily-plan loading fails, work-order approvals remain visible with a retryable source-specific error.
+- Work Hub approval cards now deep-link to `/approvals?source=work-order&focus=...`, preserving source-object context for future focus handling.
+- The UI does not fake a target-change pending list. The remaining backend gap is a proper list endpoint carrying requester, work order, reason, due date, policy, and audit metadata.
+- The UI does not claim passkey step-up is enforced for approvals yet. That remains a backend/session capability gap required before sensitive approval decisions can truthfully be labeled passkey-gated.
+
+Additional valid backlog added from this slice:
+
+1. Add a federated approval list API for target-date changes, purchase requests, HR/payroll requests, and future workflow objects.
+2. Add source-object focus handling on `/approvals?source=...&focus=...` so deep links scroll/open the specific approval card.
+3. Add passkey step-up challenge/attestation to approval and signing endpoints before marking those actions as signature-grade.
+4. Enrich daily-plan summary payloads with requester/mechanic display name, item count, risk/SLA context, and audit trail so the Approval Command Center can support direct typed cards without blind decisions.

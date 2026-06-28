@@ -1263,7 +1263,47 @@ export const ko = {
   },
   approvals: {
     title: "승인 대기",
-    description: "보고가 제출된 작업지시를 검토하고 승인 또는 반려합니다.",
+    description: "보고가 제출된 작업지시와 운영 승인 흐름을 검토하고 승인 또는 반려합니다.",
+    partialFailure: "일부 승인 원천을 불러오지 못했습니다: {sources}",
+    sources: {
+      workOrders: "작업 보고",
+      dailyPlans: "계획업무",
+    },
+    commandCenter: {
+      eyebrow: "Workflow + Approval",
+      title: "승인 커맨드 센터",
+      description:
+        "작업 보고, 계획업무, 일정 변경 요청을 원천 업무 객체와 연결해 감사 가능한 승인 흐름으로 처리합니다.",
+      auditBadge: "권한·감사 재검사",
+      none: "없음",
+      codeBased: "요청 코드",
+      sources: {
+        workReports: {
+          title: "작업 보고 승인",
+          description: "정비 보고, 진단, 조치, 결과, 증빙을 확인한 뒤 승인·반려합니다.",
+          action: "작업 승인 큐로 이동",
+        },
+        dailyPlans: {
+          title: "계획업무 검토",
+          description: "요청된 일일·주간 계획을 계획업무 원천 화면에서 검토합니다.",
+          action: "계획업무 검토 열기",
+        },
+        targetChange: {
+          title: "일정 변경 검토",
+          description: "배차에서 발행된 목표 완료 변경 요청을 요청 코드로 검토합니다.",
+          action: "일정 변경 검토로 이동",
+        },
+      },
+      dailyPlans: {
+        pendingTitle: "검토 요청된 계획업무",
+        pendingDescription:
+          "REQUESTED 상태의 계획만 승인 대기로 표시하며, 결정은 계획업무 원천 화면으로 연결합니다.",
+        listLabel: "검토 요청된 계획업무 목록",
+        requested: "검토 요청",
+        open: "계획업무 검토 열기",
+        empty: "검토 요청된 계획업무가 없습니다.",
+      },
+    },
     memo: "검토 메모",
     approve: "승인",
     reject: "반려",
