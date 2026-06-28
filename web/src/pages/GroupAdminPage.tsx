@@ -32,6 +32,20 @@ export function GroupAdminPage() {
     () => groups.reduce((sum, group) => sum + group.members.length, 0),
     [groups],
   );
+  const groupOverview = useMemo(
+    () =>
+      groups.map((group) => {
+        const activeCount = group.members.filter(
+          (member) => member.status === "ACTIVE",
+        ).length;
+        return {
+          group,
+          activeCount,
+          attentionCount: group.members.length - activeCount,
+        };
+      }),
+    [groups],
+  );
 
   const load = useCallback(async () => {
     setReadState("loading");
@@ -132,6 +146,86 @@ export function GroupAdminPage() {
                   <p className="mt-1">{principle.description}</p>
                 </div>
               ))}
+            </div>
+          </Card>
+          <Card
+            role="region"
+            aria-labelledby="group-admin-overview-title"
+            className="grid gap-4"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-brand-teal">
+                  {ko.groupAdmin.overview.eyebrow}
+                </p>
+                <h2
+                  id="group-admin-overview-title"
+                  className="mt-1 text-lg font-semibold text-ink"
+                >
+                  {ko.groupAdmin.overview.title}
+                </h2>
+                <p className="mt-1 max-w-3xl text-sm text-steel">
+                  {ko.groupAdmin.overview.description}
+                </p>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-line text-sm">
+                <thead className="bg-muted-panel/50 text-left text-xs font-semibold uppercase tracking-wide text-steel">
+                  <tr>
+                    <th className="px-4 py-3">
+                      {ko.groupAdmin.overview.columns.group}
+                    </th>
+                    <th className="px-4 py-3">
+                      {ko.groupAdmin.overview.columns.total}
+                    </th>
+                    <th className="px-4 py-3">
+                      {ko.groupAdmin.overview.columns.health}
+                    </th>
+                    <th className="px-4 py-3">
+                      {ko.groupAdmin.overview.columns.subsidiaries}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line bg-white">
+                  {groupOverview.map(({ group, activeCount, attentionCount }) => (
+                    <tr key={group.id}>
+                      <td className="px-4 py-3">
+                        <p className="font-semibold text-ink">{group.name}</p>
+                        <p className="text-xs text-steel">{group.slug}</p>
+                      </td>
+                      <td className="px-4 py-3 text-steel">
+                        {ko.groupAdmin.overview.total
+                          .replace("{count}", String(group.members.length))}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-2 text-xs font-semibold">
+                          <span className="rounded-full border border-brand-teal/20 bg-brand-teal/5 px-2 py-1 text-brand-teal">
+                            {ko.groupAdmin.overview.active
+                              .replace("{count}", String(activeCount))}
+                          </span>
+                          <span className="rounded-full border border-line bg-muted-panel px-2 py-1 text-steel">
+                            {ko.groupAdmin.overview.attention
+                              .replace("{count}", String(attentionCount))}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-2">
+                          {group.members.map((member) => (
+                            <span
+                              key={member.id}
+                              className="rounded-full border border-line bg-white px-2 py-1 text-xs font-semibold text-ink"
+                            >
+                              {member.name}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </Card>
           {groups.map((group) => (
