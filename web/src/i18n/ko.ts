@@ -345,6 +345,21 @@ export const ko = {
         },
       ],
     },
+    overview: {
+      eyebrow: "Group Scope",
+      title: "그룹 전체 보기",
+      description:
+        "소속 자회사를 하나의 그룹 범위로 먼저 점검한 뒤 필요한 법인 콘솔로 전환합니다.",
+      total: "총 법인 {count}개",
+      active: "활성 {count}개",
+      attention: "점검 필요 {count}개",
+      columns: {
+        group: "그룹",
+        total: "법인 수",
+        health: "상태 요약",
+        subsidiaries: "소속 법인",
+      },
+    },
     actions: {
       workHub: "업무 허브",
       org: "조직 관리",

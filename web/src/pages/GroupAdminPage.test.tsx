@@ -105,6 +105,51 @@ function installHandlers() {
 }
 
 describe("GroupAdminPage", () => {
+  it("shows a group-wide subsidiary overview before drilling into each tenant", async () => {
+    server.use(
+      http.get("*/api/v1/group-admin/groups", () =>
+        HttpResponse.json({
+          groups: [
+            {
+              id: "group-1",
+              slug: "group",
+              name: "그룹",
+              status: "ACTIVE",
+              members: [
+                {
+                  id: "org-coss",
+                  slug: "coss",
+                  name: "코스",
+                  status: "ACTIVE",
+                },
+                {
+                  id: "org-bestec",
+                  slug: "bestec",
+                  name: "베스텍",
+                  status: "SUSPENDED",
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+
+    renderPage();
+
+    const overview = await screen.findByRole("region", {
+      name: "그룹 전체 보기",
+    });
+    expect(overview).toBeVisible();
+    expect(overview).toHaveTextContent("그룹");
+    expect(overview).toHaveTextContent("총 법인 2개");
+    expect(overview).toHaveTextContent("활성 1개");
+    expect(overview).toHaveTextContent("점검 필요 1개");
+    expect(overview).toHaveTextContent("코스");
+    expect(overview).toHaveTextContent("베스텍");
+    expect(overview).not.toHaveClass("bg-ink");
+  });
+
   it("shows a group command center and starts audited tenant management for approvals", async () => {
     const user = userEvent.setup();
     installHandlers();
@@ -113,7 +158,7 @@ describe("GroupAdminPage", () => {
 
     expect(await screen.findByRole("heading", { name: "그룹 관리", level: 1 })).toBeVisible();
     expect(screen.getByText("그룹 전체 운영 지휘")).toBeVisible();
-    expect(screen.getByText("코스")).toBeVisible();
+    expect(screen.getAllByText("코스").length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: "코스 승인" }));
 
