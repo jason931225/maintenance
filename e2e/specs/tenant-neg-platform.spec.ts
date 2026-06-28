@@ -9,7 +9,7 @@ import type { Page } from "@playwright/test";
  * route only when the session carries the `platform` JWT claim
  * (`session.isPlatform`). Every seeded tenant role (ADMIN, MECHANIC, …) carries a
  * TENANT token — no `platform` claim — so any direct visit to a `/platform/*`
- * route is bounced back into the tenant app at `/dispatch`, and the platform
+ * route is bounced back into the tenant app at `/work-hub`, and the platform
  * admin UI (the tenants table) never renders.
  *
  * This mirrors the AUTH-07b negative pattern (a platform session bounced OFF a
@@ -28,22 +28,22 @@ const PLATFORM_ROUTES = [
 ] as const;
 
 /**
- * Assert the guard bounced a tenant session back to /dispatch and the platform
+ * Assert the guard bounced a tenant session back to /work-hub and the platform
  * console never rendered. The platform shell heads its surfaces with "테넌트"
- * (tenant) management copy; on /dispatch that text is absent.
+ * (tenant) management copy; on /work-hub that text is absent.
  */
 async function assertPlatformConsoleNotShown(page: Page): Promise<void> {
   await expect(page).not.toHaveURL(/\/platform/, { timeout: 8_000 });
-  await expect(page).toHaveURL(/\/dispatch/, { timeout: 8_000 });
-  // Visible-outcome: the tenant dispatch heading is shown, the platform tenants
+  await expect(page).toHaveURL(/\/work-hub/, { timeout: 8_000 });
+  // Visible-outcome: the tenant work hub heading is shown, the platform tenants
   // table heading is not.
   await expect(
-    page.getByRole("heading", { name: /배차/, level: 1 }).first(),
+    page.getByRole("heading", { name: /업무 허브/, level: 1 }).first(),
   ).toBeVisible({ timeout: 8_000 });
 }
 
 for (const route of PLATFORM_ROUTES) {
-  test(`TENANT-NEG ADMIN visiting ${route} is bounced to /dispatch`, async ({
+  test(`TENANT-NEG ADMIN visiting ${route} is bounced to /work-hub`, async ({
     page,
     loginAs,
   }) => {
@@ -54,7 +54,7 @@ for (const route of PLATFORM_ROUTES) {
     await assertPlatformConsoleNotShown(page);
   });
 
-  test(`TENANT-NEG MECHANIC visiting ${route} is bounced to /dispatch`, async ({
+  test(`TENANT-NEG MECHANIC visiting ${route} is bounced to /work-hub`, async ({
     page,
     loginAs,
   }) => {

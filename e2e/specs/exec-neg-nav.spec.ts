@@ -14,7 +14,7 @@ import { attachConsoleGuard, auditPage } from "../fixtures/ux";
  *
  * Direct-URL: approvals/inspection/ops/users/org/security are under
  * RequireAdminRoute; daily-plan is under RequireDailyPlanRoute (DailyPlanRequest
- * is `[D, A, A, D, A]` — executive denied). All redirect away to /dispatch — the
+ * is `[D, A, A, D, A]` — executive denied). All redirect away to /work-hub — the
  * page is never rendered, matching the hidden-nav contract.
  */
 
@@ -41,7 +41,7 @@ const HIDDEN_NAV_LABELS = [
   "보안 설정", // security
 ] as const;
 
-/** Routes whose guard must bounce an executive back to /dispatch. */
+/** Routes whose guard must bounce an executive back to /work-hub. */
 const GUARDED_ROUTES = [
   "/approvals",
   "/daily-plan",
@@ -78,7 +78,7 @@ test("EXEC-NEG manager/admin nav items are hidden for EXECUTIVE", async ({
 });
 
 for (const route of GUARDED_ROUTES) {
-  test(`EXEC-NEG direct visit to ${route} bounces to /dispatch`, async ({
+  test(`EXEC-NEG direct visit to ${route} bounces to /work-hub`, async ({
     page,
     loginAs,
   }) => {
@@ -86,10 +86,10 @@ for (const route of GUARDED_ROUTES) {
     await expect(page).toHaveURL(/\/dispatch/, { timeout: 15_000 });
 
     await page.goto(route);
-    // The guard redirects away; the executive lands back on /dispatch.
+    // The guard redirects away; the executive lands back on /work-hub.
     await expect(page).not.toHaveURL(new RegExp(route.replace(/\//g, "\\/")), {
       timeout: 8_000,
     });
-    await expect(page).toHaveURL(/\/dispatch/, { timeout: 8_000 });
+    await expect(page).toHaveURL(/\/work-hub/, { timeout: 8_000 });
   });
 }

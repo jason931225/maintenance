@@ -230,10 +230,14 @@ export async function performRoleLogin(
 export async function loginAs(page: Page, role: TenantRole): Promise<void> {
   await loginAsLanding(page, role);
   // Keep existing dispatch-oriented e2e specs stable while the product landing
-  // moves to /work-hub. Specs that need to assert the actual first screen use
-  // loginAsLanding directly.
-  await page.goto("/dispatch");
+  // moves to /work-hub. Use the authenticated shell link instead of a full
+  // document reload: a reload immediately after first passkey enrollment can
+  // race the boot-time refresh rotation, abort the Set-Cookie response, and make
+  // the next spec navigation reuse a stale refresh token. Specs that need to
+  // assert the actual first screen use loginAsLanding directly.
+  await page.getByRole("link", { name: "배차", exact: true }).click();
   await expect(page).toHaveURL(/\/dispatch/, { timeout: 15_000 });
+  await waitForSessionReady(page);
 }
 
 /** Login and leave the page on the real authenticated landing route (/work-hub). */
