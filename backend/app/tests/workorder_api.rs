@@ -303,6 +303,166 @@ async fn workorder_read_surface_is_branch_scoped_filterable_and_detailed(pool: P
 }
 
 #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn approval_items_are_server_federated_and_branch_scoped(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_id = seed_branch(&pool, "Approval Region", "Approval Branch").await;
+    let other_branch_id =
+        seed_branch(&pool, "Approval Other Region", "Approval Other Branch").await;
+    let receptionist = UserId::new();
+    let mechanic = UserId::new();
+    let admin = UserId::new();
+    seed_user_with_branch(&pool, receptionist, "RECEPTIONIST", branch_id).await;
+    seed_user_with_branch(&pool, mechanic, "MECHANIC", branch_id).await;
+    seed_user_with_branch(&pool, admin, "ADMIN", branch_id).await;
+    let equipment = seed_equipment_record(&pool, branch_id, "391", "GTS35DE").await;
+    let other_equipment = seed_equipment_record(&pool, other_branch_id, "392", "HIDDEN").await;
+
+    let work_order_id = seed_report_submitted_work_order(
+        &pool,
+        branch_id,
+        equipment,
+        receptionist,
+        mechanic,
+        admin,
+        "20260612-931",
+    )
+    .await;
+    let daily_plan_id = seed_requested_daily_plan(&pool, branch_id, mechanic, "2026-06-29").await;
+    let target_change_id = seed_requested_target_change(&pool, work_order_id, admin).await;
+    let hidden_work_order_id = seed_report_submitted_work_order(
+        &pool,
+        other_branch_id,
+        other_equipment,
+        receptionist,
+        mechanic,
+        admin,
+        "20260612-932",
+    )
+    .await;
+    seed_requested_target_change(&pool, hidden_work_order_id, admin).await;
+
+    let admin_token = issue_token(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        admin,
+        vec!["ADMIN".to_owned()],
+        vec![branch_id],
+    )
+    .unwrap();
+    let mechanic_token = issue_token(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        mechanic,
+        vec!["MECHANIC".to_owned()],
+        vec![branch_id],
+    )
+    .unwrap();
+    let service = build_router(app_state(pool, public_key_pem).unwrap());
+
+    let denied = get_json(
+        service.clone(),
+        "/api/approval-items?limit=50&offset=0",
+        &mechanic_token,
+    )
+    .await;
+    assert_eq!(denied.status, StatusCode::FORBIDDEN, "{:?}", denied.json);
+
+    let page = get_json(
+        service,
+        "/api/approval-items?limit=50&offset=0",
+        &admin_token,
+    )
+    .await;
+    assert_eq!(page.status, StatusCode::OK, "{:?}", page.json);
+    assert_eq!(page.json["total"], 3);
+    assert_eq!(page.json["limit"], 50);
+    assert_eq!(page.json["offset"], 0);
+
+    let items = page.json["items"].as_array().unwrap();
+    let sources = items
+        .iter()
+        .map(|item| item["source"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(sources.contains(&"WORK_ORDER"));
+    assert!(sources.contains(&"DAILY_PLAN"));
+    assert!(sources.contains(&"TARGET_CHANGE"));
+    assert!(
+        !items
+            .iter()
+            .any(|item| item["source_id"] == hidden_work_order_id.to_string())
+    );
+
+    let work_item = items
+        .iter()
+        .find(|item| item["source"] == "WORK_ORDER")
+        .unwrap();
+    assert_eq!(work_item["source_id"], work_order_id.to_string());
+    assert_eq!(work_item["work_order"]["request_no"], "20260612-931");
+    assert_eq!(work_item["ontology"]["object_type"], "WORK_ORDER");
+    assert_eq!(
+        work_item["ontology"]["object_id"],
+        work_order_id.to_string()
+    );
+    assert_eq!(work_item["ontology"]["branch_id"], branch_id.to_string());
+    assert_eq!(
+        work_item["workflow"]["workflow_key"],
+        "work_order.report_completion_review"
+    );
+    assert_eq!(work_item["policy"]["enforcement"], "server");
+    assert_eq!(
+        work_item["policy"]["required_features"][0],
+        "completion_review"
+    );
+    assert!(work_item.get("daily_plan").is_none());
+    assert!(work_item.get("target_change").is_none());
+
+    let daily_item = items
+        .iter()
+        .find(|item| item["source"] == "DAILY_PLAN")
+        .unwrap();
+    assert_eq!(daily_item["source_id"], daily_plan_id.to_string());
+    assert_eq!(daily_item["daily_plan"]["status"], "REQUESTED");
+
+    let target_item = items
+        .iter()
+        .find(|item| item["source"] == "TARGET_CHANGE")
+        .unwrap();
+    assert_eq!(target_item["source_id"], target_change_id.to_string());
+    assert_eq!(
+        target_item["target_change"]["work_order_id"],
+        work_order_id.to_string()
+    );
+
+    let source_counts = page.json["sources"].as_array().unwrap();
+    assert_eq!(
+        source_counts
+            .iter()
+            .find(|source| source["key"] == "workOrders")
+            .unwrap()["count"],
+        1,
+    );
+    assert_eq!(
+        source_counts
+            .iter()
+            .find(|source| source["key"] == "dailyPlans")
+            .unwrap()["count"],
+        1,
+    );
+    assert_eq!(
+        source_counts
+            .iter()
+            .find(|source| source["key"] == "targetChanges")
+            .unwrap()["count"],
+        1,
+    );
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
 async fn kpi_endpoint_is_jwt_authorized_and_branch_scoped(pool: PgPool) {
     let signing_key = SigningKey::random(&mut OsRng);
     let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
@@ -922,6 +1082,146 @@ async fn seed_received_work_order(
     .await
     .unwrap();
     work_order_id
+}
+
+async fn seed_report_submitted_work_order(
+    pool: &PgPool,
+    branch_id: BranchId,
+    equipment: SeededEquipment,
+    receptionist: UserId,
+    mechanic: UserId,
+    admin: UserId,
+    request_no: &str,
+) -> WorkOrderId {
+    let work_order_id = WorkOrderId::new();
+    let submitted_at = OffsetDateTime::parse("2026-06-28T01:00:00Z", &Rfc3339).unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO work_orders (
+            id, request_no, branch_id, equipment_id, customer_id, site_id,
+            requested_by, status, priority, symptom, result_type, diagnosis,
+            action_taken, target_due_at, report_submitted_by, report_submitted_at,
+            created_at, updated_at, org_id
+        )
+        VALUES (
+            $1, $2, $3, $4, $5, $6, $7, 'REPORT_SUBMITTED', 'P1',
+            'Approval fixture', 'COMPLETED', 'diagnosis', 'action taken',
+            $8, $9, $10, $10, $10, $11
+        )
+        "#,
+    )
+    .bind(*work_order_id.as_uuid())
+    .bind(request_no)
+    .bind(*branch_id.as_uuid())
+    .bind(equipment.id)
+    .bind(equipment.customer_id)
+    .bind(equipment.site_id)
+    .bind(*receptionist.as_uuid())
+    .bind(submitted_at + Duration::days(1))
+    .bind(*mechanic.as_uuid())
+    .bind(submitted_at)
+    .bind(*OrgId::knl().as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO work_order_assignments (work_order_id, mechanic_id, role, assigned_at, org_id)
+        VALUES ($1, $2, 'PRIMARY', $3, $4)
+        "#,
+    )
+    .bind(*work_order_id.as_uuid())
+    .bind(*mechanic.as_uuid())
+    .bind(submitted_at - Duration::hours(1))
+    .bind(*OrgId::knl().as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    for (step_order, role, approver_id, status, requested_at) in [
+        (
+            1_i16,
+            "MECHANIC",
+            Some(mechanic),
+            "APPROVED",
+            Some(submitted_at),
+        ),
+        (2_i16, "ADMIN", Some(admin), "PENDING", Some(submitted_at)),
+        (3_i16, "EXECUTIVE", None, "NOT_STARTED", None),
+    ] {
+        sqlx::query(
+            r#"
+            INSERT INTO work_order_approval_steps (
+                work_order_id, step_order, role, approver_id, status, requested_at, org_id
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            "#,
+        )
+        .bind(*work_order_id.as_uuid())
+        .bind(step_order)
+        .bind(role)
+        .bind(approver_id.map(|id| *id.as_uuid()))
+        .bind(status)
+        .bind(requested_at)
+        .bind(*OrgId::knl().as_uuid())
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+    work_order_id
+}
+
+async fn seed_requested_daily_plan(
+    pool: &PgPool,
+    branch_id: BranchId,
+    mechanic: UserId,
+    plan_date: &str,
+) -> uuid::Uuid {
+    let plan_date = time::Date::parse(
+        plan_date,
+        time::macros::format_description!("[year]-[month]-[day]"),
+    )
+    .unwrap();
+    sqlx::query_scalar(
+        r#"
+        INSERT INTO daily_work_plans (
+            branch_id, mechanic_id, plan_date, status, requested_at, org_id
+        )
+        VALUES ($1, $2, $3, 'REQUESTED', $4, $5)
+        RETURNING id
+        "#,
+    )
+    .bind(*branch_id.as_uuid())
+    .bind(*mechanic.as_uuid())
+    .bind(plan_date)
+    .bind(OffsetDateTime::parse("2026-06-28T02:00:00Z", &Rfc3339).unwrap())
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn seed_requested_target_change(
+    pool: &PgPool,
+    work_order_id: WorkOrderId,
+    requested_by: UserId,
+) -> uuid::Uuid {
+    sqlx::query_scalar(
+        r#"
+        INSERT INTO target_change_requests (
+            work_order_id, requested_by, requested_target_due_at, reason, status, created_at, org_id
+        )
+        VALUES ($1, $2, $3, 'Approval federation fixture', 'REQUESTED', $4, $5)
+        RETURNING id
+        "#,
+    )
+    .bind(*work_order_id.as_uuid())
+    .bind(*requested_by.as_uuid())
+    .bind(OffsetDateTime::parse("2026-07-05T00:00:00Z", &Rfc3339).unwrap())
+    .bind(OffsetDateTime::parse("2026-06-28T03:00:00Z", &Rfc3339).unwrap())
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 async fn seed_read_work_order(pool: &PgPool, fixture: ReadWorkOrderFixture) -> WorkOrderId {

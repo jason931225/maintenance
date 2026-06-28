@@ -43,6 +43,13 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/v1/ws`.
     /// - Remark: Generated from `#/paths//api/v1/ws/get(connectRealtimeWebSocket)`.
     func connectRealtimeWebSocket(_ input: Operations.ConnectRealtimeWebSocket.Input) async throws -> Operations.ConnectRealtimeWebSocket.Output
+    /// List federated approval workflow items
+    ///
+    /// Returns a server-owned, paginated approval queue across typed workflow objects. Each item carries ontology, workflow, and policy context so clients can render RBAC/PBAC/ABAC-aware approval tasks without composing source queues in the browser. The backend enforces authentication, tenant RLS, feature authorization, and branch scope before returning any item; source-specific mutation endpoints re-check authorization.
+    ///
+    /// - Remark: HTTP `GET /api/approval-items`.
+    /// - Remark: Generated from `#/paths//api/approval-items/get(listApprovalItems)`.
+    func listApprovalItems(_ input: Operations.ListApprovalItems.Input) async throws -> Operations.ListApprovalItems.Output
     /// Create a work order from branch-scoped equipment management number
     ///
     /// - Remark: HTTP `POST /api/work-orders`.
@@ -973,6 +980,21 @@ extension APIProtocol {
         headers: Operations.ConnectRealtimeWebSocket.Input.Headers = .init()
     ) async throws -> Operations.ConnectRealtimeWebSocket.Output {
         try await connectRealtimeWebSocket(Operations.ConnectRealtimeWebSocket.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// List federated approval workflow items
+    ///
+    /// Returns a server-owned, paginated approval queue across typed workflow objects. Each item carries ontology, workflow, and policy context so clients can render RBAC/PBAC/ABAC-aware approval tasks without composing source queues in the browser. The backend enforces authentication, tenant RLS, feature authorization, and branch scope before returning any item; source-specific mutation endpoints re-check authorization.
+    ///
+    /// - Remark: HTTP `GET /api/approval-items`.
+    /// - Remark: Generated from `#/paths//api/approval-items/get(listApprovalItems)`.
+    public func listApprovalItems(
+        query: Operations.ListApprovalItems.Input.Query = .init(),
+        headers: Operations.ListApprovalItems.Input.Headers = .init()
+    ) async throws -> Operations.ListApprovalItems.Output {
+        try await listApprovalItems(Operations.ListApprovalItems.Input(
             query: query,
             headers: headers
         ))
@@ -5571,6 +5593,344 @@ public enum Components {
             }
             public enum CodingKeys: String, CodingKey {
                 case items
+                case limit
+                case offset
+                case total
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ApprovalItemSource`.
+        public struct ApprovalItemSource: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ApprovalItemSource/key`.
+            @frozen public enum KeyPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case workOrders = "workOrders"
+                case dailyPlans = "dailyPlans"
+                case targetChanges = "targetChanges"
+            }
+            /// - Remark: Generated from `#/components/schemas/ApprovalItemSource/key`.
+            public var key: Components.Schemas.ApprovalItemSource.KeyPayload
+            /// - Remark: Generated from `#/components/schemas/ApprovalItemSource/label`.
+            public var label: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ApprovalItemSource/status`.
+            @frozen public enum StatusPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case ok = "ok"
+            }
+            /// - Remark: Generated from `#/components/schemas/ApprovalItemSource/status`.
+            public var status: Components.Schemas.ApprovalItemSource.StatusPayload
+            /// - Remark: Generated from `#/components/schemas/ApprovalItemSource/count`.
+            public var count: Swift.Int64
+            /// Creates a new `ApprovalItemSource`.
+            ///
+            /// - Parameters:
+            ///   - key:
+            ///   - label:
+            ///   - status:
+            ///   - count:
+            public init(
+                key: Components.Schemas.ApprovalItemSource.KeyPayload,
+                label: Swift.String,
+                status: Components.Schemas.ApprovalItemSource.StatusPayload,
+                count: Swift.Int64
+            ) {
+                self.key = key
+                self.label = label
+                self.status = status
+                self.count = count
+            }
+            public enum CodingKeys: String, CodingKey {
+                case key
+                case label
+                case status
+                case count
+            }
+        }
+        /// Tenant/org/branch/object identity for ontology-aware workflow, analytics, audit, and future group/organization hierarchy views.
+        ///
+        /// - Remark: Generated from `#/components/schemas/ApprovalOntologyContext`.
+        public struct ApprovalOntologyContext: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ApprovalOntologyContext/object_type`.
+            @frozen public enum ObjectTypePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case workOrder = "WORK_ORDER"
+                case dailyPlan = "DAILY_PLAN"
+                case targetChange = "TARGET_CHANGE"
+            }
+            /// - Remark: Generated from `#/components/schemas/ApprovalOntologyContext/object_type`.
+            public var objectType: Components.Schemas.ApprovalOntologyContext.ObjectTypePayload
+            /// - Remark: Generated from `#/components/schemas/ApprovalOntologyContext/object_id`.
+            public var objectId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/ApprovalOntologyContext/tenant_id`.
+            public var tenantId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/ApprovalOntologyContext/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// Creates a new `ApprovalOntologyContext`.
+            ///
+            /// - Parameters:
+            ///   - objectType:
+            ///   - objectId:
+            ///   - tenantId:
+            ///   - branchId:
+            public init(
+                objectType: Components.Schemas.ApprovalOntologyContext.ObjectTypePayload,
+                objectId: Components.Schemas.Uuid,
+                tenantId: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid
+            ) {
+                self.objectType = objectType
+                self.objectId = objectId
+                self.tenantId = tenantId
+                self.branchId = branchId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case objectType = "object_type"
+                case objectId = "object_id"
+                case tenantId = "tenant_id"
+                case branchId = "branch_id"
+            }
+        }
+        /// Workflow/action identity for a typed approval task.
+        ///
+        /// - Remark: Generated from `#/components/schemas/ApprovalWorkflowContext`.
+        public struct ApprovalWorkflowContext: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ApprovalWorkflowContext/workflow_key`.
+            public var workflowKey: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ApprovalWorkflowContext/action_key`.
+            public var actionKey: Swift.String
+            /// Creates a new `ApprovalWorkflowContext`.
+            ///
+            /// - Parameters:
+            ///   - workflowKey:
+            ///   - actionKey:
+            public init(
+                workflowKey: Swift.String,
+                actionKey: Swift.String
+            ) {
+                self.workflowKey = workflowKey
+                self.actionKey = actionKey
+            }
+            public enum CodingKeys: String, CodingKey {
+                case workflowKey = "workflow_key"
+                case actionKey = "action_key"
+            }
+        }
+        /// Server policy result and requirements. Clients may display it, but must not treat it as authorization proof; source mutation endpoints always re-check PBAC/RBAC/ABAC server-side.
+        ///
+        /// - Remark: Generated from `#/components/schemas/ApprovalPolicyContext`.
+        public struct ApprovalPolicyContext: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ApprovalPolicyContext/decision`.
+            @frozen public enum DecisionPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case allowed = "ALLOWED"
+            }
+            /// - Remark: Generated from `#/components/schemas/ApprovalPolicyContext/decision`.
+            public var decision: Components.Schemas.ApprovalPolicyContext.DecisionPayload
+            /// - Remark: Generated from `#/components/schemas/ApprovalPolicyContext/enforcement`.
+            @frozen public enum EnforcementPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case server = "server"
+            }
+            /// - Remark: Generated from `#/components/schemas/ApprovalPolicyContext/enforcement`.
+            public var enforcement: Components.Schemas.ApprovalPolicyContext.EnforcementPayload
+            /// - Remark: Generated from `#/components/schemas/ApprovalPolicyContext/required_features`.
+            public var requiredFeatures: [Swift.String]
+            /// - Remark: Generated from `#/components/schemas/ApprovalPolicyContext/scope_kind`.
+            @frozen public enum ScopeKindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case branch = "BRANCH"
+            }
+            /// - Remark: Generated from `#/components/schemas/ApprovalPolicyContext/scope_kind`.
+            public var scopeKind: Components.Schemas.ApprovalPolicyContext.ScopeKindPayload
+            /// - Remark: Generated from `#/components/schemas/ApprovalPolicyContext/scope_id`.
+            public var scopeId: Components.Schemas.Uuid
+            /// Creates a new `ApprovalPolicyContext`.
+            ///
+            /// - Parameters:
+            ///   - decision:
+            ///   - enforcement:
+            ///   - requiredFeatures:
+            ///   - scopeKind:
+            ///   - scopeId:
+            public init(
+                decision: Components.Schemas.ApprovalPolicyContext.DecisionPayload,
+                enforcement: Components.Schemas.ApprovalPolicyContext.EnforcementPayload,
+                requiredFeatures: [Swift.String],
+                scopeKind: Components.Schemas.ApprovalPolicyContext.ScopeKindPayload,
+                scopeId: Components.Schemas.Uuid
+            ) {
+                self.decision = decision
+                self.enforcement = enforcement
+                self.requiredFeatures = requiredFeatures
+                self.scopeKind = scopeKind
+                self.scopeId = scopeId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case decision
+                case enforcement
+                case requiredFeatures = "required_features"
+                case scopeKind = "scope_kind"
+                case scopeId = "scope_id"
+            }
+        }
+        /// A typed approval task over an ontology object. The source-specific payloads are mutually exclusive; `source` selects which payload is populated.
+        ///
+        /// - Remark: Generated from `#/components/schemas/ApprovalItem`.
+        public struct ApprovalItem: Codable, Hashable, Sendable {
+            /// Stable federated id in `{source}:{source_id}` form.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApprovalItem/id`.
+            public var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ApprovalItem/source`.
+            @frozen public enum SourcePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case workOrder = "WORK_ORDER"
+                case dailyPlan = "DAILY_PLAN"
+                case targetChange = "TARGET_CHANGE"
+            }
+            /// - Remark: Generated from `#/components/schemas/ApprovalItem/source`.
+            public var source: Components.Schemas.ApprovalItem.SourcePayload
+            /// - Remark: Generated from `#/components/schemas/ApprovalItem/source_id`.
+            public var sourceId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/ApprovalItem/branch_id`.
+            public var branchId: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/ApprovalItem/status`.
+            public var status: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ApprovalItem/title`.
+            public var title: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ApprovalItem/summary`.
+            public var summary: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ApprovalItem/requested_at`.
+            public var requestedAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/ApprovalItem/due_at`.
+            public var dueAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/ApprovalItem/href`.
+            public var href: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ApprovalItem/action_href`.
+            public var actionHref: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ApprovalItem/ontology`.
+            public var ontology: Components.Schemas.ApprovalOntologyContext
+            /// - Remark: Generated from `#/components/schemas/ApprovalItem/workflow`.
+            public var workflow: Components.Schemas.ApprovalWorkflowContext
+            /// - Remark: Generated from `#/components/schemas/ApprovalItem/policy`.
+            public var policy: Components.Schemas.ApprovalPolicyContext
+            /// Present only when `source` is `WORK_ORDER`.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApprovalItem/work_order`.
+            public var workOrder: Components.Schemas.WorkOrderListItem?
+            /// Present only when `source` is `DAILY_PLAN`.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApprovalItem/daily_plan`.
+            public var dailyPlan: Components.Schemas.DailyPlanSummary?
+            /// Present only when `source` is `TARGET_CHANGE`.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ApprovalItem/target_change`.
+            public var targetChange: Components.Schemas.TargetChangeRequestSummary?
+            /// Creates a new `ApprovalItem`.
+            ///
+            /// - Parameters:
+            ///   - id: Stable federated id in `{source}:{source_id}` form.
+            ///   - source:
+            ///   - sourceId:
+            ///   - branchId:
+            ///   - status:
+            ///   - title:
+            ///   - summary:
+            ///   - requestedAt:
+            ///   - dueAt:
+            ///   - href:
+            ///   - actionHref:
+            ///   - ontology:
+            ///   - workflow:
+            ///   - policy:
+            ///   - workOrder: Present only when `source` is `WORK_ORDER`.
+            ///   - dailyPlan: Present only when `source` is `DAILY_PLAN`.
+            ///   - targetChange: Present only when `source` is `TARGET_CHANGE`.
+            public init(
+                id: Swift.String,
+                source: Components.Schemas.ApprovalItem.SourcePayload,
+                sourceId: Components.Schemas.Uuid,
+                branchId: Components.Schemas.Uuid,
+                status: Swift.String,
+                title: Swift.String,
+                summary: Swift.String,
+                requestedAt: Foundation.Date? = nil,
+                dueAt: Foundation.Date? = nil,
+                href: Swift.String,
+                actionHref: Swift.String,
+                ontology: Components.Schemas.ApprovalOntologyContext,
+                workflow: Components.Schemas.ApprovalWorkflowContext,
+                policy: Components.Schemas.ApprovalPolicyContext,
+                workOrder: Components.Schemas.WorkOrderListItem? = nil,
+                dailyPlan: Components.Schemas.DailyPlanSummary? = nil,
+                targetChange: Components.Schemas.TargetChangeRequestSummary? = nil
+            ) {
+                self.id = id
+                self.source = source
+                self.sourceId = sourceId
+                self.branchId = branchId
+                self.status = status
+                self.title = title
+                self.summary = summary
+                self.requestedAt = requestedAt
+                self.dueAt = dueAt
+                self.href = href
+                self.actionHref = actionHref
+                self.ontology = ontology
+                self.workflow = workflow
+                self.policy = policy
+                self.workOrder = workOrder
+                self.dailyPlan = dailyPlan
+                self.targetChange = targetChange
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case source
+                case sourceId = "source_id"
+                case branchId = "branch_id"
+                case status
+                case title
+                case summary
+                case requestedAt = "requested_at"
+                case dueAt = "due_at"
+                case href
+                case actionHref = "action_href"
+                case ontology
+                case workflow
+                case policy
+                case workOrder = "work_order"
+                case dailyPlan = "daily_plan"
+                case targetChange = "target_change"
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ApprovalItemsPage`.
+        public struct ApprovalItemsPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ApprovalItemsPage/items`.
+            public var items: [Components.Schemas.ApprovalItem]
+            /// - Remark: Generated from `#/components/schemas/ApprovalItemsPage/sources`.
+            public var sources: [Components.Schemas.ApprovalItemSource]
+            /// - Remark: Generated from `#/components/schemas/ApprovalItemsPage/limit`.
+            public var limit: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/ApprovalItemsPage/offset`.
+            public var offset: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/ApprovalItemsPage/total`.
+            public var total: Swift.Int64
+            /// Creates a new `ApprovalItemsPage`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - sources:
+            ///   - limit:
+            ///   - offset:
+            ///   - total:
+            public init(
+                items: [Components.Schemas.ApprovalItem],
+                sources: [Components.Schemas.ApprovalItemSource],
+                limit: Swift.Int64,
+                offset: Swift.Int64,
+                total: Swift.Int64
+            ) {
+                self.items = items
+                self.sources = sources
+                self.limit = limit
+                self.offset = offset
+                self.total = total
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+                case sources
                 case limit
                 case offset
                 case total
@@ -13111,6 +13471,212 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "serviceUnavailable",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List federated approval workflow items
+    ///
+    /// Returns a server-owned, paginated approval queue across typed workflow objects. Each item carries ontology, workflow, and policy context so clients can render RBAC/PBAC/ABAC-aware approval tasks without composing source queues in the browser. The backend enforces authentication, tenant RLS, feature authorization, and branch scope before returning any item; source-specific mutation endpoints re-check authorization.
+    ///
+    /// - Remark: HTTP `GET /api/approval-items`.
+    /// - Remark: Generated from `#/paths//api/approval-items/get(listApprovalItems)`.
+    public enum ListApprovalItems {
+        public static let id: Swift.String = "listApprovalItems"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/approval-items/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/approval-items/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// - Remark: Generated from `#/paths/api/approval-items/GET/query/offset`.
+                public var offset: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - limit:
+                ///   - offset:
+                public init(
+                    limit: Swift.Int64? = nil,
+                    offset: Swift.Int64? = nil
+                ) {
+                    self.limit = limit
+                    self.offset = offset
+                }
+            }
+            public var query: Operations.ListApprovalItems.Input.Query
+            /// - Remark: Generated from `#/paths/api/approval-items/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListApprovalItems.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListApprovalItems.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListApprovalItems.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListApprovalItems.Input.Query = .init(),
+                headers: Operations.ListApprovalItems.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/approval-items/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/approval-items/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ApprovalItemsPage)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApprovalItemsPage {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListApprovalItems.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListApprovalItems.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Federated approval items for the caller's policy scope.
+            ///
+            /// - Remark: Generated from `#/paths//api/approval-items/get(listApprovalItems)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListApprovalItems.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListApprovalItems.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Request failed validation.
+            ///
+            /// - Remark: Generated from `#/paths//api/approval-items/get(listApprovalItems)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.ValidationError)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.ValidationError {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/approval-items/get(listApprovalItems)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/approval-items/get(listApprovalItems)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
                             response: self
                         )
                     }

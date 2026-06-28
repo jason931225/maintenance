@@ -95,6 +95,39 @@ The page is role-aware:
 - Daily-plan cards only render as active for roles that hold the daily-plan capability.
 - Partial backend failures are non-blank: loaded sources remain visible and the failed source list is shown with retry.
 
+
+## Third shipped slice in this branch
+
+This slice replaces browser-side approval composition with a server-owned federated approval-list API. `/approvals` now consumes `GET /api/approval-items`, which returns typed approval items, source counts, object identity, workflow keys, and policy context for work-order reports, daily-plan reviews, and target-change requests.
+
+Quality and architecture notes:
+
+- The backend denies mechanics and applies the existing branch-scope rule before returning approval items.
+- The UI no longer calls legacy work-order/daily-plan list endpoints to assemble the approval inbox in the browser.
+- Target-change review is no longer a manual request-code form; the page lists real pending target-change requests from the federated API and still posts decisions to the source-specific endpoint.
+- Generated TS/Kotlin/Swift clients now include `ApprovalItem*` and `ApprovalItemsPage`, keeping web/mobile consumers on the same contract.
+- Each approval item carries a small ontology/workflow/policy envelope so future passkey step-up, PBAC/ABAC/RBAC rules, object activity rails, and optimization recommendations can use the same source-object seam.
+
+## Operations analytics/optimization benchmark
+
+Valid user request: assets, rentals, workforce, reserves, pricing, and lifecycle decisions should eventually support analysis and optimization. This should be implemented as governed recommendations over trusted operational objects, not as speculative maintenance dashboards.
+
+Official benchmark signals:
+
+- SAP EAM positions enterprise asset management as lifecycle management that connects maintenance to financial, operational, and strategic outcomes: <https://www.sap.com/resources/what-is-eam>.
+- SAP Asset Performance Management emphasizes asset health, performance, risk, maintenance strategy, sensor/maintenance records, and faster decisions: <https://www.sap.com/products/scm/apm.html>.
+- SAP EAM product positioning covers full physical-asset lifecycle, operations, downtime, and ROI: <https://www.sap.com/products/scm/asset-management-eam.html>.
+- Palantir Foundry Ontology frames data, models, and processes as an actionable representation of the business: <https://www.palantir.com/explore/platforms/foundry/ontology/>.
+- Palantir Action Types emphasize object-linked actions as transactions over ontology objects, and Workflow Lineage helps understand/debug workflows across ontology resources: <https://palantir.com/docs/foundry/action-types/overview/>, <https://palantir.com/docs/foundry/workflow-lineage/overview/>.
+
+Converged backlog direction:
+
+1. Establish trusted object foundations first: tenant/group/org, people/roles/policies, clients/sites, assets/equipment/parts, cost ledgers, rental contracts/quotes, work orders, SLA commitments, and event history.
+2. Add decision objects: `Recommendation`, `Scenario`, `AssumptionSet`, `OptimizationRun`, and `DecisionApproval`.
+3. First optimization domains after setup: rental pricing, asset sell/keep/acquire, reserve equipment/parts policy, workforce utilization/scheduling, and SLA risk.
+4. Every recommendation must show input snapshot, assumptions, confidence/uncertainty, expected impact, sensitivity/legal data classes, and approval/write-back path.
+5. Never allow optimization write-back to bypass PBAC/ABAC/RBAC, passkey step-up for signing-equivalent actions, or audit.
+
 ## Next implementation slices
 
 1. Approval Center unification: include target change, daily-plan review, purchase approvals, and future HR/payroll approvals in one typed approval card model.

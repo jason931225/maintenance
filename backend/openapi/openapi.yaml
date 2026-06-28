@@ -78,6 +78,50 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '503':
           description: Realtime is unavailable.
+  /api/approval-items:
+    get:
+      operationId: listApprovalItems
+      summary: List federated approval workflow items
+      description: >-
+        Returns a server-owned, paginated approval queue across typed workflow
+        objects. Each item carries ontology, workflow, and policy context so
+        clients can render RBAC/PBAC/ABAC-aware approval tasks without composing
+        source queues in the browser. The backend enforces authentication,
+        tenant RLS, feature authorization, and branch scope before returning
+        any item; source-specific mutation endpoints re-check authorization.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 200
+          default: 100
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Federated approval items for the caller's policy scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalItemsPage'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /api/work-orders:
     post:
       operationId: createWorkOrder
@@ -6278,6 +6322,198 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/WorkOrderListItem'
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
+        total:
+          type: integer
+          format: int64
+    ApprovalItemSource:
+      type: object
+      required:
+      - key
+      - label
+      - status
+      - count
+      properties:
+        key:
+          type: string
+          enum:
+          - workOrders
+          - dailyPlans
+          - targetChanges
+        label:
+          type: string
+        status:
+          type: string
+          enum:
+          - ok
+        count:
+          type: integer
+          format: int64
+    ApprovalOntologyContext:
+      type: object
+      description: >-
+        Tenant/org/branch/object identity for ontology-aware workflow,
+        analytics, audit, and future group/organization hierarchy views.
+      required:
+      - object_type
+      - object_id
+      - tenant_id
+      - branch_id
+      properties:
+        object_type:
+          type: string
+          enum:
+          - WORK_ORDER
+          - DAILY_PLAN
+          - TARGET_CHANGE
+        object_id:
+          $ref: '#/components/schemas/Uuid'
+        tenant_id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+    ApprovalWorkflowContext:
+      type: object
+      description: Workflow/action identity for a typed approval task.
+      required:
+      - workflow_key
+      - action_key
+      properties:
+        workflow_key:
+          type: string
+          examples:
+          - work_order.report_completion_review
+          - daily_plan.review
+          - work_order.target_change_review
+        action_key:
+          type: string
+          examples:
+          - approve_work_order
+          - review_daily_plan
+          - review_target_change
+    ApprovalPolicyContext:
+      type: object
+      description: >-
+        Server policy result and requirements. Clients may display it, but must
+        not treat it as authorization proof; source mutation endpoints always
+        re-check PBAC/RBAC/ABAC server-side.
+      required:
+      - decision
+      - enforcement
+      - required_features
+      - scope_kind
+      - scope_id
+      properties:
+        decision:
+          type: string
+          enum:
+          - ALLOWED
+        enforcement:
+          type: string
+          enum:
+          - server
+        required_features:
+          type: array
+          items:
+            type: string
+        scope_kind:
+          type: string
+          enum:
+          - BRANCH
+        scope_id:
+          $ref: '#/components/schemas/Uuid'
+    ApprovalItem:
+      type: object
+      description: >-
+        A typed approval task over an ontology object. The source-specific
+        payloads are mutually exclusive; `source` selects which payload is
+        populated.
+      required:
+      - id
+      - source
+      - source_id
+      - branch_id
+      - status
+      - title
+      - summary
+      - requested_at
+      - due_at
+      - href
+      - action_href
+      - ontology
+      - workflow
+      - policy
+      properties:
+        id:
+          type: string
+          description: Stable federated id in `{source}:{source_id}` form.
+        source:
+          type: string
+          enum:
+          - WORK_ORDER
+          - DAILY_PLAN
+          - TARGET_CHANGE
+        source_id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        status:
+          type: string
+        title:
+          type: string
+        summary:
+          type: string
+        requested_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        due_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        href:
+          type: string
+        action_href:
+          type: string
+        ontology:
+          $ref: '#/components/schemas/ApprovalOntologyContext'
+        workflow:
+          $ref: '#/components/schemas/ApprovalWorkflowContext'
+        policy:
+          $ref: '#/components/schemas/ApprovalPolicyContext'
+        work_order:
+          $ref: '#/components/schemas/WorkOrderListItem'
+          description: Present only when `source` is `WORK_ORDER`.
+        daily_plan:
+          $ref: '#/components/schemas/DailyPlanSummary'
+          description: Present only when `source` is `DAILY_PLAN`.
+        target_change:
+          $ref: '#/components/schemas/TargetChangeRequestSummary'
+          description: Present only when `source` is `TARGET_CHANGE`.
+    ApprovalItemsPage:
+      type: object
+      required:
+      - items
+      - sources
+      - limit
+      - offset
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApprovalItem'
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApprovalItemSource'
         limit:
           type: integer
           format: int64

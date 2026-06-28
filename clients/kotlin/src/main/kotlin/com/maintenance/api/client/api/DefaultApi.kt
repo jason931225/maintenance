@@ -35,6 +35,7 @@ import com.maintenance.api.client.model.AdminIssueOtpResponse
 import com.maintenance.api.client.model.AndroidAssetLinkStatement
 import com.maintenance.api.client.model.AppendManualCostLedgerRequest
 import com.maintenance.api.client.model.AppleAppSiteAssociation
+import com.maintenance.api.client.model.ApprovalItemsPage
 import com.maintenance.api.client.model.ArrivalEventPage
 import com.maintenance.api.client.model.AssetLifecycleCostSummary
 import com.maintenance.api.client.model.AssignSubstituteRequest
@@ -6385,6 +6386,90 @@ open class DefaultApi(basePath: kotlin.String = defaultBasePath, client: Call.Fa
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/equipment/import",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/approval-items
+     * List federated approval workflow items
+     * Returns a server-owned, paginated approval queue across typed workflow objects. Each item carries ontology, workflow, and policy context so clients can render RBAC/PBAC/ABAC-aware approval tasks without composing source queues in the browser. The backend enforces authentication, tenant RLS, feature authorization, and branch scope before returning any item; source-specific mutation endpoints re-check authorization.
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return ApprovalItemsPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listApprovalItems(limit: kotlin.Long? = 100L, offset: kotlin.Long? = 0L) : ApprovalItemsPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listApprovalItemsWithHttpInfo(limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ApprovalItemsPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/approval-items
+     * List federated approval workflow items
+     * Returns a server-owned, paginated approval queue across typed workflow objects. Each item carries ontology, workflow, and policy context so clients can render RBAC/PBAC/ABAC-aware approval tasks without composing source queues in the browser. The backend enforces authentication, tenant RLS, feature authorization, and branch scope before returning any item; source-specific mutation endpoints re-check authorization.
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<ApprovalItemsPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listApprovalItemsWithHttpInfo(limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<ApprovalItemsPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listApprovalItemsRequestConfig(limit = limit, offset = offset)
+
+        return@withContext request<Unit, ApprovalItemsPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listApprovalItems
+     *
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun listApprovalItemsRequestConfig(limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/approval-items",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

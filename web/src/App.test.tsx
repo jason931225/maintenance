@@ -22,6 +22,7 @@ import {
 // ── MSW handlers ──────────────────────────────────────────────────────────────
 
 const listRequests: URL[] = [];
+const approvalRequests: URL[] = [];
 const kpiRequests: URL[] = [];
 const autocompleteRequests: URL[] = [];
 const lookupRequests: URL[] = [];
@@ -31,8 +32,69 @@ const activeBranchId = "00000000-0000-4000-8000-000000000001";
 
 const messengerWs = ws.link("ws://localhost:3000/api/v1/ws*");
 
+function approvalContext(source: "WORK_ORDER", objectId: string, branchId: string) {
+  return {
+    ontology: {
+      object_type: source,
+      object_id: objectId,
+      tenant_id: "00000000-0000-4000-8000-000000000099",
+      branch_id: branchId,
+    },
+    workflow: {
+      workflow_key: "work_order.report_completion_review",
+      action_key: "approve_work_order",
+    },
+    policy: {
+      decision: "ALLOWED",
+      enforcement: "server",
+      required_features: ["completion_review"],
+      scope_kind: "BRANCH",
+      scope_id: branchId,
+    },
+  } as const;
+}
+
+function approvalItemsPage() {
+  const workOrderApprovals = workOrderListItems.filter((workOrder) =>
+    ["REPORT_SUBMITTED", "ADMIN_REVIEW"].includes(workOrder.status),
+  );
+  return {
+    items: workOrderApprovals.map((workOrder) => ({
+      id: `WORK_ORDER:${workOrder.id}`,
+      source: "WORK_ORDER",
+      source_id: workOrder.id,
+      branch_id: workOrder.branch_id,
+      status: workOrder.status,
+      title: `${workOrder.request_no} 작업 보고 승인`,
+      summary: workOrder.equipment.model ?? workOrder.equipment.equipment_no,
+      requested_at: workOrder.created_at,
+      due_at: workOrder.target_due_at,
+      href: `/approvals?source=work-order&focus=${workOrder.id}`,
+      action_href: `/api/work-orders/${workOrder.id}/approve`,
+      ...approvalContext("WORK_ORDER", workOrder.id, workOrder.branch_id),
+      work_order: workOrder,
+    })),
+    sources: [
+      {
+        key: "workOrders",
+        label: "작업 보고",
+        status: "ok",
+        count: workOrderApprovals.length,
+      },
+    ],
+    limit: 100,
+    offset: 0,
+    total: workOrderApprovals.length,
+  };
+}
+
 const server = setupServer(
   messengerWs.addEventListener("connection", () => {}),
+  http.get("*/api/approval-items", ({ request }) => {
+    const url = new URL(request.url);
+    approvalRequests.push(url);
+    return HttpResponse.json(approvalItemsPage());
+  }),
   http.get("*/api/v1/work-orders", ({ request }) => {
     const url = new URL(request.url);
     listRequests.push(url);
@@ -123,6 +185,7 @@ afterEach(() => {
   window.localStorage.removeItem("knl_cookie_notice_v1");
   window.localStorage.removeItem("knl_cookie_notice_v2");
   listRequests.length = 0;
+  approvalRequests.length = 0;
   kpiRequests.length = 0;
   autocompleteRequests.length = 0;
   lookupRequests.length = 0;
@@ -410,18 +473,14 @@ describe("DispatchPage", () => {
 });
 
 describe("ApprovalsPage", () => {
-  it("loads approval queue with status filter", async () => {
+  it("loads the server-federated approval queue", async () => {
     renderAt("/approvals", adminSession);
 
     await waitFor(() => {
-      expect(
-        listRequests.some(
-          (url) =>
-            url.pathname === "/api/v1/work-orders" &&
-            url.search.includes("REPORT_SUBMITTED") &&
-            url.search.includes("ADMIN_REVIEW"),
-        ),
-      ).toBe(true);
+      expect(approvalRequests).toHaveLength(1);
+      expect(approvalRequests[0].pathname).toBe("/api/approval-items");
+      expect(approvalRequests[0].searchParams.get("limit")).toBe("100");
+      expect(approvalRequests[0].searchParams.get("offset")).toBe("0");
     });
   });
 

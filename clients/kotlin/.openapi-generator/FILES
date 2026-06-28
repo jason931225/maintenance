@@ -41,7 +41,13 @@ src/main/kotlin/com/maintenance/api/client/model/AndroidAssetLinkStatementTarget
 src/main/kotlin/com/maintenance/api/client/model/AppendManualCostLedgerRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AppleAppSiteAssociation.kt
 src/main/kotlin/com/maintenance/api/client/model/AppleAppSiteAssociationWebcredentials.kt
+src/main/kotlin/com/maintenance/api/client/model/ApprovalItem.kt
+src/main/kotlin/com/maintenance/api/client/model/ApprovalItemSource.kt
+src/main/kotlin/com/maintenance/api/client/model/ApprovalItemsPage.kt
+src/main/kotlin/com/maintenance/api/client/model/ApprovalOntologyContext.kt
+src/main/kotlin/com/maintenance/api/client/model/ApprovalPolicyContext.kt
 src/main/kotlin/com/maintenance/api/client/model/ApprovalStepSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/ApprovalWorkflowContext.kt
 src/main/kotlin/com/maintenance/api/client/model/ArrivalEvent.kt
 src/main/kotlin/com/maintenance/api/client/model/ArrivalEventPage.kt
 src/main/kotlin/com/maintenance/api/client/model/AssetLifecycleCostSummary.kt

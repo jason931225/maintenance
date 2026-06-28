@@ -55,6 +55,19 @@ const me = {
 const server = setupServer(
   messengerWs.addEventListener("connection", () => {}),
   // Paginated list endpoints → empty page envelope.
+  http.get("*/api/approval-items", () =>
+    HttpResponse.json({
+      items: [],
+      sources: [
+        { key: "workOrders", label: "작업 보고", status: "ok", count: 0 },
+        { key: "dailyPlans", label: "계획업무", status: "ok", count: 0 },
+        { key: "targetChanges", label: "일정 변경", status: "ok", count: 0 },
+      ],
+      limit: 100,
+      offset: 0,
+      total: 0,
+    }),
+  ),
   http.get("*/api/v1/work-orders", () =>
     HttpResponse.json({ items: [], limit: 100, offset: 0, total: 0 }),
   ),
