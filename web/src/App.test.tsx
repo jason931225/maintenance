@@ -102,6 +102,12 @@ const server = setupServer(
   http.get("*/api/messenger/threads", () =>
     HttpResponse.json({ items: [] }),
   ),
+  http.get("*/api/daily-work-plans", () =>
+    HttpResponse.json({ items: [] }),
+  ),
+  http.get("*/api/v1/support/tickets", () =>
+    HttpResponse.json({ items: [], next_cursor: null, total: 0 }),
+  ),
   http.post(
     "*/api/v1/work-orders/:workOrderId/reject",
     async ({ request }) => {
@@ -244,6 +250,13 @@ describe("ProtectedRoute unit", () => {
 });
 
 describe("AppRouter authenticated", () => {
+  it("renders the protected work hub page when authenticated", async () => {
+    renderAt("/work-hub");
+    expect(
+      await screen.findByRole("heading", { name: "업무 허브", level: 1 }),
+    ).toBeVisible();
+  });
+
   it("renders the protected dispatch page when authenticated", async () => {
     renderAt("/dispatch");
     expect(
@@ -365,10 +378,10 @@ describe("routing", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("redirects unknown paths to /dispatch", async () => {
+  it("redirects unknown authenticated paths to /work-hub", async () => {
     renderAt("/does-not-exist");
     expect(
-      await screen.findByRole("heading", { name: "작업지시 목록" }),
+      await screen.findByRole("heading", { name: "업무 허브", level: 1 }),
     ).toBeVisible();
   });
 });

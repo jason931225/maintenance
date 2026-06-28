@@ -5,6 +5,7 @@ import {
   CalendarClock,
   CheckSquare,
   ClipboardList,
+  Inbox,
   Contact,
   Store,
   FilePlus,
@@ -156,6 +157,7 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   // for all five), while default-denying them for a no-grant MEMBER. Gating to
   // OPERATIONAL_ROLES mirrors that: the five roles still see them; a MEMBER does
   // not (so the nav never advertises a destination the backend would 403).
+  ["work-hub", OPERATIONAL_ROLES],
   ["dispatch", OPERATIONAL_ROLES],
   ["dispatch-map", OPERATIONAL_ROLES],
   // intake (WorkOrderCreate/EditIntake): the five operational roles, not MEMBER.
@@ -220,6 +222,12 @@ export const NAV_GROUPS = [
     key: "operations",
     label: "nav.groups.operations",
     items: [
+      {
+        key: "work-hub",
+        href: "/work-hub",
+        labelKey: "nav.work-hub",
+        Icon: Inbox,
+      },
       {
         key: "dispatch",
         href: "/dispatch",

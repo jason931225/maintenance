@@ -7,6 +7,7 @@ import {
 
 export const ko = {
   nav: {
+    "work-hub": "업무 허브",
     dispatch: "배차",
     "dispatch-map": "배차 지도",
     intake: "접수",
@@ -936,6 +937,117 @@ export const ko = {
       ACCIDENT: "사고 정비",
       PART_REPLACEMENT: "부품 교체",
       OTHER: "기타",
+    },
+  },
+  workHub: {
+    title: "업무 허브",
+    descriptionMine:
+      "내 작업, 계획업무, 대화, 티켓을 하루·주간 실행 흐름으로 묶어 보여줍니다.",
+    descriptionTeam:
+      "팀 작업, 승인, 계획업무, 대화, 티켓을 하나의 실행·워크플로우 큐로 묶어 보여줍니다.",
+    permissionScoped: "현재 권한에서 표시되지 않는 영역입니다.",
+    partialFailure: "일부 원천을 불러오지 못했습니다: {sources}",
+    emptyInbox: "현재 처리할 업무·승인·대화가 없습니다.",
+    unknownRequester: "요청자 미확인",
+    sources: {
+      workOrders: "작업지시",
+      approvals: "승인",
+      dailyPlans: "계획업무",
+      messenger: "메신저",
+      support: "고객지원",
+    },
+    sections: {
+      capabilities: "업무 허브 기능 요약",
+      inbox: "액션 인박스",
+      inboxHint:
+        "작업·승인·대화·티켓을 업무 객체 기준으로 정렬해 다음 행동으로 연결합니다.",
+    },
+    stats: {
+      work: "작업·배차",
+      approvals: "승인·검토",
+      daily: "일일·주간 계획",
+      conversations: "대화·스레드",
+      support: "지원·이슈",
+      mail: "메일·영수증",
+    },
+    workflowRail: {
+      eyebrow: "Workflow + Approval",
+      title: "업무 객체 중심 실행 흐름",
+      description:
+        "허브는 메신저·메일·티켓을 별도 데모로 분리하지 않고 작업지시, 계획업무, 승인, 증빙, 감사 로그로 이어지는 실제 운영 경로에 연결합니다.",
+      auditBadge: "권한·감사 기반",
+      steps: [
+        {
+          title: "업무 확인",
+          description: "오늘·이번 주 작업과 대화, 티켓을 권한 범위 안에서 확인합니다.",
+        },
+        {
+          title: "증빙·대화 연결",
+          description: "작업 대화, 지원 댓글, 파일 증빙을 원천 업무 객체에 연결합니다.",
+        },
+        {
+          title: "승인·반려",
+          description: "관리자는 승인센터에서 보고·일정 변경·계획 검토를 감사 가능한 결정으로 처리합니다.",
+        },
+      ],
+    },
+    filters: {
+      label: "업무 허브 필터",
+      options: [
+        { key: "all", label: "전체" },
+        { key: "work", label: "작업" },
+        { key: "approval", label: "승인" },
+        { key: "daily", label: "계획" },
+        { key: "conversation", label: "대화" },
+        { key: "support", label: "지원" },
+      ],
+    },
+    items: {
+      work: "작업",
+      approval: "승인",
+      approvalTitle: "{requestNo} 승인 검토",
+      daily: "계획업무",
+      dailyTitle: "{date} 계획업무",
+      conversation: "대화",
+      support: "지원 티켓",
+    },
+    actions: {
+      openModule: "모듈 열기",
+      openWorkOrder: "작업지시 열기",
+      openApprovals: "승인센터에서 검토",
+      openDailyPlan: "계획업무 열기",
+      openMessenger: "메신저 열기",
+      openSupport: "티켓 열기",
+    },
+    badges: {
+      liveWorkflow: "실시간 업무 흐름",
+      overdue: "지연",
+      linkedWork: "작업 연결",
+    },
+    due: {
+      target: "목표·마감 {time}",
+      lastMessage: "최근 메시지 {time}",
+    },
+    threadKind: {
+      work_order: "작업 스레드",
+      team: "팀 채널",
+      dm: "1:1 대화",
+      group: "그룹 대화",
+    },
+    threadFallback: {
+      workOrder: "작업 대화",
+      team: "팀 채널",
+      dm: "1:1 대화",
+      group: "그룹 대화",
+    },
+    threadDetail: "{kind} · 참여자 {count}명",
+    ticketDetail: "{status} · {requester}",
+    dailyPlanStatus: {
+      DRAFT: "초안",
+      REQUESTED: "검토 요청",
+      APPROVED: "승인",
+      REJECTED: "반려",
+      FINAL_CONFIRMED: "최종 확정",
     },
   },
   dispatch: {

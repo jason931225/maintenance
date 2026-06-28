@@ -39,6 +39,9 @@ const OnboardingPage = lazy(() =>
 const PendingPage = lazy(() =>
   import("./pages/PendingPage").then((m) => ({ default: m.PendingPage })),
 );
+const WorkHubPage = lazy(() =>
+  import("./pages/WorkHubPage").then((m) => ({ default: m.WorkHubPage })),
+);
 const DispatchPage = lazy(() =>
   import("./pages/DispatchPage").then((m) => ({ default: m.DispatchPage })),
 );
@@ -253,10 +256,11 @@ export function AppRouter() {
         </Route>
 
         {/* App shell layout. No index (`/`) route: `/` is the public KNL
-            storefront home (#6); authenticated entry lands on /dispatch via the
+            storefront home (#6); authenticated entry lands on /work-hub via the
             login redirect, and the shell catch-all below bounces unknown
             authenticated paths there. */}
         <Route element={<AppShell />}>
+          <Route path="/work-hub" element={<WorkHubPage />} />
           <Route path="/dispatch" element={<DispatchPage />} />
           {/* Work-order detail (read gate is WorkOrderReadAll = every role).
               Write controls inside are gated to the assigned mechanic. */}
@@ -310,7 +314,7 @@ export function AppRouter() {
             <Route path="/settings/email" element={<EmailSettingsPage />} />
             <Route path="/settings/security" element={<AdminSettingsPage />} />
           </Route>
-          <Route path="*" element={<Navigate to="/dispatch" replace />} />
+          <Route path="*" element={<Navigate to="/work-hub" replace />} />
         </Route>
       </Route>
     </Routes>
