@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 
 import type {
   DailyPlanSummary,
@@ -51,6 +52,7 @@ function sourceFailureMessage(failures: ApprovalSourceKey[]): string {
 
 export function ApprovalsPage() {
   const { api } = useAuth();
+  const location = useLocation();
   const [workOrders, setWorkOrders] = useState<WorkOrderListItem[]>([]);
   const [dailyPlans, setDailyPlans] = useState<DailyPlanSummary[]>([]);
   const [failures, setFailures] = useState<ApprovalSourceKey[]>([]);
@@ -63,6 +65,12 @@ export function ApprovalsPage() {
   );
   const pendingCount = workOrders.length + requestedDailyPlans.length;
   const workOrdersFailed = failures.includes("workOrders");
+  const focusedWorkOrderId = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get("source") === "work-order"
+      ? params.get("focus")?.trim() || undefined
+      : undefined;
+  }, [location.search]);
 
   const loadData = useCallback(async () => {
     setReadState("loading");
@@ -209,6 +217,7 @@ export function ApprovalsPage() {
               ) : (
                 <ApprovalQueue
                   workOrders={workOrders}
+                  focusedWorkOrderId={focusedWorkOrderId}
                   onApprove={approveWorkOrder}
                   onReject={rejectWorkOrder}
                 />

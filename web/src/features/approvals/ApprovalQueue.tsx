@@ -1,5 +1,5 @@
 import { Check, ChevronDown, ChevronUp, X } from "lucide-react";
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import type { WorkOrderDetail as WorkOrderDetailData } from "../../api/types";
 import type { WorkOrderListItem } from "../../api/types";
@@ -18,11 +18,12 @@ import {
   SUCCESS_DISMISS_MS,
   useAutoDismiss,
 } from "../../lib/useAutoDismiss";
-import { priorityClass, priorityLabel } from "../../lib/utils";
+import { cn, priorityClass, priorityLabel } from "../../lib/utils";
 import { WorkOrderDetail } from "../dispatch/WorkOrderDetail";
 
 interface ApprovalQueueProps {
   workOrders: WorkOrderListItem[];
+  focusedWorkOrderId?: string;
   onApprove: (workOrderId: string) => Promise<boolean>;
   onReject: (workOrderId: string, memo: string) => Promise<boolean>;
 }
@@ -35,6 +36,7 @@ interface RejectTarget {
 
 export function ApprovalQueue({
   workOrders,
+  focusedWorkOrderId,
   onApprove,
   onReject,
 }: ApprovalQueueProps) {
@@ -73,6 +75,10 @@ export function ApprovalQueue({
     (workOrder) =>
       workOrder.status === "REPORT_SUBMITTED" ||
       workOrder.status === "ADMIN_REVIEW",
+  );
+  const hasFocusedWorkOrder = Boolean(
+    focusedWorkOrderId &&
+      pending.some((workOrder) => workOrder.id === focusedWorkOrderId),
   );
 
   async function handleApprove(workOrderId: string) {
@@ -155,11 +161,28 @@ export function ApprovalQueue({
         </p>
       ) : null}
 
+      {focusedWorkOrderId ? (
+        <p
+          role="status"
+          className={cn(
+            "rounded-md border p-3 text-sm font-medium",
+            hasFocusedWorkOrder
+              ? "border-brand-teal bg-brand-teal/10 text-brand-teal"
+              : "border-amber-300 bg-amber-50 text-amber-900",
+          )}
+        >
+          {hasFocusedWorkOrder
+            ? ko.approvals.focusedDeepLink
+            : ko.approvals.focusedMissing}
+        </p>
+      ) : null}
+
       <div className="grid gap-3">
         {pending.map((workOrder) => (
           <ApprovalRow
             key={workOrder.id}
             workOrder={workOrder}
+            isFocused={workOrder.id === focusedWorkOrderId}
             busy={busy}
             approving={approving === workOrder.id}
             onApprove={() => {
@@ -270,6 +293,7 @@ export function ApprovalQueue({
 
 interface ApprovalRowProps {
   workOrder: WorkOrderListItem;
+  isFocused?: boolean;
   /** Any action is in flight (locks approve/reject across the whole queue). */
   busy: boolean;
   /** This specific order is being approved. */
@@ -295,14 +319,30 @@ type DetailState =
  */
 function ApprovalRow({
   workOrder,
+  isFocused = false,
   busy,
   approving,
   onApprove,
   onReject,
 }: ApprovalRowProps) {
   const { api } = useAuth();
+  const rowRef = useRef<HTMLElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState<DetailState>({ status: "idle" });
+
+  useEffect(() => {
+    if (!isFocused) {
+      return;
+    }
+    const row = rowRef.current;
+    if (!row) {
+      return;
+    }
+    if (typeof row.scrollIntoView === "function") {
+      row.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+    row.focus({ preventScroll: true });
+  }, [isFocused]);
 
   const loadDetail = useCallback(async () => {
     setDetail({ status: "loading" });
@@ -330,7 +370,21 @@ function ApprovalRow({
   const detailRegionId = `approval-detail-${workOrder.id}`;
 
   return (
-    <article className="grid gap-3 rounded-md border border-line p-3">
+    <article
+      ref={rowRef}
+      id={`approval-work-order-${workOrder.id}`}
+      tabIndex={isFocused ? -1 : undefined}
+      aria-current={isFocused ? "true" : undefined}
+      aria-label={
+        isFocused
+          ? `${workOrder.request_no} ${ko.approvals.focusedItemLabel}`
+          : undefined
+      }
+      className={cn(
+        "grid gap-3 rounded-md border border-line p-3",
+        isFocused && "border-brand-teal bg-brand-teal/10 ring-2 ring-brand-teal/40",
+      )}
+    >
       <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
         <div>
           <p className="font-semibold text-ink">{workOrder.request_no}</p>
