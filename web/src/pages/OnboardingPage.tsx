@@ -107,6 +107,11 @@ export function OnboardingPage() {
     }
   }
 
+  const handlePhoneQrCompleted = useCallback(() => {
+    clearPasskeySetup();
+    void navigate("/work-hub", { replace: true });
+  }, [clearPasskeySetup, navigate]);
+
   const busy = pending || consentLoading || consentPending;
   const canAcceptConsent = privacyChecked && termsChecked && !consentPending;
 
@@ -280,7 +285,11 @@ export function OnboardingPage() {
 
               {showQr ? (
                 <div className="rounded-lg border border-line bg-muted-panel p-4">
-                  <EnrollHandoffQr requireStepUp={false} />
+                  <EnrollHandoffQr
+                    requireStepUp={false}
+                    initialPasskeyCount={0}
+                    onCompleted={handlePhoneQrCompleted}
+                  />
                 </div>
               ) : null}
             </div>

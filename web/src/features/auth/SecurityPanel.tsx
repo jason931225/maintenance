@@ -105,6 +105,12 @@ export function SecurityPanel() {
     }
   }
 
+  const handlePhoneQrCompleted = useCallback(() => {
+    setShowQr(false);
+    setFeedback(ko.security.added);
+    void load();
+  }, [load]);
+
   const isLastPasskey = passkeys.length <= 1;
 
   return (
@@ -206,7 +212,11 @@ export function SecurityPanel() {
 
           {showQr ? (
             <div className="rounded-lg border border-line bg-muted-panel p-4">
-              <EnrollHandoffQr requireStepUp={passkeys.length > 0} />
+              <EnrollHandoffQr
+                requireStepUp={passkeys.length > 0}
+                initialPasskeyCount={passkeys.length}
+                onCompleted={handlePhoneQrCompleted}
+              />
             </div>
           ) : null}
         </div>

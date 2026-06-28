@@ -380,9 +380,10 @@ describe("OnboardingPage enrollment", () => {
     ).toBeNull();
   });
 
-  it("renders a QR handoff when the phone-QR method is chosen", async () => {
+  it("detects phone-QR enrollment completion on the desktop", async () => {
     const user = userEvent.setup();
     let handoffCalls = 0;
+    const clearPasskeySetup = vi.fn();
     usePrivacyConsentHandlers(true);
     server.use(
       http.post("*/api/v1/auth/passkey/enroll-handoff", () => {
@@ -393,12 +394,22 @@ describe("OnboardingPage enrollment", () => {
           enroll_url: "https://console.knllogistic.com/login#otp=Abcd1234",
         });
       }),
+      http.get("*/api/v1/auth/passkeys", () =>
+        HttpResponse.json([
+          {
+            id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+            created_at: "2026-06-14T00:04:00Z",
+            last_used_at: null,
+          },
+        ]),
+      ),
     );
 
     renderApp(
       "/onboarding",
       makeAuthContext({
         session: { access_token: "a", requires_passkey_setup: true },
+        clearPasskeySetup,
       }),
     );
 
@@ -414,6 +425,9 @@ describe("OnboardingPage enrollment", () => {
     expect(link.getAttribute("href")).toBe(
       "https://console.knllogistic.com/login#otp=Abcd1234",
     );
+    await waitFor(() => {
+      expect(clearPasskeySetup).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("prefills and clears the OTP panel from a scanned fragment link", async () => {
