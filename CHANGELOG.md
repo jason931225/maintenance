@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.20](https://github.com/jason931225/maintenance/compare/v0.1.19...v0.1.20) (2026-06-28)
+
+
+### Features
+
+* add enterprise work hub ([#61](https://github.com/jason931225/maintenance/issues/61)) ([a4fdc3c](https://github.com/jason931225/maintenance/commit/a4fdc3c758e87db62a3b1296235f6d9412ee6fcb))
+
 ## [0.1.19](https://github.com/jason931225/maintenance/compare/v0.1.18...v0.1.19) (2026-06-27)
 
 
