@@ -1126,7 +1126,8 @@ mod tests {
     }
 
     #[test]
-    fn employee_response_serializes_canonical_fields_without_import_provenance() {
+    fn employee_response_serializes_canonical_fields_without_import_provenance()
+    -> Result<(), String> {
         let body = serde_json::to_value(EmployeeResponse {
             id: Uuid::nil(),
             company: "코스".to_owned(),
@@ -1146,7 +1147,7 @@ mod tests {
             created_at: time::OffsetDateTime::UNIX_EPOCH,
             updated_at: time::OffsetDateTime::UNIX_EPOCH,
         })
-        .expect("employee response serializes");
+        .map_err(|err| format!("employee response serialization failed: {err}"))?;
 
         for forbidden in [
             "raw_row",
@@ -1160,10 +1161,11 @@ mod tests {
                 "public employee response must not expose {forbidden}",
             );
         }
+        Ok(())
     }
 
     #[test]
-    fn org_wide_hr_authorization_rejects_branch_scoped_principals() {
+    fn org_wide_hr_authorization_rejects_branch_scoped_principals() -> Result<(), String> {
         use mnt_kernel_core::{BranchId, OrgId, UserId};
         use mnt_platform_authz::Role;
         use std::collections::BTreeSet;
@@ -1175,13 +1177,20 @@ mod tests {
             BranchScope::single(BranchId::new()),
         );
 
-        let err = authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)
-            .expect_err("branch-scoped HR read must not authorize org-wide surfaces");
+        let err = match authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead) {
+            Ok(()) => {
+                return Err(
+                    "branch-scoped HR read authorized an org-wide employee surface".to_owned(),
+                );
+            }
+            Err(err) => err,
+        };
         assert_eq!(err.status, StatusCode::FORBIDDEN);
+        Ok(())
     }
 
     #[test]
-    fn org_wide_hr_authorization_allows_org_wide_admins() {
+    fn org_wide_hr_authorization_allows_org_wide_admins() -> Result<(), String> {
         use mnt_kernel_core::{OrgId, UserId};
         use mnt_platform_authz::Role;
         use std::collections::BTreeSet;
@@ -1194,6 +1203,7 @@ mod tests {
         );
 
         authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)
-            .expect("org-wide admin may read HR directory");
+            .map_err(|err| format!("org-wide admin HR read was rejected: {}", err.message))?;
+        Ok(())
     }
 }

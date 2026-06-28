@@ -419,7 +419,8 @@ mod tests {
     use mnt_platform_authz::{Action, Feature, authorize_org_wide};
 
     #[test]
-    fn delegated_group_admin_principal_does_not_gain_executive_queue_triage() {
+    fn delegated_group_admin_principal_does_not_gain_executive_queue_triage() -> Result<(), String>
+    {
         let principal = Principal::new(
             UserId::new(),
             OrgId::new(),
@@ -427,8 +428,15 @@ mod tests {
             BranchScope::All,
         );
 
-        let err = authorize_org_wide(&principal, Action::new(Feature::OrgWideQueueTriage))
-            .expect_err("delegated group-admin tenant context remains bounded to ADMIN");
+        let err = match authorize_org_wide(&principal, Action::new(Feature::OrgWideQueueTriage)) {
+            Ok(()) => {
+                return Err(
+                    "delegated group-admin tenant context gained executive queue triage".to_owned(),
+                );
+            }
+            Err(err) => err,
+        };
         assert_eq!(err.kind, ErrorKind::Forbidden);
+        Ok(())
     }
 }
