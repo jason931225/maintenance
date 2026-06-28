@@ -509,6 +509,14 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/v1/auth/logout`.
     /// - Remark: Generated from `#/paths//api/v1/auth/logout/post`.
     func postApiV1AuthLogout(_ input: Operations.PostApiV1AuthLogout.Input) async throws -> Operations.PostApiV1AuthLogout.Output
+    /// List active branch members eligible for messenger thread creation
+    ///
+    /// Authenticated branch members can discover active coworkers in a branch they are scoped to without requiring the admin-only user-management endpoint. The response intentionally excludes phone numbers and other profile fields that are not needed to start a work conversation.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/messenger/members`.
+    /// - Remark: Generated from `#/paths//api/messenger/members/get(listMessengerMembers)`.
+    func listMessengerMembers(_ input: Operations.ListMessengerMembers.Input) async throws -> Operations.ListMessengerMembers.Output
     /// List branch-scoped messenger threads for the authenticated member
     ///
     /// - Remark: HTTP `GET /api/messenger/threads`.
@@ -2192,6 +2200,22 @@ extension APIProtocol {
         try await postApiV1AuthLogout(Operations.PostApiV1AuthLogout.Input(
             headers: headers,
             body: body
+        ))
+    }
+    /// List active branch members eligible for messenger thread creation
+    ///
+    /// Authenticated branch members can discover active coworkers in a branch they are scoped to without requiring the admin-only user-management endpoint. The response intentionally excludes phone numbers and other profile fields that are not needed to start a work conversation.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/messenger/members`.
+    /// - Remark: Generated from `#/paths//api/messenger/members/get(listMessengerMembers)`.
+    public func listMessengerMembers(
+        query: Operations.ListMessengerMembers.Input.Query,
+        headers: Operations.ListMessengerMembers.Input.Headers = .init()
+    ) async throws -> Operations.ListMessengerMembers.Output {
+        try await listMessengerMembers(Operations.ListMessengerMembers.Input(
+            query: query,
+            headers: headers
         ))
     }
     /// List branch-scoped messenger threads for the authenticated member
@@ -9687,6 +9711,50 @@ public enum Components {
             case team = "team"
             case dm = "dm"
             case group = "group"
+        }
+        /// - Remark: Generated from `#/components/schemas/MessengerMemberSummary`.
+        public struct MessengerMemberSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MessengerMemberSummary/id`.
+            public var id: Components.Schemas.Uuid
+            /// - Remark: Generated from `#/components/schemas/MessengerMemberSummary/display_name`.
+            public var displayName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/MessengerMemberSummary/team`.
+            public var team: Swift.String?
+            /// Creates a new `MessengerMemberSummary`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - displayName:
+            ///   - team:
+            public init(
+                id: Components.Schemas.Uuid,
+                displayName: Swift.String,
+                team: Swift.String? = nil
+            ) {
+                self.id = id
+                self.displayName = displayName
+                self.team = team
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case displayName = "display_name"
+                case team
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/MessengerMemberListResponse`.
+        public struct MessengerMemberListResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MessengerMemberListResponse/items`.
+            public var items: [Components.Schemas.MessengerMemberSummary]
+            /// Creates a new `MessengerMemberListResponse`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            public init(items: [Components.Schemas.MessengerMemberSummary]) {
+                self.items = items
+            }
+            public enum CodingKeys: String, CodingKey {
+                case items
+            }
         }
         /// - Remark: Generated from `#/components/schemas/CreateMessengerThreadRequest`.
         public struct CreateMessengerThreadRequest: Codable, Hashable, Sendable {
@@ -32076,6 +32144,190 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// List active branch members eligible for messenger thread creation
+    ///
+    /// Authenticated branch members can discover active coworkers in a branch they are scoped to without requiring the admin-only user-management endpoint. The response intentionally excludes phone numbers and other profile fields that are not needed to start a work conversation.
+    ///
+    ///
+    /// - Remark: HTTP `GET /api/messenger/members`.
+    /// - Remark: Generated from `#/paths//api/messenger/members/get(listMessengerMembers)`.
+    public enum ListMessengerMembers {
+        public static let id: Swift.String = "listMessengerMembers"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/messenger/members/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/members/GET/query/branch_id`.
+                public var branchId: Components.Schemas.Uuid
+                /// - Remark: Generated from `#/paths/api/messenger/members/GET/query/limit`.
+                public var limit: Swift.Int64?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - branchId:
+                ///   - limit:
+                public init(
+                    branchId: Components.Schemas.Uuid,
+                    limit: Swift.Int64? = nil
+                ) {
+                    self.branchId = branchId
+                    self.limit = limit
+                }
+            }
+            public var query: Operations.ListMessengerMembers.Input.Query
+            /// - Remark: Generated from `#/paths/api/messenger/members/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMessengerMembers.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListMessengerMembers.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ListMessengerMembers.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.ListMessengerMembers.Input.Query,
+                headers: Operations.ListMessengerMembers.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/messenger/members/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/messenger/members/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.MessengerMemberListResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.MessengerMemberListResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ListMessengerMembers.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ListMessengerMembers.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Active messenger participants visible in the branch.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/members/get(listMessengerMembers)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ListMessengerMembers.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ListMessengerMembers.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Missing or invalid bearer token.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/members/get(listMessengerMembers)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Principal lacks role or branch authority.
+            ///
+            /// - Remark: Generated from `#/paths//api/messenger/members/get(listMessengerMembers)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Components.Responses.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Components.Responses.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
                             response: self
                         )
                     }

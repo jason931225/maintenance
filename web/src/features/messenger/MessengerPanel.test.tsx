@@ -2,7 +2,15 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { createConsoleApiClient } from "../../api/client";
 import type {
@@ -41,7 +49,11 @@ const thread: MessengerThreadSummary = {
 
 const firstMessage = message(firstMessageId, "초기 점검", 10);
 const secondMessage = message(secondMessageId, "현장 도착", 12);
-const searchMessage = message("99999999-9999-4999-8999-999999999999", "검색 결과", 13);
+const searchMessage = message(
+  "99999999-9999-4999-8999-999999999999",
+  "검색 결과",
+  13,
+);
 
 const server = setupServer(
   http.get("*/api/messenger/threads", () =>
@@ -153,11 +165,15 @@ describe("MessengerPanel", () => {
     );
 
     expect(await screen.findByText("현장 도착")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: ko.messenger.loadOlder }));
+    await user.click(
+      screen.getByRole("button", { name: ko.messenger.loadOlder }),
+    );
     expect(await screen.findByText("초기 점검")).toBeVisible();
 
     await user.type(screen.getByLabelText(ko.messenger.search), "검색");
-    await user.click(screen.getByRole("button", { name: ko.messenger.searchButton }));
+    await user.click(
+      screen.getByRole("button", { name: ko.messenger.searchButton }),
+    );
     expect((await screen.findAllByText("검색 결과")).length).toBeGreaterThan(0);
 
     await user.upload(
@@ -183,37 +199,34 @@ describe("MessengerPanel", () => {
     const memberId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const newThreadId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
     const createdBodies: unknown[] = [];
+    const participantDirectoryRequests: URL[] = [];
+    const adminUserDirectoryRequests: URL[] = [];
 
     server.use(
-      http.get("*/api/v1/users", () =>
-        HttpResponse.json({
+      http.get("*/api/messenger/members", ({ request }) => {
+        participantDirectoryRequests.push(new URL(request.url));
+        return HttpResponse.json({
           items: [
             {
               id: senderId,
               display_name: "나",
-              phone: null,
               team: "MAINTENANCE",
-              roles: ["ADMIN"],
-              branch_ids: [branchId],
-              is_active: true,
-              created_at: "2026-01-01T00:00:00Z",
             },
             {
               id: memberId,
               display_name: "김정비",
-              phone: null,
               team: "MAINTENANCE",
-              roles: ["MECHANIC"],
-              branch_ids: [branchId],
-              is_active: true,
-              created_at: "2026-01-01T00:00:00Z",
             },
           ],
-          limit: 200,
-          offset: 0,
-          total: 2,
-        }),
-      ),
+        });
+      }),
+      http.get("*/api/v1/users", ({ request }) => {
+        adminUserDirectoryRequests.push(new URL(request.url));
+        return HttpResponse.json(
+          { error: { code: "forbidden", message: "UserManage required" } },
+          { status: 403 },
+        );
+      }),
       http.post("*/api/messenger/threads", async ({ request }) => {
         createdBodies.push(await request.json());
         return HttpResponse.json(
@@ -280,6 +293,11 @@ describe("MessengerPanel", () => {
     await user.click(screen.getByRole("button", { name: ko.messenger.create }));
 
     await waitFor(() => {
+      expect(participantDirectoryRequests).toHaveLength(1);
+      expect(
+        participantDirectoryRequests[0]?.searchParams.get("branch_id"),
+      ).toBe(branchId);
+      expect(adminUserDirectoryRequests).toHaveLength(0);
       expect(createdBodies).toContainEqual({
         branch_id: branchId,
         kind: "dm",
@@ -296,6 +314,40 @@ describe("MessengerPanel", () => {
     await user.click(screen.getByRole("button", { name: ko.messenger.send }));
 
     expect(await screen.findByText("첫 메시지")).toBeVisible();
+  });
+
+  it("surfaces participant directory failures while creating a conversation", async () => {
+    const user = userEvent.setup();
+
+    server.use(
+      http.get("*/api/messenger/members", () =>
+        HttpResponse.json(
+          { error: { code: "forbidden", message: "branch scope required" } },
+          { status: 403 },
+        ),
+      ),
+    );
+
+    render(
+      <MessengerPanel
+        api={createConsoleApiClient("test-access-token")}
+        accessToken="test-access-token"
+        apiBaseUrl="http://localhost:8080"
+        branchId={branchId}
+        currentUserId={senderId}
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: ko.messenger.newThread }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      ko.messenger.participantsLoadFailed,
+    );
+    expect(
+      screen.getByRole("button", { name: ko.messenger.create }),
+    ).toBeDisabled();
   });
 });
 

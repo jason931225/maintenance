@@ -78,6 +78,14 @@ pub struct ListThreadsQuery {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListMembersQuery {
+    pub actor: UserId,
+    pub branch_scope: BranchScope,
+    pub branch_id: BranchId,
+    pub limit: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MessagePageQuery {
     pub actor: UserId,
     pub branch_scope: BranchScope,
@@ -109,6 +117,13 @@ pub struct ThreadSummary {
     pub created_at: Timestamp,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemberSummary {
+    pub id: UserId,
+    pub display_name: String,
+    pub team: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

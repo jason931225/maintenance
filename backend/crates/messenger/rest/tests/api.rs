@@ -32,10 +32,18 @@ async fn messenger_rest_polling_send_read_and_search_are_authorized(pool: PgPool
             .to_public_key_pem(LineEnding::LF)
             .unwrap();
         let branch_id = seed_branch(&pool, "Messenger REST Region", "Messenger REST Branch").await;
+        let other_branch_id = seed_branch(
+            &pool,
+            "Messenger REST Other Region",
+            "Messenger REST Other Branch",
+        )
+        .await;
         let sender = UserId::new();
         let recipient = UserId::new();
+        let outsider = UserId::new();
         seed_user_with_branch(&pool, sender, "MECHANIC", branch_id).await;
         seed_user_with_branch(&pool, recipient, "ADMIN", branch_id).await;
+        seed_user_with_branch(&pool, outsider, "MECHANIC", other_branch_id).await;
         let store = PgMessengerStore::new(pool.clone());
         let thread = store
             .create_thread(CreateThreadCommand {
@@ -69,6 +77,55 @@ async fn messenger_rest_polling_send_read_and_search_are_authorized(pool: PgPool
         )
         .unwrap();
         let service = router(MessengerRestState::new(store, Some(verifier)));
+
+        let members = get_json(
+            service.clone(),
+            &format!("/api/messenger/members?branch_id={branch_id}&limit=10"),
+            &token,
+        )
+        .await;
+        assert_eq!(members.status, StatusCode::OK, "{:?}", members.json);
+        let member_ids = members.json["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|member| member["id"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        assert!(member_ids.contains(&sender.to_string()));
+        assert!(member_ids.contains(&recipient.to_string()));
+        assert!(!member_ids.contains(&outsider.to_string()));
+
+        let denied_members = get_json(
+            service.clone(),
+            &format!("/api/messenger/members?branch_id={other_branch_id}&limit=10"),
+            &token,
+        )
+        .await;
+        assert_eq!(
+            denied_members.status,
+            StatusCode::FORBIDDEN,
+            "{:?}",
+            denied_members.json
+        );
+
+        let invalid_thread = post_json(
+            service.clone(),
+            "/api/messenger/threads",
+            &token,
+            json!({
+                "branch_id": branch_id,
+                "kind": "dm",
+                "title": "cross-branch should fail",
+                "member_ids": [outsider],
+            }),
+        )
+        .await;
+        assert_eq!(
+            invalid_thread.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{:?}",
+            invalid_thread.json
+        );
 
         revoke_user_branch(&pool, sender, branch_id).await;
         let denied = post_json(
