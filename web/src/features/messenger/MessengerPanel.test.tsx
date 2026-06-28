@@ -316,6 +316,86 @@ describe("MessengerPanel", () => {
     expect(await screen.findByText("첫 메시지")).toBeVisible();
   });
 
+
+  it("opens the source conversation from a search result", async () => {
+    const user = userEvent.setup();
+    const teamThreadId = "aaaaaaaa-1111-4aaa-8aaa-111111111111";
+    const teamThread: MessengerThreadSummary = {
+      id: teamThreadId,
+      kind: "team",
+      branch_id: branchId,
+      title: "정비팀 공지",
+      work_order_id: null,
+      last_message_id: "bbbbbbbb-1111-4bbb-8bbb-111111111111",
+      last_message_at: "2026-06-12T08:30:00Z",
+      member_count: 5,
+      created_at: "2026-06-12T08:00:00Z",
+      updated_at: "2026-06-12T08:30:00Z",
+    };
+    const teamMessage: MessengerMessageSummary = {
+      id: "bbbbbbbb-1111-4bbb-8bbb-111111111111",
+      thread_id: teamThreadId,
+      branch_id: branchId,
+      sender_id: senderId,
+      sender_name: "운영팀",
+      body: "정비팀 주간 공지",
+      attachment_evidence_ids: [],
+      sent_at: "2026-06-12T08:30:00Z",
+      created_at: "2026-06-12T08:30:00Z",
+    };
+    const messageRequests: string[] = [];
+
+    server.use(
+      http.get("*/api/messenger/threads", () =>
+        HttpResponse.json({ items: [thread, teamThread] }),
+      ),
+      http.get("*/api/messenger/search", () =>
+        HttpResponse.json({ items: [teamMessage] }),
+      ),
+      http.get("*/api/messenger/threads/:threadId/messages", ({ params }) => {
+        const requestedThreadId = String(params.threadId);
+        messageRequests.push(requestedThreadId);
+        return HttpResponse.json(
+          requestedThreadId === teamThreadId
+            ? { items: [teamMessage], next_cursor: null }
+            : { items: [secondMessage], next_cursor: null },
+        );
+      }),
+    );
+
+    render(
+      <MessengerPanel
+        api={createConsoleApiClient("test-access-token")}
+        accessToken="test-access-token"
+        apiBaseUrl="http://localhost:8080"
+      />,
+    );
+
+    expect(await screen.findByText("현장 도착")).toBeVisible();
+
+    await user.type(screen.getByLabelText(ko.messenger.search), "공지");
+    await user.click(
+      screen.getByRole("button", { name: ko.messenger.searchButton }),
+    );
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: ko.messenger.openSearchResult("정비팀 공지"),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(messageRequests).toContain(teamThreadId);
+    });
+    const selectedTeamThread = screen
+      .getAllByRole("button", { name: /정비팀 공지/ })
+      .find((button) => button.getAttribute("aria-pressed") === "true");
+    expect(selectedTeamThread).toBeDefined();
+    expect(
+      screen.getByRole("heading", { name: /정비팀 공지/ }),
+    ).toBeVisible();
+  });
+
   it("surfaces participant directory failures while creating a conversation", async () => {
     const user = userEvent.setup();
 
