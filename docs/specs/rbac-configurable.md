@@ -99,11 +99,51 @@ policy layer** while preserving every isolation and escalation guarantee the com
 ## 1. Objective & non-goals
 
 **Objective.** A per-tenant administrator (with the new `RoleManage` capability) can, **through the
-audited console** (never SQL): create/edit/retire **custom roles**, set each role's **policy** (which
-capabilities, at which `PermissionLevel`, plus scope reach), and **assign** roles to users — with
-default-deny, least-privilege, and full audit. The built-in 6 remain as **immutable system roles**;
-custom roles layer on top. The authz engine resolves a principal's effective permissions from the
-**effective policy** (system defaults ∪ tenant custom roles) instead of the static matrix.
+audited console** (never SQL): create/edit/retire **custom job-function roles**, set each role's
+**policy** (which capabilities, at which `PermissionLevel`, plus scope reach), and **assign** roles
+to users alongside their department/team, position, responsibility assignments, and object scopes —
+with default-deny, least-privilege, and full audit. The built-in 6 remain as **immutable bootstrap
+system roles**; custom policy layers on top. The authz engine resolves a principal's effective
+permissions from the **effective policy** (system defaults ∪ tenant custom roles ∪ responsibility /
+attribute rules) instead of the static matrix.
+
+### 1.1 Human role model correction and configurable policy
+
+The six built-in tenant roles are not adequate for enterprise production. They are bootstrap columns
+for migration parity, not the target operating model. The target policy input is:
+
+- **Job function / function role:** 정비, 배차, 생산, HR, Payroll, Finance, Purchasing, Platform Ops.
+- **Department/team:** where the person works and which work queues/calendar/mail/polls they share.
+- **Position / level:** title or authority band used for approval thresholds and escalation.
+- **Responsibility assignment:** explicit object/scope duties such as site owner, equipment owner,
+  line supervisor, payroll processor, purchase approver, group admin, or safety reviewer.
+- **Scope:** platform, group, subsidiary/org, department, branch/site, object, self.
+- **Context attributes:** employment state, shift/time, passkey step-up freshness, location consent,
+  object sensitivity, object lifecycle state, and emergency/exception flags.
+
+Therefore the policy editor must not present a single role checkbox list as the final model. It must
+show effective access as the result of `subject attributes + object attributes + action +
+environment`, with RBAC job functions and PBAC bundles as shortcuts over that policy. Existing
+`users.roles` remains a compatibility source until the resolver moves to the richer subject model.
+
+Policy is **configurable and versioned**, not fixed/static. The server ships default policy bundles
+for safe bootstrap, but tenant/group admins with `RoleManage`/policy authority can draft, preview,
+simulate, approve, activate, roll back, and retire policy versions through audited UI. Every runtime
+authorization decision must be traceable to a policy version and reason.
+
+Employment transitions are policy inputs. The resolver must distinguish person/employee lifecycle
+state, account credential state, and policy assignment state:
+
+- pending setup: person/user exists, no finished passkey/signup; do not show as active;
+- active: required agreements, credential setup, and minimum assignment complete;
+- transferred: scope/team/manager/responsibilities change with effective-access diff and history;
+- on leave/suspended: login/actions reduced or disabled while records remain;
+- terminated/retired: credentials/sessions revoked, open responsibilities handed off, legally
+  required HR/payroll/retirement records retained under domain policy;
+- rehired/reactivated: same person history, new credential/policy activation as required.
+
+No employment transition may be modeled as destructive row deletion when labor, wage, retirement,
+audit, or privacy-retention obligations require historical preservation.
 
 **Non-goals (this slice).**
 - **No user-defined capabilities.** Custom roles **compose the existing `Feature` catalog** (the ~40
@@ -112,7 +152,9 @@ custom roles layer on top. The authz engine resolves a principal's effective per
   fixed, code-reviewed vocabulary; only their **grant** is configurable.
 - **No change to the tenant/org boundary.** RLS org-isolation is immutable and **not policy-driven**.
 - **No platform-tier configurability.** `PlatformFeature` / `PlatformPrincipal` stay separate and fixed.
-- **No AI.** (Foundry reference is pre-AI.)
+- **No AI policy decisions in this slice.** Future AI/ML/RL/LLM support may summarize or recommend only
+  after `docs/specs/operations-intelligence.md` prerequisites are met; authorization remains a
+  deterministic, auditable policy decision.
 
 ## 2. Data model (per-tenant, RLS-armed)
 
@@ -235,6 +277,12 @@ Two new `Feature` variants (matrix cells default to **least-privilege**, then be
   custom roles that still have assignments only after reassignment.
 - **User detail**: assign/unassign roles (multi-role), each assignment audited; show effective
   capabilities (read-only rollup) so an admin sees the *net* of multiple roles.
+- **Policy lifecycle UI**: draft, diff, simulate, approve, activate, rollback, and retire policy
+  versions. Show affected users, employment states, departments/teams, responsibilities, and example
+  decisions before activation.
+- **Employment-transition UI**: onboarding, transfer, leave/suspension, termination/retirement, and
+  rehire flows must update credential status, policy assignments, responsibilities, queue scope,
+  and retention state together, with audit and handoff tasks.
 - Copy in `ko.ts`; no raw UUIDs (`safeLabel`/`ObjectLink`); KST timestamps; loading/empty/error states.
 
 ## 7. Migration & compatibility

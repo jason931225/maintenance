@@ -25,11 +25,61 @@ Status: engineering guardrails for product planning and implementation. This is 
 8. **Audit without overexposure.** Audit logs should prove actor, time, object, action, policy decision, step-up state, and memo/evidence references; they should not dump raw payroll, bank, resident-registration, or private location payloads into generic logs.
 9. **Cross-border/cloud storage needs disclosure.** OCI object storage, logs, backups, and processors must be disclosed in the privacy policy/processor records where applicable, with deletion/export procedures.
 10. **Recommendations are not decisions.** Optimization outputs for rental pricing, reserve policy, asset lifecycle, payroll, staffing, or SLA risk are recommendations until a governed workflow approves them; retain assumptions, input snapshots, and decision lineage.
+11. **Workflow history can be analytics input, but only with purpose and masking.** Past 기안, 구매, 승인, 입찰, pricing, planning, dispatch, maintenance, HR, and payroll events may feed future recommendations only when the data class, purpose, retention, masking, and viewer permissions are respected. Sensitive HR/payroll/location fields must not leak through generic analytics.
+12. **AI/ML/RL/LLM are final-stage assistants only.** Do not use AI to make payroll, employment, discipline, termination, retirement/severance, location-surveillance, pricing, purchase, asset-disposal, or customer-contract decisions automatically. Any future AI-assisted output must be an explainable draft/recommendation with source lineage, human review, policy approval, privacy/labor-purpose limits, and audit.
+
+## Intra-group inter-org employment transitions
+
+This product must not treat an intra-group move as a simple tenant/user edit. If an employee legally
+leaves one group company and starts employment at another group company, model it as a **separation
+episode plus a new hire episode** under the same person identity, unless counsel/HR classify the move
+as legal continuity/succession.
+
+Engineering rules:
+
+1. **Person identity persists; employment episodes are separate.** Keep one `Person`/identity record
+   for audit and login continuity, but create separate `EmploymentEpisode` records per legal employer
+   with own employer/org, start date, end date, position, department/team, job function,
+   responsibilities, wage basis, retirement/severance basis, and policy version.
+2. **Voluntary resignation + new hire workflow.** Capture resignation request/acceptance, last working
+   day, final wage/payroll calculation, unused leave/settlement fields, retirement/severance
+   calculation, and new-hire effective date for the receiving company. Do not silently overwrite the
+   prior employer fields.
+3. **Retirement/severance settlement is a domain workflow.** If retirement benefit settlement is due,
+   record the calculation inputs, payment/transfer route, due date, paid date, payer legal employer,
+   and supporting documents. If HR claims continuous service or no settlement, require a legally
+   reviewed reason and document reference.
+4. **Interim settlement is not a generic button.** 퇴직금 중간정산 is only for legally allowed cases and
+   must record the statutory reason/evidence and reset/continuity implications; ordinary group transfer
+   should not be mislabeled as 중간정산 unless counsel confirms it.
+5. **Access changes atomically.** On separation from the sending org, revoke that org's active
+   responsibilities, scopes, queues, mail groups, calendars, and sessions as policy requires. On the
+   receiving org start date, activate only the new org scopes/responsibilities. Shared group visibility
+   must come from group policy, not stale old-org membership.
+6. **Data preservation with purpose boundaries.** Preserve labor/payroll/retirement/audit history for
+   the sending legal employer according to retention rules, but restrict visibility after transfer to
+   authorized HR/payroll/legal/admin scopes. Receiving-company managers should not automatically see
+   prior-company sensitive payroll/retirement details unless policy/legal basis allows it.
+7. **No duplicate active users.** The same person can have historical employment episodes and at most
+   policy-approved active account contexts. UI must show status such as `active in receiving org`,
+   `terminated in sending org`, and `group person retained` rather than two unrelated active users.
+
+Relevant source anchors:
+
+- Labor Standards Act worker roster and record preservation duties: <https://www.law.go.kr/LSW/lsLawLinkInfo.do?chrClsCd=010202&lsId=001872&lsJoLnkSeq=900551968&print=print>
+- Labor Standards Act wage ledger/wage statement duties: <https://law.go.kr/lsLinkCommonInfo.do?lsJoLnkSeq=1012793113>
+- Labor Standards Act Enforcement Decree record-retention start points: <https://law.go.kr/LSW//lsLinkCommonInfo.do?chrClsCd=010202&lspttninfSeq=70870>
+- Employee Retirement Benefit Security Act severance payment rule: <https://www.law.go.kr/LSW//lsSideInfoP.do?docCls=jo&joBrNo=00&joNo=0009&lsiSeq=279829&urlMode=lsScJoRltInfoR>
+- MOEL retirement/wage payment timing FAQ: <https://www.moel.go.kr/faq/faqView.do?seqRepeat=118>
+- MOEL wage-statement calculator/guidance: <https://www.moel.go.kr/wageCal.do>
 
 ## Implementation backlog links
 
 - Initial login/privacy/cookie consent: keep wired to auth/onboarding and public storefront work.
 - Data exchange/import: preserve every source cell in staging, classify sensitive fields, and require explicit target-domain mapping.
 - Approval/workflow: federated approval items must expose ontology/workflow/policy context and re-authorize source-specific writes.
+- Workflow analytics: 기안/구매/승인/입찰/pricing/planning histories should be durable ontology events with inputs, alternatives, decisions, outcomes, variance, sensitivity class, and policy version.
+- Operations intelligence: follow `docs/specs/operations-intelligence.md`; deterministic/probabilistic calculators and observability come before AI/ML/RL/LLM, and sensitive labor/payroll/location inputs must remain purpose-bound and masked.
 - Org/RBAC/PBAC/ABAC: policy should depend on tenant/group/org/department/team/position/custom role, action, object type, data class, and legal/sensitivity domain.
 - HR/payroll: block production payroll calculations until legal formulas, effective-dated rate tables, golden tests, and counsel review are complete.
+- Intra-group transfer: implement as person identity + separate employment episodes + separation/new-hire workflow; preserve sending-org records while moving active policy scope to the receiving org.

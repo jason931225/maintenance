@@ -20,7 +20,7 @@ export const ko = {
     ops: "운영 대시보드",
     reporting: "보고서 출력",
     equipment: "장비 조회",
-    "equipment-manage": "장비 관리",
+    "equipment-manage": "장비 설정·일괄작업",
     catalog: "판매·문의 관리",
     financial: "구매·정산",
     integrity: "이상 징후 검토",
@@ -221,6 +221,32 @@ export const ko = {
     manage: "관리",
     managing: "전환 중",
     manageFailed: "선택한 법인 관리 콘솔로 전환하지 못했습니다.",
+    command: {
+      eyebrow: "Group Operations",
+      title: "그룹 전체 운영 지휘",
+      description:
+        "그룹 관리자는 각 자회사 콘솔로 감사 가능한 관리 전환을 시작해 업무 허브, 승인, 계획업무, 조직 관리를 같은 경로에서 수행합니다.",
+      principles: [
+        {
+          title: "전체 보기",
+          description: "그룹과 소속 법인 범위를 먼저 확인하고 대상 법인을 선택합니다.",
+        },
+        {
+          title: "관리 전환",
+          description: "선택한 법인으로 전환한 뒤 해당 법인의 정책·감사 범위에서 실행합니다.",
+        },
+        {
+          title: "원천 객체",
+          description: "승인·계획·조직 작업은 원천 업무 객체 화면으로 직접 연결합니다.",
+        },
+      ],
+    },
+    actions: {
+      workHub: "업무 허브",
+      org: "조직 관리",
+      approvals: "승인",
+      dailyPlan: "계획업무",
+    },
     columns: {
       name: "법인명",
       slug: "슬러그",
@@ -345,6 +371,22 @@ export const ko = {
       branches: "지점",
       branchesHint: "사용자가 접근할 지점을 선택하세요.",
       noBranchOptions: "먼저 지점을 등록하세요.",
+      policyPreview: {
+        eyebrow: "Policy preview",
+        title: "직무·책임·범위 정책 미리보기",
+        description:
+          "현재 화면은 임시 역할·팀·지점만 저장합니다. 최종 목표 정책은 직책, 직무, 책임, 부서/팀, 객체 범위, 근무 상태까지 함께 평가해야 합니다.",
+        teamLabel: "팀/부서",
+        rolesLabel: "현재 역할",
+        scopeLabel: "지점 범위",
+        futureLabel: "정책 확장 대상",
+        futureValue: "직책 · 직무 · 책임 · 부서/팀 · 객체/그룹 범위 · 근무 상태",
+        configurable:
+          "정책은 고정값이 아니라 승인·미리보기·버전 관리가 가능한 구성 대상입니다. 입사·전보·휴직·퇴직 상태 변화도 접근 범위와 업무 큐에 반영되어야 합니다.",
+        none: "미선택",
+        elevated:
+          "관리·임원 권한이 포함되어 있습니다. 사용자·승인·재무 등 민감 작업은 서버 정책과 패스키 단계 인증 대상입니다.",
+      },
       create: "사용자 등록",
       creating: "등록 중",
       save: "변경 저장",
@@ -1557,7 +1599,15 @@ export const ko = {
     manage: {
       title: "장비 관리",
       description:
-        "장비를 등록·수정·폐기합니다. 마스터 일괄 등록은 이 페이지 하단에 있습니다.",
+        "전체 장비 목록에서 장비를 선택해 상세·수정하고, 필요한 경우 등록·일괄작업·대차·현장 좌표를 처리합니다.",
+      listEyebrow: "Object list",
+      listTitle: "전체 장비 목록에서 선택",
+      listDescription:
+        "장비 관리는 목록에서 원천 장비 객체를 먼저 선택하는 흐름을 기본으로 합니다. 검색·상태·정렬로 대상을 찾고, 행 또는 관리 버튼을 열어 같은 객체 컨텍스트에서 수정합니다.",
+      toolsEyebrow: "Admin tools",
+      toolsTitle: "등록·일괄작업·현장/대차 도구",
+      toolsDescription:
+        "새 장비 등록, 마스터 워크북 일괄 반영, 현장 좌표, 대차 배정은 운영 도구로 분리해 목록 탐색과 혼동되지 않게 유지합니다.",
     },
     create: "장비 등록",
     edit: "수정",

@@ -5,7 +5,8 @@
 > coverage-audit worklist (129 actions / 109 gaps), the auth incident (#19.25 + OTP-issuance), log
 > persistence, and the remaining #19/#20 issue items. **Status: PLAN — not yet in execution.**
 > **Detail lives in:** `SPEC.md`, `docs/specs/{knl-business-os,org-hierarchy,rbac-configurable,
-> payroll,accounting}.md`, the coverage-audit output, and the issue threads #19/#20.
+> operations-intelligence,payroll,accounting}.md`, the coverage-audit output, and the issue threads
+> #19/#20.
 
 ## 0. Definition of done (the bar — every track inherits it)
 
@@ -19,7 +20,9 @@ shipped action**, all of:
   Korean copy only in `ko.ts`, no raw UUIDs, KST.
 - **Operable:** logs persist + are queryable, metrics/alerts, backups verified, runbook current.
 - **Regulated modules** (payroll, 회계): effective-dated rates + golden-case tests + 노무사/세무사 sign-off.
-- **No AI** (Foundry reference is pre-AI).
+- **No premature AI.** AI/ML/RL/LLM are final-stage decision-support augmentations only after the
+  deterministic/algorithmic platform, observability, evaluation, privacy, and workflow controls in
+  `docs/specs/operations-intelligence.md` are production-grade.
 - **No deferral, no MVP, no v1/v2.** The FULL enterprise scope below is built now, meticulously and to
   completion. The "waves" in §4 are **parallel-execution order driven by hard dependencies** (you cannot
   compute payroll before HR employees/attendance exist), **not scope phasing** — every track ships
@@ -136,6 +139,20 @@ The 109-gap worklist. Backend `mnt_rt`/unit tests live in disjoint per-crate `te
 Web perf/CWV, full a11y AA sweep + visual-verdict ≥90 on every path, **independent full security review**,
 load/scale test, runbook refresh, on-call/alerting. Then "production-grade" is true.
 
+### Track I — Operations Intelligence (after foundations; AI last)
+- **I1 Mechanical decision ledgers:** every 기안/구매/승인/입찰/pricing/planning/maintenance/rental/HR/payroll
+  workflow captures structured inputs, alternatives, decisions, policy version, and outcome variance.
+- **I2 Deterministic + probabilistic calculators:** asset sell/keep/repair/replace, rental rate/margin,
+  maintenance windows/cycles, reserve equipment, manpower/SLO, inventory/parts reorder, and procurement
+  scenarios. These are transparent, testable algorithms before AI.
+- **I3 Observability + evaluation:** freshness/completeness, forecast calibration, recommendation
+  acceptance/rejection/override, workflow conversion, SLO/margin/downtime/stockout variance, and drift.
+- **I4 Scenario workbench + workflow conversion:** recommendations create governed drafts only; no direct
+  business write-back.
+- **I5 Final-stage AI/ML/RL/LLM:** ML forecasting, offline RL simulation, LLM evidence summaries/draft
+  memos/import assistance, and executive decision briefs only after I1-I4, security/privacy review, and
+  model rollback gates are live.
+
 ## 4. Parallelization plan (waves)
 
 Mechanism: **worktree-isolated agents** per batch; serialize `ko.ts`/openapi merges; the Foundry spine
@@ -149,7 +166,9 @@ Mechanism: **worktree-isolated agents** per batch; serialize `ko.ts`/openapi mer
 - **Wave 3:** S2 (configurable RBAC, after its re-review) + P2–P4 (object views + Triage Home) + F-track
   remainder + H1 (HR core) — fan out by domain.
 - **Wave 4:** H2 (payroll), E (ERP), P5–P7 (lenses + action engine), C (webmail + dispatch).
-- **Wave 5:** Track L launch hardening → GA.
+- **Wave 5:** Track L launch hardening → GA. Track I starts with mechanical ledgers/calculators only
+  after the UI foundation is mature enough that expansion work reuses Work Hub/Object Explorer/Workflow
+  and Policy patterns instead of creating one-off screens; AI/ML/RL/LLM waits until the final I5 gate.
 
 Max safe concurrency per wave ≈ number of disjoint domains (≈5–8); the Foundry spine is the wall-clock
 critical path, so it should start as early as Wave 2 and run continuously.
@@ -176,6 +195,7 @@ critical path, so it should start as early as Wave 2 and run continuously.
 | FLMS master data (#19.13–16) | F | KNL's own legacy data behind a Windows MSI — needs the vendor's data export (not a provider choice); engineer the importer once the export arrives. |
 | Single-node cluster | O/L | scale-out plan (multi-node Talos + CNPG HA) built + load-tested in Track L before real multi-tenant load. |
 | 109→0 coverage closure is large | Q | the parallel worktree fan-out is the mitigation; the deploy-blocking gate keeps it from regressing. |
+| Premature AI/LLM/RL/ML requests | I | Reject until trusted data, deterministic algorithms, observability, evaluation, privacy, and governed workflow write-back exist. AI is a last-stage assistant, not a foundation. |
 
 ## 7. Resolved direction (per the 2026-06-24 directive)
 
@@ -192,3 +212,7 @@ critical path, so it should start as early as Wave 2 and run continuously.
   the order is only about safe concurrency, never about leaving anything out.
 - **Build posture:** meticulous, comprehensive, systematic — each action gets its trifecta + security
   review + visual-verdict ≥90 before its checkpoint; no checkpoint advances on red.
+- **Expansion gate:** after the current UI/UX foundation passes tests, visual review, and role-story
+  audits, new feature work must reuse the shared Work Hub, Object Explorer, Approval/Workflow, Policy,
+  Scenario, and dense-table patterns. If a proposed screen needs a new pattern, document why before
+  implementation.

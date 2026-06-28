@@ -81,16 +81,20 @@ export function ApprovalCommandCenter({
   );
 
   return (
-    <Card className="grid gap-5 bg-ink text-white" aria-labelledby="approval-command-center-title">
+    <Card
+      className="grid gap-5 border-brand-teal/20 bg-brand-teal/5"
+      aria-labelledby="approval-command-center-title"
+      role="region"
+    >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold text-signal">{t.eyebrow}</p>
-          <h2 id="approval-command-center-title" className="mt-1 text-xl font-semibold">
+          <p className="text-sm font-semibold text-brand-teal">{t.eyebrow}</p>
+          <h2 id="approval-command-center-title" className="mt-1 text-xl font-semibold text-ink">
             {t.title}
           </h2>
-          <p className="mt-2 max-w-3xl text-sm text-slate-200">{t.description}</p>
+          <p className="mt-2 max-w-3xl text-sm text-steel">{t.description}</p>
         </div>
-        <Badge className="border-slate-600 bg-slate-900 text-slate-100">
+        <Badge className="border-brand-teal/20 bg-white text-brand-teal">
           {t.auditBadge}
         </Badge>
       </div>
@@ -99,22 +103,22 @@ export function ApprovalCommandCenter({
         {sourceCards.map(({ key, title, description, count, href, action, Icon }) => (
           <div
             key={key}
-            className="grid gap-3 rounded-lg border border-slate-700 bg-slate-950/50 p-4"
+            className="grid gap-3 rounded-lg border border-line bg-white p-4"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="font-semibold">{title}</p>
-                <p className="mt-1 text-sm text-slate-300">{description}</p>
+                <p className="font-semibold text-ink">{title}</p>
+                <p className="mt-1 text-sm text-steel">{description}</p>
               </div>
-              <span className="rounded-full border border-slate-600 bg-slate-900 p-2 text-signal">
+              <span className="rounded-full border border-brand-teal/20 bg-brand-teal/10 p-2 text-brand-teal">
                 <Icon size={18} aria-hidden="true" />
               </span>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <Badge className="border-slate-600 bg-slate-900 text-slate-100">
+              <Badge className="border-brand-teal/20 bg-brand-teal/5 text-brand-teal">
                 {countLabel(count)}
               </Badge>
-              <Button asChild variant="secondary" size="sm" className="border-slate-200 bg-white text-ink">
+              <Button asChild variant="secondary" size="sm">
                 {href.startsWith("#") ? (
                   <a href={href}>{action}</a>
                 ) : (
@@ -127,18 +131,18 @@ export function ApprovalCommandCenter({
       </div>
 
       {hasDailyPlanSource ? (
-        <div className="grid gap-3 rounded-lg border border-slate-700 bg-slate-950/50 p-4">
+        <div className="grid gap-3 rounded-lg border border-line bg-white p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h3 className="font-semibold">{t.dailyPlans.pendingTitle}</h3>
-              <p className="mt-1 text-sm text-slate-300">{t.dailyPlans.pendingDescription}</p>
+              <h3 className="font-semibold text-ink">{t.dailyPlans.pendingTitle}</h3>
+              <p className="mt-1 text-sm text-steel">{t.dailyPlans.pendingDescription}</p>
             </div>
-            <Badge className="border-slate-600 bg-slate-900 text-slate-100">
+            <Badge className="border-brand-teal/20 bg-brand-teal/5 text-brand-teal">
               {countLabel(pendingPlans.length)}
             </Badge>
           </div>
           {pendingPlans.length === 0 ? (
-            <p className="rounded-md border border-dashed border-slate-700 p-3 text-sm text-slate-300">
+            <p className="rounded-md border border-dashed border-line p-3 text-sm text-steel">
               {t.dailyPlans.empty}
             </p>
           ) : (
@@ -148,14 +152,14 @@ export function ApprovalCommandCenter({
                 return (
                   <li
                     key={plan.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-700 bg-slate-900/70 p-3"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-line bg-muted-panel/30 p-3"
                   >
                     <div>
-                      <p className="font-semibold">{date}</p>
-                      <p className="text-sm text-slate-300">{t.dailyPlans.requested}</p>
+                      <p className="font-semibold text-ink">{date}</p>
+                      <p className="text-sm text-steel">{t.dailyPlans.requested}</p>
                     </div>
                     {plan.id ? (
-                      <Button asChild variant="secondary" size="sm" className="border-slate-200 bg-white text-ink">
+                      <Button asChild variant="secondary" size="sm">
                         <Link
                           to={`/daily-plan?planId=${plan.id}`}
                           aria-label={`${date} ${t.dailyPlans.open}`}

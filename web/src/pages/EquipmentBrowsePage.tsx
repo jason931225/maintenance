@@ -71,7 +71,13 @@ function resetPagination(
   setTotal(undefined);
 }
 
-export function EquipmentBrowsePage() {
+interface EquipmentBrowseSurfaceProps {
+  showHeader?: boolean;
+}
+
+export function EquipmentBrowseSurface({
+  showHeader = true,
+}: EquipmentBrowseSurfaceProps = {}) {
   const { api, session } = useAuth();
   const canManage = hasAnyRole(session?.roles, EQUIPMENT_MANAGE_ROLES);
 
@@ -182,10 +188,12 @@ export function EquipmentBrowsePage() {
 
   return (
     <>
-      <PageHeader
-        title={ko.equipment.browse.title}
-        description={ko.equipment.browse.description}
-      />
+      {showHeader ? (
+        <PageHeader
+          title={ko.equipment.browse.title}
+          description={ko.equipment.browse.description}
+        />
+      ) : null}
 
       {/* Filter bar */}
       <div className="mb-4 flex flex-wrap gap-3">
@@ -368,4 +376,8 @@ export function EquipmentBrowsePage() {
       />
     </>
   );
+}
+
+export function EquipmentBrowsePage() {
+  return <EquipmentBrowseSurface />;
 }
